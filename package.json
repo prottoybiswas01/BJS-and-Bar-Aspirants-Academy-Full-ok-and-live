@@ -1,0 +1,27 @@
+{
+  "name": "bjs-bar-academy",
+  "version": "1.0.0",
+  "description": "BJS & Bar Aspirants Academy - Full Stack E-Learning Portal",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "server": "node server/server.js",
+    "client": "npm run dev --prefix client",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "build": "npm run build --prefix client"
+  },
+  "keywords": ["bjs", "bar-council", "judiciary", "e-learning", "react", "express", "mongodb"],
+  "author": "Antigravity AI",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.5.1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
