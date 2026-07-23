@@ -12,9 +12,15 @@ const studentSchema = new mongoose.Schema({
   loginApproval: { type: String, enum: ["Approved", "Pending", "Preview", "Rejected"], default: "Approved" },
   portalAccessMode: { type: String, default: "Full Access" },
   enrolledCourseIds: [{ type: String }],
+  allowedCourseIds: [{ type: String }],
   completedLessonIds: [{ type: String }],
   maxDeviceCount: { type: Number, default: 2 },
   highlight: { type: String, default: "" },
+  popupMessage: {
+    title: { type: String, default: "" },
+    body: { type: String, default: "" },
+    sentAt: { type: Date },
+  },
   joinedOn: { type: String, default: () => new Date().toISOString().split("T")[0] },
 }, { timestamps: true });
 

@@ -11,6 +11,7 @@ import VideoPlayerModal from './components/VideoPlayerModal';
 import AiChatDrawer from './components/AiChatDrawer';
 import ProfileModal from './components/ProfileModal';
 import PaymentModal from './components/PaymentModal';
+import LessonManagerModal from './components/LessonManagerModal';
 
 function MainApp() {
   const { user } = useAuth();
@@ -20,6 +21,7 @@ function MainApp() {
   const [videoModal, setVideoModal] = useState({ isOpen: false, lesson: null });
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [paymentModal, setPaymentModal] = useState({ isOpen: false, course: null });
+  const [lessonManagerModal, setLessonManagerModal] = useState({ isOpen: false, course: null });
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
 
   const openVideoModal = (lesson) => {
@@ -28,6 +30,10 @@ function MainApp() {
 
   const openPaymentModal = (course) => {
     setPaymentModal({ isOpen: true, course });
+  };
+
+  const openLessonManager = (course) => {
+    setLessonManagerModal({ isOpen: true, course });
   };
 
   return (
@@ -48,7 +54,9 @@ function MainApp() {
         {activePage === 'dashboard' && (
           <Dashboard openVideoModal={openVideoModal} openPaymentModal={openPaymentModal} />
         )}
-        {activePage === 'admin' && <AdminPanel />}
+        {activePage === 'admin' && (
+          <AdminPanel openLessonManager={openLessonManager} />
+        )}
       </main>
 
       <Footer setActivePage={setActivePage} />
@@ -63,11 +71,22 @@ function MainApp() {
         />
       )}
 
+      {/* Lesson & Video Upload Manager Modal */}
+      {lessonManagerModal.isOpen && (
+        <LessonManagerModal
+          course={lessonManagerModal.course}
+          isOpen={lessonManagerModal.isOpen}
+          onClose={() => setLessonManagerModal({ isOpen: false, course: null })}
+        />
+      )}
+
       {/* Gemini AI Assistant Drawer */}
       <AiChatDrawer isOpen={aiDrawerOpen} onClose={() => setAiDrawerOpen(false)} />
 
       {/* Profile Modal */}
-      <ProfileModal isOpen={profileModalOpen} onClose={() => setProfileModalOpen(false)} />
+      {profileModalOpen && (
+        <ProfileModal isOpen={profileModalOpen} onClose={() => setProfileModalOpen(false)} />
+      )}
 
       {/* bKash Payment Submission Modal */}
       {paymentModal.isOpen && (
