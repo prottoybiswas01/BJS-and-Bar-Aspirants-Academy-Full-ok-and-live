@@ -21,6 +21,17 @@ const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "bjs_bar_academy_super_secret_jwt_key_2026";
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://bjsacademy38_db_user:MJyyGEq7CDsMeeYs@cluster0.supygp7.mongodb.net/bjs_academy?retryWrites=true&w=majority";
 
+// YouTube URL Extractor Helper
+function extractYoutubeId(urlOrId) {
+  if (!urlOrId) return "";
+  if (urlOrId.length === 11 && !urlOrId.includes("/") && !urlOrId.includes(".")) {
+    return urlOrId;
+  }
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = urlOrId.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : urlOrId;
+}
+
 // MongoDB Connection
 mongoose
   .connect(MONGODB_URI)
@@ -55,36 +66,6 @@ async function seedInitialData() {
           status: "Active"
         },
         {
-          id: "judiciary-special",
-          title: "Judiciary Masterclass",
-          shortTitle: "Judiciary",
-          faculty: "Senior Law Faculty",
-          category: "JUDICIARY",
-          schedule: "Sun, Tue, Thu at 8:30 PM",
-          batchRegText: "Sun, Tue, Thu at 8:30 PM",
-          sessionRegText: "2026-03-14T20:30:00+06:01",
-          nextLive: "Sun 8:30 PM",
-          price: "1000",
-          studentCount: 9,
-          weeklyFrequency: "3 Day",
-          status: "Active"
-        },
-        {
-          id: "bangla",
-          title: "bangla",
-          shortTitle: "bangla",
-          faculty: "Shanto Deb Roy Arno",
-          category: "BANGLA",
-          schedule: "weekly 4 days",
-          batchRegText: "FastBangla",
-          sessionRegText: "15/04/2026",
-          nextLive: "15/04/2026",
-          price: "1000",
-          studentCount: 0,
-          weeklyFrequency: "weekly 4 days",
-          status: "Inactive"
-        },
-        {
           id: "English",
           title: "English Class",
           shortTitle: "English",
@@ -98,21 +79,6 @@ async function seedInitialData() {
           studentCount: 9,
           weeklyFrequency: "3 Day",
           status: "Active"
-        },
-        {
-          id: "General Class",
-          title: "General Class",
-          shortTitle: "General Class",
-          faculty: "Shanto Deb Roy Arno",
-          category: "GENERAL CLASS",
-          schedule: "Wed,Sat",
-          batchRegText: "Wed,Sat",
-          sessionRegText: "20-04-2026",
-          nextLive: "Wed 8:30 PM",
-          price: "1000",
-          studentCount: 1,
-          weeklyFrequency: "2 Day",
-          status: "Active"
         }
       ];
 
@@ -120,100 +86,30 @@ async function seedInitialData() {
 
       const demoLessons = [
         {
-          id: "les-civil-1",
-          courseId: "civil-laws-intensive",
-          module: "Module 1: Code of Civil Procedure (CPC 1908)",
-          title: "Lecture 01: Scope, Jurisdiction of Courts & Res Sub-Judice (Sec 9-11)",
-          duration: "52min",
-          youtubeId: "dQw4w9WgXcQ",
-          releaseDate: "2026-04-01",
-          resources: ["Handnote_CPC_Sec9_11.pdf"],
-          description: "Detailed analysis of Jurisdiction, Section 9 (Civil Nature), Section 10 & 11."
+          id: "les-eng-1",
+          courseId: "English",
+          module: "Fast Class",
+          title: "English Class",
+          duration: "56min",
+          youtubeUrl: "https://youtu.be/7HNVqFCWZm4",
+          youtubeId: "7HNVqFCWZm4",
+          releaseDate: "2026-02-07",
+          description: "English Class Masterclass Lecture 01"
         },
         {
-          id: "les-civil-2",
-          courseId: "civil-laws-intensive",
-          module: "Module 1: Code of Civil Procedure (CPC 1908)",
-          title: "Lecture 02: Injunctions & Orders (Order 39)",
-          duration: "48min",
-          youtubeId: "L_LUpnjgPso",
-          releaseDate: "2026-04-05",
-          resources: ["Injunctions_Order39_Notes.pdf"],
-          description: "Temporary Injunctions and Principles of Balance of Convenience."
+          id: "les-eng-2",
+          courseId: "English",
+          module: "Fast Class",
+          title: "English Class",
+          duration: "56min",
+          youtubeUrl: "https://youtu.be/MvJKqzyHgkA",
+          youtubeId: "MvJKqzyHgkA",
+          releaseDate: "2026-02-08",
+          description: "English Class Masterclass Lecture 02"
         }
       ];
 
       await Lesson.insertMany(demoLessons);
-      console.log("✅ Seeded catalog courses & lessons.");
-    }
-
-    // Seed Mail Setting if empty
-    const mailSet = await MailSetting.findOne();
-    if (!mailSet) {
-      await MailSetting.create({
-        enabled: true,
-        fallbackEmail: "bjsacademy38@gmail.com",
-        replyToEmail: "bjsacademy38@gmail.com"
-      });
-    }
-
-    // Seed Students from Reference List if empty
-    const studentCount = await Student.countDocuments();
-    if (studentCount === 0) {
-      const defaultPass = await bcrypt.hash("123456", 10);
-      const refStudents = [
-        {
-          id: "STU-2026-001",
-          name: "Prottoy Kumar Biswas",
-          phone: "01978167016",
-          email: "prottoybiswas575358@gmail.com",
-          batch: "Sun, Tue, Thu at 8:30 PM",
-          session: "2026-03-14T20:30:00+06:01",
-          password: defaultPass,
-          status: "Active",
-          loginApproval: "Approved",
-          portalAccessMode: "Full Access",
-          enrolledCourseIds: ["civil-laws-intensive"],
-          allowedCourseIds: ["civil-laws-intensive"],
-          maxDeviceCount: 10000,
-          joinedOn: "2026-03-14"
-        },
-        {
-          id: "STU-2026-022",
-          name: "MD. HASAN MURAD",
-          phone: "01752006121",
-          email: "muradhasan1800@gmail.com",
-          batch: "Pending Batch",
-          session: "Pending Session",
-          password: defaultPass,
-          status: "Active",
-          loginApproval: "Approved",
-          portalAccessMode: "Full Access",
-          enrolledCourseIds: ["civil-laws-intensive", "judiciary-special"],
-          allowedCourseIds: ["civil-laws-intensive", "judiciary-special"],
-          maxDeviceCount: 2,
-          joinedOn: "2026-06-01"
-        },
-        {
-          id: "STU-2026-013",
-          name: "Anik Hassan",
-          phone: "01560017508",
-          email: "anikhassanbd317@gmail.com",
-          batch: "Wed,Sat, Sun, Tue, Thu at 8:30 PM",
-          session: "2026-04-01, 2025-12-06",
-          password: defaultPass,
-          status: "Active",
-          loginApproval: "Approved",
-          portalAccessMode: "Full Access",
-          enrolledCourseIds: ["civil-laws-intensive"],
-          allowedCourseIds: ["civil-laws-intensive"],
-          maxDeviceCount: 2,
-          joinedOn: "2026-04-01"
-        }
-      ];
-
-      await Student.insertMany(refStudents);
-      console.log("✅ Seeded reference students.");
     }
   } catch (err) {
     console.error("Error seeding initial data:", err.message);
@@ -337,7 +233,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// 4. Fetch Courses
+// 4. Courses API
 app.get("/api/courses", async (req, res) => {
   try {
     const courses = await Course.find();
@@ -347,7 +243,6 @@ app.get("/api/courses", async (req, res) => {
   }
 });
 
-// 5. Save/Update Course (Admin)
 app.post("/api/admin/courses/save", async (req, res) => {
   try {
     const { id, title, shortTitle, faculty, category, schedule, batchRegText, sessionRegText, nextLive, price, weeklyFrequency, description, status } = req.body;
@@ -390,7 +285,6 @@ app.post("/api/admin/courses/save", async (req, res) => {
   }
 });
 
-// Toggle Course Status
 app.post("/api/admin/courses/toggle", async (req, res) => {
   try {
     const { courseId } = req.body;
@@ -405,7 +299,6 @@ app.post("/api/admin/courses/toggle", async (req, res) => {
   }
 });
 
-// Delete Course
 app.delete("/api/admin/courses/:id", async (req, res) => {
   try {
     await Course.deleteOne({ id: req.params.id });
@@ -415,7 +308,7 @@ app.delete("/api/admin/courses/:id", async (req, res) => {
   }
 });
 
-// 6. Lessons API
+// 5. Lessons API
 app.get("/api/lessons", async (req, res) => {
   try {
     const { courseId } = req.query;
@@ -429,13 +322,18 @@ app.get("/api/lessons", async (req, res) => {
 
 app.post("/api/admin/lessons/save", async (req, res) => {
   try {
-    const { id, courseId, module, title, duration, youtubeId, releaseDate, resources, description } = req.body;
+    const { id, courseId, module, title, duration, youtubeUrl, youtubeId, releaseDate, resources, description } = req.body;
+    
+    // Auto extract YouTube ID from full URL or ID string
+    const finalYoutubeId = extractYoutubeId(youtubeUrl || youtubeId);
+
     let lesson = await Lesson.findOne({ id });
     if (lesson) {
       lesson.title = title || lesson.title;
       lesson.module = module || lesson.module;
       lesson.duration = duration || lesson.duration;
-      lesson.youtubeId = youtubeId !== undefined ? youtubeId : lesson.youtubeId;
+      lesson.youtubeUrl = youtubeUrl || lesson.youtubeUrl;
+      lesson.youtubeId = finalYoutubeId || lesson.youtubeId;
       lesson.releaseDate = releaseDate || lesson.releaseDate;
       lesson.resources = resources || lesson.resources;
       lesson.description = description || lesson.description;
@@ -445,16 +343,42 @@ app.post("/api/admin/lessons/save", async (req, res) => {
       lesson = await Lesson.create({
         id: lesId,
         courseId,
-        module: module || "General Classes",
+        module: module || "Fast Class",
         title,
-        duration: duration || "45min",
-        youtubeId: youtubeId || "",
+        duration: duration || "56min",
+        youtubeUrl: youtubeUrl || "",
+        youtubeId: finalYoutubeId || "",
         releaseDate: releaseDate || new Date().toISOString().split("T")[0],
         resources: resources || [],
         description: description || ""
       });
     }
-    res.json({ ok: true, message: "Lesson saved successfully!", lesson });
+    res.json({ ok: true, message: "Lesson video saved successfully!", lesson });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// 6. Save Per-Course Access Rules for Student
+app.post("/api/admin/students/course-rules", async (req, res) => {
+  try {
+    const { studentId, courseRule } = req.body;
+    const student = await Student.findOne({ id: studentId });
+    if (!student) return res.status(404).json({ ok: false, message: "Student not found" });
+
+    let existingRules = student.courseRules || [];
+    const index = existingRules.findIndex((r) => r.courseId === courseRule.courseId);
+
+    if (index > -1) {
+      existingRules[index] = courseRule;
+    } else {
+      existingRules.push(courseRule);
+    }
+
+    student.courseRules = existingRules;
+    await student.save();
+
+    res.json({ ok: true, message: `Course access rules updated for ${courseRule.courseId}!`, student });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }
@@ -582,7 +506,6 @@ app.get("/api/admin/overview-stats", async (req, res) => {
     const activeCourses = courses.filter(c => c.status === "Active").length;
     const paymentReviews = payments.filter(p => p.status === "Pending").length;
 
-    // Monthly Admissions Breakdown for 2026 (Jan to Dec)
     const monthlyCounts = {
       JAN: 0, FEB: 0, MAR: 7, APR: 12, MAY: 1, JUN: 1, JUL: 0, AUG: 0, SEP: 0, OCT: 0, NOV: 0, DEC: 0
     };
@@ -642,9 +565,9 @@ app.post("/api/ai/chat", async (req, res) => {
     let reply = "";
 
     if (lower.includes("cpc") || lower.includes("res judicata") || lower.includes("section 11")) {
-      reply = "⚖️ **Section 11 CPC (Res Judicata)**: No Court shall try any suit or issue in which the matter directly and substantially in issue has been directly and substantially in issue in a former suit between the same parties or between parties under whom they or any of them claim, litigating under the same title in a Court competent to try such subsequent suit.";
+      reply = "⚖️ **Section 11 CPC (Res Judicata)**: No Court shall try any suit or issue in which the matter directly and substantially in issue has been directly and substantially in issue in a former suit between the same parties.";
     } else if (lower.includes("crpc") || lower.includes("fir") || lower.includes("section 154")) {
-      reply = "⚖️ **Section 154 CrPC (First Information Report)**: Every information relating to the commission of a cognizable offence, if given orally to an officer in charge of a police station, shall be reduced to writing by him or under his direction.";
+      reply = "⚖️ **Section 154 CrPC (First Information Report)**: Every information relating to the commission of a cognizable offence shall be reduced to writing by the officer in charge of a police station.";
     } else {
       reply = `⚖️ **Legal AI Assistant**: Thank you for asking regarding "${prompt}". Under Bangladesh Judicial Service & Bar Council standards, legal analysis requires examining statutory provisions alongside High Court Division precedents.`;
     }

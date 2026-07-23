@@ -32,6 +32,23 @@ export default function AdminPanel({ openLessonManager }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
 
+  // Selected Active Student for Per-Course Access Rules Panel
+  const [selectedStudentForRules, setSelectedStudentForRules] = useState(null);
+  const [activeRuleCourseId, setActiveRuleCourseId] = useState('civil-laws-intensive');
+
+  const [perCourseRule, setPerCourseRule] = useState({
+    courseId: 'civil-laws-intensive',
+    unlimitedAccess: false,
+    accessStartDate: '2026-04-01',
+    accessEndDate: '2026-06-30',
+    videoAccessUntil: '2026-06-30',
+    lastPaymentDate: '2026-04-01',
+    paymentDueDate: '2026-06-30',
+    monthlyFee: '1000',
+    enrollmentStatus: 'Active',
+    paidMonths: '2026-04'
+  });
+
   // Student Profile Form State
   const [studentForm, setStudentForm] = useState({
     id: '',
@@ -49,7 +66,7 @@ export default function AdminPanel({ openLessonManager }) {
     allowedCourseIds: ['civil-laws-intensive']
   });
 
-  // Message Form State
+  // Messaging State
   const [popupTitle, setPopupTitle] = useState('');
   const [popupBody, setPopupBody] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
@@ -85,7 +102,12 @@ export default function AdminPanel({ openLessonManager }) {
       ]);
 
       if (statsRes.data.ok) setStats(statsRes.data);
-      if (studentsRes.data.ok) setStudents(studentsRes.data.students);
+      if (studentsRes.data.ok) {
+        setStudents(studentsRes.data.students);
+        if (studentsRes.data.students.length > 0) {
+          setSelectedStudentForRules(studentsRes.data.students[0]);
+        }
+      }
       if (coursesRes.data.ok) setCourses(coursesRes.data.courses);
       if (mailRes.data.ok) setMailSettings(mailRes.data.settings);
     } catch (err) {
@@ -115,21 +137,6 @@ export default function AdminPanel({ openLessonManager }) {
       const res = await api.post('/admin/students/save', studentForm);
       if (res.data.ok) {
         setMsg({ type: 'success', text: res.data.message });
-        setStudentForm({
-          id: '',
-          name: '',
-          phone: '',
-          email: '',
-          batch: 'Wed,Sat',
-          session: '2026-04-01',
-          password: '',
-          maxDeviceCount: 2,
-          status: 'Active',
-          loginApproval: 'Approved',
-          portalAccessMode: 'Full Video Access',
-          highlight: '',
-          allowedCourseIds: ['civil-laws-intensive']
-        });
         loadAllAdminData();
       }
     } catch (err) {
@@ -138,6 +145,7 @@ export default function AdminPanel({ openLessonManager }) {
   };
 
   const handleEditStudent = (s) => {
+    setSelectedStudentForRules(s);
     setStudentForm({
       id: s.id,
       name: s.name,
@@ -153,6 +161,36 @@ export default function AdminPanel({ openLessonManager }) {
       highlight: s.highlight || '',
       allowedCourseIds: s.allowedCourseIds || s.enrolledCourseIds || []
     });
+
+    // Check existing course rule
+    if (s.courseRules && s.courseRules.length > 0) {
+      const foundRule = s.courseRules.find((r) => r.courseId === activeRuleCourseId) || s.courseRules[0];
+      setPerCourseRule(foundRule);
+    }
+  };
+
+  const handleSaveCourseAccessRules = async () => {
+    if (!selectedStudentForRules) {
+      setMsg({ type: 'error', text: 'Please select a student from the list first.' });
+      return;
+    }
+
+    try {
+      const res = await api.post('/admin/students/course-rules', {
+        studentId: selectedStudentForRules.id,
+        courseRule: {
+          ...perCourseRule,
+          courseId: activeRuleCourseId
+        }
+      });
+
+      if (res.data.ok) {
+        setMsg({ type: 'success', text: res.data.message });
+        loadAllAdminData();
+      }
+    } catch (err) {
+      setMsg({ type: 'error', text: 'Error saving course access rules.' });
+    }
   };
 
   const handleDeleteStudent = async (id) => {
@@ -219,19 +257,6 @@ export default function AdminPanel({ openLessonManager }) {
       const res = await api.post('/admin/courses/save', courseForm);
       if (res.data.ok) {
         setMsg({ type: 'success', text: res.data.message });
-        setCourseForm({
-          id: '',
-          title: '',
-          shortTitle: '',
-          faculty: 'Shanto Deb Roy Arno',
-          category: 'CIVIL LAW',
-          schedule: 'Wed,Sat',
-          batchRegText: 'Wed,Sat',
-          sessionRegText: '2026-04-01',
-          nextLive: 'Wed,Sat 8:30 PM',
-          price: '1000',
-          description: ''
-        });
         loadAllAdminData();
       }
     } catch (err) {
@@ -410,101 +435,7 @@ export default function AdminPanel({ openLessonManager }) {
         </div>
       </section>
 
-      {/* 3. Summary Stat Badges Row */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="glass-card p-4 rounded-xl border border-slate-800 text-center">
-          <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">STUDENTS</span>
-          <p className="text-2xl font-black text-amber-400 font-mono">{students.length || 21}</p>
-        </div>
-        <div className="glass-card p-4 rounded-xl border border-slate-800 text-center">
-          <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">PAYMENT REVIEWS</span>
-          <p className="text-2xl font-black text-rose-400 font-mono">0</p>
-        </div>
-        <div className="glass-card p-4 rounded-xl border border-slate-800 text-center">
-          <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">ACTIVE COURSES</span>
-          <p className="text-2xl font-black text-emerald-400 font-mono">{courses.filter(c => c.status === 'Active').length || 4}</p>
-        </div>
-        <div className="glass-card p-4 rounded-xl border border-slate-800 text-center">
-          <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">MESSAGE LOGS</span>
-          <p className="text-2xl font-black text-cyan-400 font-mono">3</p>
-        </div>
-      </section>
-
-      {/* 4. Email Notifications / Portal Mail Settings Card */}
-      <section className="glass-card rounded-xl p-6 border border-slate-800 space-y-4">
-        <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-          <div>
-            <span className="text-[10px] font-mono text-slate-400 uppercase">EMAIL NOTIFICATIONS</span>
-            <h2 className="text-base font-extrabold text-white">Portal Mail Settings</h2>
-            <p className="text-xs text-slate-400">Students can receive automatic mail when they log in, get course access, or have status updated.</p>
-          </div>
-          <span className="px-3 py-1 rounded bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold border border-emerald-500/30">
-            ENABLED
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-          <div className="space-y-2">
-            <label className="block text-slate-400 font-semibold">Fallback & Admin Copy Email Address</label>
-            <input
-              type="email"
-              value={mailSettings.fallbackEmail}
-              onChange={(e) => setMailSettings({ ...mailSettings, fallbackEmail: e.target.value })}
-              className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={mailSettings.enableAllMails}
-                onChange={(e) => setMailSettings({ ...mailSettings, enableAllMails: e.target.checked })}
-                className="rounded bg-slate-950 border-slate-800 text-amber-500"
-              />
-              Enable all mails
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={mailSettings.loginMails}
-                onChange={(e) => setMailSettings({ ...mailSettings, loginMails: e.target.checked })}
-                className="rounded bg-slate-950 border-slate-800 text-amber-500"
-              />
-              Login mails
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={mailSettings.courseAccessMails}
-                onChange={(e) => setMailSettings({ ...mailSettings, courseAccessMails: e.target.checked })}
-                className="rounded bg-slate-950 border-slate-800 text-amber-500"
-              />
-              Course access mails
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={mailSettings.paymentReviewMails}
-                onChange={(e) => setMailSettings({ ...mailSettings, paymentReviewMails: e.target.checked })}
-                className="rounded bg-slate-950 border-slate-800 text-amber-500"
-              />
-              Payment review mails
-            </label>
-          </div>
-        </div>
-
-        <div className="pt-2 flex justify-start">
-          <button
-            onClick={handleSaveMailSettings}
-            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs"
-          >
-            Save Mail Settings
-          </button>
-        </div>
-      </section>
-
-      {/* 5. Student Control / Student Access Manager */}
+      {/* 3. Student Control / Student Access Manager */}
       <section className="glass-card rounded-xl p-6 border border-slate-800 space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-3 gap-3">
           <div>
@@ -544,28 +475,6 @@ export default function AdminPanel({ openLessonManager }) {
           </div>
         </div>
 
-        {/* Bulk Action Controls */}
-        <div className="flex items-center gap-3 text-xs bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-          <label className="flex items-center gap-1.5 cursor-pointer text-slate-300 font-semibold">
-            <input
-              type="checkbox"
-              checked={selectedStudentIds.length === filteredStudents.length && filteredStudents.length > 0}
-              onChange={toggleSelectAllStudents}
-              className="rounded bg-slate-900 border-slate-700 text-amber-500"
-            />
-            Select All ({selectedStudentIds.length})
-          </label>
-          <select className="bg-slate-900 border border-slate-700 text-slate-300 rounded px-2.5 py-1 text-xs">
-            <option>Bulk Action</option>
-            <option>Approve Selected</option>
-            <option>Set 2 Devices Limit</option>
-            <option>Reset Device Fingerprints</option>
-          </select>
-          <button className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs">
-            Apply
-          </button>
-        </div>
-
         {/* Student Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
@@ -583,7 +492,7 @@ export default function AdminPanel({ openLessonManager }) {
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {filteredStudents.map((s) => (
-                <tr key={s.id} className="hover:bg-slate-900/50">
+                <tr key={s.id} className={`hover:bg-slate-900/50 ${selectedStudentForRules?.id === s.id ? 'bg-amber-950/20 border-l-4 border-amber-500' : ''}`}>
                   <td className="p-3">
                     <input
                       type="checkbox"
@@ -623,7 +532,7 @@ export default function AdminPanel({ openLessonManager }) {
                       onClick={() => handleEditStudent(s)}
                       className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px]"
                     >
-                      Edit
+                      Edit / Rule Rules
                     </button>
                     <button
                       onClick={() => handleDeleteStudent(s.id)}
@@ -639,59 +548,57 @@ export default function AdminPanel({ openLessonManager }) {
         </div>
       </section>
 
-      {/* 6. Editor & Selected Students Messaging Section */}
+      {/* 4. Editor & Selected Students PER COURSE RULE Engine Panel (Reference Screenshot 2 Sync) */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Student Profile Form */}
-        <form onSubmit={handleSaveStudent} className="lg:col-span-6 glass-card rounded-xl p-6 border border-slate-800 space-y-3 text-xs">
+        <form onSubmit={handleSaveStudent} className="lg:col-span-5 glass-card rounded-xl p-6 border border-slate-800 space-y-3 text-xs">
           <div className="flex justify-between items-center border-b border-slate-800 pb-2">
             <div>
               <span className="text-[10px] font-mono text-slate-400 uppercase">EDITOR</span>
               <h3 className="font-extrabold text-white text-sm">Student Profile Form</h3>
             </div>
-            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
-              {studentForm.id ? `Edit: ${studentForm.id}` : 'New Student'}
+            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold">
+              {studentForm.id || 'STU-2026-020'}
             </span>
           </div>
 
           <div className="space-y-2">
             <input
               type="text"
-              placeholder="Student name"
+              placeholder="Student name (e.g. Srity)"
               value={studentForm.name}
               onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
               className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
               required
             />
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="text"
-                placeholder="Phone Number"
-                value={studentForm.phone}
-                onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
-                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
-                required
-              />
-              <input
-                type="email"
-                placeholder="Email Address"
-                value={studentForm.email}
-                onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
-                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
-                required
-              />
-            </div>
+            <input
+              type="text"
+              placeholder="Phone Number (e.g. 01781920154)"
+              value={studentForm.phone}
+              onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
+              className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
+              required
+            />
+            <input
+              type="email"
+              placeholder="Email Address (e.g. sritypaul294@gmail.com)"
+              value={studentForm.email}
+              onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
+              className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
+              required
+            />
 
             <div className="grid grid-cols-2 gap-2">
               <input
                 type="text"
-                placeholder="Batch"
+                placeholder="Batch (e.g. Wed,Sat)"
                 value={studentForm.batch}
                 onChange={(e) => setStudentForm({ ...studentForm, batch: e.target.value })}
                 className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
               />
               <input
                 type="text"
-                placeholder="Session"
+                placeholder="Session (e.g. 2026-04-01)"
                 value={studentForm.session}
                 onChange={(e) => setStudentForm({ ...studentForm, session: e.target.value })}
                 className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
@@ -700,7 +607,7 @@ export default function AdminPanel({ openLessonManager }) {
 
             <input
               type="password"
-              placeholder="Password (leave blank if keeping existing)"
+              placeholder="Password (e.g. 43146)"
               value={studentForm.password}
               onChange={(e) => setStudentForm({ ...studentForm, password: e.target.value })}
               className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
@@ -712,12 +619,12 @@ export default function AdminPanel({ openLessonManager }) {
             <span className="text-[10px] text-slate-400 font-bold uppercase">DEVICE LIMIT</span>
             <input
               type="number"
-              placeholder="Set custom limit e.g. 2 or 10000"
+              placeholder="2"
               value={studentForm.maxDeviceCount}
               onChange={(e) => setStudentForm({ ...studentForm, maxDeviceCount: e.target.value })}
               className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white font-mono"
             />
-            <p className="text-[10px] text-slate-500">All students default to 2 devices. Override only if requested.</p>
+            <p className="text-[10px] text-slate-500">All students default to 2 devices. Set custom only when overriding.</p>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
@@ -728,7 +635,6 @@ export default function AdminPanel({ openLessonManager }) {
             >
               <option value="Active">Active</option>
               <option value="Inactive">Inactive</option>
-              <option value="Blocked">Blocked</option>
             </select>
             <select
               value={studentForm.loginApproval}
@@ -748,7 +654,15 @@ export default function AdminPanel({ openLessonManager }) {
             </select>
           </div>
 
-          {/* Allowed Courses Selection Checkboxes */}
+          <textarea
+            placeholder="Registered online. Preview access activated automatically..."
+            value={studentForm.highlight}
+            onChange={(e) => setStudentForm({ ...studentForm, highlight: e.target.value })}
+            rows="2"
+            className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-slate-300"
+          ></textarea>
+
+          {/* Allowed Courses Checkboxes */}
           <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
             <span className="text-[10px] text-slate-400 font-bold uppercase">ALLOWED COURSES</span>
             <div className="grid grid-cols-2 gap-2 text-[11px]">
@@ -774,210 +688,286 @@ export default function AdminPanel({ openLessonManager }) {
             </div>
           </div>
 
-          <button type="submit" className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold transition-all">
+          <button type="submit" className="w-full py-3 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-700 text-white font-extrabold transition-all">
             Save Student
           </button>
         </form>
 
-        {/* Selected Students Course Assignment & Messaging */}
-        <div className="lg:col-span-6 glass-card rounded-xl p-6 border border-slate-800 space-y-4 text-xs">
-          <div className="border-b border-slate-800 pb-2">
-            <span className="text-[10px] font-mono text-slate-400 uppercase">SELECTED STUDENTS</span>
-            <h3 className="font-extrabold text-white text-sm">Course Assignment + Messaging</h3>
-            <p className="text-[11px] text-amber-400 font-mono mt-0.5">
-              Selected: {selectedStudentIds.length} student(s)
-            </p>
+        {/* Course Assignment + Messaging & PER COURSE RULE Panel (Screenshot 2 Sync) */}
+        <div className="lg:col-span-7 glass-card rounded-xl p-6 border border-slate-800 space-y-4 text-xs">
+          <div className="border-b border-slate-800 pb-2 flex justify-between items-center">
+            <div>
+              <span className="text-[10px] font-mono text-slate-400 uppercase">SELECTED STUDENTS</span>
+              <h3 className="font-extrabold text-white text-sm">Course Assignment + Messaging</h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Managing <strong className="text-amber-300">{selectedStudentForRules?.name || 'Srity'}</strong>. You can update approval, preview access, course access, and rules from this block.
+              </p>
+            </div>
+            <span className="px-2.5 py-1 rounded bg-slate-800 text-amber-400 font-mono font-bold text-[10px]">
+              1 selected
+            </span>
           </div>
 
-          {/* Send Popup Message */}
-          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
-            <span className="text-[10px] text-slate-400 font-bold uppercase">SEND STUDENT POPUP MESSAGE</span>
-            <input
-              type="text"
-              placeholder="Message title"
-              value={popupTitle}
-              onChange={(e) => setPopupTitle(e.target.value)}
-              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-            />
-            <textarea
-              placeholder="Write a message for the selected students"
-              value={popupBody}
-              onChange={(e) => setPopupBody(e.target.value)}
-              rows="2"
-              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-            ></textarea>
-            <button
-              type="button"
-              onClick={handleSendPopupMessage}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold"
-            >
-              Send Popup Message
-            </button>
+          {/* Assign Courses */}
+          <div className="space-y-2">
+            <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">ASSIGN COURSES</span>
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
+              {courses.map((c) => {
+                const isSelected = activeRuleCourseId === c.id;
+                return (
+                  <button
+                    type="button"
+                    key={c.id}
+                    onClick={() => setActiveRuleCourseId(c.id)}
+                    className={`p-2.5 rounded-xl text-left border flex items-center gap-2 transition-all ${
+                      isSelected
+                        ? 'bg-amber-500/10 border-amber-500 text-white'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <input type="checkbox" checked={isSelected} readOnly className="rounded bg-slate-900 border-slate-700 text-amber-500" />
+                    <div>
+                      <p className="font-bold text-white line-clamp-1">{c.title}</p>
+                      <p className="text-[9px] text-slate-500">{c.category}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          {/* Send Direct Email */}
-          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
-            <span className="text-[10px] text-slate-400 font-bold uppercase">SEND DIRECT EMAIL</span>
-            <input
-              type="text"
-              placeholder="Email subject"
-              value={emailSubject}
-              onChange={(e) => setEmailSubject(e.target.value)}
-              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-            />
-            <textarea
-              placeholder="Write the email you want to send to selected students"
-              value={emailBody}
-              onChange={(e) => setEmailBody(e.target.value)}
-              rows="2"
-              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-            ></textarea>
-            <button
-              type="button"
-              onClick={handleSendDirectEmail}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold"
-            >
-              Send Email
-            </button>
+          {/* PER COURSE RULE CARD (Screenshot 2 Yellow Unlimited Switch Card) */}
+          <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+              <div>
+                <span className="text-[10px] font-mono text-amber-400 uppercase font-bold">COURSE ACCESS RULES</span>
+                <h4 className="font-extrabold text-white text-base mt-0.5">{activeRuleCourseId}</h4>
+                <p className="text-[10px] text-slate-500">Civil Law | Batch: Wed,Sat | Session: 2026-04-01</p>
+              </div>
+              <span className="px-2 py-0.5 rounded bg-slate-900 text-slate-400 font-mono text-[9px] uppercase font-bold border border-slate-800">
+                PER COURSE RULE
+              </span>
+            </div>
+
+            {/* Unlimited Access Yellow Toggle Card */}
+            <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 flex items-center justify-between gap-4">
+              <div className="space-y-1">
+                <h5 className="font-extrabold text-amber-300 text-xs">Unlimited Access</h5>
+                <p className="text-[10px] text-amber-100/70 leading-relaxed max-w-sm">
+                  Turn this on to keep the course unlocked for life. Start and end dates stay visible for reference, but access and payment deadlines stop locking videos until you switch this off.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setPerCourseRule({ ...perCourseRule, unlimitedAccess: !perCourseRule.unlimitedAccess })}
+                className={`px-4 py-2 rounded-xl text-xs font-black shadow-md transition-all ${
+                  perCourseRule.unlimitedAccess
+                    ? 'bg-amber-400 text-slate-950 shadow-amber-400/20'
+                    : 'bg-slate-900 text-amber-400 border border-amber-500/40'
+                }`}
+              >
+                {perCourseRule.unlimitedAccess ? 'Unlimited ON' : 'Unlimited OFF'}
+              </button>
+            </div>
+
+            {/* 6 Date & Fee Fields Matrix */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+              <div>
+                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Access Start Date</label>
+                <input
+                  type="date"
+                  value={perCourseRule.accessStartDate}
+                  onChange={(e) => setPerCourseRule({ ...perCourseRule, accessStartDate: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Access End Date</label>
+                <input
+                  type="date"
+                  value={perCourseRule.accessEndDate}
+                  onChange={(e) => setPerCourseRule({ ...perCourseRule, accessEndDate: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Video Access Until</label>
+                <input
+                  type="date"
+                  value={perCourseRule.videoAccessUntil}
+                  onChange={(e) => setPerCourseRule({ ...perCourseRule, videoAccessUntil: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Last Payment Date</label>
+                <input
+                  type="date"
+                  value={perCourseRule.lastPaymentDate}
+                  onChange={(e) => setPerCourseRule({ ...perCourseRule, lastPaymentDate: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Payment Due Date</label>
+                <input
+                  type="date"
+                  value={perCourseRule.paymentDueDate}
+                  onChange={(e) => setPerCourseRule({ ...perCourseRule, paymentDueDate: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Monthly Fee</label>
+                <input
+                  type="text"
+                  value={perCourseRule.monthlyFee}
+                  onChange={(e) => setPerCourseRule({ ...perCourseRule, monthlyFee: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-amber-300 font-mono font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Enrollment Status</label>
+                <select
+                  value={perCourseRule.enrollmentStatus}
+                  onChange={(e) => setPerCourseRule({ ...perCourseRule, enrollmentStatus: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white"
+                >
+                  <option value="Active">Active</option>
+                  <option value="Expired">Expired</option>
+                  <option value="Suspended">Suspended</option>
+                </select>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Paid Months</label>
+                <input
+                  type="text"
+                  value={perCourseRule.paidMonths}
+                  onChange={(e) => setPerCourseRule({ ...perCourseRule, paidMonths: e.target.value })}
+                  placeholder="e.g. 2026-04, 2026-05"
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-start">
+              <button
+                type="button"
+                onClick={handleSaveCourseAccessRules}
+                className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs shadow-lg shadow-blue-600/20 transition-all"
+              >
+                Save Course Access
+              </button>
+            </div>
+          </div>
+
+          {/* Send Student Popup Message & Direct Email */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+              <span className="text-[10px] text-slate-400 font-bold uppercase">SEND POPUP MESSAGE</span>
+              <input
+                type="text"
+                placeholder="Message title"
+                value={popupTitle}
+                onChange={(e) => setPopupTitle(e.target.value)}
+                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
+              />
+              <textarea
+                placeholder="Write message for student popup..."
+                value={popupBody}
+                onChange={(e) => setPopupBody(e.target.value)}
+                rows="2"
+                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
+              ></textarea>
+              <button type="button" onClick={handleSendPopupMessage} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs">
+                Send Popup
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+              <span className="text-[10px] text-slate-400 font-bold uppercase">SEND DIRECT EMAIL</span>
+              <input
+                type="text"
+                placeholder="Email subject"
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
+              />
+              <textarea
+                placeholder="Write email message..."
+                value={emailBody}
+                onChange={(e) => setEmailBody(e.target.value)}
+                rows="2"
+                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
+              ></textarea>
+              <button type="button" onClick={handleSendDirectEmail} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs">
+                Send Email
+              </button>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* 7. Course Control / Course Launch Manager & Catalog */}
-      <section className="space-y-6">
-        <div className="glass-card rounded-xl p-6 border border-slate-800 space-y-4">
-          <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-            <div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase">COURSE CONTROL</span>
-              <h2 className="text-base font-extrabold text-white">Course Launch Manager</h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => setCourseForm({
-                id: '',
-                title: '',
-                shortTitle: '',
-                faculty: 'Shanto Deb Roy Arno',
-                category: 'CIVIL LAW',
-                schedule: 'Wed,Sat',
-                batchRegText: 'Wed,Sat',
-                sessionRegText: '2026-04-01',
-                nextLive: 'Wed,Sat 8:30 PM',
-                price: '1000',
-                description: ''
-              })}
-              className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 font-bold"
-            >
-              Clear Form
-            </button>
-          </div>
-
-          <form onSubmit={handleSaveCourse} className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-            <input
-              type="text"
-              placeholder="Course ID (optional)"
-              value={courseForm.id}
-              onChange={(e) => setCourseForm({ ...courseForm, id: e.target.value })}
-              className="rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
-            />
-            <input
-              type="text"
-              placeholder="Course Title"
-              value={courseForm.title}
-              onChange={(e) => setCourseForm({ ...courseForm, title: e.target.value })}
-              className="rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
-              required
-            />
-            <input
-              type="text"
-              placeholder="Short Title"
-              value={courseForm.shortTitle}
-              onChange={(e) => setCourseForm({ ...courseForm, shortTitle: e.target.value })}
-              className="rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
-            />
-            <input
-              type="text"
-              placeholder="Faculty"
-              value={courseForm.faculty}
-              onChange={(e) => setCourseForm({ ...courseForm, faculty: e.target.value })}
-              className="rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
-            />
-            <input
-              type="text"
-              placeholder="Category"
-              value={courseForm.category}
-              onChange={(e) => setCourseForm({ ...courseForm, category: e.target.value })}
-              className="rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono uppercase"
-            />
-            <input
-              type="text"
-              placeholder="Course Fee (Tk)"
-              value={courseForm.price}
-              onChange={(e) => setCourseForm({ ...courseForm, price: e.target.value })}
-              className="rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-amber-300 font-mono"
-            />
-
-            <div className="md:col-span-3 flex justify-end">
-              <button type="submit" className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs">
-                Save / Launch Course
-              </button>
-            </div>
-          </form>
+      {/* 5. Course Catalog */}
+      <section className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-base font-extrabold text-white">COURSE CATALOG — Active And Hidden Courses</h3>
+          <span className="text-xs font-mono text-amber-400">
+            {courses.filter(c => c.status === 'Active').length} active / {courses.length} total
+          </span>
         </div>
 
-        {/* Course Catalog Grid */}
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-base font-extrabold text-white">COURSE CATALOG — Active And Hidden Courses</h3>
-            <span className="text-xs font-mono text-amber-400">
-              {courses.filter(c => c.status === 'Active').length} active / {courses.length} total
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            {courses.map((c) => (
-              <div key={c.id} className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-3">
-                <div>
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="text-[10px] font-mono font-bold text-amber-400 uppercase">{c.category}</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${c.status === 'Active' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                      {c.status}
-                    </span>
-                  </div>
-                  <h4 className="font-extrabold text-white text-sm">{c.title}</h4>
-                  <p className="text-slate-400 text-[11px] mt-0.5">{c.faculty}</p>
-                  <p className="text-[10px] text-slate-500 font-mono mt-1">
-                    Batch: {c.batchRegText || c.schedule} | Session: {c.sessionRegText || '2026-04-01'}
-                  </p>
-                  <p className="text-amber-300 font-mono font-bold mt-1">Course Fee: Tk {c.price}</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          {courses.map((c) => (
+            <div key={c.id} className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-3">
+              <div>
+                <div className="flex justify-between items-start mb-2">
+                  <span className="text-[10px] font-mono font-bold text-amber-400 uppercase">{c.category}</span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${c.status === 'Active' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                    {c.status}
+                  </span>
                 </div>
+                <h4 className="font-extrabold text-white text-sm">{c.title}</h4>
+                <p className="text-slate-400 text-[11px] mt-0.5">{c.faculty}</p>
+                <p className="text-[10px] text-slate-500 font-mono mt-1">
+                  Batch: {c.batchRegText || c.schedule} | Session: {c.sessionRegText || '2026-04-01'}
+                </p>
+                <p className="text-amber-300 font-mono font-bold mt-1">Course Fee: Tk {c.price}</p>
+              </div>
 
-                <div className="flex items-center justify-between pt-2 border-t border-slate-900">
+              <div className="flex items-center justify-between pt-2 border-t border-slate-900">
+                <button
+                  onClick={() => openLessonManager(c)}
+                  className="px-3 py-1.5 rounded bg-cyan-900/60 hover:bg-cyan-800 text-cyan-300 font-bold text-[11px] border border-cyan-500/30"
+                >
+                  📹 Upload & Manage Videos
+                </button>
+
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => openLessonManager(c)}
-                    className="px-3 py-1.5 rounded bg-cyan-900/60 hover:bg-cyan-800 text-cyan-300 font-bold text-[11px] border border-cyan-500/30"
+                    onClick={() => handleToggleCourse(c.id)}
+                    className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px]"
                   >
-                    📹 Upload & Manage Videos
+                    {c.status === 'Active' ? 'Deactivate' : 'Activate'}
                   </button>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleToggleCourse(c.id)}
-                      className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px]"
-                    >
-                      {c.status === 'Active' ? 'Deactivate' : 'Activate'}
-                    </button>
-                    <button
-                      onClick={() => handleDeleteCourse(c.id)}
-                      className="px-3 py-1.5 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold text-[11px]"
-                    >
-                      Delete
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => handleDeleteCourse(c.id)}
+                    className="px-3 py-1.5 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold text-[11px]"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       </section>
     </div>

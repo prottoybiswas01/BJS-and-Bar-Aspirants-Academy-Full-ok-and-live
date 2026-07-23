@@ -1,5 +1,18 @@
 const mongoose = require("mongoose");
 
+const courseRuleSchema = new mongoose.Schema({
+  courseId: { type: String, required: true },
+  unlimitedAccess: { type: Boolean, default: false },
+  accessStartDate: { type: String, default: "" },
+  accessEndDate: { type: String, default: "" },
+  videoAccessUntil: { type: String, default: "" },
+  lastPaymentDate: { type: String, default: "" },
+  paymentDueDate: { type: String, default: "" },
+  monthlyFee: { type: String, default: "1000" },
+  enrollmentStatus: { type: String, enum: ["Active", "Expired", "Suspended"], default: "Active" },
+  paidMonths: { type: String, default: "" }
+}, { _id: false });
+
 const studentSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true, index: true }, // e.g. STU-2026-001
   name: { type: String, required: true, trim: true },
@@ -14,6 +27,7 @@ const studentSchema = new mongoose.Schema({
   enrolledCourseIds: [{ type: String }],
   allowedCourseIds: [{ type: String }],
   completedLessonIds: [{ type: String }],
+  courseRules: [courseRuleSchema],
   maxDeviceCount: { type: Number, default: 2 },
   highlight: { type: String, default: "" },
   popupMessage: {

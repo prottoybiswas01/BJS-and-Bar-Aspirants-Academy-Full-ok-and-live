@@ -64,19 +64,39 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
 
   // Group lessons by module
   const groupedLessons = lessons.reduce((acc, l) => {
-    const mod = l.module || 'General Classes';
+    const mod = l.module || 'Fast Class';
     if (!acc[mod]) acc[mod] = [];
     acc[mod].push(l);
     return acc;
   }, {});
 
-  const isEnrolled = selectedCourse && user?.enrolledCourseIds?.includes(selectedCourse.id);
+  // Evaluate Student Course Rule for Selected Course
+  const courseRule = user?.courseRules?.find((r) => r.courseId === selectedCourse?.id) || {
+    unlimitedAccess: true, // Default open for enrolled courses
+    enrollmentStatus: 'Active'
+  };
+
+  const isEnrolled = selectedCourse && (user?.allowedCourseIds?.includes(selectedCourse.id) || user?.enrolledCourseIds?.includes(selectedCourse.id));
+  const isUnlimited = courseRule.unlimitedAccess || isEnrolled;
   const completedCount = user?.completedLessonIds?.length || 0;
   const progressPercent = lessons.length > 0 ? Math.round((completedCount / lessons.length) * 100) : 0;
 
   return (
     <div className="space-y-8 pb-16 animate-fadeIn">
-      {/* Student Top Welcome Banner */}
+      {/* Admin Popup Message Alert */}
+      {user?.popupMessage?.body && (
+        <div className="p-4 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs shadow-lg space-y-1">
+          <div className="flex justify-between items-center font-bold text-amber-300">
+            <span>📢 {user.popupMessage.title || 'Notice from Academy Admin'}</span>
+            <span className="font-mono text-[10px] text-slate-400">
+              {new Date(user.popupMessage.sentAt).toLocaleDateString()}
+            </span>
+          </div>
+          <p className="leading-relaxed text-slate-100">{user.popupMessage.body}</p>
+        </div>
+      )}
+
+      {/* Top Welcome Banner */}
       <section className="glass-card rounded-2xl p-6 sm:p-8 border border-amber-500/20 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
@@ -93,7 +113,7 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
               স্বাগতম, <span className="text-gradient-gold">{user?.name || 'শিক্ষার্থী'}</span>!
             </h1>
             <p className="text-xs sm:text-sm text-slate-300">
-              ব্যাচ: <strong className="text-amber-300">{user?.batch || 'Judiciary 2026'}</strong> | সেশন: <span className="text-slate-400">{user?.session || 'Weekend Intensive'}</span>
+              ব্যাচ: <strong className="text-amber-300">{user?.batch || 'Wed,Sat'}</strong> | সেশন: <span className="text-slate-400">{user?.session || '2026-04-01'}</span>
             </p>
           </div>
 
@@ -125,7 +145,7 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {courses.map((c) => {
             const active = selectedCourse?.id === c.id;
-            const enrolled = user?.enrolledCourseIds?.includes(c.id);
+            const enrolled = user?.allowedCourseIds?.includes(c.id) || user?.enrolledCourseIds?.includes(c.id);
 
             return (
               <button
@@ -163,9 +183,16 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
           <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
               <div>
-                <span className="text-xs font-bold text-amber-400 font-mono uppercase tracking-wider">
-                  ACTIVE MODULE SYLLABUS
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-amber-400 font-mono uppercase tracking-wider">
+                    {selectedCourse.category}
+                  </span>
+                  {isUnlimited && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-bold text-[10px]">
+                      ★ Unlimited Access Active
+                    </span>
+                  )}
+                </div>
                 <h2 className="text-xl font-extrabold text-white">{selectedCourse.title}</h2>
                 <p className="text-xs text-slate-400 mt-1">{selectedCourse.description}</p>
               </div>
@@ -185,7 +212,7 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-wrap items-center gap-4 text-xs">
               <span className="text-slate-400 font-medium">ভিডিও স্ট্যাটাস গাইড:</span>
               <span className="flex items-center gap-1 text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-500/30 font-semibold">
-                🟢 Emerald Green: ভিডিও প্রস্তুত (Watchable)
+                🟢 Emerald Green: ভিডিও প্রস্তুত ও আনলকড
               </span>
               <span className="flex items-center gap-1 text-rose-400 bg-rose-950/40 px-2.5 py-1 rounded-lg border border-rose-500/30 font-semibold">
                 🔴 Rose Red: ভিডিও পেন্ডিং / কোর্স আনলকড নয়
@@ -196,7 +223,7 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
             <div className="space-y-6 pt-2">
               {Object.keys(groupedLessons).length === 0 ? (
                 <p className="text-center py-8 text-slate-500 text-xs">
-                  এই কোর্সের কোনো লেকচার মডিউল পাওয়া যায়নি।
+                  এই কোর্সের কোনো লেকচার ভিডিও পাওয়া যায়নি।
                 </p>
               ) : (
                 Object.entries(groupedLessons).map(([moduleTitle, moduleLessons]) => (
@@ -208,10 +235,9 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
                     <div className="space-y-2">
                       {moduleLessons.map((l) => {
                         const isCompleted = user?.completedLessonIds?.includes(l.id);
-                        const hasVideo = Boolean(l.youtubeId);
+                        const hasVideo = Boolean(l.youtubeId || l.youtubeUrl);
                         const canWatch = isEnrolled && hasVideo;
 
-                        // Visual Color Coding Matrix Rules
                         let cardClass = 'bg-rose-950/20 border-rose-500/30 text-rose-200';
                         let badgeText = '🔴 Video Pending';
                         let badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
@@ -239,13 +265,13 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
                                   {badgeText}
                                 </span>
                                 <span className="font-mono text-[11px] text-slate-400">⏱️ {l.duration}</span>
+                                <span className="font-mono text-[10px] text-slate-500">Released: {l.releaseDate}</span>
                               </div>
                               <h4 className="font-bold text-white text-sm">{l.title}</h4>
                               <p className="text-xs text-slate-300">{l.description}</p>
                             </div>
 
                             <div className="flex items-center gap-3 flex-shrink-0">
-                              {/* Complete Checkbox */}
                               <button
                                 onClick={() => toggleComplete(l.id)}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
@@ -257,7 +283,6 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
                                 {isCompleted ? '✓ Completed' : 'Mark Done'}
                               </button>
 
-                              {/* Play Video Button */}
                               <button
                                 onClick={() => openVideoModal(l)}
                                 className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-md transition-all ${
