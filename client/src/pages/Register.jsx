@@ -77,12 +77,12 @@ export default function Register({ setActivePage }) {
       });
 
       if (res.data.ok) {
-        setSuccessReg(res.data.registration);
+        setSuccessReg(res.data.registration || { regId: res.data.regId });
       } else {
-        setError(res.data.message);
+        setError(res.data.message || 'রেজিস্ট্রেশনে সমস্যা দেখা দিয়েছে।');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'রেজিস্ট্রেশনে ত্রুটি ঘটেছে।');
+      setError(err.response?.data?.message || 'রেজিস্ট্রেশনে সমস্যা দেখা দিয়েছে। পুনরায় সাবমিট করুন।');
     } finally {
       setLoading(false);
     }
@@ -103,7 +103,7 @@ export default function Register({ setActivePage }) {
 
         {successReg ? (
           <div className="p-6 bg-emerald-950/80 border border-emerald-500/40 rounded-2xl text-center space-y-4 animate-fadeIn">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 text-2xl flex items-center justify-center mx-auto">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 text-2xl flex items-center justify-center mx-auto text-center font-bold">
               ✓
             </div>
             <h3 className="text-lg font-bold text-white">রেজিস্ট্রেশন সফল হয়েছে!</h3>
@@ -126,8 +126,8 @@ export default function Register({ setActivePage }) {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4 text-xs">
             {error && (
-              <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-500/30 text-rose-300 font-semibold">
-                {error}
+              <div className="p-3.5 rounded-xl bg-rose-950/90 border border-rose-500/40 text-rose-300 font-semibold leading-relaxed">
+                ⚠️ {error}
               </div>
             )}
 
@@ -232,7 +232,7 @@ export default function Register({ setActivePage }) {
               disabled={loading}
               className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-lg shadow-amber-500/20 transition-all"
             >
-              {loading ? 'রেজিস্ট্রেশন হচ্ছে...' : 'রেজিস্ট্রেশন সম্পন্ন করুন (Submit)'}
+              {loading ? 'প্রসেস করা হচ্ছে...' : 'রেজিস্ট্রেশন সম্পন্ন করুন (Submit)'}
             </button>
           </form>
         )}
