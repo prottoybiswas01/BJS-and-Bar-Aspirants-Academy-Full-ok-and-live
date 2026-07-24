@@ -301,34 +301,36 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     }
   };
 
-  const selectCourseForRuleConfig = (courseId, studentObj = selectedStudentForRules) => {
-    setActiveRuleCourseId(courseId);
-    const targetStudent = studentObj || students[0];
-    if (targetStudent && targetStudent.courseRules && targetStudent.courseRules.length > 0) {
-      const existingRule = targetStudent.courseRules.find((r) => r.courseId === courseId);
-      if (existingRule) {
-        setPerCourseRule(existingRule);
-        return;
-      }
-    }
-    // Default template for newly selected course
-    setPerCourseRule({
-      courseId: courseId,
-      unlimitedAccess: false,
-      accessStartDate: '2026-04-01',
-      accessEndDate: '2026-06-30',
-      videoAccessUntil: '2026-06-30',
-      lastPaymentDate: '2026-04-01',
-      paymentDueDate: '2026-06-30',
-      monthlyFee: '1000',
-      enrollmentStatus: 'Active',
-      paidMonths: '2026-04'
+  // Course Rules Map (courseId -> rule object)
+  const [courseRulesMap, setCourseRulesMap] = useState({});
+
+  const updateRuleFieldForCourse = (courseId, field, value) => {
+    setCourseRulesMap(prevMap => {
+      const currentRule = prevMap[courseId] || {
+        courseId: courseId,
+        unlimitedAccess: false,
+        accessStartDate: '2026-04-01',
+        accessEndDate: '2026-06-30',
+        videoAccessUntil: '2026-06-30',
+        lastPaymentDate: '2026-04-01',
+        paymentDueDate: '2026-06-30',
+        monthlyFee: '1000',
+        enrollmentStatus: 'Active',
+        paidMonths: '2026-04'
+      };
+      return {
+        ...prevMap,
+        [courseId]: { ...currentRule, [field]: value }
+      };
     });
   };
 
   const handleEditStudent = (s) => {
     setSelectedStudentForRules(s);
     setIsEditorOpen(true);
+
+    const allowed = s.allowedCourseIds || s.enrolledCourseIds || [];
+
     setStudentForm({
       id: s.id,
       name: s.name,
@@ -342,14 +344,32 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       loginApproval: s.loginApproval || 'Approved',
       portalAccessMode: s.portalAccessMode || 'Full Video Access',
       highlight: s.highlight || '',
-      allowedCourseIds: s.allowedCourseIds || s.enrolledCourseIds || []
+      allowedCourseIds: allowed
     });
 
-    const initialCourseId = (s.allowedCourseIds && s.allowedCourseIds.length > 0)
-      ? s.allowedCourseIds[0]
-      : (courses[0]?.id || 'civil-laws-intensive');
+    const map = {};
+    (s.courseRules || []).forEach(r => {
+      if (r && r.courseId) map[r.courseId] = r;
+    });
 
-    selectCourseForRuleConfig(initialCourseId, s);
+    allowed.forEach(cId => {
+      if (!map[cId]) {
+        map[cId] = {
+          courseId: cId,
+          unlimitedAccess: false,
+          accessStartDate: '2026-04-01',
+          accessEndDate: '2026-06-30',
+          videoAccessUntil: '2026-06-30',
+          lastPaymentDate: '2026-04-01',
+          paymentDueDate: '2026-06-30',
+          monthlyFee: '1000',
+          enrollmentStatus: 'Active',
+          paidMonths: '2026-04'
+        };
+      }
+    });
+
+    setCourseRulesMap(map);
 
     setTimeout(() => {
       document.getElementById('student-editor-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -357,6 +377,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   };
 
   const handleCreateNewStudent = () => {
+    const defaultCourseId = courses[0]?.id || 'civil-laws-intensive';
     const newStudent = {
       id: '',
       name: '',
@@ -370,14 +391,26 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       loginApproval: 'Approved',
       portalAccessMode: 'Full Video Access',
       highlight: '',
-      allowedCourseIds: []
+      allowedCourseIds: [defaultCourseId]
     };
     setSelectedStudentForRules(newStudent);
     setStudentForm(newStudent);
     setIsEditorOpen(true);
 
-    const initialCourseId = courses[0]?.id || 'civil-laws-intensive';
-    selectCourseForRuleConfig(initialCourseId, newStudent);
+    setCourseRulesMap({
+      [defaultCourseId]: {
+        courseId: defaultCourseId,
+        unlimitedAccess: false,
+        accessStartDate: '2026-04-01',
+        accessEndDate: '2026-06-30',
+        videoAccessUntil: '2026-06-30',
+        lastPaymentDate: '2026-04-01',
+        paymentDueDate: '2026-06-30',
+        monthlyFee: '1000',
+        enrollmentStatus: 'Active',
+        paidMonths: '2026-04'
+      }
+    });
 
     setTimeout(() => {
       document.getElementById('student-editor-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -389,45 +422,78 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     setSelectedStudentForRules(null);
   };
 
-  const handleSaveCourseAccessRules = async () => {
+  const handleToggleCourseAssignment = (cId, isChecked) => {
+    let currentAllowed = studentForm.allowedCourseIds || [];
+    if (isChecked) {
+      if (!currentAllowed.includes(cId)) {
+        currentAllowed = [...currentAllowed, cId];
+      }
+      setCourseRulesMap(prev => ({
+        ...prev,
+        [cId]: prev[cId] || {
+          courseId: cId,
+          unlimitedAccess: false,
+          accessStartDate: '2026-04-01',
+          accessEndDate: '2026-06-30',
+          videoAccessUntil: '2026-06-30',
+          lastPaymentDate: '2026-04-01',
+          paymentDueDate: '2026-06-30',
+          monthlyFee: '1000',
+          enrollmentStatus: 'Active',
+          paidMonths: '2026-04'
+        }
+      }));
+    } else {
+      currentAllowed = currentAllowed.filter(i => i !== cId);
+    }
+
+    setStudentForm(prev => ({ ...prev, allowedCourseIds: currentAllowed }));
+    if (selectedStudentForRules) {
+      setSelectedStudentForRules(prev => ({ ...prev, allowedCourseIds: currentAllowed }));
+    }
+  };
+
+  const handleSaveCourseAccessRulesForCourse = async (courseId) => {
     if (!selectedStudentForRules) {
       setMsg({ type: 'error', text: 'Please select a student from the list first.' });
       return;
     }
 
-    try {
-      const ruleToSave = {
-        ...perCourseRule,
-        courseId: activeRuleCourseId
-      };
+    const ruleToSave = courseRulesMap[courseId] || {
+      courseId: courseId,
+      unlimitedAccess: false,
+      accessStartDate: '2026-04-01',
+      accessEndDate: '2026-06-30',
+      videoAccessUntil: '2026-06-30',
+      lastPaymentDate: '2026-04-01',
+      paymentDueDate: '2026-06-30',
+      monthlyFee: '1000',
+      enrollmentStatus: 'Active',
+      paidMonths: '2026-04'
+    };
 
+    try {
       const res = await api.post('/admin/students/course-rules', {
         studentId: selectedStudentForRules.id,
         courseRule: ruleToSave
       });
 
-      const updatedAllowedCourses = Array.from(new Set([
-        ...(studentForm.allowedCourseIds || []),
-        activeRuleCourseId
-      ]));
-      setStudentForm(prev => ({ ...prev, allowedCourseIds: updatedAllowedCourses }));
+      let rulesCopy = [...(selectedStudentForRules.courseRules || [])];
+      const idx = rulesCopy.findIndex(r => r.courseId === courseId);
+      if (idx > -1) rulesCopy[idx] = ruleToSave;
+      else rulesCopy.push(ruleToSave);
 
       const updatedStudent = {
         ...selectedStudentForRules,
-        allowedCourseIds: updatedAllowedCourses
+        allowedCourseIds: studentForm.allowedCourseIds || [],
+        courseRules: rulesCopy
       };
-
-      let rulesCopy = [...(selectedStudentForRules.courseRules || [])];
-      const idx = rulesCopy.findIndex(r => r.courseId === activeRuleCourseId);
-      if (idx > -1) rulesCopy[idx] = ruleToSave;
-      else rulesCopy.push(ruleToSave);
-      updatedStudent.courseRules = rulesCopy;
       setSelectedStudentForRules(updatedStudent);
 
       await api.post('/admin/students/save', updatedStudent);
 
       if (res.data.ok) {
-        const courseTitle = courses.find(c => c.id === activeRuleCourseId)?.title || activeRuleCourseId;
+        const courseTitle = courses.find(c => c.id === courseId)?.title || courseId;
         setMsg({ type: 'success', text: `Rules for course "${courseTitle}" saved successfully!` });
         loadAllAdminData();
       }
@@ -1118,16 +1184,13 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                     {courses.map((c) => {
                       const isAssigned = (studentForm.allowedCourseIds || []).includes(c.id);
-                      const isSelectedRule = activeRuleCourseId === c.id;
                       return (
                         <div
                           key={c.id}
-                          onClick={() => selectCourseForRuleConfig(c.id)}
+                          onClick={() => handleToggleCourseAssignment(c.id, !isAssigned)}
                           className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-all cursor-pointer ${
-                            isSelectedRule
+                            isAssigned
                               ? 'bg-amber-500/15 border-amber-500 text-white shadow-lg ring-1 ring-amber-500/50'
-                              : isAssigned
-                              ? 'bg-slate-900 border-slate-700 text-slate-200 hover:border-amber-500/50'
                               : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                           }`}
                         >
@@ -1135,25 +1198,17 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
                             <input
                               type="checkbox"
                               checked={isAssigned}
-                              onChange={(e) => {
-                                let list = studentForm.allowedCourseIds || [];
-                                if (e.target.checked) list = [...list, c.id];
-                                else list = list.filter((i) => i !== c.id);
-                                setStudentForm({ ...studentForm, allowedCourseIds: list });
-                                if (selectedStudentForRules) {
-                                  setSelectedStudentForRules({ ...selectedStudentForRules, allowedCourseIds: list });
-                                }
-                              }}
-                              className="rounded bg-slate-900 border-slate-700 text-amber-500 w-4 h-4"
+                              onChange={(e) => handleToggleCourseAssignment(c.id, e.target.checked)}
+                              className="rounded bg-slate-900 border-slate-700 text-amber-500 w-4 h-4 cursor-pointer"
                             />
                             <div>
                               <p className="font-bold text-white line-clamp-1">{c.title}</p>
                               <p className="text-[9px] font-mono text-slate-400">{c.category || 'COURSE'} • {c.faculty}</p>
                             </div>
                           </label>
-                          {isSelectedRule && (
-                            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[9px] font-extrabold border border-amber-500/40 shrink-0">
-                              ⚙️ CONFIGURING
+                          {isAssigned && (
+                            <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[9px] font-extrabold border border-emerald-500/30 shrink-0">
+                              ✓ ACCESS GRANTED
                             </span>
                           )}
                         </div>
@@ -1162,141 +1217,176 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
                   </div>
                 </div>
 
-                {/* PER COURSE RULE CARD */}
-                <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
+                {/* DYNAMIC PER-COURSE RULE CARDS FOR ALL ASSIGNED COURSES */}
+                <div className="space-y-4 pt-2">
                   <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                    <div>
-                      <span className="text-[10px] font-mono text-amber-400 uppercase font-bold">COURSE ACCESS RULES FOR SELECTED COURSE</span>
-                      <h4 className="font-extrabold text-white text-base mt-0.5 flex items-center gap-2">
-                        <span>📖</span> {courses.find(c => c.id === activeRuleCourseId)?.title || activeRuleCourseId}
-                      </h4>
-                      <p className="text-[10px] text-slate-400 font-mono">
-                        Course ID: {activeRuleCourseId} | Student: {selectedStudentForRules?.name || 'Srity'} | Batch: {selectedStudentForRules?.batch || 'Wed,Sat'}
-                      </p>
-                    </div>
-                    <span className="px-2.5 py-1 rounded bg-amber-500/10 text-amber-300 font-mono text-[9px] uppercase font-extrabold border border-amber-500/30">
-                      PER-COURSE CONTROL
+                    <span className="text-[11px] font-mono text-amber-400 font-extrabold uppercase">
+                      COURSE ACCESS RULES FOR ASSIGNED COURSES ({(studentForm.allowedCourseIds || []).length})
                     </span>
                   </div>
 
-                  {/* Unlimited Access Yellow Toggle Card */}
-                  <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 flex items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <h5 className="font-extrabold text-amber-300 text-xs">Unlimited Access</h5>
-                      <p className="text-[10px] text-amber-100/70 leading-relaxed max-w-sm">
-                        Turn this on to keep the course unlocked for life. Start and end dates stay visible for reference, but access and payment deadlines stop locking videos until you switch this off.
+                  {(studentForm.allowedCourseIds || []).length === 0 ? (
+                    <div className="p-6 bg-slate-950 rounded-2xl border border-slate-800 text-center space-y-2">
+                      <p className="text-amber-400 font-bold text-xs">⚠️ No Courses Assigned Yet</p>
+                      <p className="text-xs text-slate-400">
+                        Check one or more courses above under <strong>ASSIGN COURSES</strong> to configure their access rules.
                       </p>
                     </div>
+                  ) : (
+                    (studentForm.allowedCourseIds || []).map((cId) => {
+                      const courseObj = courses.find(c => c.id === cId) || { id: cId, title: cId, faculty: 'N/A' };
+                      const rule = courseRulesMap[cId] || {
+                        courseId: cId,
+                        unlimitedAccess: false,
+                        accessStartDate: '2026-04-01',
+                        accessEndDate: '2026-06-30',
+                        videoAccessUntil: '2026-06-30',
+                        lastPaymentDate: '2026-04-01',
+                        paymentDueDate: '2026-06-30',
+                        monthlyFee: '1000',
+                        enrollmentStatus: 'Active',
+                        paidMonths: '2026-04'
+                      };
 
-                    <button
-                      type="button"
-                      onClick={() => setPerCourseRule({ ...perCourseRule, unlimitedAccess: !perCourseRule.unlimitedAccess })}
-                      className={`px-4 py-2 rounded-xl text-xs font-black shadow-md transition-all ${
-                        perCourseRule.unlimitedAccess
-                          ? 'bg-amber-400 text-slate-950 shadow-amber-400/20'
-                          : 'bg-slate-900 text-amber-400 border border-amber-500/40'
-                      }`}
-                    >
-                      {perCourseRule.unlimitedAccess ? 'Unlimited ON' : 'Unlimited OFF'}
-                    </button>
-                  </div>
+                      return (
+                        <div key={cId} className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 shadow-md hover:border-slate-700 transition-all">
+                          <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                            <div>
+                              <span className="text-[9px] font-mono text-amber-400 uppercase font-bold">PER-COURSE RULE CARD</span>
+                              <h4 className="font-extrabold text-white text-base mt-0.5 flex items-center gap-2">
+                                <span>📖</span> {courseObj.title}
+                              </h4>
+                              <p className="text-[10px] text-slate-400 font-mono">
+                                Course ID: {cId} | Faculty: {courseObj.faculty || 'N/A'} | Student: {selectedStudentForRules?.name || 'Srity'}
+                              </p>
+                            </div>
+                            <span className="px-2.5 py-1 rounded bg-amber-500/10 text-amber-300 font-mono text-[9px] uppercase font-extrabold border border-amber-500/30">
+                              INDIVIDUAL CONTROL
+                            </span>
+                          </div>
 
-                  {/* 6 Date & Fee Fields Matrix */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-                    <div>
-                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Access Start Date</label>
-                      <input
-                        type="date"
-                        value={perCourseRule.accessStartDate}
-                        onChange={(e) => setPerCourseRule({ ...perCourseRule, accessStartDate: e.target.value })}
-                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                      />
-                    </div>
+                          {/* Unlimited Access Yellow Toggle Card */}
+                          <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 flex items-center justify-between gap-4">
+                            <div className="space-y-1">
+                              <h5 className="font-extrabold text-amber-300 text-xs">Unlimited Access for {courseObj.title}</h5>
+                              <p className="text-[10px] text-amber-100/70 leading-relaxed max-w-sm">
+                                Keep this course unlocked for life. Start and end dates stay visible for reference, but deadlines stop locking videos until turned off.
+                              </p>
+                            </div>
 
-                    <div>
-                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Access End Date</label>
-                      <input
-                        type="date"
-                        value={perCourseRule.accessEndDate}
-                        onChange={(e) => setPerCourseRule({ ...perCourseRule, accessEndDate: e.target.value })}
-                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                      />
-                    </div>
+                            <button
+                              type="button"
+                              onClick={() => updateRuleFieldForCourse(cId, 'unlimitedAccess', !rule.unlimitedAccess)}
+                              className={`px-4 py-2 rounded-xl text-xs font-black shadow-md transition-all ${
+                                rule.unlimitedAccess
+                                  ? 'bg-amber-400 text-slate-950 shadow-amber-400/20'
+                                  : 'bg-slate-900 text-amber-400 border border-amber-500/40'
+                              }`}
+                            >
+                              {rule.unlimitedAccess ? 'Unlimited ON' : 'Unlimited OFF'}
+                            </button>
+                          </div>
 
-                    <div>
-                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Video Access Until</label>
-                      <input
-                        type="date"
-                        value={perCourseRule.videoAccessUntil}
-                        onChange={(e) => setPerCourseRule({ ...perCourseRule, videoAccessUntil: e.target.value })}
-                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                      />
-                    </div>
+                          {/* 6 Date & Fee Fields Matrix */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                            <div>
+                              <label className="block text-slate-400 font-medium mb-1 text-[10px]">Access Start Date</label>
+                              <input
+                                type="date"
+                                value={rule.accessStartDate || '2026-04-01'}
+                                onChange={(e) => updateRuleFieldForCourse(cId, 'accessStartDate', e.target.value)}
+                                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                              />
+                            </div>
 
-                    <div>
-                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Last Payment Date</label>
-                      <input
-                        type="date"
-                        value={perCourseRule.lastPaymentDate}
-                        onChange={(e) => setPerCourseRule({ ...perCourseRule, lastPaymentDate: e.target.value })}
-                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                      />
-                    </div>
+                            <div>
+                              <label className="block text-slate-400 font-medium mb-1 text-[10px]">Access End Date</label>
+                              <input
+                                type="date"
+                                value={rule.accessEndDate || '2026-06-30'}
+                                onChange={(e) => updateRuleFieldForCourse(cId, 'accessEndDate', e.target.value)}
+                                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                              />
+                            </div>
 
-                    <div>
-                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Payment Due Date</label>
-                      <input
-                        type="date"
-                        value={perCourseRule.paymentDueDate}
-                        onChange={(e) => setPerCourseRule({ ...perCourseRule, paymentDueDate: e.target.value })}
-                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                      />
-                    </div>
+                            <div>
+                              <label className="block text-slate-400 font-medium mb-1 text-[10px]">Video Access Until</label>
+                              <input
+                                type="date"
+                                value={rule.videoAccessUntil || '2026-06-30'}
+                                onChange={(e) => updateRuleFieldForCourse(cId, 'videoAccessUntil', e.target.value)}
+                                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                              />
+                            </div>
 
-                    <div>
-                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Monthly Fee</label>
-                      <input
-                        type="text"
-                        value={perCourseRule.monthlyFee}
-                        onChange={(e) => setPerCourseRule({ ...perCourseRule, monthlyFee: e.target.value })}
-                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-amber-300 font-mono font-bold"
-                      />
-                    </div>
+                            <div>
+                              <label className="block text-slate-400 font-medium mb-1 text-[10px]">Last Payment Date</label>
+                              <input
+                                type="date"
+                                value={rule.lastPaymentDate || '2026-04-01'}
+                                onChange={(e) => updateRuleFieldForCourse(cId, 'lastPaymentDate', e.target.value)}
+                                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                              />
+                            </div>
 
-                    <div>
-                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Enrollment Status</label>
-                      <select
-                        value={perCourseRule.enrollmentStatus}
-                        onChange={(e) => setPerCourseRule({ ...perCourseRule, enrollmentStatus: e.target.value })}
-                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white"
-                      >
-                        <option value="Active">Active</option>
-                        <option value="Expired">Expired</option>
-                        <option value="Suspended">Suspended</option>
-                      </select>
-                    </div>
+                            <div>
+                              <label className="block text-slate-400 font-medium mb-1 text-[10px]">Payment Due Date</label>
+                              <input
+                                type="date"
+                                value={rule.paymentDueDate || '2026-06-30'}
+                                onChange={(e) => updateRuleFieldForCourse(cId, 'paymentDueDate', e.target.value)}
+                                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                              />
+                            </div>
 
-                    <div className="sm:col-span-2">
-                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Paid Months</label>
-                      <input
-                        type="text"
-                        value={perCourseRule.paidMonths}
-                        onChange={(e) => setPerCourseRule({ ...perCourseRule, paidMonths: e.target.value })}
-                        placeholder="e.g. 2026-04, 2026-05"
-                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                      />
-                    </div>
-                  </div>
+                            <div>
+                              <label className="block text-slate-400 font-medium mb-1 text-[10px]">Monthly Fee</label>
+                              <input
+                                type="text"
+                                value={rule.monthlyFee || '1000'}
+                                onChange={(e) => updateRuleFieldForCourse(cId, 'monthlyFee', e.target.value)}
+                                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-amber-300 font-mono font-bold"
+                              />
+                            </div>
 
-                  <div className="pt-2 flex justify-start">
-                    <button
-                      type="button"
-                      onClick={handleSaveCourseAccessRules}
-                      className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs shadow-lg shadow-blue-600/20 transition-all"
-                    >
-                      Save Course Access
-                    </button>
-                  </div>
+                            <div>
+                              <label className="block text-slate-400 font-medium mb-1 text-[10px]">Enrollment Status</label>
+                              <select
+                                value={rule.enrollmentStatus || 'Active'}
+                                onChange={(e) => updateRuleFieldForCourse(cId, 'enrollmentStatus', e.target.value)}
+                                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white"
+                              >
+                                <option value="Active">Active</option>
+                                <option value="Expired">Expired</option>
+                                <option value="Suspended">Suspended</option>
+                              </select>
+                            </div>
+
+                            <div className="sm:col-span-2">
+                              <label className="block text-slate-400 font-medium mb-1 text-[10px]">Paid Months</label>
+                              <input
+                                type="text"
+                                value={rule.paidMonths || '2026-04'}
+                                onChange={(e) => updateRuleFieldForCourse(cId, 'paidMonths', e.target.value)}
+                                placeholder="e.g. 2026-04, 2026-05"
+                                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="pt-2 flex justify-start">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveCourseAccessRulesForCourse(cId)}
+                              className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs shadow-lg shadow-blue-600/20 transition-all flex items-center gap-1.5"
+                            >
+                              <span>💾</span> Save Access Rules for {courseObj.title}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
 
                 {/* Send Student Popup Message & Direct Email */}
