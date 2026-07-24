@@ -29,9 +29,7 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
 
           {/* Navigation Links */}
           <div className="hidden md:flex items-center space-x-2">
-
-
-            {user && (
+            {user && !user.isAdmin && (
               <button
                 onClick={() => setActivePage('dashboard')}
                 className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
@@ -41,19 +39,6 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
                 }`}
               >
                 Student Dashboard
-              </button>
-            )}
-
-            {user?.isAdmin && (
-              <button
-                onClick={() => setActivePage('admin')}
-                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                  activePage === 'admin'
-                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                    : 'text-purple-400 hover:text-purple-300 hover:bg-purple-950/30'
-                }`}
-              >
-                ⚙️ Admin Panel
               </button>
             )}
           </div>
@@ -74,24 +59,28 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
 
             {user ? (
               <div className="flex items-center gap-2">
-                <button
-                  onClick={openProfileModal}
-                  className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 hover:border-amber-500/50 transition-all text-left"
-                >
-                  <div className="w-8 h-8 rounded-lg bg-amber-500 text-slate-950 font-bold flex items-center justify-center text-xs">
-                    {user.name ? user.name[0].toUpperCase() : 'S'}
-                  </div>
-                  <div className="hidden sm:block">
-                    <p className="text-xs font-bold text-slate-200 line-clamp-1">{user.name}</p>
-                    <p className="text-[10px] text-amber-400 font-mono">{user.id || (user.isAdmin ? 'ADMIN' : 'STUDENT')}</p>
-                  </div>
-                </button>
+                {!user.isAdmin && (
+                  <button
+                    onClick={openProfileModal}
+                    className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 hover:border-amber-500/50 transition-all text-left"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-amber-500 text-slate-950 font-bold flex items-center justify-center text-xs">
+                      {user.name ? user.name[0].toUpperCase() : 'S'}
+                    </div>
+                    <div className="hidden sm:block">
+                      <p className="text-xs font-bold text-slate-200 line-clamp-1">{user.name}</p>
+                      <p className="text-[10px] text-amber-400 font-mono">{user.id || 'STUDENT'}</p>
+                    </div>
+                  </button>
+                )}
+
                 <button
                   onClick={logout}
-                  className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/20 rounded-lg transition-colors text-xs"
-                  title="Logout"
+                  className="px-4 py-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-500/40 text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                  title="Logout from Account"
                 >
-                  🚪
+                  <span>🚪</span>
+                  <span>লগআউট (Logout)</span>
                 </button>
               </div>
             ) : (
