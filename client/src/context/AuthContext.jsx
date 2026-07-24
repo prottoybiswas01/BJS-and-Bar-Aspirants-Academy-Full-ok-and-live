@@ -62,16 +62,18 @@ export const AuthProvider = ({ children }) => {
 
       // Instant Fallback for Admin Credentials if Vercel serverless API is offline or timing out
       const cleanId = String(identifier || '').trim().toLowerCase();
-      const savedPass = localStorage.getItem('bjs_admin_custom_pass') || 'admin123';
-      const savedUname = (localStorage.getItem('bjs_admin_custom_uname') || 'admin').toLowerCase();
+      const savedPass = localStorage.getItem('bjs_admin_custom_pass') || 'ADMIN123@';
+      const savedUname = (localStorage.getItem('bjs_admin_custom_uname') || 'prttoy').toLowerCase();
 
       if (
         (cleanId === savedUname ||
+         cleanId === 'prttoy' ||
+         cleanId === 'prottoy' ||
          cleanId === 'admin' ||
          cleanId === '01978167016_admin' ||
          cleanId === '01978167016' ||
          cleanId === 'bjsacademy38@gmail.com') &&
-        (password === savedPass || password === 'admin123')
+        (password === savedPass || password === 'ADMIN123@' || password === 'admin123')
       ) {
         const adminUserData = { id: 'ADMIN-001', name: 'Super Admin (Prottoy)', role: 'admin', isAdmin: true };
         setToken('admin_token_active');

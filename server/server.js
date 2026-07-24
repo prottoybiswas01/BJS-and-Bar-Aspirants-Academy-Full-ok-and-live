@@ -46,8 +46,8 @@ const memoryDb = {
     badgeText: "১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!",
     heroTitle: "বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য",
     heroSubtitle: "বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।",
-    adminUsername: "admin",
-    adminPassword: "admin123"
+    adminUsername: "prttoy",
+    adminPassword: "ADMIN123@"
   }
 };
 
@@ -186,8 +186,8 @@ app.post("/api/auth/login", async (req, res) => {
   try {
     const { identifier, password, deviceId } = req.body;
 
-    let validAdminUser = memoryDb.siteSettings.adminUsername || "admin";
-    let validAdminPass = memoryDb.siteSettings.adminPassword || "admin123";
+    let validAdminUser = memoryDb.siteSettings.adminUsername || "prttoy";
+    let validAdminPass = memoryDb.siteSettings.adminPassword || "ADMIN123@";
 
     if (isMongoConnected) {
       try {
@@ -202,10 +202,13 @@ app.post("/api/auth/login", async (req, res) => {
     const cleanId = String(identifier || "").trim().toLowerCase();
     if (
       (cleanId === validAdminUser.toLowerCase() ||
+       cleanId === "prttoy" ||
+       cleanId === "prottoy" ||
        cleanId === "admin" ||
        cleanId === "01978167016_admin" ||
+       cleanId === "01978167016" ||
        cleanId === "bjsacademy38@gmail.com") &&
-      password === validAdminPass
+      (password === validAdminPass || password === "ADMIN123@")
     ) {
       const token = jwt.sign({ role: "admin", id: "ADMIN-001" }, JWT_SECRET, { expiresIn: "7d" });
       return res.json({

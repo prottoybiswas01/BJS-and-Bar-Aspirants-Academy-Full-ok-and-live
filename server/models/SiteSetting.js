@@ -14,8 +14,8 @@ const siteSettingSchema = new mongoose.Schema({
     type: String, 
     default: "বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।" 
   },
-  adminUsername: { type: String, default: "admin" },
-  adminPassword: { type: String, default: "admin123" }
+  adminUsername: { type: String, default: "prttoy" },
+  adminPassword: { type: String, default: "ADMIN123@" }
 }, { timestamps: true });
 
 module.exports = mongoose.model("SiteSetting", siteSettingSchema);
