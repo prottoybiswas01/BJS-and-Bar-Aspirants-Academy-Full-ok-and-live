@@ -544,17 +544,64 @@ app.post("/api/admin/students/message", async (req, res) => {
 });
 
 app.get("/api/admin/overview-stats", async (req, res) => {
-  res.json({
-    ok: true,
-    totalStudents: memoryDb.students.length,
-    activeCourses: memoryDb.courses.filter(c => c.status === "Active").length,
-    paymentReviews: 0,
-    messageLogs: 3,
-    peakMonth: "Apr (12 students)",
-    monthlyAverage: "1.8",
-    latestAdmission: "MD. HASAN MURAD",
-    monthlyCounts: { JAN: 0, FEB: 0, MAR: 7, APR: 12, MAY: 1, JUN: 1, JUL: 0, AUG: 0, SEP: 0, OCT: 0, NOV: 0, DEC: 0 }
-  });
+  try {
+    let studentsList = memoryDb.students;
+    let coursesList = memoryDb.courses;
+
+    if (isMongoConnected) {
+      studentsList = await Student.find();
+      coursesList = await Course.find();
+    }
+
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const monthlyCounts = { JAN: 0, FEB: 0, MAR: 0, APR: 0, MAY: 0, JUN: 0, JUL: 0, AUG: 0, SEP: 0, OCT: 0, NOV: 0, DEC: 0 };
+    const currentYear = new Date().getFullYear();
+
+    studentsList.forEach(s => {
+      const dateStr = s.joinedOn || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
+      if (dateStr && dateStr.startsWith(String(currentYear))) {
+        const mIdx = parseInt(dateStr.substring(5, 7), 10) - 1;
+        if (mIdx >= 0 && mIdx < 12) {
+          monthlyCounts[months[mIdx]] += 1;
+        }
+      }
+    });
+
+    let maxVal = -1;
+    let peakMonth = "None";
+    Object.entries(monthlyCounts).forEach(([m, val]) => {
+      if (val > maxVal && val > 0) {
+        maxVal = val;
+        peakMonth = `${m} (${val} students)`;
+      }
+    });
+
+    const latestStudent = studentsList.length > 0 ? studentsList[studentsList.length - 1].name : "None";
+
+    res.json({
+      ok: true,
+      totalStudents: studentsList.length,
+      activeCourses: coursesList.filter(c => c.status === "Active").length,
+      paymentReviews: 0,
+      messageLogs: 3,
+      peakMonth: peakMonth,
+      monthlyAverage: (studentsList.length / 12).toFixed(1),
+      latestAdmission: latestStudent,
+      monthlyCounts
+    });
+  } catch (error) {
+    res.json({
+      ok: true,
+      totalStudents: memoryDb.students.length,
+      activeCourses: memoryDb.courses.filter(c => c.status === "Active").length,
+      paymentReviews: 0,
+      messageLogs: 3,
+      peakMonth: "N/A",
+      monthlyAverage: "0.0",
+      latestAdmission: "N/A",
+      monthlyCounts: { JAN: 0, FEB: 0, MAR: 0, APR: 0, MAY: 0, JUN: 0, JUL: 0, AUG: 0, SEP: 0, OCT: 0, NOV: 0, DEC: 0 }
+    });
+  }
 });
 
 app.get("/api/admin/registrations", async (req, res) => {

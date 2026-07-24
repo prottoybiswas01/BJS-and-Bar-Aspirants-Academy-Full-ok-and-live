@@ -95,6 +95,91 @@ export default function AdminPanel({ openLessonManager }) {
     heroSubtitle: 'বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।'
   });
 
+  // Dynamic Admissions Overview Filters
+  const [selectedCourseFilter, setSelectedCourseFilter] = useState('all');
+  const [selectedYearFilter, setSelectedYearFilter] = useState('2026');
+
+  // Dynamic Year Options (from student records + range)
+  const availableYears = Array.from(new Set([
+    '2024', '2025', '2026', '2027', '2028', '2029', '2030',
+    ...students.map(s => {
+      const d = s.joinedOn || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
+      return d ? d.substring(0, 4) : '';
+    }).filter(Boolean)
+  ])).sort().reverse();
+
+  // Dynamic Enrollment Stats Calculation from Real Students Data
+  const getEnrollmentStats = () => {
+    let filtered = students;
+    if (selectedCourseFilter !== 'all') {
+      filtered = filtered.filter(s =>
+        (s.enrolledCourseIds && s.enrolledCourseIds.includes(selectedCourseFilter)) ||
+        (s.allowedCourseIds && s.allowedCourseIds.includes(selectedCourseFilter))
+      );
+    }
+
+    const yearFiltered = filtered.filter(s => {
+      const dateStr = s.joinedOn || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
+      return dateStr ? dateStr.startsWith(String(selectedYearFilter)) : false;
+    });
+
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const monthlyCounts = { JAN: 0, FEB: 0, MAR: 0, APR: 0, MAY: 0, JUN: 0, JUL: 0, AUG: 0, SEP: 0, OCT: 0, NOV: 0, DEC: 0 };
+    let missingDates = 0;
+
+    yearFiltered.forEach(s => {
+      const dateStr = s.joinedOn || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
+      if (dateStr && dateStr.length >= 7) {
+        const monthIdx = parseInt(dateStr.substring(5, 7), 10) - 1;
+        if (monthIdx >= 0 && monthIdx < 12) {
+          monthlyCounts[months[monthIdx]] += 1;
+        }
+      } else {
+        missingDates += 1;
+      }
+    });
+
+    let maxVal = -1;
+    let peakMonthName = 'None';
+    let peakMonthVal = 0;
+    Object.entries(monthlyCounts).forEach(([m, val]) => {
+      if (val > maxVal && val > 0) {
+        maxVal = val;
+        peakMonthName = m;
+        peakMonthVal = val;
+      }
+    });
+
+    const totalInYear = yearFiltered.length;
+    const avg = (totalInYear / 12).toFixed(1);
+
+    let latestStudentName = 'None';
+    let latestStudentDate = '';
+    if (students.length > 0) {
+      const sorted = [...students].sort((a, b) => {
+        const dA = a.joinedOn || a.createdAt || '';
+        const dB = b.joinedOn || b.createdAt || '';
+        return dB.localeCompare(dA);
+      });
+      latestStudentName = sorted[0].name;
+      latestStudentDate = sorted[0].joinedOn || (sorted[0].createdAt ? new Date(sorted[0].createdAt).toISOString().split('T')[0] : '');
+    }
+
+    return {
+      totalInYear,
+      allTimeCount: filtered.length,
+      monthlyCounts,
+      peakMonthName,
+      peakMonthVal,
+      monthlyAverage: avg,
+      latestStudentName,
+      latestStudentDate,
+      missingDates
+    };
+  };
+
+  const currentStats = getEnrollmentStats();
+
   useEffect(() => {
     loadAllAdminData();
   }, []);
@@ -459,14 +544,30 @@ export default function AdminPanel({ openLessonManager }) {
               <div>
                 <span className="text-[10px] font-mono text-slate-400 uppercase">ADMISSIONS OVERVIEW</span>
                 <h3 className="font-extrabold text-white text-base">Monthly Enrollment</h3>
-                <p className="text-xs text-slate-400">Review all courses across 2026 with a clear month-by-month admission breakdown.</p>
+                <p className="text-xs text-slate-400">Review all courses across {selectedYearFilter} with a clear month-by-month admission breakdown.</p>
               </div>
               <div className="flex gap-2 mt-2 sm:mt-0">
-                <select className="bg-slate-950 border border-slate-800 text-xs text-slate-300 rounded-lg px-2.5 py-1">
-                  <option>All Courses (21)</option>
+                <select
+                  value={selectedCourseFilter}
+                  onChange={(e) => setSelectedCourseFilter(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 text-xs text-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:border-amber-500"
+                >
+                  <option value="all">All Courses ({students.length})</option>
+                  {courses.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.shortTitle || c.title}
+                    </option>
+                  ))}
                 </select>
-                <select className="bg-slate-950 border border-slate-800 text-xs text-slate-300 rounded-lg px-2.5 py-1">
-                  <option>2026</option>
+
+                <select
+                  value={selectedYearFilter}
+                  onChange={(e) => setSelectedYearFilter(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 text-xs text-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:border-amber-500"
+                >
+                  {availableYears.map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -475,17 +576,17 @@ export default function AdminPanel({ openLessonManager }) {
             <div className="grid grid-cols-3 gap-4 bg-slate-950/80 p-4 rounded-xl border border-slate-800/80 text-center">
               <div>
                 <span className="text-[10px] text-slate-500 uppercase font-bold">TOTAL STUDENTS</span>
-                <p className="text-xl font-black text-white font-mono">{stats.totalStudents || 21}</p>
-                <p className="text-[10px] text-slate-400">21 joined in 2026</p>
+                <p className="text-xl font-black text-white font-mono">{currentStats.totalInYear}</p>
+                <p className="text-[10px] text-slate-400">{currentStats.totalInYear} joined in {selectedYearFilter}</p>
               </div>
               <div>
                 <span className="text-[10px] text-slate-500 uppercase font-bold">PEAK MONTH</span>
-                <p className="text-xl font-black text-amber-400 font-mono">Apr</p>
-                <p className="text-[10px] text-slate-400">12 students</p>
+                <p className="text-xl font-black text-amber-400 font-mono">{currentStats.peakMonthName}</p>
+                <p className="text-[10px] text-slate-400">{currentStats.peakMonthVal} students</p>
               </div>
               <div>
                 <span className="text-[10px] text-slate-500 uppercase font-bold">MONTHLY AVERAGE</span>
-                <p className="text-xl font-black text-cyan-400 font-mono">1.8</p>
+                <p className="text-xl font-black text-cyan-400 font-mono">{currentStats.monthlyAverage}</p>
                 <p className="text-[10px] text-slate-400">All dated records included</p>
               </div>
             </div>
@@ -493,12 +594,12 @@ export default function AdminPanel({ openLessonManager }) {
             {/* Month-by-month Bar Chart Visual */}
             <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 overflow-x-auto">
               <div className="grid grid-cols-12 gap-1 text-center min-w-[500px]">
-                {Object.entries(stats.monthlyCounts || {}).map(([m, val]) => (
+                {Object.entries(currentStats.monthlyCounts).map(([m, val]) => (
                   <div key={m} className="flex flex-col items-center justify-end h-28 space-y-1">
                     <span className="text-[10px] font-mono text-amber-300 font-bold">{val}</span>
                     <div
-                      className="w-full max-w-[20px] rounded-t bg-gradient-to-t from-amber-600 to-amber-400 transition-all"
-                      style={{ height: `${Math.max(val * 8, 4)}px` }}
+                      className="w-full max-w-[20px] rounded-t bg-gradient-to-t from-amber-600 to-amber-400 transition-all duration-300"
+                      style={{ height: `${Math.max(val * 12, val > 0 ? 8 : 3)}px` }}
                     ></div>
                     <span className="text-[9px] font-mono text-slate-400 font-bold uppercase">{m}</span>
                   </div>
@@ -517,18 +618,20 @@ export default function AdminPanel({ openLessonManager }) {
             <div className="space-y-3">
               <div>
                 <p className="text-[10px] text-slate-400 uppercase font-semibold">LATEST ADMISSION</p>
-                <p className="font-bold text-amber-300">{stats.latestAdmission || 'MD. HASAN MURAD'}</p>
-                <p className="text-[10px] text-slate-500">Jun 2026</p>
+                <p className="font-bold text-amber-300">{currentStats.latestStudentName}</p>
+                <p className="text-[10px] text-slate-500">{currentStats.latestStudentDate || selectedYearFilter}</p>
               </div>
               <div>
                 <p className="text-[10px] text-slate-400 uppercase font-semibold">MISSING JOIN DATES</p>
-                <p className="font-mono font-bold text-white">0</p>
+                <p className="font-mono font-bold text-white">{currentStats.missingDates}</p>
                 <p className="text-[10px] text-slate-500">Student records in current scope that need valid join date.</p>
               </div>
               <div>
                 <p className="text-[10px] text-slate-400 uppercase font-semibold">CURRENT SCOPE</p>
-                <p className="font-bold text-white">All courses</p>
-                <p className="text-[10px] text-slate-500">2026 | No year-on-year comparison</p>
+                <p className="font-bold text-white">
+                  {selectedCourseFilter === 'all' ? 'All courses' : selectedCourseFilter}
+                </p>
+                <p className="text-[10px] text-slate-500">{selectedYearFilter} | Live Database Filter</p>
               </div>
             </div>
           </div>
