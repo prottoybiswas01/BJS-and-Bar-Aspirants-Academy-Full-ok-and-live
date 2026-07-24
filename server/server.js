@@ -523,16 +523,12 @@ app.post("/api/auth/forgot-password", async (req, res) => {
   }
 });
 
-// 3.2 Verify OTP & Reset Password
-app.post("/api/auth/verify-otp-reset-password", async (req, res) => {
+// 3.2 Step 2: Verify OTP Only Endpoint
+app.post("/api/auth/verify-otp", async (req, res) => {
   try {
-    const { emailOrPhone, otp, newPassword } = req.body;
-    if (!emailOrPhone || !otp || !newPassword) {
-      return res.status(400).json({ ok: false, message: "Please fill all required fields (OTP & New Password)." });
-    }
-
-    if (String(newPassword).trim().length < 6) {
-      return res.status(400).json({ ok: false, message: "New password must be at least 6 characters long." });
+    const { emailOrPhone, otp } = req.body;
+    if (!emailOrPhone || !otp) {
+      return res.status(400).json({ ok: false, message: "Please provide your registered email/phone and 6-digit OTP." });
     }
 
     const rawInput = String(emailOrPhone).trim();
@@ -545,7 +541,52 @@ app.post("/api/auth/verify-otp-reset-password", async (req, res) => {
       return res.status(400).json({ ok: false, message: "ভুল অথবা মেয়াদোত্তীর্ণ (Expired) OTP কোড! নতুন OTP রিকোয়েস্ট করুন।" });
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    // Mark verified and generate resetToken
+    const resetToken = "RST-" + Date.now() + "-" + Math.floor(1000 + Math.random() * 9000);
+    storedData.verified = true;
+    storedData.resetToken = resetToken;
+    storedData.expiresAt = Date.now() + 15 * 60 * 1000; // Extend 15 mins for password entry
+
+    return res.json({
+      ok: true,
+      message: "✓ OTP কোড সফলভাবে যাঁচাই হয়েছে! এখন নতুন পাসওয়ার্ড ও কনফার্ম পাসওয়ার্ড সেট করুন।",
+      resetToken
+    });
+  } catch (err) {
+    console.error("Verify OTP error:", err);
+    res.status(500).json({ ok: false, message: "Error verifying OTP code." });
+  }
+});
+
+// 3.3 Step 3: Set New Password & Confirm Password
+app.post("/api/auth/reset-password", async (req, res) => {
+  try {
+    const { emailOrPhone, resetToken, newPassword, confirmPassword } = req.body;
+    if (!emailOrPhone || !newPassword || !confirmPassword) {
+      return res.status(400).json({ ok: false, message: "Please fill both New Password and Confirm Password." });
+    }
+
+    const passInput = String(newPassword).trim();
+    const confirmInput = String(confirmPassword).trim();
+
+    if (passInput.length < 6) {
+      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে।" });
+    }
+
+    if (passInput !== confirmInput) {
+      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড এবং কনফার্ম পাসওয়ার্ড মিলছে না!" });
+    }
+
+    const rawInput = String(emailOrPhone).trim();
+    const cleanInput = rawInput.toLowerCase();
+
+    const storedData = otpStore.get(cleanInput) || otpStore.get(rawInput);
+
+    if (!storedData || !storedData.verified || (resetToken && storedData.resetToken !== resetToken) || Date.now() > storedData.expiresAt) {
+      return res.status(400).json({ ok: false, message: "পাসওয়ার্ড পরিবর্তনের সেশনটি মেয়াদোত্তীর্ণ হয়ে গেছে। অনুগ্রহ করে পুনরায় শুরু করুন।" });
+    }
+
+    const hashedPassword = await bcrypt.hash(passInput, 10);
 
     await ensureDbConnected();
 
@@ -575,18 +616,18 @@ app.post("/api/auth/verify-otp-reset-password", async (req, res) => {
       if (!updatedStudent) updatedStudent = memoryDb.students[memIdx];
     }
 
-    // Clear OTP
+    // Clear OTP Store after successful reset
     otpStore.delete(cleanInput);
     if (storedData.email) otpStore.delete(storedData.email.toLowerCase());
     if (storedData.phone) otpStore.delete(storedData.phone);
 
     return res.json({
       ok: true,
-      message: "আপনার পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে! আপনি এখন নতুন পাসওয়ার্ড দিয়ে লগইন করতে পারবেন।",
+      message: "✓ আপনার পাসওয়ার্ড সফলভাবে আপডেট করা হয়েছে! স্বাগতম।",
       student: updatedStudent
     });
   } catch (err) {
-    console.error("Verify OTP error:", err);
+    console.error("Reset password error:", err);
     res.status(500).json({ ok: false, message: "Error resetting password." });
   }
 });

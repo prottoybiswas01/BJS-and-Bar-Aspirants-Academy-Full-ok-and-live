@@ -5,7 +5,7 @@ import api from '../services/api';
 export default function Login({ setActivePage }) {
   const { login } = useAuth();
   const [mode, setMode] = useState('login'); // 'login' | 'forgot'
-  const [forgotStep, setForgotStep] = useState(1); // 1: Send OTP, 2: Verify OTP & Reset Password
+  const [forgotStep, setForgotStep] = useState(1); // 1: Send OTP, 2: Verify OTP Only, 3: Set New & Confirm Password
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -13,7 +13,9 @@ export default function Login({ setActivePage }) {
   // Forgot password form fields
   const [forgotEmail, setForgotEmail] = useState('');
   const [otp, setOtp] = useState('');
+  const [resetToken, setResetToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -70,16 +72,11 @@ export default function Login({ setActivePage }) {
     }
   };
 
-  // Step 2: Verify OTP & Reset Password
-  const handleVerifyOtpAndReset = async (e) => {
+  // Step 2: Verify OTP Only
+  const handleVerifyOtp = async (e) => {
     if (e) e.preventDefault();
-    if (!otp || !newPassword) {
-      setError('অনুগ্রহ করে ৬-ডিজিটের OTP কোড এবং নতুন পাসওয়ার্ড লিখুন।');
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      setError('নতুন পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে।');
+    if (!otp || String(otp).trim().length < 6) {
+      setError('অনুগ্রহ করে ৬-ডিজিটের সঠিক OTP কোডটি লিখুন।');
       return;
     }
 
@@ -88,14 +85,56 @@ export default function Login({ setActivePage }) {
     setSuccessMsg(null);
 
     try {
-      const res = await api.post('/auth/verify-otp-reset-password', {
+      const res = await api.post('/auth/verify-otp', {
         emailOrPhone: forgotEmail,
-        otp,
-        newPassword
+        otp
       });
       setLoading(false);
       if (res.data.ok) {
-        setSuccessMsg('✓ পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে! লগইন করা হচ্ছে...');
+        setResetToken(res.data.resetToken || '');
+        setSuccessMsg(res.data.message || '✓ OTP সফলভাবে যাচাই হয়েছে! এখন নতুন পাসওয়ার্ড সেট করুন।');
+        setForgotStep(3);
+      } else {
+        setError(res.data.message || 'ভুল OTP কোড! আবার চেষ্টা করুন।');
+      }
+    } catch (err) {
+      setLoading(false);
+      setError(err.response?.data?.message || 'OTP যাঁচাই করতে সমস্যা হয়েছে।');
+    }
+  };
+
+  // Step 3: Set New Password & Confirm Password
+  const handleResetPassword = async (e) => {
+    if (e) e.preventDefault();
+    if (!newPassword || !confirmPassword) {
+      setError('অনুগ্রহ করে নতুন পাসওয়ার্ড এবং কনফার্ম পাসওয়ার্ড লিখুন।');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setError('নতুন পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে।');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('নতুন পাসওয়ার্ড এবং কনফার্ম পাসওয়ার্ড মিলছে না!');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setSuccessMsg(null);
+
+    try {
+      const res = await api.post('/auth/reset-password', {
+        emailOrPhone: forgotEmail,
+        resetToken,
+        newPassword,
+        confirmPassword
+      });
+      setLoading(false);
+      if (res.data.ok) {
+        setSuccessMsg('✓ পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে! একাউন্টে প্রবেশ করা হচ্ছে...');
         setTimeout(async () => {
           const loginRes = await login(forgotEmail, newPassword);
           if (loginRes.ok) {
@@ -107,11 +146,11 @@ export default function Login({ setActivePage }) {
           }
         }, 1200);
       } else {
-        setError(res.data.message || 'পাসওয়ার্ড পরিবর্তন ব্যর্থ হয়েছে।');
+        setError(res.data.message || 'পাসওয়ার্ড রিসেট করা সম্ভব হয়নি।');
       }
     } catch (err) {
       setLoading(false);
-      setError(err.response?.data?.message || 'পাসওয়ার্ড রিসেট করতে সমস্যা হয়েছে।');
+      setError(err.response?.data?.message || 'পাসওয়ার্ড আপডেট করতে সমস্যা হয়েছে।');
     }
   };
 
@@ -168,6 +207,9 @@ export default function Login({ setActivePage }) {
                       setError(null);
                       setSuccessMsg(null);
                       setForgotEmail(identifier);
+                      setOtp('');
+                      setNewPassword('');
+                      setConfirmPassword('');
                     }}
                     className="text-amber-400 hover:text-amber-300 text-[11px] font-semibold hover:underline"
                   >
@@ -205,16 +247,18 @@ export default function Login({ setActivePage }) {
           </>
         ) : (
           <>
-            {/* Forgot Password OTP Verification View */}
+            {/* 3-Step Forgot Password Flow */}
             <div className="text-center space-y-2">
               <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-500 to-emerald-600 text-slate-950 font-bold flex items-center justify-center text-2xl mx-auto shadow-lg shadow-emerald-500/20">
-                🔐
+                {forgotStep === 3 ? '🔐' : '📧'}
               </div>
-              <h2 className="text-xl font-extrabold text-white">পাসওয়ার্ড পুনর্নির্ধারণ (Reset Password)</h2>
+              <h2 className="text-xl font-extrabold text-white">
+                {forgotStep === 3 ? 'নতুন পাসওয়ার্ড সেট করুন' : 'পাসওয়ার্ড পুনর্নির্ধারণ (Reset Password)'}
+              </h2>
               <p className="text-xs text-slate-400">
-                {forgotStep === 1
-                  ? 'আপনার নিবন্ধিত ইমেইল বা ফোন নম্বর দিয়ে OTP কোড নিন'
-                  : '৬-ডিজিটের OTP ভেরিফিকেশন কোড ও নতুন পাসওয়ার্ড লিখুন'}
+                {forgotStep === 1 && 'আপনার নিবন্ধিত ইমেইল বা ফোন নম্বর দিয়ে OTP কোড নিন'}
+                {forgotStep === 2 && 'আপনার নিবন্ধিত ইমেইলে প্রেরিত ৬-ডিজিটের OTP কোডটি লিখুন'}
+                {forgotStep === 3 && 'আপনার নতুন পাসওয়ার্ড ও কনফার্ম পাসওয়ার্ড নিশ্চিত করুন'}
               </p>
             </div>
 
@@ -230,7 +274,7 @@ export default function Login({ setActivePage }) {
               </div>
             )}
 
-            {forgotStep === 1 ? (
+            {forgotStep === 1 && (
               <form onSubmit={handleRequestOtp} className="space-y-4 text-xs">
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
@@ -254,8 +298,10 @@ export default function Login({ setActivePage }) {
                   {loading ? 'OTP পাঠানো হচ্ছে...' : '📩 ইমেইলে OTP পাঠান (Send OTP Code)'}
                 </button>
               </form>
-            ) : (
-              <form onSubmit={handleVerifyOtpAndReset} className="space-y-4 text-xs">
+            )}
+
+            {forgotStep === 2 && (
+              <form onSubmit={handleVerifyOtp} className="space-y-4 text-xs">
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
                     ৬-ডিজিটের OTP কোড (Verification Code)
@@ -266,11 +312,23 @@ export default function Login({ setActivePage }) {
                     value={otp}
                     onChange={(e) => setOtp(e.target.value)}
                     placeholder="৬ ডিজিটের OTP কোড লিখুন"
-                    className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-emerald-400 font-mono font-bold text-center tracking-widest text-lg placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                    className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-emerald-400 font-mono font-bold text-center tracking-widest text-xl placeholder-slate-600 focus:outline-none focus:border-emerald-500"
                     required
                   />
                 </div>
 
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-extrabold text-sm shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.02]"
+                >
+                  {loading ? 'OTP যাচাই করা হচ্ছে...' : '✓ OTP কোড যাচাই করুন (Verify OTP)'}
+                </button>
+              </form>
+            )}
+
+            {forgotStep === 3 && (
+              <form onSubmit={handleResetPassword} className="space-y-4 text-xs">
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
                     নতুন পাসওয়ার্ড (New Password)
@@ -285,12 +343,26 @@ export default function Login({ setActivePage }) {
                   />
                 </div>
 
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    কনফার্ম পাসওয়ার্ড (Confirm Password)
+                  </label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="পাসওয়ার্ডটি পুনরায় লিখুন"
+                    className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                    required
+                  />
+                </div>
+
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-extrabold text-sm shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.02]"
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-lg shadow-amber-500/20 transition-all hover:scale-[1.02]"
                 >
-                  {loading ? 'যাচাই করা হচ্ছে...' : '✓ পাসওয়ার্ড পরিবর্তন ও লগইন'}
+                  {loading ? 'আপডেট করা হচ্ছে...' : '🔑 পাসওয়ার্ড নিশ্চিত করুন ও লগইন'}
                 </button>
               </form>
             )}
@@ -300,6 +372,7 @@ export default function Login({ setActivePage }) {
                 type="button"
                 onClick={() => {
                   setMode('login');
+                  setForgotStep(1);
                   setError(null);
                   setSuccessMsg(null);
                 }}
@@ -316,7 +389,7 @@ export default function Login({ setActivePage }) {
                     setError(null);
                     setSuccessMsg(null);
                   }}
-                  className="text-amber-400 hover:text-amber-300 font-bold"
+                  className="text-amber-400 hover:text-amber-300 font-bold hover:underline"
                 >
                   পুনরায় OTP পাঠান
                 </button>
