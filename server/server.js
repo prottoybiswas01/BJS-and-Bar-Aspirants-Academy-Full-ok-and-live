@@ -431,91 +431,49 @@ app.post("/api/admin/change-password", async (req, res) => {
 // 4. Courses & Lessons
 app.get("/api/courses", async (req, res) => {
   try {
-    if (memoryDb.courses && memoryDb.courses.length > 0) {
-      res.json({ ok: true, courses: memoryDb.courses });
-      if (isMongoConnected) {
-        Course.find().lean().then(c => { if (c && c.length) memoryDb.courses = c; }).catch(()=>{});
-      }
-      return;
-    }
     if (isMongoConnected) {
       const courses = await Course.find().lean();
-      memoryDb.courses = courses;
-      return res.json({ ok: true, courses });
+      memoryDb.courses = courses || [];
+      return res.json({ ok: true, courses: memoryDb.courses });
     }
   } catch (e) {}
-  res.json({ ok: true, courses: memoryDb.courses });
+  res.json({ ok: true, courses: memoryDb.courses || [] });
 });
 
 app.get("/api/lessons", async (req, res) => {
   try {
     const { courseId } = req.query;
-    if (memoryDb.lessons && memoryDb.lessons.length > 0) {
-      const filtered = courseId ? memoryDb.lessons.filter((l) => l.courseId === courseId) : memoryDb.lessons;
-      res.json({ ok: true, lessons: filtered });
-      if (isMongoConnected) {
-        const filter = courseId ? { courseId } : {};
-        Lesson.find(filter).sort({ createdAt: 1 }).lean().then(l => {
-          if (l && l.length) {
-            if (courseId) {
-              const other = memoryDb.lessons.filter(x => x.courseId !== courseId);
-              memoryDb.lessons = [...other, ...l];
-            } else {
-              memoryDb.lessons = l;
-            }
-          }
-        }).catch(()=>{});
-      }
-      return;
-    }
+    const filter = courseId ? { courseId } : {};
     if (isMongoConnected) {
-      const filter = courseId ? { courseId } : {};
       const lessons = await Lesson.find(filter).sort({ createdAt: 1 }).lean();
+      if (!courseId) memoryDb.lessons = lessons || [];
       return res.json({ ok: true, lessons });
     }
   } catch (e) {}
-  const filtered = req.query.courseId ? memoryDb.lessons.filter((l) => l.courseId === req.query.courseId) : memoryDb.lessons;
+  const filtered = req.query.courseId ? (memoryDb.lessons || []).filter((l) => l.courseId === req.query.courseId) : (memoryDb.lessons || []);
   res.json({ ok: true, lessons: filtered });
 });
 
 // 4.5 Mentors & Faculty Endpoints
 app.get("/api/mentors", async (req, res) => {
   try {
-    const active = memoryDb.mentors.filter(m => m.status === "Active");
-    if (active && active.length > 0) {
-      res.json({ ok: true, mentors: active });
-      if (isMongoConnected) {
-        Mentor.find({ status: "Active" }).sort({ createdAt: -1 }).lean().then(m => {
-          if (m && m.length) memoryDb.mentors = m;
-        }).catch(()=>{});
-      }
-      return;
-    }
     if (isMongoConnected) {
       const mentors = await Mentor.find({ status: "Active" }).sort({ createdAt: -1 }).lean();
       return res.json({ ok: true, mentors });
     }
   } catch (e) {}
-  res.json({ ok: true, mentors: memoryDb.mentors.filter(m => m.status === "Active") });
+  res.json({ ok: true, mentors: (memoryDb.mentors || []).filter(m => m.status === "Active") });
 });
 
 app.get("/api/admin/mentors", async (req, res) => {
   try {
-    if (memoryDb.mentors && memoryDb.mentors.length > 0) {
-      res.json({ ok: true, mentors: memoryDb.mentors });
-      if (isMongoConnected) {
-        Mentor.find().sort({ createdAt: -1 }).lean().then(m => {
-          if (m && m.length) memoryDb.mentors = m;
-        }).catch(()=>{});
-      }
-      return;
-    }
     if (isMongoConnected) {
       const mentors = await Mentor.find().sort({ createdAt: -1 }).lean();
-      return res.json({ ok: true, mentors });
+      memoryDb.mentors = mentors || [];
+      return res.json({ ok: true, mentors: memoryDb.mentors });
     }
   } catch (e) {}
-  res.json({ ok: true, mentors: memoryDb.mentors });
+  res.json({ ok: true, mentors: memoryDb.mentors || [] });
 });
 
 app.post("/api/admin/mentors/save", async (req, res) => {
@@ -875,42 +833,24 @@ app.post("/api/admin/mail-settings", async (req, res) => {
 
 app.get("/api/admin/students", async (req, res) => {
   try {
-    if (memoryDb.students && memoryDb.students.length > 0) {
-      res.json({ ok: true, students: memoryDb.students });
-      if (isMongoConnected) {
-        Student.find().sort({ createdAt: -1 }).lean().then(s => {
-          if (s && s.length) memoryDb.students = s;
-        }).catch(()=>{});
-      }
-      return;
-    }
     if (isMongoConnected) {
       const students = await Student.find().sort({ createdAt: -1 }).lean();
-      memoryDb.students = students;
-      return res.json({ ok: true, students });
+      memoryDb.students = students || [];
+      return res.json({ ok: true, students: memoryDb.students });
     }
   } catch (e) {}
-  res.json({ ok: true, students: memoryDb.students });
+  res.json({ ok: true, students: memoryDb.students || [] });
 });
 
 app.get("/api/admin/registrations", async (req, res) => {
   try {
-    if (memoryDb.registrations && memoryDb.registrations.length > 0) {
-      res.json({ ok: true, registrations: memoryDb.registrations });
-      if (isMongoConnected) {
-        Registration.find().sort({ createdAt: -1 }).lean().then(r => {
-          if (r && r.length) memoryDb.registrations = r;
-        }).catch(()=>{});
-      }
-      return;
-    }
     if (isMongoConnected) {
       const registrations = await Registration.find().sort({ createdAt: -1 }).lean();
-      memoryDb.registrations = registrations;
-      return res.json({ ok: true, registrations });
+      memoryDb.registrations = registrations || [];
+      return res.json({ ok: true, registrations: memoryDb.registrations });
     }
   } catch (e) {}
-  res.json({ ok: true, registrations: memoryDb.registrations });
+  res.json({ ok: true, registrations: memoryDb.registrations || [] });
 });
 
 app.post("/api/admin/students/save", async (req, res) => {

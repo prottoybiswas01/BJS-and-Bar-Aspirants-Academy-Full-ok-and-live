@@ -58,16 +58,19 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
 
   const handleDeleteLesson = async (id, title) => {
     if (!window.confirm(`Are you sure you want to delete video "${title || id}"?`)) return;
+    setLessons(prev => prev.filter(l => l.id !== id && l._id !== id));
     try {
       const res = await api.delete(`/admin/lessons/${id}`);
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message || 'Video deleted successfully!' });
+        setMsg({ type: 'success', text: res.data.message || '✓ Video deleted successfully from MongoDB!' });
         loadLessons();
       } else {
         setMsg({ type: 'error', text: res.data.message || 'Error deleting video.' });
+        loadLessons();
       }
     } catch (err) {
       setMsg({ type: 'error', text: 'Error deleting video.' });
+      loadLessons();
     }
   };
 
@@ -88,7 +91,18 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       });
 
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message || 'Video saved successfully!' });
+        const savedLesson = res.data.lesson || { ...form, title: finalTitle, courseId: targetCourseId, id: form.id || `les-${Date.now()}` };
+        setLessons(prev => {
+          const idx = prev.findIndex(l => l.id === savedLesson.id || (savedLesson._id && l._id === savedLesson._id));
+          if (idx > -1) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...savedLesson };
+            return updated;
+          }
+          return [savedLesson, ...prev];
+        });
+
+        setMsg({ type: 'success', text: res.data.message || '✓ Video saved successfully in MongoDB!' });
         setForm({
           id: '',
           module: form.module || 'Fast Class',

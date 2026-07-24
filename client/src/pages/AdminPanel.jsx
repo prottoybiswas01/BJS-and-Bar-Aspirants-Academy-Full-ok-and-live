@@ -37,7 +37,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     setMsg({ type, text });
     setTimeout(() => {
       setMsg((current) => (current?.text === text ? null : current));
-    }, 4000);
+    }, 4500);
   };
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
@@ -309,9 +309,21 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     try {
       const res = await api.post('/admin/mentors/save', mentorForm);
       if (res.data.ok) {
-        showToast(res.data.message || `Mentor "${mentorForm.name}" saved successfully!`, 'success');
+        const saved = res.data.mentor || { ...mentorForm, id: mentorForm.id || `MTR-${Date.now()}` };
+        setMentors(prev => {
+          const idx = prev.findIndex(m => m.id === saved.id);
+          if (idx > -1) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...saved };
+            return updated;
+          }
+          return [saved, ...prev];
+        });
+        showToast(res.data.message || `✓ Mentor "${mentorForm.name}" saved successfully in MongoDB!`, 'success');
         handleClearMentorForm();
         loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'Error saving mentor profile.', 'error');
       }
     } catch (err) {
       showToast('Error saving mentor profile.', 'error');
@@ -320,14 +332,19 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
 
   const handleDeleteMentor = async (id, name) => {
     if (!window.confirm(`Are you sure you want to delete mentor "${name}"?`)) return;
+    setMentors(prev => prev.filter(m => m.id !== id));
     try {
       const res = await api.delete(`/admin/mentors/${id}`);
       if (res.data.ok) {
-        showToast(`Mentor "${name}" deleted successfully!`, 'success');
+        showToast(`✓ Mentor "${name}" deleted successfully from system!`, 'success');
+        loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'Error deleting mentor.', 'error');
         loadAllAdminData();
       }
     } catch (err) {
       showToast('Error deleting mentor.', 'error');
+      loadAllAdminData();
     }
   };
 
@@ -401,10 +418,13 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     if (!window.confirm("⚠️ WARNING: Are you sure you want to delete ALL demo data (students, courses, lessons, registrations)? This will prepare the system for a 100% fresh Production environment!")) {
       return;
     }
+    setStudents([]);
+    setCourses([]);
+    setMentors([]);
     try {
       const res = await api.post('/admin/clear-all-demo-data');
       if (res.data.ok) {
-        showToast(res.data.message || 'All demo data wiped successfully! Ready for Production.', 'success');
+        showToast(res.data.message || '✓ All demo data wiped successfully! Ready for Production.', 'success');
         setIsEditorOpen(false);
         setSelectedStudentForRules(null);
         handleClearCourseForm();
@@ -412,6 +432,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       }
     } catch (err) {
       showToast('Error clearing demo data.', 'error');
+      loadAllAdminData();
     }
   };
 
@@ -425,8 +446,20 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     try {
       const res = await api.post('/admin/students/save', studentForm);
       if (res.data.ok) {
-        showToast(res.data.message || `Student profile for "${studentForm.name}" saved successfully!`, 'success');
+        const savedStudent = res.data.student || { ...studentForm, id: studentForm.id || `STU-${Date.now()}` };
+        setStudents(prev => {
+          const idx = prev.findIndex(s => s.id === savedStudent.id || (savedStudent._id && s._id === savedStudent._id));
+          if (idx > -1) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...savedStudent };
+            return updated;
+          }
+          return [savedStudent, ...prev];
+        });
+        showToast(res.data.message || `✓ Student profile for "${studentForm.name}" saved successfully in MongoDB!`, 'success');
         loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'Error saving student profile.', 'error');
       }
     } catch (err) {
       showToast('Error saving student profile.', 'error');
@@ -616,14 +649,19 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
 
   const handleDeleteStudent = async (id) => {
     if (!window.confirm(`Are you sure you want to delete student ${id}?`)) return;
+    setStudents(prev => prev.filter(s => s.id !== id && s._id !== id));
     try {
       const res = await api.delete(`/admin/students/${id}`);
       if (res.data.ok) {
-        showToast(res.data.message || `Student ${id} deleted successfully!`, 'success');
+        showToast(res.data.message || `✓ Student ${id} deleted successfully!`, 'success');
+        loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'Error deleting student.', 'error');
         loadAllAdminData();
       }
     } catch (err) {
       showToast('Error deleting student.', 'error');
+      loadAllAdminData();
     }
   };
 
@@ -723,7 +761,18 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     try {
       const res = await api.post('/admin/courses/save', courseForm);
       if (res.data.ok) {
-        showToast(res.data.message || `Course "${courseForm.title}" saved successfully!`, 'success');
+        const savedCourse = res.data.course || { ...courseForm, id: courseForm.id || `course-${Date.now()}` };
+        setCourses(prevCourses => {
+          const idx = prevCourses.findIndex(c => c.id === savedCourse.id);
+          if (idx > -1) {
+            const updated = [...prevCourses];
+            updated[idx] = { ...updated[idx], ...savedCourse };
+            return updated;
+          }
+          return [...prevCourses, savedCourse];
+        });
+
+        showToast(res.data.message || `✓ Course "${courseForm.title}" saved successfully in MongoDB!`, 'success');
         handleClearCourseForm();
         await loadAllAdminData();
       } else {
@@ -747,7 +796,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     try {
       const res = await api.post('/admin/courses/toggle', { courseId });
       if (res.data.ok) {
-        showToast(res.data.message || `Course "${target?.title || courseId}" is now ${newStatus}!`, 'success');
+        showToast(res.data.message || `✓ Course "${target?.title || courseId}" is now ${newStatus}!`, 'success');
       } else {
         showToast(res.data.message || 'Error toggling course status.', 'error');
         loadAllAdminData();
@@ -759,15 +808,20 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   };
 
   const handleDeleteCourse = async (courseId) => {
-    if (!window.confirm(`Delete course ${courseId}?`)) return;
+    if (!window.confirm(`Are you sure you want to delete course ${courseId}?`)) return;
+    setCourses(prevCourses => prevCourses.filter(c => c.id !== courseId));
     try {
       const res = await api.delete(`/admin/courses/${courseId}`);
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message });
+        showToast(res.data.message || '✓ Course deleted successfully from system & database!', 'success');
+        loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'Error deleting course.', 'error');
         loadAllAdminData();
       }
     } catch (err) {
-      setMsg({ type: 'error', text: 'Error deleting course.' });
+      showToast('Error deleting course.', 'error');
+      loadAllAdminData();
     }
   };
 
