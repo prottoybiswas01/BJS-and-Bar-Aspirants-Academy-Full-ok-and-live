@@ -855,9 +855,19 @@ app.post("/api/admin/students/save", async (req, res) => {
     if (isMongoConnected) {
       let student = await Student.findOne({ id: body.id });
       if (student) {
+        if (!body.password || !String(body.password).trim()) {
+          delete body.password;
+        } else if (!body.password.startsWith("$2a$") && !body.password.startsWith("$2b$")) {
+          body.password = await bcrypt.hash(body.password, 10);
+        }
         Object.assign(student, body);
         savedStudent = await student.save();
       } else {
+        if (!body.password || !String(body.password).trim()) {
+          body.password = await bcrypt.hash("123456", 10);
+        } else if (!body.password.startsWith("$2a$") && !body.password.startsWith("$2b$")) {
+          body.password = await bcrypt.hash(body.password, 10);
+        }
         savedStudent = await Student.create(body);
       }
       if (savedStudent && savedStudent.toObject) {
