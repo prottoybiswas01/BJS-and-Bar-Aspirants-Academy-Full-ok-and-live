@@ -18,7 +18,8 @@ function MainApp() {
   const { user } = useAuth();
   const [activePage, setActivePage] = useState(() => {
     const path = window.location.pathname.toLowerCase();
-    if (path === '/admin' || path === '/admin/' || path.endsWith('/admin')) {
+    const hash = window.location.hash.toLowerCase();
+    if (path === '/admin' || path === '/admin/' || path.endsWith('/admin') || hash === '#admin' || hash === '#/admin') {
       return 'admin';
     }
     return 'home';
@@ -27,13 +28,18 @@ function MainApp() {
   useEffect(() => {
     const handleUrlChange = () => {
       const path = window.location.pathname.toLowerCase();
-      if (path === '/admin' || path === '/admin/' || path.endsWith('/admin')) {
+      const hash = window.location.hash.toLowerCase();
+      if (path === '/admin' || path === '/admin/' || path.endsWith('/admin') || hash === '#admin' || hash === '#/admin') {
         setActivePage('admin');
       }
     };
     handleUrlChange();
     window.addEventListener('popstate', handleUrlChange);
-    return () => window.removeEventListener('popstate', handleUrlChange);
+    window.addEventListener('hashchange', handleUrlChange);
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleUrlChange);
+    };
   }, []);
 
   // Modals & Drawers State
