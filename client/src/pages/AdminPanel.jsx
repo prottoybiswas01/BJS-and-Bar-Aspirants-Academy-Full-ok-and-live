@@ -118,7 +118,31 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
 
   // Dynamic Admissions Overview Filters
   const [selectedCourseFilter, setSelectedCourseFilter] = useState('all');
-  const [selectedYearFilter, setSelectedYearFilter] = useState('2026');
+  const [selectedBatchFilter, setSelectedBatchFilter] = useState('all');
+
+  // Super Admin Password Form State
+  const [adminUsernameInput, setAdminUsernameInput] = useState('admin');
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+
+  const handleChangeAdminPassword = async (e) => {
+    e.preventDefault();
+    if (!adminPasswordInput) {
+      showToast('Please enter a new Admin Password.', 'error');
+      return;
+    }
+    try {
+      const res = await api.post('/admin/change-password', {
+        newAdminUsername: adminUsernameInput,
+        newAdminPassword: adminPasswordInput
+      });
+      if (res.data.ok) {
+        showToast(res.data.message || 'Super Admin Password updated successfully!', 'success');
+        setAdminPasswordInput('');
+      }
+    } catch (err) {
+      showToast('Failed to update Admin password.', 'error');
+    }
+  };
 
   // Dynamic Year Options (from student records + range)
   const availableYears = Array.from(new Set([
@@ -839,6 +863,56 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
             {msg.text}
           </div>
         )}
+
+      {/* 2.5 Super Admin Security & Password Control */}
+      <section className="glass-card rounded-2xl p-6 border border-amber-500/30 shadow-xl space-y-4 bg-slate-950/80">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-3 gap-2">
+          <div>
+            <span className="text-[10px] font-mono text-amber-400 font-bold uppercase tracking-wider">SUPER ADMIN AUTHENTICATION</span>
+            <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+              <span>🔐</span> সুপার এডমিন সিকিউরিটি ও পাসওয়ার্ড পাসকোড পরিবর্তন (Super Admin Password Control)
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              আপনিই একমাত্র সুপার এডমিন (Super Admin)। আপনার নিজস্ব এডমিন ইউজারনেম ও সিক্রেট পাসওয়ার্ড এখান থেকে সেট ও পরিবর্তন করুন।
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleChangeAdminPassword} className="grid grid-cols-1 sm:grid-cols-12 gap-4 text-xs">
+          <div className="sm:col-span-4">
+            <label className="block text-[10px] font-bold text-slate-400 mb-1">ADMIN USERNAME / ID (ইউজারনেম বা আইডি)</label>
+            <input
+              type="text"
+              placeholder="e.g. admin or 01978167016"
+              value={adminUsernameInput}
+              onChange={(e) => setAdminUsernameInput(e.target.value)}
+              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2.5 text-white font-medium focus:border-amber-500"
+              required
+            />
+          </div>
+
+          <div className="sm:col-span-5">
+            <label className="block text-[10px] font-bold text-slate-400 mb-1">NEW SUPER ADMIN PASSWORD (নতুন গোপন এডমিন পাসওয়ার্ড)</label>
+            <input
+              type="password"
+              placeholder="আপনার গোপন পাসওয়ার্ড লিখুন..."
+              value={adminPasswordInput}
+              onChange={(e) => setAdminPasswordInput(e.target.value)}
+              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2.5 text-white font-medium focus:border-amber-500 font-mono"
+              required
+            />
+          </div>
+
+          <div className="sm:col-span-3 flex items-end">
+            <button
+              type="submit"
+              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>🔑</span> পাসওয়ার্ড পরিবর্তন করুন
+            </button>
+          </div>
+        </form>
+      </section>
 
       {/* 2.5 Hero Banner Settings Section */}
       <section className="glass-card rounded-xl p-6 border border-amber-500/30 shadow-xl space-y-4 bg-slate-950/60 transition-all">

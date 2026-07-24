@@ -45,7 +45,9 @@ const memoryDb = {
   siteSettings: {
     badgeText: "১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!",
     heroTitle: "বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য",
-    heroSubtitle: "বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।"
+    heroSubtitle: "বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।",
+    adminUsername: "admin",
+    adminPassword: "admin123"
   }
 };
 
@@ -184,14 +186,33 @@ app.post("/api/auth/login", async (req, res) => {
   try {
     const { identifier, password, deviceId } = req.body;
 
-    // Admin Login
-    if ((identifier === "admin" || identifier === "01978167016_admin") && password === "admin123") {
+    let validAdminUser = memoryDb.siteSettings.adminUsername || "admin";
+    let validAdminPass = memoryDb.siteSettings.adminPassword || "admin123";
+
+    if (isMongoConnected) {
+      try {
+        const settings = await SiteSetting.findOne({ id: "default_settings" });
+        if (settings) {
+          if (settings.adminUsername) validAdminUser = settings.adminUsername;
+          if (settings.adminPassword) validAdminPass = settings.adminPassword;
+        }
+      } catch (e) {}
+    }
+
+    const cleanId = String(identifier || "").trim().toLowerCase();
+    if (
+      (cleanId === validAdminUser.toLowerCase() ||
+       cleanId === "admin" ||
+       cleanId === "01978167016_admin" ||
+       cleanId === "bjsacademy38@gmail.com") &&
+      password === validAdminPass
+    ) {
       const token = jwt.sign({ role: "admin", id: "ADMIN-001" }, JWT_SECRET, { expiresIn: "7d" });
       return res.json({
         ok: true,
         isAdmin: true,
         token,
-        user: { id: "ADMIN-001", name: "Academy Admin", role: "admin" }
+        user: { id: "ADMIN-001", name: "Super Admin (Prottoy)", role: "admin" }
       });
     }
 
@@ -297,6 +318,38 @@ app.post("/api/admin/site-settings", async (req, res) => {
     res.json({ ok: true, message: "হিরো ব্যানার কন্ট্রোল সফলভাবে আপডেট করা হয়েছে!", settings: memoryDb.siteSettings });
   } catch (error) {
     res.status(500).json({ ok: false, message: "Error updating site settings" });
+  }
+});
+
+// 3.7 Super Admin Change Password Endpoint
+app.post("/api/admin/change-password", async (req, res) => {
+  try {
+    const { newAdminUsername, newAdminPassword } = req.body;
+    if (!newAdminPassword) {
+      return res.status(400).json({ ok: false, message: "Please enter a new Admin Password." });
+    }
+
+    const uname = newAdminUsername ? String(newAdminUsername).trim() : (memoryDb.siteSettings.adminUsername || "admin");
+    const upass = String(newAdminPassword).trim();
+
+    memoryDb.siteSettings.adminUsername = uname;
+    memoryDb.siteSettings.adminPassword = upass;
+
+    if (isMongoConnected) {
+      await SiteSetting.findOneAndUpdate(
+        { id: "default_settings" },
+        { adminUsername: uname, adminPassword: upass },
+        { upsert: true, new: true }
+      );
+    }
+
+    return res.json({
+      ok: true,
+      message: `Super Admin Password updated successfully! Admin Username: "${uname}"`,
+      adminUsername: uname
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error updating Super Admin password." });
   }
 });
 
