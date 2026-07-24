@@ -37,8 +37,9 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
 
-  // Selected Active Student for Per-Course Access Rules Panel
+  // Selected Active Student for Per-Course Access Rules Panel & Editor Toggle
   const [selectedStudentForRules, setSelectedStudentForRules] = useState(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [activeRuleCourseId, setActiveRuleCourseId] = useState('civil-laws-intensive');
 
   const [perCourseRule, setPerCourseRule] = useState({
@@ -203,9 +204,6 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       if (statsRes.data.ok) setStats(statsRes.data);
       if (studentsRes.data.ok) {
         setStudents(studentsRes.data.students);
-        if (studentsRes.data.students.length > 0) {
-          setSelectedStudentForRules(studentsRes.data.students[0]);
-        }
       }
       if (coursesRes.data.ok) setCourses(coursesRes.data.courses);
       if (mailRes.data.ok) setMailSettings(mailRes.data.settings);
@@ -303,8 +301,34 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     }
   };
 
+  const selectCourseForRuleConfig = (courseId, studentObj = selectedStudentForRules) => {
+    setActiveRuleCourseId(courseId);
+    const targetStudent = studentObj || students[0];
+    if (targetStudent && targetStudent.courseRules && targetStudent.courseRules.length > 0) {
+      const existingRule = targetStudent.courseRules.find((r) => r.courseId === courseId);
+      if (existingRule) {
+        setPerCourseRule(existingRule);
+        return;
+      }
+    }
+    // Default template for newly selected course
+    setPerCourseRule({
+      courseId: courseId,
+      unlimitedAccess: false,
+      accessStartDate: '2026-04-01',
+      accessEndDate: '2026-06-30',
+      videoAccessUntil: '2026-06-30',
+      lastPaymentDate: '2026-04-01',
+      paymentDueDate: '2026-06-30',
+      monthlyFee: '1000',
+      enrollmentStatus: 'Active',
+      paidMonths: '2026-04'
+    });
+  };
+
   const handleEditStudent = (s) => {
     setSelectedStudentForRules(s);
+    setIsEditorOpen(true);
     setStudentForm({
       id: s.id,
       name: s.name,
@@ -321,11 +345,48 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       allowedCourseIds: s.allowedCourseIds || s.enrolledCourseIds || []
     });
 
-    // Check existing course rule
-    if (s.courseRules && s.courseRules.length > 0) {
-      const foundRule = s.courseRules.find((r) => r.courseId === activeRuleCourseId) || s.courseRules[0];
-      setPerCourseRule(foundRule);
-    }
+    const initialCourseId = (s.allowedCourseIds && s.allowedCourseIds.length > 0)
+      ? s.allowedCourseIds[0]
+      : (courses[0]?.id || 'civil-laws-intensive');
+
+    selectCourseForRuleConfig(initialCourseId, s);
+
+    setTimeout(() => {
+      document.getElementById('student-editor-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  };
+
+  const handleCreateNewStudent = () => {
+    const newStudent = {
+      id: '',
+      name: '',
+      phone: '',
+      email: '',
+      batch: 'Wed,Sat',
+      session: '2026-04-01',
+      password: '',
+      maxDeviceCount: 2,
+      status: 'Active',
+      loginApproval: 'Approved',
+      portalAccessMode: 'Full Video Access',
+      highlight: '',
+      allowedCourseIds: []
+    };
+    setSelectedStudentForRules(newStudent);
+    setStudentForm(newStudent);
+    setIsEditorOpen(true);
+
+    const initialCourseId = courses[0]?.id || 'civil-laws-intensive';
+    selectCourseForRuleConfig(initialCourseId, newStudent);
+
+    setTimeout(() => {
+      document.getElementById('student-editor-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  };
+
+  const handleCloseEditor = () => {
+    setIsEditorOpen(false);
+    setSelectedStudentForRules(null);
   };
 
   const handleSaveCourseAccessRules = async () => {
@@ -335,16 +396,39 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     }
 
     try {
+      const ruleToSave = {
+        ...perCourseRule,
+        courseId: activeRuleCourseId
+      };
+
       const res = await api.post('/admin/students/course-rules', {
         studentId: selectedStudentForRules.id,
-        courseRule: {
-          ...perCourseRule,
-          courseId: activeRuleCourseId
-        }
+        courseRule: ruleToSave
       });
 
+      const updatedAllowedCourses = Array.from(new Set([
+        ...(studentForm.allowedCourseIds || []),
+        activeRuleCourseId
+      ]));
+      setStudentForm(prev => ({ ...prev, allowedCourseIds: updatedAllowedCourses }));
+
+      const updatedStudent = {
+        ...selectedStudentForRules,
+        allowedCourseIds: updatedAllowedCourses
+      };
+
+      let rulesCopy = [...(selectedStudentForRules.courseRules || [])];
+      const idx = rulesCopy.findIndex(r => r.courseId === activeRuleCourseId);
+      if (idx > -1) rulesCopy[idx] = ruleToSave;
+      else rulesCopy.push(ruleToSave);
+      updatedStudent.courseRules = rulesCopy;
+      setSelectedStudentForRules(updatedStudent);
+
+      await api.post('/admin/students/save', updatedStudent);
+
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message });
+        const courseTitle = courses.find(c => c.id === activeRuleCourseId)?.title || activeRuleCourseId;
+        setMsg({ type: 'success', text: `Rules for course "${courseTitle}" saved successfully!` });
         loadAllAdminData();
       }
     } catch (err) {
@@ -706,24 +790,10 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
               className="rounded-xl bg-slate-950 border border-slate-800 px-3 py-1.5 text-white placeholder-slate-500"
             />
             <button
-              onClick={() => setStudentForm({
-                id: '',
-                name: '',
-                phone: '',
-                email: '',
-                batch: 'Wed,Sat',
-                session: '2026-04-01',
-                password: '',
-                maxDeviceCount: 2,
-                status: 'Active',
-                loginApproval: 'Approved',
-                portalAccessMode: 'Full Video Access',
-                highlight: '',
-                allowedCourseIds: []
-              })}
-              className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold"
+              onClick={handleCreateNewStudent}
+              className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-all shadow-md"
             >
-              New Student
+              + New Student
             </button>
           </div>
         </div>
@@ -834,370 +904,415 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       </section>
 
       {/* 4. Editor & Selected Students PER COURSE RULE Engine Panel (Reference Screenshot 2 Sync) */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Student Profile Form (Left Card) */}
-        <form onSubmit={handleSaveStudent} className="lg:col-span-5 glass-card rounded-xl p-6 border border-slate-800 space-y-3 text-xs">
-          <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-            <div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase">EDITOR</span>
-              <h3 className="font-extrabold text-white text-sm">Student Profile Form</h3>
-            </div>
-            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold">
-              {studentForm.id || 'STU-2026-020'}
-            </span>
-          </div>
-
-          <div className="space-y-2.5">
-            <div>
-              <label className="block text-slate-400 text-[10px] font-bold mb-1">STUDENT FULL NAME</label>
-              <input
-                type="text"
-                placeholder="Student name (e.g. Srity)"
-                value={studentForm.name}
-                onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
-                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-medium"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-400 text-[10px] font-bold mb-1">PHONE NUMBER</label>
-              <input
-                type="text"
-                placeholder="Phone Number (e.g. 01781920154)"
-                value={studentForm.phone}
-                onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
-                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-400 text-[10px] font-bold mb-1">EMAIL ADDRESS</label>
-              <input
-                type="email"
-                placeholder="Email Address (e.g. sritypaul294@gmail.com)"
-                value={studentForm.email}
-                onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
-                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
-                required
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-slate-400 text-[10px] font-bold mb-1">BATCH</label>
-                <input
-                  type="text"
-                  placeholder="Batch (e.g. Wed,Sat)"
-                  value={studentForm.batch}
-                  onChange={(e) => setStudentForm({ ...studentForm, batch: e.target.value })}
-                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
-                />
+      <section id="student-editor-section" className="transition-all duration-300">
+        {isEditorOpen && selectedStudentForRules ? (
+          <div className="space-y-4 animate-fadeIn">
+            {/* Top Bar for Editor Section with Close Button */}
+            <div className="flex justify-between items-center bg-slate-950 p-4 rounded-2xl border border-amber-500/30 shadow-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold flex items-center justify-center text-lg shadow-md">
+                  ✏️
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
+                    <span>স্টুডেন্ট এডিটর ও কোর্স রুলস</span>
+                    <span className="text-amber-300">({selectedStudentForRules.name || 'New Student'})</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400 font-mono">
+                    ID: {selectedStudentForRules.id || 'STU-NEW'} • Phone: {selectedStudentForRules.phone || 'N/A'} • Email: {selectedStudentForRules.email || 'N/A'}
+                  </p>
+                </div>
               </div>
-              <div>
-                <label className="block text-slate-400 text-[10px] font-bold mb-1">SESSION</label>
-                <input
-                  type="text"
-                  placeholder="Session (e.g. 2026-04-01)"
-                  value={studentForm.session}
-                  onChange={(e) => setStudentForm({ ...studentForm, session: e.target.value })}
-                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
-                />
-              </div>
+              <button
+                type="button"
+                onClick={handleCloseEditor}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700 shadow-md flex items-center gap-1.5"
+              >
+                <span>✕</span> এডিটর বন্ধ করুন (Close Editor)
+              </button>
             </div>
 
-            <div>
-              <label className="block text-slate-400 text-[10px] font-bold mb-1">PASSWORD (PROTECTED)</label>
-              <input
-                type="password"
-                placeholder="•••••••• (Leave blank to keep current password)"
-                value={studentForm.password}
-                onChange={(e) => setStudentForm({ ...studentForm, password: e.target.value })}
-                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
-              />
-              <span className="text-[9px] text-slate-500 block mt-0.5">Password is encrypted & hidden for security.</span>
-            </div>
-          </div>
-
-          {/* Custom Device Limit */}
-          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
-            <span className="text-[10px] text-slate-400 font-bold uppercase">DEVICE LIMIT</span>
-            <input
-              type="number"
-              placeholder="2"
-              value={studentForm.maxDeviceCount}
-              onChange={(e) => setStudentForm({ ...studentForm, maxDeviceCount: e.target.value })}
-              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white font-mono"
-            />
-            <p className="text-[10px] text-slate-500">All students default to 2 devices. Set custom only when overriding.</p>
-          </div>
-
-          {/* Admin Note / Highlight */}
-          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
-            <span className="text-[10px] text-slate-400 font-bold uppercase">ADMIN NOTE / HIGHLIGHT</span>
-            <textarea
-              placeholder="Add admin note for this student..."
-              value={studentForm.highlight}
-              onChange={(e) => setStudentForm({ ...studentForm, highlight: e.target.value })}
-              rows="2"
-              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-slate-200 text-xs"
-            ></textarea>
-          </div>
-
-          <button type="submit" className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all">
-            💾 Save Student Profile
-          </button>
-        </form>
-
-        {/* Course Assignment + Messaging & PER COURSE RULE Panel (Screenshot 2 Sync) */}
-        <div className="lg:col-span-7 glass-card rounded-xl p-6 border border-slate-800 space-y-4 text-xs">
-          <div className="border-b border-slate-800 pb-2 flex justify-between items-center">
-            <div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase">SELECTED STUDENT MANAGEMENT</span>
-              <h3 className="font-extrabold text-white text-sm">Course Assignment & Access Rules</h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                Managing <strong className="text-amber-300">{selectedStudentForRules?.name || 'Srity'}</strong> ({selectedStudentForRules?.id || 'STU-2026-001'}).
-              </p>
-            </div>
-            <span className="px-2.5 py-1 rounded bg-slate-800 text-amber-400 font-mono font-bold text-[10px]">
-              1 selected
-            </span>
-          </div>
-
-          {/* Assign Courses */}
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">ASSIGN COURSES (SELECT COURSES FOR STUDENT)</span>
-              <span className="text-[10px] text-amber-400 font-mono font-bold">
-                {(studentForm.allowedCourseIds || []).length} Course(s) Granted Access
-              </span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-              {courses.map((c) => {
-                const isAssigned = (studentForm.allowedCourseIds || []).includes(c.id);
-                const isSelectedRule = activeRuleCourseId === c.id;
-                return (
-                  <div
-                    key={c.id}
-                    onClick={() => setActiveRuleCourseId(c.id)}
-                    className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-all cursor-pointer ${
-                      isSelectedRule
-                        ? 'bg-amber-500/15 border-amber-500 text-white shadow-lg'
-                        : isAssigned
-                        ? 'bg-slate-900 border-slate-700 text-slate-200'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                    }`}
-                  >
-                    <label className="flex items-center gap-2 cursor-pointer flex-1" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={isAssigned}
-                        onChange={(e) => {
-                          let list = studentForm.allowedCourseIds || [];
-                          if (e.target.checked) list = [...list, c.id];
-                          else list = list.filter((i) => i !== c.id);
-                          setStudentForm({ ...studentForm, allowedCourseIds: list });
-                          if (selectedStudentForRules) {
-                            setSelectedStudentForRules({ ...selectedStudentForRules, allowedCourseIds: list });
-                          }
-                        }}
-                        className="rounded bg-slate-900 border-slate-700 text-amber-500 w-4 h-4"
-                      />
-                      <div>
-                        <p className="font-bold text-white line-clamp-1">{c.title}</p>
-                        <p className="text-[9px] font-mono text-slate-400">{c.category || 'COURSE'} • {c.faculty}</p>
-                      </div>
-                    </label>
-                    {isSelectedRule && (
-                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[9px] font-bold border border-amber-500/30 shrink-0">
-                        RULE ACTIVE
-                      </span>
-                    )}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Student Profile Form (Left Card) */}
+              <form onSubmit={handleSaveStudent} className="lg:col-span-5 glass-card rounded-xl p-6 border border-slate-800 space-y-3 text-xs">
+                <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                  <div>
+                    <span className="text-[10px] font-mono text-slate-400 uppercase">EDITOR</span>
+                    <h3 className="font-extrabold text-white text-sm">Student Profile Form</h3>
                   </div>
-                );
-              })}
+                  <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold">
+                    {studentForm.id || 'STU-2026-020'}
+                  </span>
+                </div>
+
+                <div className="space-y-2.5">
+                  <div>
+                    <label className="block text-slate-400 text-[10px] font-bold mb-1">STUDENT FULL NAME</label>
+                    <input
+                      type="text"
+                      placeholder="Student name (e.g. Srity)"
+                      value={studentForm.name}
+                      onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-medium"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 text-[10px] font-bold mb-1">PHONE NUMBER</label>
+                    <input
+                      type="text"
+                      placeholder="Phone Number (e.g. 01781920154)"
+                      value={studentForm.phone}
+                      onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 text-[10px] font-bold mb-1">EMAIL ADDRESS</label>
+                    <input
+                      type="email"
+                      placeholder="Email Address (e.g. sritypaul294@gmail.com)"
+                      value={studentForm.email}
+                      onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-slate-400 text-[10px] font-bold mb-1">BATCH</label>
+                      <input
+                        type="text"
+                        placeholder="Batch (e.g. Wed,Sat)"
+                        value={studentForm.batch}
+                        onChange={(e) => setStudentForm({ ...studentForm, batch: e.target.value })}
+                        className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 text-[10px] font-bold mb-1">SESSION</label>
+                      <input
+                        type="text"
+                        placeholder="Session (e.g. 2026-04-01)"
+                        value={studentForm.session}
+                        onChange={(e) => setStudentForm({ ...studentForm, session: e.target.value })}
+                        className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 text-[10px] font-bold mb-1">PASSWORD (PROTECTED)</label>
+                    <input
+                      type="password"
+                      placeholder="•••••••• (Leave blank to keep current password)"
+                      value={studentForm.password}
+                      onChange={(e) => setStudentForm({ ...studentForm, password: e.target.value })}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
+                    />
+                    <span className="text-[9px] text-slate-500 block mt-0.5">Password is encrypted & hidden for security.</span>
+                  </div>
+                </div>
+
+                {/* Custom Device Limit */}
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">DEVICE LIMIT</span>
+                  <input
+                    type="number"
+                    placeholder="2"
+                    value={studentForm.maxDeviceCount}
+                    onChange={(e) => setStudentForm({ ...studentForm, maxDeviceCount: e.target.value })}
+                    className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white font-mono"
+                  />
+                  <p className="text-[10px] text-slate-500">All students default to 2 devices. Set custom only when overriding.</p>
+                </div>
+
+                {/* Admin Note / Highlight */}
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">ADMIN NOTE / HIGHLIGHT</span>
+                  <textarea
+                    placeholder="Add admin note for this student..."
+                    value={studentForm.highlight}
+                    onChange={(e) => setStudentForm({ ...studentForm, highlight: e.target.value })}
+                    rows="2"
+                    className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-slate-200 text-xs"
+                  ></textarea>
+                </div>
+
+                <button type="submit" className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all">
+                  💾 Save Student Profile
+                </button>
+              </form>
+
+              {/* Course Assignment + Messaging & PER COURSE RULE Panel (Screenshot 2 Sync) */}
+              <div className="lg:col-span-7 glass-card rounded-xl p-6 border border-slate-800 space-y-4 text-xs">
+                <div className="border-b border-slate-800 pb-2 flex justify-between items-center">
+                  <div>
+                    <span className="text-[10px] font-mono text-slate-400 uppercase">SELECTED STUDENT MANAGEMENT</span>
+                    <h3 className="font-extrabold text-white text-sm">Course Assignment & Access Rules</h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Managing <strong className="text-amber-300">{selectedStudentForRules?.name || 'Srity'}</strong> ({selectedStudentForRules?.id || 'STU-2026-001'}).
+                    </p>
+                  </div>
+                  <span className="px-2.5 py-1 rounded bg-slate-800 text-amber-400 font-mono font-bold text-[10px]">
+                    1 selected
+                  </span>
+                </div>
+
+                {/* Assign Courses */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">ASSIGN COURSES (SELECT COURSES FOR STUDENT)</span>
+                    <span className="text-[10px] text-amber-400 font-mono font-bold">
+                      {(studentForm.allowedCourseIds || []).length} Course(s) Granted Access
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                    {courses.map((c) => {
+                      const isAssigned = (studentForm.allowedCourseIds || []).includes(c.id);
+                      const isSelectedRule = activeRuleCourseId === c.id;
+                      return (
+                        <div
+                          key={c.id}
+                          onClick={() => selectCourseForRuleConfig(c.id)}
+                          className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                            isSelectedRule
+                              ? 'bg-amber-500/15 border-amber-500 text-white shadow-lg ring-1 ring-amber-500/50'
+                              : isAssigned
+                              ? 'bg-slate-900 border-slate-700 text-slate-200 hover:border-amber-500/50'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                          }`}
+                        >
+                          <label className="flex items-center gap-2 cursor-pointer flex-1" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isAssigned}
+                              onChange={(e) => {
+                                let list = studentForm.allowedCourseIds || [];
+                                if (e.target.checked) list = [...list, c.id];
+                                else list = list.filter((i) => i !== c.id);
+                                setStudentForm({ ...studentForm, allowedCourseIds: list });
+                                if (selectedStudentForRules) {
+                                  setSelectedStudentForRules({ ...selectedStudentForRules, allowedCourseIds: list });
+                                }
+                              }}
+                              className="rounded bg-slate-900 border-slate-700 text-amber-500 w-4 h-4"
+                            />
+                            <div>
+                              <p className="font-bold text-white line-clamp-1">{c.title}</p>
+                              <p className="text-[9px] font-mono text-slate-400">{c.category || 'COURSE'} • {c.faculty}</p>
+                            </div>
+                          </label>
+                          {isSelectedRule && (
+                            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[9px] font-extrabold border border-amber-500/40 shrink-0">
+                              ⚙️ CONFIGURING
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* PER COURSE RULE CARD */}
+                <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
+                  <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                    <div>
+                      <span className="text-[10px] font-mono text-amber-400 uppercase font-bold">COURSE ACCESS RULES FOR SELECTED COURSE</span>
+                      <h4 className="font-extrabold text-white text-base mt-0.5 flex items-center gap-2">
+                        <span>📖</span> {courses.find(c => c.id === activeRuleCourseId)?.title || activeRuleCourseId}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-mono">
+                        Course ID: {activeRuleCourseId} | Student: {selectedStudentForRules?.name || 'Srity'} | Batch: {selectedStudentForRules?.batch || 'Wed,Sat'}
+                      </p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded bg-amber-500/10 text-amber-300 font-mono text-[9px] uppercase font-extrabold border border-amber-500/30">
+                      PER-COURSE CONTROL
+                    </span>
+                  </div>
+
+                  {/* Unlimited Access Yellow Toggle Card */}
+                  <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <h5 className="font-extrabold text-amber-300 text-xs">Unlimited Access</h5>
+                      <p className="text-[10px] text-amber-100/70 leading-relaxed max-w-sm">
+                        Turn this on to keep the course unlocked for life. Start and end dates stay visible for reference, but access and payment deadlines stop locking videos until you switch this off.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setPerCourseRule({ ...perCourseRule, unlimitedAccess: !perCourseRule.unlimitedAccess })}
+                      className={`px-4 py-2 rounded-xl text-xs font-black shadow-md transition-all ${
+                        perCourseRule.unlimitedAccess
+                          ? 'bg-amber-400 text-slate-950 shadow-amber-400/20'
+                          : 'bg-slate-900 text-amber-400 border border-amber-500/40'
+                      }`}
+                    >
+                      {perCourseRule.unlimitedAccess ? 'Unlimited ON' : 'Unlimited OFF'}
+                    </button>
+                  </div>
+
+                  {/* 6 Date & Fee Fields Matrix */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Access Start Date</label>
+                      <input
+                        type="date"
+                        value={perCourseRule.accessStartDate}
+                        onChange={(e) => setPerCourseRule({ ...perCourseRule, accessStartDate: e.target.value })}
+                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Access End Date</label>
+                      <input
+                        type="date"
+                        value={perCourseRule.accessEndDate}
+                        onChange={(e) => setPerCourseRule({ ...perCourseRule, accessEndDate: e.target.value })}
+                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Video Access Until</label>
+                      <input
+                        type="date"
+                        value={perCourseRule.videoAccessUntil}
+                        onChange={(e) => setPerCourseRule({ ...perCourseRule, videoAccessUntil: e.target.value })}
+                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Last Payment Date</label>
+                      <input
+                        type="date"
+                        value={perCourseRule.lastPaymentDate}
+                        onChange={(e) => setPerCourseRule({ ...perCourseRule, lastPaymentDate: e.target.value })}
+                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Payment Due Date</label>
+                      <input
+                        type="date"
+                        value={perCourseRule.paymentDueDate}
+                        onChange={(e) => setPerCourseRule({ ...perCourseRule, paymentDueDate: e.target.value })}
+                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Monthly Fee</label>
+                      <input
+                        type="text"
+                        value={perCourseRule.monthlyFee}
+                        onChange={(e) => setPerCourseRule({ ...perCourseRule, monthlyFee: e.target.value })}
+                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-amber-300 font-mono font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Enrollment Status</label>
+                      <select
+                        value={perCourseRule.enrollmentStatus}
+                        onChange={(e) => setPerCourseRule({ ...perCourseRule, enrollmentStatus: e.target.value })}
+                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white"
+                      >
+                        <option value="Active">Active</option>
+                        <option value="Expired">Expired</option>
+                        <option value="Suspended">Suspended</option>
+                      </select>
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-slate-400 font-medium mb-1 text-[10px]">Paid Months</label>
+                      <input
+                        type="text"
+                        value={perCourseRule.paidMonths}
+                        onChange={(e) => setPerCourseRule({ ...perCourseRule, paidMonths: e.target.value })}
+                        placeholder="e.g. 2026-04, 2026-05"
+                        className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex justify-start">
+                    <button
+                      type="button"
+                      onClick={handleSaveCourseAccessRules}
+                      className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs shadow-lg shadow-blue-600/20 transition-all"
+                    >
+                      Save Course Access
+                    </button>
+                  </div>
+                </div>
+
+                {/* Send Student Popup Message & Direct Email */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">SEND POPUP MESSAGE</span>
+                    <input
+                      type="text"
+                      placeholder="Message title"
+                      value={popupTitle}
+                      onChange={(e) => setPopupTitle(e.target.value)}
+                      className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
+                    />
+                    <textarea
+                      placeholder="Write message for student popup..."
+                      value={popupBody}
+                      onChange={(e) => setPopupBody(e.target.value)}
+                      rows="2"
+                      className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
+                    ></textarea>
+                    <button type="button" onClick={handleSendPopupMessage} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs">
+                      Send Popup
+                    </button>
+                  </div>
+
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">SEND DIRECT EMAIL</span>
+                    <input
+                      type="text"
+                      placeholder="Email subject"
+                      value={emailSubject}
+                      onChange={(e) => setEmailSubject(e.target.value)}
+                      className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
+                    />
+                    <textarea
+                      placeholder="Write email message..."
+                      value={emailBody}
+                      onChange={(e) => setEmailBody(e.target.value)}
+                      rows="2"
+                      className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
+                    ></textarea>
+                    <button type="button" onClick={handleSendDirectEmail} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs">
+                      Send Email
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-
-          {/* PER COURSE RULE CARD (Screenshot 2 Yellow Unlimited Switch Card) */}
-          <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-              <div>
-                <span className="text-[10px] font-mono text-amber-400 uppercase font-bold">COURSE ACCESS RULES</span>
-                <h4 className="font-extrabold text-white text-base mt-0.5">{activeRuleCourseId}</h4>
-                <p className="text-[10px] text-slate-500">Civil Law | Batch: Wed,Sat | Session: 2026-04-01</p>
-              </div>
-              <span className="px-2 py-0.5 rounded bg-slate-900 text-slate-400 font-mono text-[9px] uppercase font-bold border border-slate-800">
-                PER COURSE RULE
-              </span>
+        ) : (
+          <div className="p-6 rounded-2xl bg-slate-950/40 border border-slate-800/80 text-center space-y-2">
+            <div className="w-10 h-10 rounded-full bg-slate-900 border border-slate-800 text-slate-400 flex items-center justify-center mx-auto text-base">
+              🔒
             </div>
-
-            {/* Unlimited Access Yellow Toggle Card */}
-            <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 flex items-center justify-between gap-4">
-              <div className="space-y-1">
-                <h5 className="font-extrabold text-amber-300 text-xs">Unlimited Access</h5>
-                <p className="text-[10px] text-amber-100/70 leading-relaxed max-w-sm">
-                  Turn this on to keep the course unlocked for life. Start and end dates stay visible for reference, but access and payment deadlines stop locking videos until you switch this off.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setPerCourseRule({ ...perCourseRule, unlimitedAccess: !perCourseRule.unlimitedAccess })}
-                className={`px-4 py-2 rounded-xl text-xs font-black shadow-md transition-all ${
-                  perCourseRule.unlimitedAccess
-                    ? 'bg-amber-400 text-slate-950 shadow-amber-400/20'
-                    : 'bg-slate-900 text-amber-400 border border-amber-500/40'
-                }`}
-              >
-                {perCourseRule.unlimitedAccess ? 'Unlimited ON' : 'Unlimited OFF'}
-              </button>
-            </div>
-
-            {/* 6 Date & Fee Fields Matrix */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-              <div>
-                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Access Start Date</label>
-                <input
-                  type="date"
-                  value={perCourseRule.accessStartDate}
-                  onChange={(e) => setPerCourseRule({ ...perCourseRule, accessStartDate: e.target.value })}
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Access End Date</label>
-                <input
-                  type="date"
-                  value={perCourseRule.accessEndDate}
-                  onChange={(e) => setPerCourseRule({ ...perCourseRule, accessEndDate: e.target.value })}
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Video Access Until</label>
-                <input
-                  type="date"
-                  value={perCourseRule.videoAccessUntil}
-                  onChange={(e) => setPerCourseRule({ ...perCourseRule, videoAccessUntil: e.target.value })}
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Last Payment Date</label>
-                <input
-                  type="date"
-                  value={perCourseRule.lastPaymentDate}
-                  onChange={(e) => setPerCourseRule({ ...perCourseRule, lastPaymentDate: e.target.value })}
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Payment Due Date</label>
-                <input
-                  type="date"
-                  value={perCourseRule.paymentDueDate}
-                  onChange={(e) => setPerCourseRule({ ...perCourseRule, paymentDueDate: e.target.value })}
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Monthly Fee</label>
-                <input
-                  type="text"
-                  value={perCourseRule.monthlyFee}
-                  onChange={(e) => setPerCourseRule({ ...perCourseRule, monthlyFee: e.target.value })}
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-amber-300 font-mono font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Enrollment Status</label>
-                <select
-                  value={perCourseRule.enrollmentStatus}
-                  onChange={(e) => setPerCourseRule({ ...perCourseRule, enrollmentStatus: e.target.value })}
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white"
-                >
-                  <option value="Active">Active</option>
-                  <option value="Expired">Expired</option>
-                  <option value="Suspended">Suspended</option>
-                </select>
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-slate-400 font-medium mb-1 text-[10px]">Paid Months</label>
-                <input
-                  type="text"
-                  value={perCourseRule.paidMonths}
-                  onChange={(e) => setPerCourseRule({ ...perCourseRule, paidMonths: e.target.value })}
-                  placeholder="e.g. 2026-04, 2026-05"
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-start">
-              <button
-                type="button"
-                onClick={handleSaveCourseAccessRules}
-                className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs shadow-lg shadow-blue-600/20 transition-all"
-              >
-                Save Course Access
-              </button>
-            </div>
+            <h4 className="font-bold text-slate-300 text-sm">স্টুডেন্ট প্রোফাইল এডিটর ও কোর্স এক্সেস রুলস নিষ্ক্রিয় (Editor Hidden)</h4>
+            <p className="text-xs text-slate-500 max-w-lg mx-auto leading-relaxed">
+              যেকোনো নির্দিষ্ট স্টুডেন্টের প্রোফাইল এডিটিং এবং কোর্স সময়সীমা কনফিগার করার জন্য উপরের তালিকা থেকে স্টুডেন্টের পাশে <strong>✏️ Edit Rules</strong> বাটনে ক্লিক করুন।
+            </p>
           </div>
-
-          {/* Send Student Popup Message & Direct Email */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
-              <span className="text-[10px] text-slate-400 font-bold uppercase">SEND POPUP MESSAGE</span>
-              <input
-                type="text"
-                placeholder="Message title"
-                value={popupTitle}
-                onChange={(e) => setPopupTitle(e.target.value)}
-                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-              />
-              <textarea
-                placeholder="Write message for student popup..."
-                value={popupBody}
-                onChange={(e) => setPopupBody(e.target.value)}
-                rows="2"
-                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-              ></textarea>
-              <button type="button" onClick={handleSendPopupMessage} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs">
-                Send Popup
-              </button>
-            </div>
-
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
-              <span className="text-[10px] text-slate-400 font-bold uppercase">SEND DIRECT EMAIL</span>
-              <input
-                type="text"
-                placeholder="Email subject"
-                value={emailSubject}
-                onChange={(e) => setEmailSubject(e.target.value)}
-                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-              />
-              <textarea
-                placeholder="Write email message..."
-                value={emailBody}
-                onChange={(e) => setEmailBody(e.target.value)}
-                rows="2"
-                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-              ></textarea>
-              <button type="button" onClick={handleSendDirectEmail} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs">
-                Send Email
-              </button>
-            </div>
-          </div>
-        </div>
+        )}
       </section>
 
       {/* 5. Course Catalog */}
