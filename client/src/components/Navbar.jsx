@@ -29,16 +29,7 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
 
           {/* Navigation Links */}
           <div className="hidden md:flex items-center space-x-2">
-            <button
-              onClick={() => setActivePage('home')}
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                activePage === 'home'
-                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
-              }`}
-            >
-              Home / কোর্সসমূহ
-            </button>
+
 
             {user && (
               <button

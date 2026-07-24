@@ -286,6 +286,39 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+// 3.5 Public Stats Endpoint
+app.get("/api/public-stats", async (req, res) => {
+  try {
+    let studentCount = memoryDb.students.length;
+    let mentorCount = 1;
+
+    if (isMongoConnected) {
+      studentCount = await Student.countDocuments();
+      const distinctFaculties = await Course.distinct("faculty", { status: "Active" });
+      const validFaculties = distinctFaculties.filter(f => f && f.trim() !== "");
+      mentorCount = validFaculties.length > 0 ? validFaculties.length : 1;
+    } else {
+      const faculties = memoryDb.courses
+        .filter(c => c.status === "Active")
+        .map(c => c.faculty)
+        .filter(f => f && f.trim() !== "");
+      mentorCount = new Set(faculties).size || 1;
+    }
+
+    res.json({
+      ok: true,
+      studentsCount: studentCount,
+      mentorsCount: mentorCount
+    });
+  } catch (error) {
+    res.json({
+      ok: true,
+      studentsCount: memoryDb.students ? memoryDb.students.length : 1,
+      mentorsCount: 1
+    });
+  }
+});
+
 // 4. Courses & Lessons
 app.get("/api/courses", async (req, res) => {
   try {
