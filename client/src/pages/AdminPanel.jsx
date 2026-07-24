@@ -732,10 +732,6 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
           <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase">AIN PATHSHALA</span>
           <h1 className="text-2xl font-black text-white tracking-tight">Admin Control Panel</h1>
         </div>
-        <div className="flex items-center space-x-3 mt-3 sm:mt-0">
-          <span className="text-xs text-amber-400 font-bold">Student Portal</span>
-          <span className="px-3 py-1 rounded-md bg-slate-800 text-xs font-semibold text-slate-300">Logout</span>
-        </div>
       </header>
 
       {/* 2. Live Sheet Control / Prottoy Dashboard */}
