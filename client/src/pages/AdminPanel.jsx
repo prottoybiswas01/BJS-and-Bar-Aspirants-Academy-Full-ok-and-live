@@ -119,6 +119,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   // Dynamic Admissions Overview Filters
   const [selectedCourseFilter, setSelectedCourseFilter] = useState('all');
   const [selectedBatchFilter, setSelectedBatchFilter] = useState('all');
+  const [selectedYearFilter, setSelectedYearFilter] = useState('2026');
 
   // Super Admin Password Form State
   const [adminUsernameInput, setAdminUsernameInput] = useState('admin');
@@ -147,25 +148,27 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   // Dynamic Year Options (from student records + range)
   const availableYears = Array.from(new Set([
     '2024', '2025', '2026', '2027', '2028', '2029', '2030',
-    ...students.map(s => {
-      const d = s.joinedOn || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
+    ...(Array.isArray(students) ? students : []).map(s => {
+      const d = s?.joinedOn || (s?.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
       return d ? d.substring(0, 4) : '';
     }).filter(Boolean)
   ])).sort().reverse();
 
   // Dynamic Enrollment Stats Calculation from Real Students Data
   const getEnrollmentStats = () => {
-    let filtered = students;
-    if (selectedCourseFilter !== 'all') {
+    let filtered = Array.isArray(students) ? students : [];
+    if (selectedCourseFilter && selectedCourseFilter !== 'all') {
       filtered = filtered.filter(s =>
-        (s.enrolledCourseIds && s.enrolledCourseIds.includes(selectedCourseFilter)) ||
-        (s.allowedCourseIds && s.allowedCourseIds.includes(selectedCourseFilter))
+        (s?.enrolledCourseIds && Array.isArray(s.enrolledCourseIds) && s.enrolledCourseIds.includes(selectedCourseFilter)) ||
+        (s?.allowedCourseIds && Array.isArray(s.allowedCourseIds) && s.allowedCourseIds.includes(selectedCourseFilter))
       );
     }
 
+    const yearStr = String(selectedYearFilter || '2026');
     const yearFiltered = filtered.filter(s => {
+      if (!s) return false;
       const dateStr = s.joinedOn || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
-      return dateStr ? dateStr.startsWith(String(selectedYearFilter)) : false;
+      return dateStr ? dateStr.startsWith(yearStr) : false;
     });
 
     const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -173,6 +176,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     let missingDates = 0;
 
     yearFiltered.forEach(s => {
+      if (!s) return;
       const dateStr = s.joinedOn || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
       if (dateStr && dateStr.length >= 7) {
         const monthIdx = parseInt(dateStr.substring(5, 7), 10) - 1;
@@ -200,14 +204,16 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
 
     let latestStudentName = 'None';
     let latestStudentDate = '';
-    if (students.length > 0) {
-      const sorted = [...students].sort((a, b) => {
-        const dA = a.joinedOn || a.createdAt || '';
-        const dB = b.joinedOn || b.createdAt || '';
-        return dB.localeCompare(dA);
+    if (filtered.length > 0) {
+      const sorted = [...filtered].sort((a, b) => {
+        const dA = a?.joinedOn || a?.createdAt || '';
+        const dB = b?.joinedOn || b?.createdAt || '';
+        return String(dB).localeCompare(String(dA));
       });
-      latestStudentName = sorted[0].name;
-      latestStudentDate = sorted[0].joinedOn || (sorted[0].createdAt ? new Date(sorted[0].createdAt).toISOString().split('T')[0] : '');
+      if (sorted[0]) {
+        latestStudentName = sorted[0].name || 'Student';
+        latestStudentDate = sorted[0].joinedOn || (sorted[0].createdAt ? new Date(sorted[0].createdAt).toISOString().split('T')[0] : '');
+      }
     }
 
     return {
