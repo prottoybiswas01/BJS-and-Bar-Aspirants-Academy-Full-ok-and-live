@@ -43,7 +43,7 @@ export default function Footer({ setActivePage }) {
           <h4 className="text-white font-bold mb-3 text-sm">যোগাযোগ (Helpline)</h4>
           <div className="space-y-2 text-xs">
             <p>📍 Academy Campus: Farmgate, Dhaka 1215</p>
-            <p>📞 Phone: <span className="text-amber-400 font-mono">01978167016</span> / 01700000000</p>
+            <p>💬 WhatsApp & Call: <a href="https://wa.me/8801800077663" target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:text-emerald-400 font-mono font-bold transition-colors">01800077663</a></p>
             <p>📧 Email: support@bjsbaracademy.com</p>
             <p className="mt-2 text-[11px] text-emerald-400 flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>

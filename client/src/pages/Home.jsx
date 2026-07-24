@@ -240,12 +240,12 @@ export default function Home({ setActivePage }) {
 
             <div className="space-y-2.5 pt-1">
               <a
-                href="https://wa.me/8801978167016"
+                href="https://wa.me/8801800077663"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition-all hover:scale-[1.02]"
               >
-                <span>💬</span> WhatsApp-এ সরাসরি যোগাযোগ করুন (01978167016)
+                <span>💬</span> WhatsApp-এ সরাসরি যোগাযোগ করুন (01800077663)
               </a>
 
               <button

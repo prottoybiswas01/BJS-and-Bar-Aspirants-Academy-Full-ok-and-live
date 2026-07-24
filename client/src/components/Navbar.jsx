@@ -17,9 +17,9 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
               <span className="text-lg sm:text-2xl font-bold text-slate-950 font-serif">⚖️</span>
             </div>
             <div>
-              <div className="text-sm sm:text-xl font-extrabold tracking-tight text-white flex items-center gap-1.5">
-                <span className="truncate max-w-[130px] sm:max-w-none">BJS & Bar Academy</span>
-                <span className="text-[9px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+              <div className="text-xs sm:text-xl font-extrabold tracking-tight text-white flex items-center gap-1.5">
+                <span>BJS & Bar Academy</span>
+                <span className="hidden sm:inline-block text-[9px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
                   আইন পাঠশালা
                 </span>
               </div>

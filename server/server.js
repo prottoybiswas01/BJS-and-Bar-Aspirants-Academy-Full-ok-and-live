@@ -233,6 +233,9 @@ app.post("/api/auth/login", async (req, res) => {
       cleanId === "prttoy" ||
       cleanId === "prottoy" ||
       cleanId === "admin" ||
+      cleanId === "01800077663_admin" ||
+      cleanId === "01800077663" ||
+      cleanDigits.endsWith("1800077663") ||
       cleanId === "01978167016_admin" ||
       cleanId === "01978167016" ||
       cleanDigits.endsWith("1978167016") ||
@@ -413,15 +416,30 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// 3.5 Public Stats Endpoint (Instant 0ms Latency)
-app.get("/api/public-stats", (req, res) => {
-  const currentStudents = (memoryDb.students && memoryDb.students.length > 0) ? memoryDb.students.length : 21;
-  const currentMentors = (memoryDb.mentors && memoryDb.mentors.length > 0) ? memoryDb.mentors.length : 1;
-  res.json({
-    ok: true,
-    studentsCount: currentStudents,
-    mentorsCount: currentMentors
-  });
+// 3.5 Public Stats Endpoint (Authentic Student & Mentor Counts)
+app.get("/api/public-stats", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    let studentCount = memoryDb.students ? memoryDb.students.length : 0;
+    let mentorCount = memoryDb.mentors ? memoryDb.mentors.length : 0;
+
+    if (isMongoConnected) {
+      studentCount = await Student.countDocuments();
+      mentorCount = await Mentor.countDocuments({ status: "Active" });
+    }
+
+    res.json({
+      ok: true,
+      studentsCount: studentCount,
+      mentorsCount: mentorCount
+    });
+  } catch (error) {
+    res.json({
+      ok: true,
+      studentsCount: memoryDb.students ? memoryDb.students.length : 0,
+      mentorsCount: memoryDb.mentors ? memoryDb.mentors.length : 0
+    });
+  }
 });
 
 // 3.6 Site Settings Endpoint (Public & Admin)
