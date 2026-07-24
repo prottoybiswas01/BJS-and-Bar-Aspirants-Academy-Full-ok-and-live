@@ -52,13 +52,35 @@ const memoryDb = {
 // Configure Mongoose options to prevent 10,000ms buffering timeouts
 mongoose.set("bufferCommands", false);
 
+async function syncMongoToMemoryDb() {
+  if (!isMongoConnected) return;
+  try {
+    const [c, l, s, r, m] = await Promise.all([
+      Course.find(),
+      Lesson.find(),
+      Student.find(),
+      Registration.find(),
+      Mentor.find()
+    ]);
+    memoryDb.courses = c.map(x => (x.toObject ? x.toObject() : x));
+    memoryDb.lessons = l.map(x => (x.toObject ? x.toObject() : x));
+    memoryDb.students = s.map(x => (x.toObject ? x.toObject() : x));
+    memoryDb.registrations = r.map(x => (x.toObject ? x.toObject() : x));
+    memoryDb.mentors = m.map(x => (x.toObject ? x.toObject() : x));
+    console.log(`⚡ Memory DB Synced: ${c.length} Courses, ${l.length} Lessons, ${s.length} Students, ${r.length} Registrations!`);
+  } catch (err) {
+    console.error("Sync Error:", err.message);
+  }
+}
+
 mongoose
   .connect(MONGODB_URI, {
     serverSelectionTimeoutMS: 3000, // Timeout after 3 seconds instead of 10s if IP not whitelisted
   })
-  .then(() => {
+  .then(async () => {
     isMongoConnected = true;
     console.log("✅ Successfully connected to MongoDB Atlas (bjs_academy)");
+    await syncMongoToMemoryDb();
   })
   .catch((err) => {
     isMongoConnected = false;
@@ -524,6 +546,16 @@ app.get("/api/admin/students", async (req, res) => {
     }
   } catch (e) {}
   res.json({ ok: true, students: memoryDb.students });
+});
+
+app.get("/api/admin/registrations", async (req, res) => {
+  try {
+    if (isMongoConnected) {
+      const registrations = await Registration.find().sort({ createdAt: -1 });
+      return res.json({ ok: true, registrations });
+    }
+  } catch (e) {}
+  res.json({ ok: true, registrations: memoryDb.registrations });
 });
 
 app.post("/api/admin/students/save", async (req, res) => {
