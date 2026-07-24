@@ -793,6 +793,36 @@ async function sendMoneyReceiptEmail(targetEmail, receiptData) {
   }
 }
 
+// Helper to find active OTP record across Map keys and stored student fields
+function getStoredOtpData(inputKey) {
+  if (!inputKey) return null;
+  const raw = String(inputKey).trim();
+  const lower = raw.toLowerCase();
+  const digits = raw.replace(/\D/g, "");
+
+  if (otpStore.has(lower)) return otpStore.get(lower);
+  if (otpStore.has(raw)) return otpStore.get(raw);
+  if (digits && otpStore.has(digits)) return otpStore.get(digits);
+
+  for (const [key, val] of otpStore.entries()) {
+    if (!val) continue;
+    const vEmail = (val.email || "").toLowerCase().trim();
+    const vPhone = String(val.phone || "").trim();
+    const vPhoneDigits = vPhone.replace(/\D/g, "");
+    const vId = String(val.studentId || "").trim().toLowerCase();
+
+    if (
+      (vEmail && (vEmail === lower || vEmail === raw)) ||
+      (vPhone && (vPhone === raw || vPhone === lower)) ||
+      (vPhoneDigits && digits && vPhoneDigits === digits) ||
+      (vId && vId === lower)
+    ) {
+      return val;
+    }
+  }
+  return null;
+}
+
 // 3.1 Forgot Password Request - Send OTP
 app.post("/api/auth/forgot-password", async (req, res) => {
   try {
@@ -834,10 +864,10 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes valid
+    const expiresAt = Date.now() + 10 * 60 * 1000; // Exactly 10 minutes valid
 
     const otpData = {
-      otp,
+      otp: String(otp).trim(),
       expiresAt,
       studentId: student.id,
       email: student.email,
@@ -845,12 +875,12 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     };
 
     // Store multi-key mappings so lookup works by Email, Phone, Student ID or Raw Input!
-    if (student.email) otpStore.set(student.email.toLowerCase(), otpData);
+    if (student.email) otpStore.set(student.email.toLowerCase().trim(), otpData);
     if (student.phone) {
-      otpStore.set(student.phone, otpData);
-      otpStore.set(student.phone.replace(/[^0-9]/g, ""), otpData);
+      otpStore.set(student.phone.trim(), otpData);
+      otpStore.set(student.phone.replace(/\D/g, ""), otpData);
     }
-    if (student.id) otpStore.set(student.id, otpData);
+    if (student.id) otpStore.set(student.id.trim(), otpData);
     if (cleanInput) otpStore.set(cleanInput, otpData);
     if (cleanDigits) otpStore.set(cleanDigits, otpData);
 
@@ -861,7 +891,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 
     return res.json({
       ok: true,
-      message: `৬-ডিজিটের OTP ভেরিফিকেশন কোড আপনার নিবন্ধিত ইমেইল (${student.email})-এ পাঠানো হয়েছে! অনুগ্রহ করে আপনার ইনবক্স (Inbox / Spam) চেক করুন।`,
+      message: `৬-ডিজিটের OTP ভেরিফিকেশন কোড আপনার নিবন্ধিত ইমেইল (${student.email})-এ পাঠানো হয়েছে! কোডটি আগামী ১০ মিনিট কার্যকর থাকবে।`,
       email: student.email,
       phone: student.phone
     });
@@ -880,25 +910,28 @@ app.post("/api/auth/verify-otp", async (req, res) => {
     }
 
     const rawInput = String(emailOrPhone).trim();
-    const cleanInput = rawInput.toLowerCase();
-    const cleanDigits = rawInput.replace(/[^0-9]/g, "");
-    const cleanOtp = String(otp).trim();
+    const cleanOtp = String(otp).trim().replace(/\D/g, "");
 
-    // Multi-key lookup in otpStore
-    const storedData =
-      otpStore.get(cleanInput) ||
-      otpStore.get(rawInput) ||
-      (cleanDigits ? otpStore.get(cleanDigits) : null);
+    const storedData = getStoredOtpData(rawInput);
 
-    if (!storedData || storedData.otp !== cleanOtp || Date.now() > storedData.expiresAt) {
-      return res.status(400).json({ ok: false, message: "ভুল অথবা মেয়াদোত্তীর্ণ (Expired) OTP কোড! নতুন OTP রিকোয়েস্ট করুন।" });
+    if (!storedData) {
+      return res.status(400).json({ ok: false, message: "আপনার কোনো সক্রিয় OTP রেকর্ড পাওয়া যায়নি। অনুগ্রহ করে নতুন OTP রিকোয়েস্ট করুন।" });
+    }
+
+    if (Date.now() > storedData.expiresAt) {
+      return res.status(400).json({ ok: false, message: "OTP কোডটির মেয়াদ ১০ মিনিট অতিক্রম করেছে! অনুগ্রহ করে নতুন OTP রিকোয়েস্ট করুন।" });
+    }
+
+    const expectedOtp = String(storedData.otp).trim().replace(/\D/g, "");
+    if (expectedOtp !== cleanOtp) {
+      return res.status(400).json({ ok: false, message: `ভুল OTP কোড! আপনার দেওয়া কোডটি সঠিক নয়। ইমেইলের সঠিক ৬-ডিজিটের কোডটি লিখুন।` });
     }
 
     // Mark verified and generate resetToken
     const resetToken = "RST-" + Date.now() + "-" + Math.floor(1000 + Math.random() * 9000);
     storedData.verified = true;
     storedData.resetToken = resetToken;
-    storedData.expiresAt = Date.now() + 20 * 60 * 1000; // Extend 20 mins for password entry
+    storedData.expiresAt = Date.now() + 15 * 60 * 1000; // Extend 15 mins for password entry
 
     return res.json({
       ok: true,
@@ -931,9 +964,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
     }
 
     const rawInput = String(emailOrPhone).trim();
-    const cleanInput = rawInput.toLowerCase();
-
-    const storedData = otpStore.get(cleanInput) || otpStore.get(rawInput);
+    const storedData = getStoredOtpData(rawInput);
 
     if (!storedData || !storedData.verified || (resetToken && storedData.resetToken !== resetToken) || Date.now() > storedData.expiresAt) {
       return res.status(400).json({ ok: false, message: "পাসওয়ার্ড পরিবর্তনের সেশনটি মেয়াদোত্তীর্ণ হয়ে গেছে। অনুগ্রহ করে পুনরায় শুরু করুন।" });
