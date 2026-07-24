@@ -30,6 +30,48 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   const [previewLessons, setPreviewLessons] = useState([]);
   const [previewLoading, setPreviewLoading] = useState(false);
 
+  // Temporary Password Modal State
+  const [tempPasswordModal, setTempPasswordModal] = useState({
+    isOpen: false,
+    student: null,
+    tempPassword: '',
+    generatedPass: '',
+    copied: false
+  });
+
+  const handleOpenSetTempPasswordModal = (s) => {
+    const autoGen = 'BJS' + Math.floor(100000 + Math.random() * 900000);
+    setTempPasswordModal({
+      isOpen: true,
+      student: s,
+      tempPassword: autoGen,
+      generatedPass: '',
+      copied: false
+    });
+  };
+
+  const handleSaveTempPassword = async () => {
+    if (!tempPasswordModal.student || !tempPasswordModal.tempPassword) return;
+    try {
+      const res = await api.post(`/admin/students/${tempPasswordModal.student.id}/set-temp-password`, {
+        tempPassword: tempPasswordModal.tempPassword
+      });
+      if (res.data.ok) {
+        showToast(res.data.message || `✓ ${tempPasswordModal.student.name}-এর জন্য টেম্পোরারি পাসওয়ার্ড সেট করা হয়েছে!`, 'success');
+        setTempPasswordModal((prev) => ({
+          ...prev,
+          generatedPass: res.data.tempPassword,
+          copied: false
+        }));
+        loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'টেম্পোরারি পাসওয়ার্ড সেট করতে সমস্যা হয়েছে।', 'error');
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || 'টেম্পোরারি পাসওয়ার্ড সেট করতে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState(null);
 
@@ -1459,6 +1501,14 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
                     </span>
                   </td>
                   <td className="p-3 text-right space-x-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenSetTempPasswordModal(s)}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/40 font-bold text-[11px] transition-all cursor-pointer"
+                      title="Set One-Time Temporary Password for Student"
+                    >
+                      🔑 Temp Pass
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleOpenStudentPreview(s)}
@@ -2956,6 +3006,102 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               >
                 বন্ধ করুন (Close Portal Preview)
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Set Temporary Password Modal for Admin */}
+      {tempPasswordModal.isOpen && tempPasswordModal.student && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0b1325] border border-amber-500/40 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 font-sans animate-scaleUp text-left">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-300 font-bold flex items-center justify-center text-base border border-amber-500/30">
+                  🔑
+                </span>
+                <div>
+                  <h3 className="font-extrabold text-white text-sm">টেম্পোরারি পাসওয়ার্ড সেট করুন</h3>
+                  <p className="text-[11px] text-amber-400 font-mono">{tempPasswordModal.student.name} ({tempPasswordModal.student.id})</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setTempPasswordModal({ isOpen: false, student: null, tempPassword: '', generatedPass: '', copied: false })}
+                className="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 space-y-1">
+                <p className="font-bold text-amber-400">ℹ️ এডমিন প্রাইভেসি নোটিশ:</p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  এডমিন প্যানেল থেকে কোনো ইউজারের আসল পাসওয়ার্ড দেখা যাবে না। স্টুডেন্ট ইমেইলে ঢুকতে না পারলে তার জন্য ১-বার ব্যবহারযোগ্য একটি <strong>টেম্পোরারি পাসওয়ার্ড (Temporary Password)</strong> সেট করে দেওয়া যাবে। স্টুডেন্ট প্রথমবার লগইন করলেই নতুন স্থায়ী পাসওয়ার্ড সেটের পপআপ চলে আসবে।
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">
+                  টেম্পোরারি পাসওয়ার্ড (যেকোনো পাসওয়ার্ড টাইপ বা অটো-জেনারেট করুন):
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={tempPasswordModal.tempPassword}
+                    onChange={(e) => setTempPasswordModal((prev) => ({ ...prev, tempPassword: e.target.value }))}
+                    placeholder="e.g. BJS@2026Temp"
+                    className="flex-1 rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-white font-mono font-bold focus:outline-none focus:border-amber-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTempPasswordModal((prev) => ({ ...prev, tempPassword: 'BJS' + Math.floor(100000 + Math.random() * 900000) }))}
+                    className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold border border-slate-700"
+                  >
+                    🔄 Auto
+                  </button>
+                </div>
+              </div>
+
+              {tempPasswordModal.generatedPass && (
+                <div className="p-3.5 rounded-xl bg-emerald-950/80 border border-emerald-500/50 space-y-2 text-xs">
+                  <p className="font-extrabold text-emerald-300">✓ টেম্পোরারি পাসওয়ার্ড সফলভাবে সেট করা হয়েছে!</p>
+                  <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-emerald-500/30">
+                    <span className="font-mono text-sm font-black text-amber-400 tracking-wider">
+                      {tempPasswordModal.generatedPass}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(tempPasswordModal.generatedPass);
+                        setTempPasswordModal((prev) => ({ ...prev, copied: true }));
+                        setTimeout(() => setTempPasswordModal((prev) => ({ ...prev, copied: false })), 3000);
+                      }}
+                      className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-950 font-extrabold text-[11px] transition-all cursor-pointer"
+                    >
+                      {tempPasswordModal.copied ? '✓ Copied!' : '📋 Copy Temp Password'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400">এই পাসওয়ার্ডটি কপি করে স্টুডেন্টকে SMS বা WhatsApp এ পাঠিয়ে দিন।</p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setTempPasswordModal({ isOpen: false, student: null, tempPassword: '', generatedPass: '', copied: false })}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white text-xs font-bold"
+                >
+                  বন্ধ করুন (Close)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveTempPassword}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer"
+                >
+                  💾 Save Temp Password
+                </button>
+              </div>
             </div>
           </div>
         </div>

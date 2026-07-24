@@ -13,6 +13,7 @@ import AiChatDrawer from './components/AiChatDrawer';
 import ProfileModal from './components/ProfileModal';
 import LessonManagerModal from './components/LessonManagerModal';
 import MentorProfileModal from './components/MentorProfileModal';
+import ForceTempPasswordModal from './components/ForceTempPasswordModal';
 import api from './services/api';
 
 function MainApp() {
@@ -143,6 +144,9 @@ function MainApp() {
           setActivePage={setActivePage}
         />
       )}
+
+      {/* Force One-Time Temporary Password Change Modal */}
+      <ForceTempPasswordModal />
     </div>
   );
 }

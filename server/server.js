@@ -986,6 +986,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
       });
       if (dbStudent) {
         dbStudent.password = hashedPassword;
+        dbStudent.isTemporaryPassword = false;
         updatedStudent = await dbStudent.save();
         if (updatedStudent && updatedStudent.toObject) updatedStudent = updatedStudent.toObject();
       }
@@ -997,6 +998,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
 
     if (memIdx > -1) {
       memoryDb.students[memIdx].password = hashedPassword;
+      memoryDb.students[memIdx].isTemporaryPassword = false;
       if (!updatedStudent) updatedStudent = memoryDb.students[memIdx];
     }
 
@@ -1013,6 +1015,115 @@ app.post("/api/auth/reset-password", async (req, res) => {
   } catch (err) {
     console.error("Reset password error:", err);
     res.status(500).json({ ok: false, message: "Error resetting password." });
+  }
+});
+
+// 3.3.1 Admin Set Temporary Password for Student User
+app.post("/api/admin/students/:studentId/set-temp-password", async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const { tempPassword } = req.body;
+
+    const providedPass = (tempPassword || "").trim() || ("BJS" + Math.floor(100000 + Math.random() * 900000));
+    if (providedPass.length < 6) {
+      return res.status(400).json({ ok: false, message: "টেম্পোরারি পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে।" });
+    }
+
+    const hashedPassword = await bcrypt.hash(providedPass, 10);
+    await ensureDbConnected();
+
+    let updated = null;
+    if (isMongoConnected) {
+      const dbStudent = await Student.findOne({
+        $or: [{ id: studentId }, { _id: studentId.match(/^[0-9a-fA-F]{24}$/) ? studentId : null }]
+      });
+      if (dbStudent) {
+        dbStudent.password = hashedPassword;
+        dbStudent.isTemporaryPassword = true;
+        updated = await dbStudent.save();
+        if (updated && updated.toObject) updated = updated.toObject();
+      }
+    }
+
+    const memIdx = (memoryDb.students || []).findIndex((s) => s && (s.id === studentId || String(s._id) === studentId));
+    if (memIdx > -1) {
+      memoryDb.students[memIdx].password = hashedPassword;
+      memoryDb.students[memIdx].isTemporaryPassword = true;
+      if (!updated) updated = memoryDb.students[memIdx];
+    }
+
+    if (!updated) {
+      return res.status(404).json({ ok: false, message: "স্টুডেন্ট একাউন্ট খুঁজে পাওয়া যায়নি।" });
+    }
+
+    return res.json({
+      ok: true,
+      message: `✓ স্টুডেন্ট একাউন্টের জন্য টেম্পোরারি পাসওয়ার্ড সফলভাবে সেট করা হয়েছে!`,
+      tempPassword: providedPass,
+      studentId: updated.id,
+      studentName: updated.name,
+      isTemporaryPassword: true
+    });
+  } catch (err) {
+    console.error("Set temp password error:", err);
+    res.status(500).json({ ok: false, message: "Error setting temporary password." });
+  }
+});
+
+// 3.3.2 Force Change Temporary Password by Student User
+app.post("/api/auth/change-temp-password", async (req, res) => {
+  try {
+    const { studentId, newPassword, confirmPassword } = req.body;
+    if (!studentId || !newPassword || !confirmPassword) {
+      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড ও কনফার্ম পাসওয়ার্ড সঠিকভাবে লিখুন।" });
+    }
+
+    const passInput = String(newPassword).trim();
+    const confirmInput = String(confirmPassword).trim();
+
+    if (passInput.length < 6) {
+      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে।" });
+    }
+
+    if (passInput !== confirmInput) {
+      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড এবং কনফার্ম পাসওয়ার্ড মিলছে না!" });
+    }
+
+    const hashedPassword = await bcrypt.hash(passInput, 10);
+    await ensureDbConnected();
+
+    let updated = null;
+    if (isMongoConnected) {
+      const dbStudent = await Student.findOne({
+        $or: [{ id: studentId }, { email: String(studentId).toLowerCase() }, { phone: studentId }]
+      });
+      if (dbStudent) {
+        dbStudent.password = hashedPassword;
+        dbStudent.isTemporaryPassword = false;
+        updated = await dbStudent.save();
+        if (updated && updated.toObject) updated = updated.toObject();
+      }
+    }
+
+    const memIdx = (memoryDb.students || []).findIndex(
+      (s) => s && (s.id === studentId || s.email === String(studentId).toLowerCase() || s.phone === studentId)
+    );
+
+    if (memIdx > -1) {
+      memoryDb.students[memIdx].password = hashedPassword;
+      memoryDb.students[memIdx].isTemporaryPassword = false;
+      if (!updated) updated = memoryDb.students[memIdx];
+    }
+
+    return res.json({
+      ok: true,
+      message: "✓ আপনার স্থায়ী পাসওয়ার্ড সফলভাবে সংরক্ষিত হয়েছে! স্বাগতম।",
+      student: updated,
+      isTemporaryPassword: false
+    });
+  } catch (err) {
+    console.error("Change temp password error:", err);
+    res.status(500).json({ ok: false, message: "Error changing temporary password." });
   }
 });
 
