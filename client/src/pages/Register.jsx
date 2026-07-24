@@ -188,12 +188,9 @@ export default function Register({ setActivePage }) {
                     </option>
                   ))
                 ) : (
-                  <>
-                    <option value="সংবিধান ব্যাচ" className="bg-slate-900 text-white">সংবিধান ব্যাচ (Constitution Special Batch)</option>
-                    <option value="দেওয়ানী আইন স্পেশাল ব্যাচ" className="bg-slate-900 text-white">দেওয়ানী আইন স্পেশাল ব্যাচ (Civil Laws Intensive)</option>
-                    <option value="ফৌজিদারী আইন স্পেশাল ব্যাচ" className="bg-slate-900 text-white">ফৌজদারী আইন স্পেশাল ব্যাচ (Criminal Laws Intensive)</option>
-                    <option value="Regular Batch" className="bg-slate-900 text-white">নিয়মিত ব্যাচ (Regular Batch)</option>
-                  </>
+                  <option value="" className="bg-slate-900 text-white">
+                    কোনো সক্রিয় ব্যাচ উপলব্ধ নেই (No Active Batches Available)
+                  </option>
                 )}
               </select>
             </div>

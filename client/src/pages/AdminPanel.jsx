@@ -3,13 +3,13 @@ import api from '../services/api';
 
 export default function AdminPanel({ openLessonManager, openVideoModal }) {
   const [stats, setStats] = useState({
-    totalStudents: 21,
-    activeCourses: 4,
-    messageLogs: 3,
-    peakMonth: 'Apr (12 students)',
-    monthlyAverage: '1.8',
-    latestAdmission: 'MD. HASAN MURAD',
-    monthlyCounts: { JAN: 0, FEB: 0, MAR: 7, APR: 12, MAY: 1, JUN: 1, JUL: 0, AUG: 0, SEP: 0, OCT: 0, NOV: 0, DEC: 0 }
+    totalStudents: 0,
+    activeCourses: 0,
+    messageLogs: 0,
+    peakMonth: 'None',
+    monthlyAverage: '0.0',
+    latestAdmission: 'None',
+    monthlyCounts: { JAN: 0, FEB: 0, MAR: 0, APR: 0, MAY: 0, JUN: 0, JUL: 0, AUG: 0, SEP: 0, OCT: 0, NOV: 0, DEC: 0 }
   });
 
   const [students, setStudents] = useState([]);
