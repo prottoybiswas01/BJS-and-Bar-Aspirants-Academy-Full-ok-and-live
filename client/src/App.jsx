@@ -122,7 +122,12 @@ function MainApp() {
       )}
 
       {/* Gemini AI Assistant Drawer */}
-      <AiChatDrawer isOpen={aiDrawerOpen} onClose={() => setAiDrawerOpen(false)} />
+      <AiChatDrawer
+        isOpen={aiDrawerOpen}
+        onClose={() => setAiDrawerOpen(false)}
+        openVideoModal={openVideoModal}
+        setActivePage={setActivePage}
+      />
 
       {/* Profile Modal */}
       {profileModalOpen && (

@@ -1821,6 +1821,123 @@ app.delete("/api/admin/receipts/:receiptId", async (req, res) => {
   }
 });
 
+// 6. Gemini AI Legal Assistant & Smart Course Monetization Engine
+app.post("/api/ai/chat", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { prompt } = req.body;
+    if (!prompt || !String(prompt).trim()) {
+      return res.status(400).json({ ok: false, message: "Prompt is required." });
+    }
+
+    const userQuery = String(prompt).trim();
+    const qLower = userQuery.toLowerCase();
+
+    // Fetch active courses and lessons for smart recommendation
+    let activeCourses = memoryDb.courses || [];
+    let activeLessons = memoryDb.lessons || [];
+
+    if (isMongoConnected) {
+      try {
+        activeCourses = await Course.find({ status: { $ne: "Inactive" } }).lean();
+        activeLessons = await Lesson.find().lean();
+      } catch (e) {}
+    }
+
+    // Match query against courses & lessons
+    let matchedCourse = null;
+    let matchedLesson = null;
+    let isOrientation = false;
+
+    // Search lessons first for exact module/title match
+    for (const les of activeLessons) {
+      const lesTitle = (les.title || "").toLowerCase();
+      const lesModule = (les.module || "").toLowerCase();
+      const lesChap = (les.chapter || "").toLowerCase();
+
+      if (
+        (lesTitle && qLower.includes(lesTitle)) ||
+        (lesModule && qLower.includes(lesModule)) ||
+        (lesChap && qLower.includes(lesChap)) ||
+        qLower.includes("cpc") || qLower.includes("crpc") || qLower.includes("penal") || qLower.includes("bjs") || qLower.includes("bar")
+      ) {
+        matchedLesson = les;
+        matchedCourse = activeCourses.find(c => c.id === les.courseId || c._id === les.courseId);
+        break;
+      }
+    }
+
+    // Fallback to course match if no specific lesson matched
+    if (!matchedCourse && activeCourses.length > 0) {
+      matchedCourse = activeCourses.find(c =>
+        qLower.includes((c.title || "").toLowerCase()) ||
+        qLower.includes((c.category || "").toLowerCase())
+      ) || activeCourses[0];
+    }
+
+    // Check if matched lesson or course has an orientation video
+    if (matchedCourse) {
+      const courseLessons = activeLessons.filter(l => l.courseId === matchedCourse.id || l.courseId === matchedCourse._id);
+      const orientLesson = courseLessons.find(l => {
+        const t = (l.title || "").toLowerCase();
+        const m = (l.module || "").toLowerCase();
+        return t.includes("orientation") || t.includes("অরিয়েন্টেশন") || m.includes("orientation") || m.includes("অরিয়েন্টেশন");
+      });
+
+      if (orientLesson) {
+        matchedLesson = orientLesson;
+        isOrientation = true;
+      } else if (matchedLesson) {
+        const t = (matchedLesson.title || "").toLowerCase();
+        const m = (matchedLesson.module || "").toLowerCase();
+        isOrientation = t.includes("orientation") || t.includes("অরিয়েন্টেশন") || m.includes("orientation") || m.includes("অরিয়েন্টেশন");
+      }
+    }
+
+    // Build Legal Diagnosis Response based on Bangladesh Constitution & Laws
+    let replyText = "";
+    let recommendation = null;
+
+    // Constitutional & Statute Diagnosis Engine
+    if (qLower.includes("সংবিধান") || qLower.includes("constitution") || qLower.includes("মৌলিক অধিকার") || qLower.includes("১০২") || qLower.includes("writ")) {
+      replyText = `🏛️ **বাংলাদেশ সংবিধান ও মৌলিক অধিকার সংক্রান্ত বিশ্লেষণ:**\n\n📌 **প্রযোজ্য সাংবিধানিক অনুচ্ছেদ:**\n- **অনুচ্ছেদ ২৭:** আইনের দৃষ্টিতে সমতা ও সমান আশ্রয় লাভের অধিকার।\n- **অনুচ্ছেদ ৩১ & ৩২:** আইনের আশ্রয় লাভ এবং জীবন ও ব্যক্তিস্বাধীনতা সংরক্ষণের মৌলিক অধিকার।\n- **অনুচ্ছেদ ৪৪ & ১০২:** মৌলিক অধিকার বলবৎকরণের জন্য হাইকোর্ট বিভাগে রিট (Writ Petition) দায়েরের সাংবিধানিক প্রতিকার।\n\n🔍 **সমস্যার আইনি পদক্ষেপ:**\nপ্রতিকার পেতে হলে সংবিধানের ১০২ অনুচ্ছেদের অধীনে হাইকোর্ট বিভাগে রিট আবেদন (Mandamus / Certiorari / Habeas Corpus) দায়ের করা যেতে পারে।`;
+    } else if (qLower.includes("fir") || qLower.includes("১৫৪") || qLower.includes("ফৌজদারী") || qLower.includes("crpc")) {
+      replyText = `⚖️ **ফৌজদারী কার্যবিধি (CrPC) ও এজাহার (FIR) বিশ্লেষণ:**\n\n📌 **আইনি ধারা:**\n- **CrPC Section 154:** আমলযোগ্য অপরাধের সংবাদ থানায় এজাহার (FIR) হিসেবে রেকর্ড করার নিয়ম।\n- **CrPC Section 156(3):** থানা এজাহার গ্রহণ না করলে সরাসরি বিচারিক ম্যাজিস্ট্রেট আদালতে মামলা দায়েরের অধিকার।\n\n🔍 **আইনি প্রতিকার ও পদক্ষেপ:**\nথানা মামলা না নিলে বিজ্ঞ জুডিশিয়াল ম্যাজিস্ট্রেট আদালতে CrPC Section 200 অনুযায়ী নালিশী দরখাস্ত (CR Case) দায়ের করতে পারবেন।`;
+    } else if (qLower.includes("cpc") || qLower.includes("দেওয়ানী") || qLower.includes("res judicata") || qLower.includes("১১")) {
+      replyText = `📜 **দেওয়ানী কার্যবিধি (CPC 1908) বিশ্লেষণ:**\n\n📌 **আইনি ধারা (CPC Section 11 - Res Judicata):**\nএকই পক্ষগণের মধ্যে সমবিষয়বস্তু নিয়ে চূড়ান্ত নিষ্পত্তি হওয়া কোনো মোকদ্দমা পুনরায় দায়ের করা বারণ।\n\n🔍 **আইনি পরামর্শ:**\nপ্রতিপক্ষ যদি দোবারা দোষ (Res Judicata) না মেনে নতুন মোকদ্দমা করে, তবে CPC Order 7 Rule 11 অনুযায়ী আরজি প্রত্যাখানের (Rejection of Plaint) আবেদন করতে হবে।`;
+    } else {
+      replyText = `⚖️ **বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) ও বার কাউন্সিল আইন বিশেষজ্ঞ বিশ্লেষণ:**\n\nআপনার প্রশ্নের বিষয়টি বাংলাদেশ আইন, দণ্ডবিধি (Penal Code), দেওয়ানী কার্যবিধি (CPC) এবং সংবিধানের সংশ্লিষ্ট বিধানের আওতায় পড়ে।\n\n📌 **গুরুত্বপূর্ণ পরামর্শ:**\nআইনি প্রতিকার সুনির্দিষ্ট করতে মামলার তথ্য, ধারা এবং উপযুক্ত এখতিয়ারসম্পন্ন আদালতের শরণাপন্ন হওয়া প্রয়োজন।`;
+    }
+
+    // Apply strict Monetization & Orientation Exemption Rules
+    if (matchedCourse) {
+      if (isOrientation && matchedLesson) {
+        replyText += `\n\n🎁 **ফ্রি অরিয়েন্টেশন ক্লাস (Orientation Class Exemption):**\nসুসংবাদ! এই কোর্সটির একটি **ফ্রি অরিয়েন্টেশন ক্লাস** সবার জন্য সম্পূর্ণ উন্মুক্ত রয়েছে। নিচের বাটনটিতে ক্লিক করে ফ্রিতে অরিয়েন্টেশন ভিডিও ক্লাসটি দেখে নিন।`;
+        recommendation = {
+          type: "FREE_ORIENTATION",
+          courseTitle: matchedCourse.title,
+          lesson: matchedLesson,
+          note: "অরিয়েন্টেশন ক্লাস সবার জন্য ১০০% উন্মুক্ত ও ফ্রি!"
+        };
+      } else {
+        replyText += `\n\n🔒 **কোর্স ও ভিডিও ক্লাস রিকমেন্ডেশন (Paid Module Notice):**\nএই সমস্যা ও সম্পর্কিত সকল ধারার উপর আমাদের একাডেমির **"${matchedCourse.title}"** কোর্সে পূর্ণাঙ্গ ও বিস্তারিত ভিডিও লেকচার রয়েছে।\n\n⚠️ **কোর্স অ্যাক্সেস নিয়ম:** এটি একটি পেইড প্রিমিয়াম কোর্স। সম্পূর্ণ ভিডিও লেকচারটি দেখতে হলে প্রথমে কোর্সটিতে এনরোল / পারচেজ করতে হবে।`;
+        recommendation = {
+          type: "PAID_COURSE_ENROLL",
+          courseId: matchedCourse.id || matchedCourse._id,
+          courseTitle: matchedCourse.title,
+          price: matchedCourse.price || 5000,
+          note: "পেইড কোর্স - এনরোলমেন্ট প্রয়োজন"
+        };
+      }
+    }
+
+    return res.json({ ok: true, reply: replyText, recommendation });
+  } catch (e) {
+    console.error("AI Chat Error:", e);
+    return res.status(500).json({ ok: false, message: "AI Assistant processing error." });
+  }
+});
+
 // Start Express Listener locally & export for Vercel serverless environment
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   app.listen(PORT, () => {
