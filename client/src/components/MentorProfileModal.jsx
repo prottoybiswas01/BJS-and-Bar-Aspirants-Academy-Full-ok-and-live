@@ -63,14 +63,14 @@ export default function MentorProfileModal({ mentor, isOpen, onClose, setActiveP
         </div>
 
         {/* Hero Magistrate Profile Header */}
-        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-amber-500/30 shadow-xl relative overflow-hidden">
+        <div className="flex flex-col items-center p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-amber-500/30 shadow-xl relative overflow-hidden text-center space-y-4">
           {/* Glowing Background Accent */}
-          <div className="absolute -top-12 -right-12 w-36 h-36 bg-amber-500/10 rounded-full blur-2xl pointer-events-none"></div>
+          <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/10 rounded-full blur-2xl pointer-events-none"></div>
 
-          {/* Profile Photo Badge */}
-          <div className="relative shrink-0">
-            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-gradient-to-tr from-amber-500 to-indigo-600 p-1 shadow-2xl">
-              <div className="w-full h-full rounded-[14px] bg-slate-950 overflow-hidden flex items-center justify-center text-4xl font-bold text-amber-400">
+          {/* Profile Photo Badge - Extra Large & Prominent */}
+          <div className="relative shrink-0 pt-2">
+            <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-3xl bg-gradient-to-tr from-amber-500 via-amber-300 to-emerald-500 p-1 shadow-2xl">
+              <div className="w-full h-full rounded-[22px] bg-slate-950 overflow-hidden flex items-center justify-center text-6xl font-bold text-amber-400">
                 {mentor.photoUrl ? (
                   <img src={mentor.photoUrl} alt={mentor.name} className="w-full h-full object-cover" />
                 ) : (
@@ -78,19 +78,21 @@ export default function MentorProfileModal({ mentor, isOpen, onClose, setActiveP
                 )}
               </div>
             </div>
-            <span className="absolute -bottom-2 right-1/2 translate-x-1/2 sm:right-0 sm:translate-x-0 px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-black tracking-wider uppercase border border-slate-900 shadow-md">
-              ✓ VERIFIED
-            </span>
+            <div className="pt-2">
+              <span className="px-3 py-1 rounded-full bg-emerald-500 text-slate-950 text-[11px] font-black tracking-widest uppercase border border-slate-900 shadow-lg inline-block">
+                ✓ VERIFIED FACULTY
+              </span>
+            </div>
           </div>
 
           {/* Title & Designations */}
-          <div className="text-center sm:text-left space-y-1.5 flex-1">
-            <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">{mentor.name}</h2>
-            <div className="inline-block px-3 py-1 rounded-xl bg-amber-500/20 text-amber-300 font-extrabold text-xs border border-amber-500/30">
+          <div className="space-y-2 max-w-lg">
+            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">{mentor.name}</h2>
+            <div className="inline-block px-4 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 font-extrabold text-xs sm:text-sm border border-amber-500/30 shadow-md">
               🏛️ {mentor.designation}
             </div>
 
-            <p className="text-xs text-slate-300 flex items-center justify-center sm:justify-start gap-1.5 pt-1">
+            <p className="text-xs sm:text-sm text-slate-300 flex items-center justify-center gap-1.5 pt-1">
               <span className="text-amber-400 font-bold">📍 বর্তমান পদায়ন:</span>
               <span className="font-semibold text-slate-100">{mentor.posting || 'Senior Judicial Practitioner'}</span>
             </p>
@@ -147,23 +149,23 @@ export default function MentorProfileModal({ mentor, isOpen, onClose, setActiveP
           </div>
         </div>
 
-        {/* Judicial Achievements & Stats */}
+        {/* Judicial Achievements & Stats (Fully Dynamic from Admin) */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-          <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-0.5">
+          <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1">
             <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">STUDENTS MENTORED</span>
-            <p className="text-lg font-black text-amber-400 font-mono">1,500+ Aspirants</p>
+            <p className="text-base sm:text-lg font-black text-amber-400 font-mono">{mentor.studentsMentored || '1,500+ Aspirants'}</p>
           </div>
-          <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-0.5">
+          <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1">
             <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">JUDGES PRODUCED</span>
-            <p className="text-lg font-black text-emerald-400 font-mono">45+ Assistant Judges</p>
+            <p className="text-base sm:text-lg font-black text-emerald-400 font-mono">{mentor.judgesProduced || '45+ Assistant Judges'}</p>
           </div>
-          <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-0.5">
+          <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1">
             <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">TEACHING EXP.</span>
-            <p className="text-lg font-black text-purple-400 font-mono">10+ Years</p>
+            <p className="text-base sm:text-lg font-black text-purple-400 font-mono">{mentor.experienceYears || '10+ Years'}</p>
           </div>
-          <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-0.5">
+          <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1">
             <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">STUDENT RATING</span>
-            <p className="text-lg font-black text-amber-300 font-mono">⭐ 4.9 / 5.0</p>
+            <p className="text-base sm:text-lg font-black text-amber-300 font-mono">⭐ {mentor.ratingScore || '4.9 / 5.0'}</p>
           </div>
         </div>
 

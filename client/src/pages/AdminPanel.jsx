@@ -95,7 +95,11 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     phone: '',
     showPhone: false,
     status: 'Active',
-    bio: ''
+    bio: '',
+    studentsMentored: '1,500+ Aspirants',
+    judgesProduced: '45+ Assistant Judges',
+    experienceYears: '10+ Years',
+    ratingScore: '4.9 / 5.0'
   });
 
   // Course Form State
@@ -297,7 +301,11 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       phone: m.phone || '',
       showPhone: !!m.showPhone,
       status: m.status || 'Active',
-      bio: m.bio || ''
+      bio: m.bio || '',
+      studentsMentored: m.studentsMentored || '1,500+ Aspirants',
+      judgesProduced: m.judgesProduced || '45+ Assistant Judges',
+      experienceYears: m.experienceYears || '10+ Years',
+      ratingScore: m.ratingScore || '4.9 / 5.0'
     });
     showToast(`Editing mentor profile for ${m.name}`, 'success');
     setTimeout(() => {
@@ -1845,6 +1853,55 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
                   onChange={(e) => setMentorForm({ ...mentorForm, bio: e.target.value })}
                   className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-slate-300 text-xs"
                 />
+              </div>
+
+              {/* Custom Mentor Profile Stats */}
+              <div className="pt-2 border-t border-slate-800 space-y-2">
+                <span className="text-[10px] font-mono text-amber-400 font-bold uppercase block">
+                  📊 PROFILE STATS CUSTOMIZATION (মেট্রিক্স কাস্টমাইজেশন)
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 mb-1">STUDENTS MENTORED</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1,500+ Aspirants"
+                      value={mentorForm.studentsMentored}
+                      onChange={(e) => setMentorForm({ ...mentorForm, studentsMentored: e.target.value })}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-2.5 py-1.5 text-xs text-amber-300 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 mb-1">JUDGES PRODUCED</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 45+ Assistant Judges"
+                      value={mentorForm.judgesProduced}
+                      onChange={(e) => setMentorForm({ ...mentorForm, judgesProduced: e.target.value })}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-2.5 py-1.5 text-xs text-emerald-300 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 mb-1">TEACHING EXP.</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 10+ Years"
+                      value={mentorForm.experienceYears}
+                      onChange={(e) => setMentorForm({ ...mentorForm, experienceYears: e.target.value })}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-2.5 py-1.5 text-xs text-purple-300 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 mb-1">STUDENT RATING</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 4.9 / 5.0"
+                      value={mentorForm.ratingScore}
+                      onChange={(e) => setMentorForm({ ...mentorForm, ratingScore: e.target.value })}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-2.5 py-1.5 text-xs text-amber-400 font-mono"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div>
