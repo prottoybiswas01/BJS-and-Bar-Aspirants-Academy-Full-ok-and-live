@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 
-export default function AdminPanel({ openLessonManager }) {
+export default function AdminPanel({ openLessonManager, openVideoModal }) {
   const [stats, setStats] = useState({
     totalStudents: 21,
     activeCourses: 4,
@@ -26,6 +26,11 @@ export default function AdminPanel({ openLessonManager }) {
     deviceUpdateMails: true,
     paymentReviewMails: true,
   });
+
+  // Student Portal Live Preview Modal State
+  const [previewStudentModal, setPreviewStudentModal] = useState({ isOpen: false, student: null });
+  const [previewLessons, setPreviewLessons] = useState([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState(null);
@@ -211,6 +216,51 @@ export default function AdminPanel({ openLessonManager }) {
       console.log('Error loading admin data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOpenStudentPreview = async (student) => {
+    setPreviewStudentModal({ isOpen: true, student });
+    setPreviewLoading(true);
+    try {
+      const res = await api.get('/lessons');
+      if (res.data.ok) {
+        const allowedCourses = student.allowedCourseIds || student.enrolledCourseIds || [];
+        const studentLessons = res.data.lessons.filter(l =>
+          allowedCourses.length === 0 || allowedCourses.includes(l.courseId)
+        );
+        setPreviewLessons(studentLessons);
+      }
+    } catch (err) {
+      console.log('Error loading preview lessons:', err);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const handleUpdateStudentApproval = async (student, newApproval) => {
+    try {
+      const updated = { ...student, loginApproval: newApproval };
+      const res = await api.post('/admin/students/save', updated);
+      if (res.data.ok) {
+        setMsg({ type: 'success', text: `${student.name} authorization set to ${newApproval}!` });
+        loadAllAdminData();
+      }
+    } catch (err) {
+      setMsg({ type: 'error', text: 'Failed to update approval status.' });
+    }
+  };
+
+  const handleUpdateStudentStatus = async (student, newStatus) => {
+    try {
+      const updated = { ...student, status: newStatus };
+      const res = await api.post('/admin/students/save', updated);
+      if (res.data.ok) {
+        setMsg({ type: 'success', text: `${student.name} status set to ${newStatus}!` });
+        loadAllAdminData();
+      }
+    } catch (err) {
+      setMsg({ type: 'error', text: 'Failed to update status.' });
     }
   };
 
@@ -705,7 +755,10 @@ export default function AdminPanel({ openLessonManager }) {
                     />
                   </td>
                   <td className="p-3">
-                    <p className="font-bold text-white">{s.name}</p>
+                    <p className="font-bold text-white flex items-center gap-1.5">
+                      <span>{s.name}</span>
+                      {s.highlight && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">{s.highlight}</span>}
+                    </p>
                     <p className="font-mono text-[10px] text-amber-300">{s.id}</p>
                     <p className="text-[10px] text-slate-400">{s.email}</p>
                   </td>
@@ -715,33 +768,62 @@ export default function AdminPanel({ openLessonManager }) {
                     <p className="text-[10px] text-slate-500 font-mono line-clamp-1">{s.session}</p>
                   </td>
                   <td className="p-3">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      Approved
-                    </span>
-                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                    <select
+                      value={s.loginApproval || 'Approved'}
+                      onChange={(e) => handleUpdateStudentApproval(s, e.target.value)}
+                      className={`px-2 py-1 rounded text-[10px] font-bold border focus:outline-none cursor-pointer ${
+                        s.loginApproval === 'Approved' ? 'bg-emerald-950 text-emerald-300 border-emerald-500/30' :
+                        s.loginApproval === 'Pending' ? 'bg-amber-950 text-amber-300 border-amber-500/30' :
+                        'bg-rose-950 text-rose-300 border-rose-500/30'
+                      }`}
+                    >
+                      <option value="Approved">Approved ✓</option>
+                      <option value="Pending">Pending ⏳</option>
+                      <option value="Rejected">Rejected ✕</option>
+                    </select>
+                    <p className="text-[10px] text-slate-400 font-mono mt-1">
                       0/{s.maxDeviceCount || 2} active devices
                     </p>
                   </td>
                   <td className="p-3">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.status === 'Active' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`}>
-                      {s.status}
-                    </span>
+                    <select
+                      value={s.status || 'Active'}
+                      onChange={(e) => handleUpdateStudentStatus(s, e.target.value)}
+                      className={`px-2 py-1 rounded text-[10px] font-bold border focus:outline-none cursor-pointer ${
+                        s.status === 'Active' ? 'bg-emerald-950 text-emerald-300 border-emerald-500/30' :
+                        'bg-rose-950 text-rose-300 border-rose-500/30'
+                      }`}
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Blocked">Blocked 🚫</option>
+                      <option value="Inactive">Inactive</option>
+                    </select>
                   </td>
                   <td className="p-3 text-slate-300 font-bold text-[11px]">
                     {(s.allowedCourseIds || s.enrolledCourseIds || []).length} Course(s)
                   </td>
                   <td className="p-3 text-right space-x-1.5">
                     <button
-                      onClick={() => handleEditStudent(s)}
-                      className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px]"
+                      type="button"
+                      onClick={() => handleOpenStudentPreview(s)}
+                      className="px-2.5 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/30 font-bold text-[11px] transition-all"
+                      title="View Student Portal & Video Courses"
                     >
-                      Edit / Rule Rules
+                      👁️ View Portal
                     </button>
                     <button
-                      onClick={() => handleDeleteStudent(s.id)}
-                      className="px-2.5 py-1 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold text-[11px]"
+                      type="button"
+                      onClick={() => handleEditStudent(s)}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-bold text-[11px] transition-all"
                     >
-                      Delete
+                      ✏️ Edit Rules
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteStudent(s.id)}
+                      className="px-2.5 py-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-500/30 font-bold text-[11px] transition-all"
+                    >
+                      🗑️ Delete
                     </button>
                   </td>
                 </tr>
@@ -1173,6 +1255,136 @@ export default function AdminPanel({ openLessonManager }) {
           ))}
         </div>
       </section>
+
+      {/* Student Portal Live Preview Modal */}
+      {previewStudentModal.isOpen && previewStudentModal.student && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="glass-card rounded-2xl p-6 border border-cyan-500/30 shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto space-y-6 bg-[#0b1325] text-slate-100 font-sans">
+            {/* Modal Header */}
+            <div className="flex justify-between items-start border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-slate-950 font-bold flex items-center justify-center text-xl shadow-lg">
+                  🎓
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-extrabold text-white">{previewStudentModal.student.name}</h2>
+                    <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-mono text-xs border border-amber-500/30">
+                      {previewStudentModal.student.id}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    {previewStudentModal.student.phone} • {previewStudentModal.student.email} • {previewStudentModal.student.batch}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewStudentModal({ isOpen: false, student: null })}
+                className="text-slate-400 hover:text-white p-1 rounded-lg text-lg font-bold transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Account & Authorization Status Badges */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase font-bold">AUTHORIZATION</span>
+                <p className="font-bold text-emerald-400">{previewStudentModal.student.loginApproval || 'Approved'}</p>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase font-bold">ACCOUNT STATUS</span>
+                <p className="font-bold text-cyan-400">{previewStudentModal.student.status || 'Active'}</p>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase font-bold">ACCESS MODE</span>
+                <p className="font-bold text-purple-300">{previewStudentModal.student.portalAccessMode || 'Full Video Access'}</p>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase font-bold">DEVICE LIMIT</span>
+                <p className="font-mono font-bold text-amber-400">0/{previewStudentModal.student.maxDeviceCount || 2} Active</p>
+              </div>
+            </div>
+
+            {/* Section 1: Enrolled Courses */}
+            <div className="space-y-3">
+              <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                <span>📚</span> এনরোলকৃত কোর্সসমূহ (Enrolled Courses)
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {courses
+                  .filter(c => {
+                    const allowed = previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || [];
+                    return allowed.length === 0 || allowed.includes(c.id);
+                  })
+                  .map(c => (
+                    <div key={c.id} className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1 text-xs">
+                      <p className="font-extrabold text-amber-300">{c.title}</p>
+                      <p className="text-slate-400 text-[11px]">ফ্যাকাল্টি: {c.faculty}</p>
+                      <p className="text-slate-400 text-[11px]">সিডিউল: <span className="font-mono text-slate-200">{c.schedule}</span></p>
+                      <div className="pt-1 flex items-center justify-between text-[10px]">
+                        <span className="text-emerald-400 font-bold">✓ Access Granted</span>
+                        <span className="text-slate-500 font-mono">৳{c.price} BDT</span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* Section 2: Available Video Lectures */}
+            <div className="space-y-3 border-t border-slate-800 pt-4">
+              <div className="flex justify-between items-center">
+                <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                  <span>🎥</span> ভিডিও লেকচার ও লাইভ ক্লাস প্লে ব্যাক ({previewLessons.length})
+                </h3>
+                <span className="text-[11px] text-slate-400 font-mono">Student Portal Preview</span>
+              </div>
+
+              {previewLoading ? (
+                <div className="text-center py-6 text-cyan-400 font-mono animate-pulse text-xs">
+                  স্টুডেন্ট পোর্টালের ভিডিও ডেটা লোড হচ্ছে...
+                </div>
+              ) : previewLessons.length === 0 ? (
+                <div className="text-center py-6 text-slate-500 text-xs bg-slate-900/50 rounded-xl">
+                  এই স্টুডেন্টের জন্য কোনো ভিডিও লেকচার পাওয়া যায়নি।
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {previewLessons.map(l => (
+                    <div key={l.id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3 text-xs hover:border-cyan-500/40 transition-all">
+                      <div className="space-y-0.5">
+                        <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 text-[10px] font-bold">
+                          {l.courseId}
+                        </span>
+                        <p className="font-bold text-white">{l.title}</p>
+                        <p className="text-[10px] text-slate-400">{l.duration} • {l.releaseDate}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openVideoModal && openVideoModal(l)}
+                        className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-[11px] shadow-md transition-all flex items-center gap-1 shrink-0"
+                      >
+                        <span>▶️</span> টেস্ট ভিডিও প্লে
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 flex justify-end border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setPreviewStudentModal({ isOpen: false, student: null })}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all"
+              >
+                বন্ধ করুন (Close Portal Preview)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

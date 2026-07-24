@@ -81,7 +81,7 @@ function MainApp() {
         )}
         {(activePage === 'admin' || activePage === 'admin-login') && (
           user?.isAdmin ? (
-            <AdminPanel openLessonManager={openLessonManager} />
+            <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} />
           ) : (
             <AdminLogin setActivePage={setActivePage} />
           )
