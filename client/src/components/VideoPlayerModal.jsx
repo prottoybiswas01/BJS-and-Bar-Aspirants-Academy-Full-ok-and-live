@@ -58,7 +58,7 @@ export default function VideoPlayerModal({ videoId, title, student, onClose }) {
         <div className="relative aspect-video w-full bg-black overflow-hidden group">
           {videoId ? (
             <iframe
-              src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&controls=1&showinfo=0&iv_load_policy=3&fs=1&disablekb=0&color=white`}
+              src={`https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&controls=1&showinfo=0&iv_load_policy=3&fs=1&disablekb=0&color=white`}
               className="h-full w-full border-0 pointer-events-auto"
               allow="autoplay; encrypted-media"
               allowFullScreen
@@ -74,8 +74,20 @@ export default function VideoPlayerModal({ videoId, title, student, onClose }) {
             </div>
           )}
 
-          {/* Shield mask for bottom-right YouTube logo */}
-          <div className="pointer-events-none absolute bottom-0 right-0 w-36 h-10 z-30 bg-gradient-to-t from-black/80 to-transparent"></div>
+          {/* Anti-Share Top Shield Overlay (Blocks YouTube Share Button, Video Title, & Watch Later links) */}
+          <div
+            className="absolute top-0 left-0 right-0 h-16 z-30 bg-transparent pointer-events-auto cursor-default select-none"
+            title="Anti-Share Protected Stream"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onContextMenu={(e) => e.preventDefault()}
+          />
+
+          {/* Anti-Link Bottom-Right YouTube Logo Shield Overlay */}
+          <div
+            className="absolute bottom-0 right-0 w-36 h-12 z-30 bg-transparent pointer-events-auto cursor-default select-none"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onContextMenu={(e) => e.preventDefault()}
+          />
 
           {/* Ultra-Low Opacity Edge Drift Watermark (Low opacity, non-distracting 4-corner drift) */}
           <div className="pointer-events-none absolute inset-0 z-40 overflow-hidden">
