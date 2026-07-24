@@ -11,24 +11,29 @@ export default function AdminLogin({ setActivePage }) {
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     if (!identifier || !password) {
-      setError('অনুগ্রহ করে অ্যাডমিন আইডেন্টিফায়ার ও পাসওয়ার্ড লিখুন।');
+      setError('অনুগ্রহ করে অ্যাডমিন ইউজারনেম ও পাসওয়ার্ড লিখুন।');
       return;
     }
 
     setLoading(true);
     setError(null);
 
-    const result = await login(identifier, password);
-    setLoading(false);
-
-    if (result.ok) {
-      if (result.user.isAdmin) {
-        setActivePage('admin');
+    try {
+      const result = await login(identifier, password);
+      if (result.ok) {
+        if (result.user.isAdmin) {
+          setActivePage('admin');
+        } else {
+          setError('এই অ্যাকাউন্টটিতে অ্যাডমিন অ্যাক্সেস পাওয়ার অনুমতি নেই।');
+        }
       } else {
-        setError('এই অ্যাকাউন্টটিতে অ্যাডমিন অ্যাক্সেস পাওয়ার অনুমতি নেই।');
+        setError(result.message || 'লগইন সফল হয়নি। তথ্য পুনরায় পরীক্ষা করুন।');
       }
-    } else {
-      setError(result.message);
+    } catch (err) {
+      console.error('Submit error:', err);
+      setError('লগইন করার সময় সমস্যা হয়েছে। পুনরায় চেষ্টা করুন।');
+    } finally {
+      setLoading(false);
     }
   };
 
