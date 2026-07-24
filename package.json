@@ -10,7 +10,15 @@
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "build": "npm run build --prefix client"
   },
-  "keywords": ["bjs", "bar-council", "judiciary", "e-learning", "react", "express", "mongodb"],
+  "keywords": [
+    "bjs",
+    "bar-council",
+    "judiciary",
+    "e-learning",
+    "react",
+    "express",
+    "mongodb"
+  ],
   "author": "Antigravity AI",
   "license": "ISC",
   "dependencies": {
@@ -19,7 +27,8 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.5.1"
+    "mongoose": "^8.24.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
