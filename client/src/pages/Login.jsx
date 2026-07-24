@@ -37,10 +37,7 @@ export default function Login({ setActivePage }) {
     setPassword('123456');
   };
 
-  const fillDemoAdmin = () => {
-    setIdentifier('admin');
-    setPassword('admin123');
-  };
+
 
   return (
     <div className="max-w-md mx-auto py-12 px-4 animate-fadeIn">
@@ -49,29 +46,21 @@ export default function Login({ setActivePage }) {
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-bold flex items-center justify-center text-2xl mx-auto shadow-lg shadow-amber-500/20">
             🔑
           </div>
-          <h2 className="text-2xl font-extrabold text-white">স্টুডেন্ট / অ্যাডমিন লগইন</h2>
+          <h2 className="text-2xl font-extrabold text-white">স্টুডেন্ট লগইন</h2>
           <p className="text-xs text-slate-400">
-            আপনার ফোন নম্বর, স্টুডেন্ট আইডি বা রেজিস্ট্রেশন আইডি ব্যবহার করুন
+            আপনার ফোন নম্বর, স্টুডেন্ট আইডি বা ইমেইল ব্যবহার করুন
           </p>
         </div>
 
-        {/* Fast Demo Fill Buttons */}
+        {/* Fast Demo Fill Button */}
         <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2 text-xs">
           <p className="text-[11px] font-semibold text-amber-400">⚡ দ্রুত টেস্টের জন্য ডেমো লগইন সিলেক্ট করুন:</p>
-          <div className="flex gap-2">
-            <button
-              onClick={fillDemoStudent}
-              className="flex-1 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-[11px] font-bold"
-            >
-              🎓 Student Demo (Prottoy)
-            </button>
-            <button
-              onClick={fillDemoAdmin}
-              className="flex-1 py-2 px-3 rounded-lg bg-purple-950/60 hover:bg-purple-900/60 text-purple-300 border border-purple-500/30 text-[11px] font-bold"
-            >
-              ⚙️ Admin Demo
-            </button>
-          </div>
+          <button
+            onClick={fillDemoStudent}
+            className="w-full py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-[11px] font-bold transition-all"
+          >
+            🎓 Student Demo (Prottoy)
+          </button>
         </div>
 
         {error && (

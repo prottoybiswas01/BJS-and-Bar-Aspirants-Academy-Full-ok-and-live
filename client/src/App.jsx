@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import Home from './pages/Home';
 import Login from './pages/Login';
+import AdminLogin from './pages/AdminLogin';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import AdminPanel from './pages/AdminPanel';
@@ -15,7 +16,25 @@ import LessonManagerModal from './components/LessonManagerModal';
 
 function MainApp() {
   const { user } = useAuth();
-  const [activePage, setActivePage] = useState('home');
+  const [activePage, setActivePage] = useState(() => {
+    const path = window.location.pathname.toLowerCase();
+    if (path === '/admin' || path === '/admin/' || path.endsWith('/admin')) {
+      return 'admin';
+    }
+    return 'home';
+  });
+
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const path = window.location.pathname.toLowerCase();
+      if (path === '/admin' || path === '/admin/' || path.endsWith('/admin')) {
+        setActivePage('admin');
+      }
+    };
+    handleUrlChange();
+    window.addEventListener('popstate', handleUrlChange);
+    return () => window.removeEventListener('popstate', handleUrlChange);
+  }, []);
 
   // Modals & Drawers State
   const [videoModal, setVideoModal] = useState({ isOpen: false, lesson: null });
@@ -54,8 +73,12 @@ function MainApp() {
         {activePage === 'dashboard' && (
           <Dashboard openVideoModal={openVideoModal} openPaymentModal={openPaymentModal} />
         )}
-        {activePage === 'admin' && (
-          <AdminPanel openLessonManager={openLessonManager} />
+        {(activePage === 'admin' || activePage === 'admin-login') && (
+          user?.isAdmin ? (
+            <AdminPanel openLessonManager={openLessonManager} />
+          ) : (
+            <AdminLogin setActivePage={setActivePage} />
+          )
         )}
       </main>
 
