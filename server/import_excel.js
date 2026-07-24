@@ -130,7 +130,7 @@ async function runImport() {
         lastPaymentDate: formatExcelDate(e.lastPaymentDate),
         paymentDueDate: formatExcelDate(e.paymentDueDate, "2026-12-31"),
         monthlyFee: String(e.monthlyFee || "1000").trim(),
-        enrollmentStatus: e.status === "Inactive" ? "Inactive" : "Active",
+        enrollmentStatus: e.status === "Inactive" ? "Expired" : "Active",
         paidMonths: formatExcelDate(e.paidMonths)
       };
       studentRulesMap[sId].push(rule);
@@ -150,7 +150,7 @@ async function runImport() {
       const rawPass = s.password ? String(s.password).trim() : "123456";
       const passHash = (rawPass === "123456" || !rawPass) ? defaultPasswordHash : await bcrypt.hash(rawPass, 10);
 
-      const enrolledIds = s.enrolledCourseIds ? String(s.enrolledCourseIds).split(",").map(x => x.trim()) : [];
+      const enrolledIds = s.enrolledCourseIds ? String(s.enrolledCourseIds).split(/[|,]/).map(x => x.trim()).filter(Boolean) : [];
       const rules = studentRulesMap[sId] || [];
 
       const studentObj = {
