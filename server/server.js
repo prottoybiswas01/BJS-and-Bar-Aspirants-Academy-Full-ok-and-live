@@ -424,9 +424,12 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// Mail Transporter for OTP Email Dispatch
+// Mail Transporter for OTP Email Dispatch (Pooled High-Performance SMTP)
 const mailTransporter = nodemailer.createTransport({
   service: "gmail",
+  pool: true,
+  maxConnections: 5,
+  maxMessages: 100,
   auth: {
     user: process.env.EMAIL_USER || "bjsacademy38@gmail.com",
     pass: process.env.EMAIL_PASS || "kahnoeuqlfxichef"
@@ -434,6 +437,11 @@ const mailTransporter = nodemailer.createTransport({
 });
 
 async function sendOtpEmail(targetEmail, otp, studentName) {
+  if (!targetEmail || !targetEmail.includes("@")) {
+    console.warn(`⚠️ Invalid target email for OTP dispatch: ${targetEmail}`);
+    return false;
+  }
+
   const mailOptions = {
     from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
     to: targetEmail,
@@ -441,7 +449,7 @@ async function sendOtpEmail(targetEmail, otp, studentName) {
     html: `
       <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 500px; margin: auto; border: 1px solid #334155;">
         <div style="text-align: center; margin-bottom: 18px;">
-          <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Academy</h2>
+          <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
           <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Judiciary & Advocacy Excellence Portal</p>
         </div>
         <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #1e293b; text-align: center;">
@@ -460,8 +468,8 @@ async function sendOtpEmail(targetEmail, otp, studentName) {
   };
 
   try {
-    await mailTransporter.sendMail(mailOptions);
-    console.log(`✉️ OTP Email dispatched successfully to ${targetEmail}`);
+    const info = await mailTransporter.sendMail(mailOptions);
+    console.log(`✉️ OTP Email dispatched successfully to ${targetEmail} (MessageId: ${info.messageId})`);
     return true;
   } catch (err) {
     console.warn(`⚠️ Nodemailer notice: ${err.message}`);
@@ -826,14 +834,30 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes valid
+    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes valid
 
-    otpStore.set(student.email.toLowerCase(), { otp, expiresAt, studentId: student.id, phone: student.phone });
+    const otpData = {
+      otp,
+      expiresAt,
+      studentId: student.id,
+      email: student.email,
+      phone: student.phone
+    };
+
+    // Store multi-key mappings so lookup works by Email, Phone, Student ID or Raw Input!
+    if (student.email) otpStore.set(student.email.toLowerCase(), otpData);
     if (student.phone) {
-      otpStore.set(student.phone, { otp, expiresAt, studentId: student.id, email: student.email });
+      otpStore.set(student.phone, otpData);
+      otpStore.set(student.phone.replace(/[^0-9]/g, ""), otpData);
     }
+    if (student.id) otpStore.set(student.id, otpData);
+    if (cleanInput) otpStore.set(cleanInput, otpData);
+    if (cleanDigits) otpStore.set(cleanDigits, otpData);
 
-    const mailSent = await sendOtpEmail(student.email, otp, student.name);
+    // Dispatch OTP Email ASYNCHRONOUSLY to prevent HTTP blocking delay!
+    sendOtpEmail(student.email, otp, student.name).catch((err) => {
+      console.warn("Async OTP email send warning:", err);
+    });
 
     return res.json({
       ok: true,
@@ -857,9 +881,14 @@ app.post("/api/auth/verify-otp", async (req, res) => {
 
     const rawInput = String(emailOrPhone).trim();
     const cleanInput = rawInput.toLowerCase();
+    const cleanDigits = rawInput.replace(/[^0-9]/g, "");
     const cleanOtp = String(otp).trim();
 
-    const storedData = otpStore.get(cleanInput) || otpStore.get(rawInput);
+    // Multi-key lookup in otpStore
+    const storedData =
+      otpStore.get(cleanInput) ||
+      otpStore.get(rawInput) ||
+      (cleanDigits ? otpStore.get(cleanDigits) : null);
 
     if (!storedData || storedData.otp !== cleanOtp || Date.now() > storedData.expiresAt) {
       return res.status(400).json({ ok: false, message: "ভুল অথবা মেয়াদোত্তীর্ণ (Expired) OTP কোড! নতুন OTP রিকোয়েস্ট করুন।" });
@@ -869,7 +898,7 @@ app.post("/api/auth/verify-otp", async (req, res) => {
     const resetToken = "RST-" + Date.now() + "-" + Math.floor(1000 + Math.random() * 9000);
     storedData.verified = true;
     storedData.resetToken = resetToken;
-    storedData.expiresAt = Date.now() + 15 * 60 * 1000; // Extend 15 mins for password entry
+    storedData.expiresAt = Date.now() + 20 * 60 * 1000; // Extend 20 mins for password entry
 
     return res.json({
       ok: true,

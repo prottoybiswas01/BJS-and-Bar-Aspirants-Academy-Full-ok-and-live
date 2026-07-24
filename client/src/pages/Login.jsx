@@ -62,6 +62,7 @@ export default function Login({ setActivePage }) {
       setLoading(false);
       if (res.data.ok) {
         setSuccessMsg(res.data.message);
+        if (res.data.email) setForgotEmail(res.data.email);
         setForgotStep(2);
       } else {
         setError(res.data.message || 'OTP পাঠাতে ব্যর্থ হয়েছে।');
