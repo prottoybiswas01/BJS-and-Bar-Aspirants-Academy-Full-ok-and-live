@@ -518,35 +518,31 @@ app.post("/api/admin/change-password", async (req, res) => {
   }
 });
 
-// 4. Courses & Lessons (Public: Active Courses Only - Instant 0ms Latency)
-app.get("/api/courses", (req, res) => {
+// 4. Courses & Lessons (Public: Active Courses Only)
+app.get("/api/courses", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    if (isMongoConnected) {
+      const courses = await Course.find({ status: { $ne: "Inactive" } }).lean();
+      if (courses && courses.length > 0) memoryDb.courses = courses;
+      return res.json({ ok: true, courses: courses || [] });
+    }
+  } catch (e) {}
   const activeOnly = (memoryDb.courses || []).filter(c => c && c.status !== "Inactive");
   res.json({ ok: true, courses: activeOnly });
-
-  if (isMongoConnected) {
-    Course.find({ status: { $ne: "Inactive" } }).lean().then(c => {
-      if (c && c.length > 0) {
-        const map = new Map();
-        [...c, ...(memoryDb.courses || [])].forEach(x => { if (x && x.id) map.set(x.id, x); });
-        memoryDb.courses = Array.from(map.values());
-      }
-    }).catch(() => {});
-  }
 });
 
-// Admin Courses Endpoint (All Courses including Inactive - Instant 0ms Latency)
-app.get("/api/admin/courses", (req, res) => {
+// Admin Courses Endpoint (All Courses including Inactive)
+app.get("/api/admin/courses", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    if (isMongoConnected) {
+      const courses = await Course.find().lean();
+      if (courses && courses.length > 0) memoryDb.courses = courses;
+      return res.json({ ok: true, courses: courses || [] });
+    }
+  } catch (e) {}
   res.json({ ok: true, courses: memoryDb.courses || [] });
-
-  if (isMongoConnected) {
-    Course.find().lean().then(c => {
-      if (c && c.length > 0) {
-        const map = new Map();
-        [...c, ...(memoryDb.courses || [])].forEach(x => { if (x && x.id) map.set(x.id, x); });
-        memoryDb.courses = Array.from(map.values());
-      }
-    }).catch(() => {});
-  }
 });
 
 app.get("/api/lessons", async (req, res) => {
@@ -940,45 +936,61 @@ app.post("/api/admin/mail-settings", async (req, res) => {
   }
 });
 
-app.get("/api/admin/students", (req, res) => {
-  res.json({ ok: true, students: memoryDb.students || [] });
+app.get("/api/admin/students", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    let mongoStudents = [];
+    if (isMongoConnected) {
+      try {
+        mongoStudents = await Student.find().sort({ createdAt: -1 }).lean();
+      } catch (e) {}
+    }
 
-  if (isMongoConnected) {
-    Student.find().sort({ createdAt: -1 }).lean().then(mongoStudents => {
-      if (mongoStudents && mongoStudents.length > 0) {
-        const combined = [...mongoStudents, ...(memoryDb.students || [])];
-        const map = new Map();
-        combined.forEach((s) => {
-          if (!s) return;
-          const key = (s.id || s._id || s.phone || s.email || "").toString().toLowerCase();
-          if (key && !map.has(key)) {
-            map.set(key, s);
-          }
-        });
-        memoryDb.students = Array.from(map.values());
+    const combined = [...mongoStudents, ...(memoryDb.students || [])];
+    const map = new Map();
+    combined.forEach((s) => {
+      if (!s) return;
+      const key = (s.id || s._id || s.phone || s.email || "").toString().toLowerCase();
+      if (key && !map.has(key)) {
+        map.set(key, s);
       }
-    }).catch(() => {});
+    });
+
+    const uniqueStudents = Array.from(map.values());
+    memoryDb.students = uniqueStudents;
+
+    return res.json({ ok: true, students: uniqueStudents });
+  } catch (e) {
+    return res.json({ ok: true, students: memoryDb.students || [] });
   }
 });
 
-app.get("/api/admin/registrations", (req, res) => {
-  res.json({ ok: true, registrations: memoryDb.registrations || [] });
+app.get("/api/admin/registrations", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    let mongoRegs = [];
+    if (isMongoConnected) {
+      try {
+        mongoRegs = await Registration.find().sort({ createdAt: -1 }).lean();
+      } catch (e) {}
+    }
 
-  if (isMongoConnected) {
-    Registration.find().sort({ createdAt: -1 }).lean().then(mongoRegs => {
-      if (mongoRegs && mongoRegs.length > 0) {
-        const combined = [...mongoRegs, ...(memoryDb.registrations || [])];
-        const map = new Map();
-        combined.forEach((r) => {
-          if (!r) return;
-          const key = (r.regId || r._id || r.phone || r.email || "").toString().toLowerCase();
-          if (key && !map.has(key)) {
-            map.set(key, r);
-          }
-        });
-        memoryDb.registrations = Array.from(map.values());
+    const combined = [...mongoRegs, ...(memoryDb.registrations || [])];
+    const map = new Map();
+    combined.forEach((r) => {
+      if (!r) return;
+      const key = (r.regId || r._id || r.phone || r.email || "").toString().toLowerCase();
+      if (key && !map.has(key)) {
+        map.set(key, r);
       }
-    }).catch(() => {});
+    });
+
+    const uniqueRegs = Array.from(map.values());
+    memoryDb.registrations = uniqueRegs;
+
+    return res.json({ ok: true, registrations: uniqueRegs });
+  } catch (e) {
+    return res.json({ ok: true, registrations: memoryDb.registrations || [] });
   }
 });
 
