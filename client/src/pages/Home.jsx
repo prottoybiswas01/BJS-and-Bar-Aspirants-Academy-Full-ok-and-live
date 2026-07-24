@@ -7,6 +7,7 @@ export default function Home({ setActivePage }) {
   const [courses, setCourses] = useState([]);
   const [mentors, setMentors] = useState([]);
   const [isMentorsModalOpen, setIsMentorsModalOpen] = useState(false);
+  const [enrollModalCourse, setEnrollModalCourse] = useState(null);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     studentsCount: 0,
@@ -22,7 +23,10 @@ export default function Home({ setActivePage }) {
   useEffect(() => {
     api.get('/courses')
       .then((res) => {
-        if (res.data.ok) setCourses(res.data.courses);
+        if (res.data.ok && Array.isArray(res.data.courses)) {
+          const activeOnly = res.data.courses.filter(c => c.status !== 'Inactive');
+          setCourses(activeOnly);
+        }
       })
       .catch((err) => console.log('Courses error:', err))
       .finally(() => setLoading(false));
@@ -193,7 +197,7 @@ export default function Home({ setActivePage }) {
                   </div>
 
                   <button
-                    onClick={() => setActivePage('register')}
+                    onClick={() => setEnrollModalCourse(c)}
                     className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-extrabold shadow-md transition-all hover:scale-105"
                   >
                     ভর্তি হোন (Enroll)
@@ -204,6 +208,59 @@ export default function Home({ setActivePage }) {
           </div>
         )}
       </section>
+
+      {/* Course Enrollment WhatsApp Notice Modal */}
+      {enrollModalCourse && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fadeIn">
+          <div className="relative w-full max-w-md bg-slate-900 border border-amber-500/40 rounded-2xl p-6 shadow-2xl space-y-5 text-center text-xs">
+            <button
+              onClick={() => setEnrollModalCourse(null)}
+              className="absolute top-4 right-4 w-7 h-7 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold text-sm"
+            >
+              ✕
+            </button>
+
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center text-3xl mx-auto shadow-lg shadow-amber-500/10">
+              📱
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-lg font-black text-white">কোর্সে ভর্তির অফিশিয়াল নির্দেশনা</h3>
+              <p className="text-xs text-amber-300 font-bold">{enrollModalCourse.title}</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 space-y-2 leading-relaxed text-left">
+              <p className="font-bold text-amber-400 flex items-center gap-1.5">
+                <span>⚠️</span> সার্ভিস নোটিশ:
+              </p>
+              <p>
+                অনলাইন সয়ংক্রিয় পেমেন্ট সিস্টেমটি আপাতত বন্ধ রয়েছে। কোর্সে ভর্তি নিশ্চিত করতে ও ক্লাসের এক্সেস পেতে সরাসরি আমাদের অফিশিয়াল <strong>WhatsApp</strong> নম্বরে যোগাযোগ করুন বা সরাসরি কল দিন।
+              </p>
+            </div>
+
+            <div className="space-y-2.5 pt-1">
+              <a
+                href="https://wa.me/8801978167016"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition-all hover:scale-[1.02]"
+              >
+                <span>💬</span> WhatsApp-এ সরাসরি যোগাযোগ করুন (01978167016)
+              </a>
+
+              <button
+                onClick={() => {
+                  setEnrollModalCourse(null);
+                  setActivePage('register');
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-all"
+              >
+                📝 নতুন একাউন্ট রেজিস্ট্রেশন ফরমটি পূরণ করুন
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Unique Security Highlights Banner */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

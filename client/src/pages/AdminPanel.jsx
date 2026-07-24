@@ -246,7 +246,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       const results = await Promise.allSettled([
         api.get('/admin/overview-stats'),
         api.get('/admin/students'),
-        api.get('/courses'),
+        api.get('/admin/courses'),
         api.get('/admin/mail-settings'),
         api.get('/site-settings'),
         api.get('/admin/mentors')

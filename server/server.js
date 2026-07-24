@@ -148,6 +148,25 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(400).json({ ok: false, message: "Please fill all required fields." });
     }
 
+    const cleanPhone = String(phone).trim();
+    const cleanEmail = String(email).trim().toLowerCase();
+
+    // Check duplicate in memoryDb first
+    const existsInMem = (memoryDb.students || []).some(
+      (s) => s && (s.phone === cleanPhone || (s.email && String(s.email).toLowerCase() === cleanEmail))
+    );
+
+    if (isMongoConnected) {
+      const existingStudent = await Student.findOne({
+        $or: [{ phone: cleanPhone }, { email: cleanEmail }]
+      });
+      if (existingStudent || existsInMem) {
+        return res.status(400).json({ ok: false, message: "An account with this phone or email already exists." });
+      }
+    } else if (existsInMem) {
+      return res.status(400).json({ ok: false, message: "An account with this phone or email already exists." });
+    }
+
     const regId = "REG-" + new Date().getFullYear() + "-" + Math.floor(1000 + Math.random() * 9000);
     const studentId = "STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -155,8 +174,8 @@ app.post("/api/auth/register", async (req, res) => {
     const newReg = {
       regId,
       name,
-      phone,
-      email,
+      phone: cleanPhone,
+      email: cleanEmail,
       batch,
       session: session || "Standard Session",
       password: hashedPassword,
@@ -167,8 +186,8 @@ app.post("/api/auth/register", async (req, res) => {
     const newStudent = {
       id: studentId,
       name,
-      phone,
-      email,
+      phone: cleanPhone,
+      email: cleanEmail,
       batch,
       session: session || "Standard Session",
       password: hashedPassword,
@@ -178,22 +197,20 @@ app.post("/api/auth/register", async (req, res) => {
       createdAt: new Date()
     };
 
+    // ALWAYS store in memoryDb!
+    memoryDb.registrations.unshift(newReg);
+    memoryDb.students.unshift(newStudent);
+
+    // ALSO save to Mongo if connected!
     if (isMongoConnected) {
-      const existingStudent = await Student.findOne({ $or: [{ phone }, { email }] });
-      if (existingStudent) {
-        return res.status(400).json({ ok: false, message: "An account with this phone or email already exists." });
+      try {
+        await Promise.all([
+          Registration.create(newReg),
+          Student.create(newStudent)
+        ]);
+      } catch (err) {
+        console.warn("Mongo creation notice on register:", err.message);
       }
-      await Promise.all([
-        Registration.create(newReg),
-        Student.create(newStudent)
-      ]);
-    } else {
-      const exists = memoryDb.students.some((s) => s.phone === phone || s.email === email);
-      if (exists) {
-        return res.status(400).json({ ok: false, message: "An account with this phone or email already exists." });
-      }
-      memoryDb.registrations.unshift(newReg);
-      memoryDb.students.unshift(newStudent);
     }
 
     res.json({
@@ -523,8 +540,20 @@ app.post("/api/admin/change-password", async (req, res) => {
   }
 });
 
-// 4. Courses & Lessons
+// 4. Courses & Lessons (Public: Active Courses Only)
 app.get("/api/courses", async (req, res) => {
+  try {
+    if (isMongoConnected) {
+      const courses = await Course.find({ status: { $ne: "Inactive" } }).lean();
+      return res.json({ ok: true, courses: courses || [] });
+    }
+  } catch (e) {}
+  const activeOnly = (memoryDb.courses || []).filter(c => c.status !== "Inactive");
+  res.json({ ok: true, courses: activeOnly });
+});
+
+// Admin Courses Endpoint (All Courses including Inactive)
+app.get("/api/admin/courses", async (req, res) => {
   try {
     if (isMongoConnected) {
       const courses = await Course.find().lean();
@@ -928,24 +957,58 @@ app.post("/api/admin/mail-settings", async (req, res) => {
 
 app.get("/api/admin/students", async (req, res) => {
   try {
+    let mongoStudents = [];
     if (isMongoConnected) {
-      const students = await Student.find().sort({ createdAt: -1 }).lean();
-      memoryDb.students = students || [];
-      return res.json({ ok: true, students: memoryDb.students });
+      try {
+        mongoStudents = await Student.find().sort({ createdAt: -1 }).lean();
+      } catch (e) {}
     }
-  } catch (e) {}
-  res.json({ ok: true, students: memoryDb.students || [] });
+
+    const combined = [...mongoStudents, ...(memoryDb.students || [])];
+    const map = new Map();
+    combined.forEach((s) => {
+      if (!s) return;
+      const key = (s.id || s._id || s.phone || s.email || "").toString().toLowerCase();
+      if (key && !map.has(key)) {
+        map.set(key, s);
+      }
+    });
+
+    const uniqueStudents = Array.from(map.values());
+    memoryDb.students = uniqueStudents;
+
+    return res.json({ ok: true, students: uniqueStudents });
+  } catch (e) {
+    return res.json({ ok: true, students: memoryDb.students || [] });
+  }
 });
 
 app.get("/api/admin/registrations", async (req, res) => {
   try {
+    let mongoRegs = [];
     if (isMongoConnected) {
-      const registrations = await Registration.find().sort({ createdAt: -1 }).lean();
-      memoryDb.registrations = registrations || [];
-      return res.json({ ok: true, registrations: memoryDb.registrations });
+      try {
+        mongoRegs = await Registration.find().sort({ createdAt: -1 }).lean();
+      } catch (e) {}
     }
-  } catch (e) {}
-  res.json({ ok: true, registrations: memoryDb.registrations || [] });
+
+    const combined = [...mongoRegs, ...(memoryDb.registrations || [])];
+    const map = new Map();
+    combined.forEach((r) => {
+      if (!r) return;
+      const key = (r.regId || r._id || r.phone || r.email || "").toString().toLowerCase();
+      if (key && !map.has(key)) {
+        map.set(key, r);
+      }
+    });
+
+    const uniqueRegs = Array.from(map.values());
+    memoryDb.registrations = uniqueRegs;
+
+    return res.json({ ok: true, registrations: uniqueRegs });
+  } catch (e) {
+    return res.json({ ok: true, registrations: memoryDb.registrations || [] });
+  }
 });
 
 app.post("/api/admin/students/save", async (req, res) => {

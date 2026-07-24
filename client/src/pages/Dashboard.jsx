@@ -18,10 +18,13 @@ export default function Dashboard({ openVideoModal }) {
     try {
       const courseRes = await api.get('/courses');
       if (courseRes.data.ok) {
-        setCourses(courseRes.data.courses);
-        if (courseRes.data.courses.length > 0) {
-          setSelectedCourse(courseRes.data.courses[0]);
-          fetchLessons(courseRes.data.courses[0].id);
+        const activeCourses = (courseRes.data.courses || []).filter(c =>
+          !c.status || c.status === 'Active' || String(c.status).toLowerCase().includes('active')
+        );
+        setCourses(activeCourses);
+        if (activeCourses.length > 0) {
+          setSelectedCourse(activeCourses[0]);
+          fetchLessons(activeCourses[0].id);
         }
       }
     } catch (err) {
