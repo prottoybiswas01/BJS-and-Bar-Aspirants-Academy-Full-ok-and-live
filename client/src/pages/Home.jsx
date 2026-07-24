@@ -11,6 +11,12 @@ export default function Home({ setActivePage, openPaymentModal }) {
     mentorsCount: 0
   });
 
+  const [siteSettings, setSiteSettings] = useState({
+    badgeText: '১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!',
+    heroTitle: 'বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য',
+    heroSubtitle: 'বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।'
+  });
+
   useEffect(() => {
     api.get('/courses')
       .then((res) => {
@@ -29,6 +35,14 @@ export default function Home({ setActivePage, openPaymentModal }) {
         }
       })
       .catch((err) => console.log('Public stats error:', err));
+
+    api.get('/site-settings')
+      .then((res) => {
+        if (res.data.ok && res.data.settings) {
+          setSiteSettings(res.data.settings);
+        }
+      })
+      .catch((err) => console.log('Site settings error:', err));
   }, []);
 
   return (
@@ -39,18 +53,19 @@ export default function Home({ setActivePage, openPaymentModal }) {
         <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center space-y-6">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-            ১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!
-          </div>
+          {siteSettings.badgeText && (
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+              {siteSettings.badgeText}
+            </div>
+          )}
 
-          <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
-            বিচারক ও আইনজীবী হওয়ার <br />
-            <span className="text-gradient-gold">স্বপ্নে গড়ি নিশ্চিত সাফল্য</span>
+          <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight whitespace-pre-line">
+            {siteSettings.heroTitle}
           </h1>
 
           <p className="text-sm sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।
+            {siteSettings.heroSubtitle}
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-4 pt-2">

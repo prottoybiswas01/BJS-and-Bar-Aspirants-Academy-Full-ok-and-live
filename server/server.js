@@ -21,6 +21,7 @@ const Registration = require("./models/Registration");
 const Payment = require("./models/Payment");
 const Device = require("./models/Device");
 const MailSetting = require("./models/MailSetting");
+const SiteSetting = require("./models/SiteSetting");
 
 // State flags
 let isMongoConnected = false;
@@ -99,6 +100,11 @@ const memoryDb = {
     enabled: true,
     fallbackEmail: "bjsacademy38@gmail.com",
     enableAllMails: true
+  },
+  siteSettings: {
+    badgeText: "১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!",
+    heroTitle: "বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য",
+    heroSubtitle: "বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।"
   }
 };
 
@@ -316,6 +322,43 @@ app.get("/api/public-stats", async (req, res) => {
       studentsCount: memoryDb.students ? memoryDb.students.length : 1,
       mentorsCount: 1
     });
+  }
+});
+
+// 3.6 Site Settings Endpoint (Public & Admin)
+app.get("/api/site-settings", async (req, res) => {
+  try {
+    if (isMongoConnected) {
+      let settings = await SiteSetting.findOne({ id: "default_settings" });
+      if (!settings) {
+        settings = await SiteSetting.create(memoryDb.siteSettings);
+      }
+      return res.json({ ok: true, settings });
+    }
+  } catch (e) {}
+  res.json({ ok: true, settings: memoryDb.siteSettings });
+});
+
+app.post("/api/admin/site-settings", async (req, res) => {
+  try {
+    const { badgeText, heroTitle, heroSubtitle } = req.body;
+    memoryDb.siteSettings = {
+      badgeText: badgeText || memoryDb.siteSettings.badgeText,
+      heroTitle: heroTitle || memoryDb.siteSettings.heroTitle,
+      heroSubtitle: heroSubtitle || memoryDb.siteSettings.heroSubtitle
+    };
+
+    if (isMongoConnected) {
+      await SiteSetting.findOneAndUpdate(
+        { id: "default_settings" },
+        { badgeText, heroTitle, heroSubtitle },
+        { upsert: true, new: true }
+      );
+    }
+
+    res.json({ ok: true, message: "হিরো ব্যানার কন্ট্রোল সফলভাবে আপডেট করা হয়েছে!", settings: memoryDb.siteSettings });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: "Error updating site settings" });
   }
 });
 
