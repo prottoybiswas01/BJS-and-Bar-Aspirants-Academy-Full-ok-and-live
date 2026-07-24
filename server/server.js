@@ -4,6 +4,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
+const PDFDocument = require("pdfkit");
 require("dotenv").config({ path: __dirname + "/.env" });
 
 const app = express();
@@ -597,6 +598,82 @@ async function sendCourseEnrollmentEmail(targetEmail, studentData, courseTitle, 
   }
 }
 
+// PDF Receipt Generator Helper
+function createPdfReceiptBuffer(receiptData) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 40, size: "A4" });
+      const buffers = [];
+      doc.on("data", (data) => buffers.push(data));
+      doc.on("end", () => resolve(Buffer.concat(buffers)));
+
+      const greenColor = "#059669";
+      const darkColor = "#0f172a";
+      const redColor = "#dc2626";
+
+      // Header Banner
+      doc.rect(0, 0, doc.page.width, 100).fill("#0b1325");
+      doc.fillColor("#ffffff").fontSize(18).font("Helvetica-Bold").text("BJS & BAR ASPIRANTS ACADEMY", 40, 25);
+      doc.fillColor("#f59e0b").fontSize(10).font("Helvetica").text("OFFICIAL MONEY RECEIPT & PAYMENT VOUCHER", 40, 50);
+      doc.fillColor("#94a3b8").fontSize(9).text("Farmgate, Dhaka 1215 | Helpline: 01800077663", 40, 66);
+
+      // RED Round PAID Stamp Badge
+      doc.save();
+      doc.circle(480, 50, 30).lineWidth(3).strokeColor(redColor).stroke();
+      doc.fillColor(redColor).fontSize(11).font("Helvetica-Bold").text("PAID", 467, 44);
+      doc.restore();
+
+      let y = 120;
+
+      // Receipt Details Box
+      doc.fillColor(darkColor).fontSize(12).font("Helvetica-Bold").text(`Receipt Reference: ${receiptData.receiptId}`, 40, y);
+      const dateStr = new Date(receiptData.paymentTime || Date.now()).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+      doc.fillColor("#64748b").fontSize(10).font("Helvetica").text(`Issued Date: ${dateStr}`, 350, y);
+
+      y += 22;
+      doc.moveTo(40, y).lineTo(550, y).strokeColor("#cbd5e1").lineWidth(1).stroke();
+      y += 15;
+
+      const rowHeight = 22;
+      const drawRow = (label, val, bg = false) => {
+        if (bg) doc.rect(40, y - 4, 510, rowHeight).fill("#f8fafc");
+        doc.fillColor("#475569").fontSize(10).font("Helvetica-Bold").text(label, 50, y);
+        doc.fillColor(darkColor).fontSize(10).font("Helvetica").text(String(val || 'N/A'), 200, y);
+        y += rowHeight;
+      };
+
+      drawRow("Student Name:", receiptData.studentName, true);
+      drawRow("Student ID:", receiptData.studentId, false);
+      drawRow("Registered Email:", receiptData.studentEmail, true);
+      drawRow("Phone Number:", receiptData.studentPhone, false);
+      drawRow("Course / Batch:", receiptData.batch || "BJS & Bar Masterclass", true);
+      drawRow("Payment Method:", receiptData.paymentMethod, false);
+      drawRow("Transaction ID (TrxID):", receiptData.trxId || "N/A", true);
+      if (receiptData.note) {
+        drawRow("Payment Description:", receiptData.note, false);
+      }
+
+      y += 15;
+
+      doc.rect(40, y, 510, 50).fillAndStroke("#ecfdf5", greenColor);
+      doc.fillColor("#047857").fontSize(10).font("Helvetica-Bold").text("TOTAL AMOUNT RECEIVED", 50, y + 10);
+      doc.fillColor(greenColor).fontSize(20).font("Helvetica-Bold").text(`BDT ${Number(receiptData.amount || 0).toLocaleString()} BDT`, 50, y + 24);
+
+      y += 85;
+
+      doc.moveTo(40, y + 25).lineTo(180, y + 25).strokeColor("#94a3b8").lineWidth(1).stroke();
+      doc.fillColor("#64748b").fontSize(9).font("Helvetica").text("Accounts Officer Signature", 40, y + 31);
+
+      doc.moveTo(380, y + 25).lineTo(550, y + 25).strokeColor("#94a3b8").lineWidth(1).stroke();
+      doc.fillColor("#64748b").fontSize(9).font("Helvetica").text("Official Seal & Stamp", 410, y + 31);
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 // Official Money Receipt Email Dispatcher
 async function sendMoneyReceiptEmail(targetEmail, receiptData) {
   const formattedDate = new Date(receiptData.paymentTime || Date.now()).toLocaleString("en-US", {
@@ -604,10 +681,23 @@ async function sendMoneyReceiptEmail(targetEmail, receiptData) {
     timeStyle: "short"
   });
 
+  let pdfAttachment = null;
+  try {
+    const pdfBuffer = await createPdfReceiptBuffer(receiptData);
+    pdfAttachment = {
+      filename: `Money_Receipt_${receiptData.receiptId}.pdf`,
+      content: pdfBuffer,
+      contentType: "application/pdf"
+    };
+  } catch (e) {
+    console.warn("PDF generation notice:", e.message);
+  }
+
   const mailOptions = {
     from: '"BJS & Bar Academy Accounts Dept" <bjsacademy38@gmail.com>',
     to: targetEmail,
-    subject: `🧾 Official Money Receipt - ${receiptData.receiptId} (PAID ৳${receiptData.amount})`,
+    subject: `🧾 Official Money Receipt & PDF Voucher - ${receiptData.receiptId} (PAID ৳${receiptData.amount})`,
+    attachments: pdfAttachment ? [pdfAttachment] : [],
     html: `
       <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 580px; margin: auto; border: 1px solid #334155;">
         <div style="text-align: center; margin-bottom: 20px; border-bottom: 1px solid #1e293b; padding-bottom: 15px;">
@@ -616,9 +706,10 @@ async function sendMoneyReceiptEmail(targetEmail, receiptData) {
         </div>
 
         <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b; position: relative;">
+          <!-- RED Round Stamp Badge -->
           <div style="text-align: right; margin-bottom: -15px;">
-            <span style="display: inline-block; border: 2px solid #10b981; color: #10b981; padding: 4px 14px; border-radius: 6px; font-weight: bold; font-size: 13px; text-transform: uppercase; letter-spacing: 2px; background: rgba(16, 185, 129, 0.1);">
-              ✓ OFFICIAL PAID
+            <span style="display: inline-block; border: 3px solid #dc2626; color: #dc2626; padding: 6px 16px; border-radius: 50px; font-weight: 900; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; background: rgba(220, 38, 38, 0.1); transform: rotate(-8deg);">
+              🔴 OFFICIAL PAID SEAL
             </span>
           </div>
 
@@ -644,7 +735,7 @@ async function sendMoneyReceiptEmail(targetEmail, receiptData) {
             </tr>
             <tr style="background: #020617;">
               <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Course / Batch:</td>
-              <td style="padding: 10px; border: 1px solid #1e293b; color: #38bdf8;">${receiptData.batch || 'BJS & Bar Masterclass'}</td>
+              <td style="padding: 10px; border: 1px solid #1e293b; color: #38bdf8; font-weight: bold;">${receiptData.batch || 'BJS & Bar Masterclass'}</td>
             </tr>
             <tr>
               <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Payment Method:</td>
@@ -667,8 +758,12 @@ async function sendMoneyReceiptEmail(targetEmail, receiptData) {
             <h2 style="margin: 6px 0 0 0; font-size: 28px; color: #10b981; font-weight: bold;">৳ ${Number(receiptData.amount || 0).toLocaleString('en-US')} BDT</h2>
           </div>
 
+          <div style="margin-top: 20px; padding: 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 8px; font-size: 12px; color: #6ee7b7; text-align: center;">
+            📄 <strong>PDF Money Receipt Attached:</strong> A printable PDF receipt (Money_Receipt_${receiptData.receiptId}.pdf) has been attached to this email for your records.
+          </div>
+
           <div style="margin-top: 20px; padding-top: 12px; border-top: 1px dashed #334155; font-size: 11px; color: #94a3b8; text-align: center;">
-            <p style="margin: 2px 0;">Issued & Verified By: <strong>BJS & Bar Academic Accounts Department</strong></p>
+            Issued & Verified By: <strong>BJS & Bar Academic Accounts Department</strong>
           </div>
         </div>
 
@@ -682,7 +777,7 @@ async function sendMoneyReceiptEmail(targetEmail, receiptData) {
 
   try {
     await mailTransporter.sendMail(mailOptions);
-    console.log(`✉️ Money Receipt Email sent to ${targetEmail}`);
+    console.log(`✉️ Money Receipt Email & PDF sent to ${targetEmail}`);
     return true;
   } catch (err) {
     console.warn(`⚠️ Money Receipt Email notice: ${err.message}`);

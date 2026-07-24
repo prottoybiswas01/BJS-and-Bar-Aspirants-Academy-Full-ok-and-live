@@ -1067,6 +1067,14 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     return Array.from(new Set(titles));
   };
 
+  const isStudentPaid = (s) => {
+    if (!s) return false;
+    const hasReceipt = (receipts || []).some(
+      r => r.studentId === s.id || (r.studentEmail && r.studentEmail.toLowerCase() === (s.email || '').toLowerCase()) || (r.studentPhone && r.studentPhone === s.phone)
+    );
+    return hasReceipt || s.loginApproval === 'Approved';
+  };
+
   return (
     <div className="space-y-8 pb-20 animate-fadeIn text-slate-100 font-sans relative">
       {/* Floating Toast Notification Banner (Visible across the whole page) */}
@@ -1342,33 +1350,53 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {filteredStudents.map((s) => (
-                <tr key={s.id} className={`hover:bg-slate-900/50 ${selectedStudentForRules?.id === s.id ? 'bg-amber-950/20 border-l-4 border-amber-500' : ''}`}>
-                  <td className="p-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedStudentIds.includes(s.id)}
-                      onChange={() => toggleStudentSelection(s.id)}
-                      className="rounded bg-slate-950 border-slate-800 text-amber-500"
-                    />
-                  </td>
-                  <td className="p-3">
-                    <p className="font-bold text-white flex items-center gap-1.5">
-                      <span>{s.name}</span>
-                      {s.highlight && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">{s.highlight}</span>}
-                    </p>
-                    <p className="font-mono text-[10px] text-amber-300">{s.id}</p>
-                    <p className="text-[10px] text-slate-400">{s.email}</p>
+              {filteredStudents.map((s) => {
+                const paid = isStudentPaid(s);
+                return (
+                  <tr
+                    key={s.id}
+                    className={`transition-all ${
+                      selectedStudentForRules?.id === s.id
+                        ? 'bg-amber-950/40 border-l-4 border-amber-500'
+                        : paid
+                        ? 'bg-emerald-950/30 border-l-4 border-emerald-500/70 hover:bg-emerald-900/40'
+                        : 'bg-rose-950/25 border-l-4 border-rose-500/70 hover:bg-rose-900/30'
+                    }`}
+                  >
+                    <td className="p-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedStudentIds.includes(s.id)}
+                        onChange={() => toggleStudentSelection(s.id)}
+                        className="rounded bg-slate-950 border-slate-800 text-amber-500"
+                      />
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-bold text-white text-sm">{s.name}</p>
+                        {paid ? (
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[9px] border border-emerald-500/40">
+                            ✓ PAID & APPROVED
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold text-[9px] border border-rose-500/40">
+                            ⚠️ PAYMENT PENDING
+                          </span>
+                        )}
+                        {s.highlight && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">{s.highlight}</span>}
+                      </div>
+                      <p className="font-mono text-[10px] text-amber-300">{s.id}</p>
+                      <p className="text-[10px] text-slate-400">{s.email}</p>
 
-                    {/* Multi-Course Enrolled Badges */}
-                    <div className="flex flex-wrap gap-1 mt-1 max-w-[220px]">
-                      {getStudentEnrolledCourseTitles(s).map((cTitle, cIdx) => (
-                        <span key={cIdx} className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold text-[9px]">
-                          📚 {cTitle}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
+                      {/* Multi-Course Enrolled Badges */}
+                      <div className="flex flex-wrap gap-1 mt-1 max-w-[220px]">
+                        {getStudentEnrolledCourseTitles(s).map((cTitle, cIdx) => (
+                          <span key={cIdx} className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold text-[9px]">
+                            📚 {cTitle}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
                   <td className="p-3 font-mono text-slate-300">{s.phone}</td>
                   <td className="p-3 text-slate-300 max-w-[150px]">
                     <div className="flex flex-wrap gap-1">
@@ -1442,8 +1470,9 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
                     </button>
                   </td>
                 </tr>
-              ))}
-            </tbody>
+              );
+            })}
+          </tbody>
           </table>
         </div>
       </section>
@@ -2437,7 +2466,23 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">কোর্স / ব্যাচ বাছাই করুন (Select Batch/Course):</label>
+              <select
+                value={receiptForm.batch}
+                onChange={(e) => setReceiptForm({ ...receiptForm, batch: e.target.value })}
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-cyan-300 font-bold focus:outline-none focus:border-emerald-500"
+              >
+                <option value="BJS & Bar Masterclass">-- সিলেক্ট করুন / BJS & Bar Masterclass --</option>
+                {courses.map(c => (
+                  <option key={c.id} value={c.title}>
+                    📚 {c.title} (Tk {c.price})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div>
               <label className="block text-slate-300 font-semibold mb-1">তারিখ ও সময় (Payment Date & Time):</label>
               <input
@@ -2476,7 +2521,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
             <h3 className="font-bold text-white text-sm flex items-center gap-2">
               <span>📋</span> ইস্যুকৃত মানি রিসিট তালিকা (Issued Receipts History - {receipts.length})
             </h3>
-            <span className="text-xs text-emerald-400 font-mono font-bold">Auto-Email & Print Enabled</span>
+            <span className="text-xs text-emerald-400 font-mono font-bold">Auto-Email & PDF Attachment Enabled</span>
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-slate-800">
@@ -2492,14 +2537,38 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
-                {receipts.length === 0 ? (
+                {receipts.filter(r => {
+                  if (!receiptSearchQuery) return true;
+                  const q = receiptSearchQuery.toLowerCase();
+                  return (
+                    (r.receiptId || '').toLowerCase().includes(q) ||
+                    (r.studentId || '').toLowerCase().includes(q) ||
+                    (r.studentName || '').toLowerCase().includes(q) ||
+                    (r.studentPhone || '').includes(q) ||
+                    (r.studentEmail || '').toLowerCase().includes(q) ||
+                    (r.paymentMethod || '').toLowerCase().includes(q) ||
+                    (r.trxId || '').toLowerCase().includes(q)
+                  );
+                }).length === 0 ? (
                   <tr>
                     <td colSpan={6} className="p-8 text-center text-slate-500">
-                      এখনো কোনো মানি রিসিট ইস্যু করা হয়নি। উপরের ফর্মটি ব্যবহার করে নতুন রিসিট সেভ করুন।
+                      এখনো কোনো মানি রিসিট পাওয়া যায়নি। উপরের সার্চ বার বা ফর্মটি ব্যবহার করে নতুন রিসিট সেভ করুন।
                     </td>
                   </tr>
                 ) : (
-                  receipts.map(r => (
+                  receipts.filter(r => {
+                    if (!receiptSearchQuery) return true;
+                    const q = receiptSearchQuery.toLowerCase();
+                    return (
+                      (r.receiptId || '').toLowerCase().includes(q) ||
+                      (r.studentId || '').toLowerCase().includes(q) ||
+                      (r.studentName || '').toLowerCase().includes(q) ||
+                      (r.studentPhone || '').includes(q) ||
+                      (r.studentEmail || '').toLowerCase().includes(q) ||
+                      (r.paymentMethod || '').toLowerCase().includes(q) ||
+                      (r.trxId || '').toLowerCase().includes(q)
+                    );
+                  }).map(r => (
                     <tr key={r.receiptId} className="hover:bg-slate-800/50 transition-colors">
                       <td className="p-3 font-mono font-bold text-amber-400">
                         {r.receiptId}
