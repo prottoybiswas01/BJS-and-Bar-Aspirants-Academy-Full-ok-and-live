@@ -244,15 +244,27 @@ export default function Dashboard({ openVideoModal }) {
 
                     <div className="space-y-2">
                       {groupLessons.map((l) => {
+                        const isOrientation = (
+                          (l.title || '').toLowerCase().includes('orientation') ||
+                          (l.title || '').includes('অরিয়েন্টেশন') ||
+                          (l.module || '').toLowerCase().includes('orientation') ||
+                          (l.module || '').includes('অরিয়েন্টেশন') ||
+                          (l.chapter || '').toLowerCase().includes('orientation') ||
+                          (l.chapter || '').includes('অরিয়েন্টেশন')
+                        );
                         const isCompleted = user?.completedLessonIds?.includes(l.id);
                         const hasVideo = Boolean(l.youtubeId || l.youtubeUrl);
-                        const canWatch = isEnrolled && hasVideo;
+                        const canWatch = (isEnrolled || isOrientation) && hasVideo;
 
                         let cardClass = 'bg-rose-950/20 border-rose-500/30 text-rose-200';
                         let badgeText = '🔴 Video Pending';
                         let badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
 
-                        if (!isEnrolled) {
+                        if (isOrientation && hasVideo) {
+                          cardClass = 'bg-emerald-950/30 border-emerald-500/50 text-emerald-100 hover:border-emerald-400 shadow-md';
+                          badgeText = '🎁 Free Orientation Unlocked';
+                          badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold';
+                        } else if (!isEnrolled) {
                           badgeText = '🔒 Course Locked';
                         } else if (hasVideo) {
                           cardClass = 'bg-emerald-950/25 border-emerald-500/30 text-emerald-200 hover:border-emerald-400';
@@ -295,13 +307,13 @@ export default function Dashboard({ openVideoModal }) {
 
                               <button
                                 onClick={() => openVideoModal(l)}
-                                className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-md transition-all ${
+                                className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-md transition-all cursor-pointer ${
                                   canWatch
                                     ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-400 hover:to-teal-400 hover:scale-105'
-                                    : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-pointer'
+                                    : 'bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700'
                                 }`}
                               >
-                                {canWatch ? '▶ প্লে ক্লাস (Play)' : '🔒 প্রিভিউ / তথ্য'}
+                                {canWatch ? (isOrientation ? '▶️ অরিয়েন্টেশন ফ্রি প্লে' : '▶️ প্লে ভিডিও') : '🔒 প্রিভিউ / তথ্য'}
                               </button>
                             </div>
                           </div>

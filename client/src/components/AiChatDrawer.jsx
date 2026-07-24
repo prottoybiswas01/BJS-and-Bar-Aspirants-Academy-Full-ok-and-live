@@ -132,6 +132,16 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
                   )}
                 </div>
               )}
+
+              {/* Mandatory AI Disclaimer Box under EVERY AI message (Concise 1-2 Lines) */}
+              {msg.sender === 'ai' && (
+                <div className="mt-2.5 px-3 py-2 rounded-xl bg-[#091122] border border-amber-500/35 text-[10.5px] leading-snug font-sans text-slate-300">
+                  <span className="font-extrabold text-amber-400">⚠️ সতর্কবার্তা: </span>
+                  <span className="font-medium text-slate-300">
+                    AI সহকারীটি বর্তমানে <strong>ট্রেনিং মোডে</strong> রয়েছে। তথ্যে অনাকাঙ্ক্ষিত ভুল থাকতে পারে; সিদ্ধান্ত নেওয়ার পূর্বে বিজ্ঞ বিচারক বা আইনজীবীর মাধ্যমে যাচাই করে নিন।
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         ))}
