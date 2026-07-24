@@ -33,6 +33,7 @@ const Device = require("./models/Device");
 const MailSetting = require("./models/MailSetting");
 const SiteSetting = require("./models/SiteSetting");
 const Mentor = require("./models/Mentor");
+const Receipt = require("./models/Receipt");
 
 // State flags
 let isMongoConnected = false;
@@ -45,6 +46,7 @@ const memoryDb = {
   courses: [],
   lessons: [],
   mentors: [],
+  receipts: [],
   devices: [],
   mailSettings: {
     enabled: true,
@@ -584,6 +586,99 @@ async function sendCourseEnrollmentEmail(targetEmail, studentData, courseTitle) 
     return true;
   } catch (err) {
     console.warn(`⚠️ Course Enrollment Email notice: ${err.message}`);
+    return false;
+  }
+}
+
+// Official Money Receipt Email Dispatcher
+async function sendMoneyReceiptEmail(targetEmail, receiptData) {
+  const formattedDate = new Date(receiptData.paymentTime || Date.now()).toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  });
+
+  const mailOptions = {
+    from: '"BJS & Bar Academy Accounts Dept" <bjsacademy38@gmail.com>',
+    to: targetEmail,
+    subject: `🧾 Official Money Receipt - ${receiptData.receiptId} (PAID ৳${receiptData.amount})`,
+    html: `
+      <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 580px; margin: auto; border: 1px solid #334155;">
+        <div style="text-align: center; margin-bottom: 20px; border-bottom: 1px solid #1e293b; padding-bottom: 15px;">
+          <h2 style="color: #f59e0b; margin: 0; font-size: 22px;">⚖️ BJS & Bar Aspirants Academy</h2>
+          <p style="color: #94a3b8; font-size: 11px; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px;">Official Money Receipt & Payment Voucher</p>
+        </div>
+
+        <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b; position: relative;">
+          <div style="text-align: right; margin-bottom: -15px;">
+            <span style="display: inline-block; border: 2px solid #10b981; color: #10b981; padding: 4px 14px; border-radius: 6px; font-weight: bold; font-size: 13px; text-transform: uppercase; letter-spacing: 2px; background: rgba(16, 185, 129, 0.1);">
+              ✓ OFFICIAL PAID
+            </span>
+          </div>
+
+          <h3 style="color: #ffffff; margin-top: 0; font-size: 16px;">Money Receipt Ref: <span style="color: #f59e0b; font-family: monospace;">${receiptData.receiptId}</span></h3>
+          <p style="font-size: 12px; color: #94a3b8; margin-top: -8px;">Issued Date & Time: ${formattedDate}</p>
+
+          <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 12px; color: #cbd5e1;">
+            <tr style="background: #020617;">
+              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8; width: 35%;">Student Name:</td>
+              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #ffffff;">${receiptData.studentName}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Student ID:</td>
+              <td style="padding: 10px; border: 1px solid #1e293b; font-family: monospace; color: #f59e0b;">${receiptData.studentId}</td>
+            </tr>
+            <tr style="background: #020617;">
+              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Registered Email:</td>
+              <td style="padding: 10px; border: 1px solid #1e293b;">${receiptData.studentEmail}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Phone Number:</td>
+              <td style="padding: 10px; border: 1px solid #1e293b;">${receiptData.studentPhone}</td>
+            </tr>
+            <tr style="background: #020617;">
+              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Course / Batch:</td>
+              <td style="padding: 10px; border: 1px solid #1e293b; color: #38bdf8;">${receiptData.batch || 'BJS & Bar Masterclass'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Payment Method:</td>
+              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #f59e0b;">${receiptData.paymentMethod}</td>
+            </tr>
+            <tr style="background: #020617;">
+              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Transaction ID (TrxID):</td>
+              <td style="padding: 10px; border: 1px solid #1e293b; font-family: monospace; color: #10b981; font-weight: bold;">${receiptData.trxId || 'N/A'}</td>
+            </tr>
+            ${receiptData.note ? `
+            <tr>
+              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Payment Description:</td>
+              <td style="padding: 10px; border: 1px solid #1e293b;">${receiptData.note}</td>
+            </tr>
+            ` : ''}
+          </table>
+
+          <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #10b981; text-align: center; margin-top: 15px;">
+            <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px;">Total Amount Received</p>
+            <h2 style="margin: 6px 0 0 0; font-size: 28px; color: #10b981; font-weight: bold;">৳ ${Number(receiptData.amount || 0).toLocaleString('en-US')} BDT</h2>
+          </div>
+
+          <div style="margin-top: 20px; padding-top: 12px; border-top: 1px dashed #334155; font-size: 11px; color: #94a3b8; text-align: center;">
+            <p style="margin: 2px 0;">Issued & Verified By: <strong>BJS & Bar Academic Accounts Department</strong></p>
+          </div>
+        </div>
+
+        <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+          © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.<br/>
+          Farmgate, Dhaka 1215 | Helpline: 01800077663
+        </p>
+      </div>
+    `
+  };
+
+  try {
+    await mailTransporter.sendMail(mailOptions);
+    console.log(`✉️ Money Receipt Email sent to ${targetEmail}`);
+    return true;
+  } catch (err) {
+    console.warn(`⚠️ Money Receipt Email notice: ${err.message}`);
     return false;
   }
 }
@@ -1500,9 +1595,124 @@ app.get("/api/admin/registrations", async (req, res) => {
   res.json({ ok: true, registrations: memoryDb.registrations });
 });
 
-app.post("/api/ai/chat", async (req, res) => {
-  const { prompt } = req.body;
-  res.json({ ok: true, reply: `⚖️ **Legal AI Assistant**: Instant legal response for query "${prompt}".` });
+// 5. Money Receipt & Payment Management Endpoints
+app.get("/api/admin/receipts", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    let mongoReceipts = [];
+    if (isMongoConnected) {
+      try {
+        mongoReceipts = await Receipt.find().sort({ createdAt: -1 }).lean();
+      } catch (e) {}
+    }
+
+    const combined = [...mongoReceipts, ...(memoryDb.receipts || [])];
+    const map = new Map();
+    combined.forEach((r) => {
+      if (!r) return;
+      const key = (r.receiptId || r._id || "").toString().toLowerCase();
+      if (key && !map.has(key)) map.set(key, r);
+    });
+
+    const uniqueReceipts = Array.from(map.values());
+    memoryDb.receipts = uniqueReceipts;
+
+    return res.json({ ok: true, receipts: uniqueReceipts });
+  } catch (e) {
+    return res.json({ ok: true, receipts: memoryDb.receipts || [] });
+  }
+});
+
+app.post("/api/admin/receipts/save", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    let body = { ...req.body };
+
+    if (!body.studentId || !body.amount) {
+      return res.status(400).json({ ok: false, message: "Student and Payment Amount are required." });
+    }
+
+    if (!body.receiptId || !String(body.receiptId).trim()) {
+      body.receiptId = "REC-2026-" + Math.floor(1000 + Math.random() * 9000);
+    }
+
+    body.amount = Number(body.amount);
+    body.paymentTime = body.paymentTime ? new Date(body.paymentTime) : new Date();
+
+    let savedReceipt = body;
+
+    if (isMongoConnected) {
+      let existing = await Receipt.findOne({ receiptId: body.receiptId });
+      if (existing) {
+        Object.assign(existing, body);
+        savedReceipt = await existing.save();
+      } else {
+        savedReceipt = await Receipt.create(body);
+      }
+      if (savedReceipt && savedReceipt.toObject) savedReceipt = savedReceipt.toObject();
+    }
+
+    const idx = memoryDb.receipts.findIndex((r) => r.receiptId === body.receiptId);
+    if (idx > -1) {
+      memoryDb.receipts[idx] = { ...memoryDb.receipts[idx], ...savedReceipt };
+    } else {
+      memoryDb.receipts.unshift({ ...savedReceipt });
+    }
+
+    // Automatically send money receipt email to student
+    if (savedReceipt && savedReceipt.studentEmail) {
+      sendMoneyReceiptEmail(savedReceipt.studentEmail, savedReceipt);
+    }
+
+    return res.json({
+      ok: true,
+      message: `Money Receipt ${savedReceipt.receiptId} saved and email sent to ${savedReceipt.studentEmail}!`,
+      receipt: savedReceipt
+    });
+  } catch (e) {
+    console.error("Error saving receipt:", e);
+    return res.status(500).json({ ok: false, message: e.message || "Error saving money receipt." });
+  }
+});
+
+app.post("/api/admin/receipts/resend-email/:receiptId", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { receiptId } = req.params;
+
+    let targetReceipt = (memoryDb.receipts || []).find((r) => r.receiptId === receiptId);
+    if (!targetReceipt && isMongoConnected) {
+      targetReceipt = await Receipt.findOne({ receiptId });
+    }
+
+    if (!targetReceipt) {
+      return res.status(404).json({ ok: false, message: "Money Receipt not found." });
+    }
+
+    const sent = await sendMoneyReceiptEmail(targetReceipt.studentEmail, targetReceipt);
+    return res.json({
+      ok: true,
+      message: sent
+        ? `Money Receipt ${receiptId} re-sent successfully to ${targetReceipt.studentEmail}!`
+        : `Receipt re-sent request processed for ${targetReceipt.studentEmail}.`
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, message: "Error re-sending receipt email." });
+  }
+});
+
+app.delete("/api/admin/receipts/:receiptId", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { receiptId } = req.params;
+    if (isMongoConnected) {
+      await Receipt.deleteOne({ receiptId });
+    }
+    memoryDb.receipts = (memoryDb.receipts || []).filter((r) => r.receiptId !== receiptId);
+    return res.json({ ok: true, message: `Money Receipt ${receiptId} deleted successfully!` });
+  } catch (e) {
+    return res.status(500).json({ ok: false, message: "Error deleting money receipt." });
+  }
 });
 
 // Start Express Listener locally & export for Vercel serverless environment

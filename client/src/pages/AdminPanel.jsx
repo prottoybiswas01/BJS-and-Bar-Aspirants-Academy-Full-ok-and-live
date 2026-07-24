@@ -234,6 +234,25 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     };
   };
 
+  // Money Receipts & Payment Management State
+  const [receipts, setReceipts] = useState([]);
+  const [receiptSearchQuery, setReceiptSearchQuery] = useState('');
+  const [selectedStudentForReceipt, setSelectedStudentForReceipt] = useState(null);
+  const [receiptForm, setReceiptForm] = useState({
+    receiptId: '',
+    studentId: '',
+    studentName: '',
+    studentPhone: '',
+    studentEmail: '',
+    batch: '',
+    amount: '',
+    paymentMethod: 'bKash',
+    trxId: '',
+    paymentTime: new Date().toISOString().substring(0, 16),
+    note: 'Course Fee Payment'
+  });
+  const [receiptPreviewModal, setReceiptPreviewModal] = useState({ isOpen: false, receipt: null });
+
   const currentStats = getEnrollmentStats();
 
   useEffect(() => {
@@ -249,7 +268,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
         api.get('/admin/courses'),
         api.get('/admin/mail-settings'),
         api.get('/site-settings'),
-        api.get('/admin/mentors')
+        api.get('/admin/mentors'),
+        api.get('/admin/receipts')
       ]);
 
       if (results[0].status === 'fulfilled' && results[0].value.data?.ok) setStats(results[0].value.data);
@@ -258,6 +278,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       if (results[3].status === 'fulfilled' && results[3].value.data?.ok) setMailSettings(results[3].value.data.settings);
       if (results[4].status === 'fulfilled' && results[4].value.data?.ok && results[4].value.data.settings) setSiteSettingsForm(results[4].value.data.settings);
       if (results[5].status === 'fulfilled' && results[5].value.data?.ok) setMentors(results[5].value.data.mentors || []);
+      if (results[6].status === 'fulfilled' && results[6].value.data?.ok) setReceipts(results[6].value.data.receipts || []);
     } catch (err) {
       console.log('Error loading admin data:', err);
     } finally {
@@ -846,6 +867,191 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     } else {
       setSelectedStudentIds([...selectedStudentIds, id]);
     }
+  };
+
+  // Money Receipt Action Handlers
+  const handleSelectStudentForReceipt = (s) => {
+    setSelectedStudentForReceipt(s);
+    setReceiptForm({
+      receiptId: 'REC-2026-' + Math.floor(1000 + Math.random() * 9000),
+      studentId: s.id,
+      studentName: s.name,
+      studentPhone: s.phone,
+      studentEmail: s.email,
+      batch: s.batch || 'BJS & Bar Masterclass',
+      amount: '',
+      paymentMethod: 'bKash',
+      trxId: '',
+      paymentTime: new Date().toISOString().substring(0, 16),
+      note: 'Course Fee Payment'
+    });
+    showToast(`Selected student: ${s.name} (${s.id})`, 'success');
+  };
+
+  const handleSaveReceipt = async (e) => {
+    if (e) e.preventDefault();
+    if (!receiptForm.studentId || !receiptForm.amount) {
+      showToast('স্টুডেন্ট আইডি এবং পেমেন্টের পরিমাণ অবশ্যই দিতে হবে।', 'error');
+      return;
+    }
+
+    try {
+      const res = await api.post('/admin/receipts/save', receiptForm);
+      if (res.data.ok) {
+        showToast(res.data.message || `✓ মানি রিসিট সেভ করা হয়েছে এবং ইমেইল পাঠানো হয়েছে!`, 'success');
+        setReceiptForm({
+          receiptId: '',
+          studentId: '',
+          studentName: '',
+          studentPhone: '',
+          studentEmail: '',
+          batch: '',
+          amount: '',
+          paymentMethod: 'bKash',
+          trxId: '',
+          paymentTime: new Date().toISOString().substring(0, 16),
+          note: 'Course Fee Payment'
+        });
+        setSelectedStudentForReceipt(null);
+        loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'মানি রিসিট সেভ করতে সমস্যা হয়েছে।', 'error');
+      }
+    } catch (err) {
+      showToast('মানি রিসিট সেভ করতে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
+  const handleResendReceiptEmail = async (receiptId) => {
+    try {
+      const res = await api.post(`/admin/receipts/resend-email/${receiptId}`);
+      if (res.data.ok) {
+        showToast(res.data.message || `✓ মানি রিসিট ইমেইল পুনরায় পাঠানো হয়েছে!`, 'success');
+      } else {
+        showToast(res.data.message || 'ইমেইল পুনরায় পাঠাতে ব্যর্থ হয়েছে।', 'error');
+      }
+    } catch (err) {
+      showToast('ইমেইল পাঠাতে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
+  const handleDeleteReceipt = async (receiptId) => {
+    if (!window.confirm(`আপনি কি সত্যিই মানি রিসিট ${receiptId} ডিলিট করতে চান?`)) return;
+    try {
+      const res = await api.delete(`/admin/receipts/${receiptId}`);
+      if (res.data.ok) {
+        showToast(res.data.message || `✓ মানি রিসিট ${receiptId} ডিলিট করা হয়েছে!`, 'success');
+        loadAllAdminData();
+      }
+    } catch (err) {
+      showToast('ডিলিট করতে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
+  const handleEditReceipt = (r) => {
+    setReceiptForm({
+      receiptId: r.receiptId,
+      studentId: r.studentId,
+      studentName: r.studentName,
+      studentPhone: r.studentPhone,
+      studentEmail: r.studentEmail,
+      batch: r.batch || '',
+      amount: r.amount || '',
+      paymentMethod: r.paymentMethod || 'bKash',
+      trxId: r.trxId || '',
+      paymentTime: r.paymentTime ? new Date(r.paymentTime).toISOString().substring(0, 16) : new Date().toISOString().substring(0, 16),
+      note: r.note || ''
+    });
+    setSelectedStudentForReceipt({ id: r.studentId, name: r.studentName, phone: r.studentPhone, email: r.studentEmail });
+    showToast(`Editing Money Receipt ${r.receiptId}`, 'success');
+    document.getElementById('payment-form-section')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handlePrintAllReceiptsSummary = () => {
+    const totalAmount = receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const bkashAmt = receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const nagadAmt = receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const rocketAmt = receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const othersAmt = totalAmount - (bkashAmt + nagadAmt + rocketAmt);
+
+    const win = window.open('', '_blank');
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Payment & Collection Summary Report - BJS & Bar Academy</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; color: #1e293b; }
+          h1 { color: #d97706; margin-bottom: 4px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 12px; }
+          th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; }
+          th { background-color: #f1f5f9; }
+          .summary-card { display: flex; gap: 15px; margin: 15px 0; }
+          .card { background: #f8fafc; border: 1px solid #cbd5e1; padding: 12px; border-radius: 8px; flex: 1; text-align: center; }
+          .card h3 { margin: 0; font-size: 20px; color: #059669; }
+          .card p { margin: 4px 0 0 0; font-size: 11px; color: #64748b; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <h1>⚖️ BJS & Bar Aspirants Academy</h1>
+        <p style="margin-top:0; font-size: 12px; color: #64748b;">Official Accounts Collection & Money Receipt Summary Report | Issued: ${new Date().toLocaleString()}</p>
+        
+        <div class="summary-card">
+          <div class="card">
+            <h3>৳ ${totalAmount.toLocaleString()} BDT</h3>
+            <p>TOTAL COLLECTIONS</p>
+          </div>
+          <div class="card">
+            <h3 style="color:#d97706;">৳ ${bkashAmt.toLocaleString()} BDT</h3>
+            <p>BKASH TOTAL</p>
+          </div>
+          <div class="card">
+            <h3 style="color:#2563eb;">৳ ${nagadAmt.toLocaleString()} BDT</h3>
+            <p>NAGAD TOTAL</p>
+          </div>
+          <div class="card">
+            <h3 style="color:#7c3aed;">৳ ${rocketAmt.toLocaleString()} BDT</h3>
+            <p>ROCKET TOTAL</p>
+          </div>
+          <div class="card">
+            <h3 style="color:#475569;">৳ ${othersAmt.toLocaleString()} BDT</h3>
+            <p>OTHERS / CASH TOTAL</p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Receipt Ref</th>
+              <th>Date & Time</th>
+              <th>Student ID</th>
+              <th>Student Name</th>
+              <th>Phone</th>
+              <th>Method</th>
+              <th>TrxID</th>
+              <th>Amount (BDT)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${receipts.map(r => `
+              <tr>
+                <td><strong>${r.receiptId}</strong></td>
+                <td>${new Date(r.paymentTime || r.createdAt).toLocaleString()}</td>
+                <td>${r.studentId}</td>
+                <td>${r.studentName}</td>
+                <td>${r.studentPhone}</td>
+                <td><strong>${r.paymentMethod}</strong></td>
+                <td>${r.trxId || 'N/A'}</td>
+                <td><strong>৳ ${Number(r.amount).toLocaleString()}</strong></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <script>window.print();</script>
+      </body>
+      </html>
+    `);
+    win.document.close();
   };
 
   return (
@@ -1964,6 +2170,497 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
           </div>
         </div>
       </section>
+
+      {/* 8. PAYMENT FOR STUDENT (স্টুডেন্ট পেমেন্ট ও মানি রিসিট ব্যবস্থাপনা) */}
+      <section id="payment-form-section" className="glass-card rounded-2xl p-6 border border-emerald-500/40 shadow-2xl space-y-6 bg-slate-950/70 relative">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800 pb-4 gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-bold uppercase border border-emerald-500/30">
+                FINANCIAL & ACCOUNTS PORTAL
+              </span>
+              <span className="text-xs text-slate-400 font-mono">Receipt Engine v2.0</span>
+            </div>
+            <h2 className="text-xl font-extrabold text-white flex items-center gap-2.5 mt-1">
+              <span>💳</span> Payment for Student (পেমেন্ট ও মানি রিসিট সেকশন)
+            </h2>
+            <p className="text-xs text-slate-300 mt-0.5">
+              স্টুডেন্ট সার্চ করুন, পেমেন্ট অ্যান্ট্রি দিন এবং সরাসরি ইউজারের ইমেইলে ব্র্যান্ডেড সিল-ছাপ্পড়সহ অফিশিয়াল মানি রিসিট (Paid Slip) পাঠান।
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handlePrintAllReceiptsSummary}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-2"
+          >
+            <span>📄</span> সর্বমোট কালেকশন রিপোর্ট প্রিন্ট (Export PDF/Print)
+          </button>
+        </div>
+
+        {/* Collection Summary Stat Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
+          <div className="p-4 rounded-xl bg-slate-900/90 border border-emerald-500/30 text-center space-y-1">
+            <span className="text-[10px] font-mono text-emerald-400 font-bold uppercase">TOTAL COLLECTIONS</span>
+            <p className="text-xl font-black text-emerald-400 font-mono">
+              ৳ {receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
+            </p>
+            <p className="text-[10px] text-slate-400">{receipts.length} Payment Receipts</p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900/90 border border-amber-500/30 text-center space-y-1">
+            <span className="text-[10px] font-mono text-amber-400 font-bold uppercase">BKASH TOTAL</span>
+            <p className="text-lg font-bold text-amber-300 font-mono">
+              ৳ {receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
+            </p>
+            <p className="text-[10px] text-slate-400">bKash Merchant/Personal</p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900/90 border border-orange-500/30 text-center space-y-1">
+            <span className="text-[10px] font-mono text-orange-400 font-bold uppercase">NAGAD TOTAL</span>
+            <p className="text-lg font-bold text-orange-300 font-mono">
+              ৳ {receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
+            </p>
+            <p className="text-[10px] text-slate-400">Nagad Official</p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900/90 border border-purple-500/30 text-center space-y-1">
+            <span className="text-[10px] font-mono text-purple-400 font-bold uppercase">ROCKET TOTAL</span>
+            <p className="text-lg font-bold text-purple-300 font-mono">
+              ৳ {receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
+            </p>
+            <p className="text-[10px] text-slate-400">DBBL Rocket</p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-700 text-center space-y-1">
+            <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">OTHERS / CASH</span>
+            <p className="text-lg font-bold text-slate-300 font-mono">
+              ৳ {(receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0) - (
+                receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0) +
+                receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0) +
+                receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+              )).toLocaleString()} BDT
+            </p>
+            <p className="text-[10px] text-slate-400">Upay / Bank / Cash</p>
+          </div>
+        </div>
+
+        {/* Step A: Search & Select Student */}
+        <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4">
+          <h3 className="font-bold text-white text-sm flex items-center gap-2">
+            <span>🔍</span> ধাপ ১: স্টুডেন্ট সার্চ ও সিলেকশন (Select Student for Payment)
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">স্টুডেন্ট নাম, আইডি বা মোবাইল নম্বর দিয়ে সার্চ দিন:</label>
+              <input
+                type="text"
+                value={receiptSearchQuery}
+                onChange={(e) => setReceiptSearchQuery(e.target.value)}
+                placeholder="উদাহরণ: Prottoy, 01800077663 বা STU-2026-..."
+                className="w-full rounded-xl bg-slate-950 border border-slate-700 px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">অথবা নিচের লিস্ট থেকে সরাসরি স্টুডেন্ট সিলেক্ট করুন:</label>
+              <select
+                onChange={(e) => {
+                  const s = students.find(item => item.id === e.target.value);
+                  if (s) handleSelectStudentForReceipt(s);
+                }}
+                value={selectedStudentForReceipt?.id || ''}
+                className="w-full rounded-xl bg-slate-950 border border-slate-700 px-4 py-2.5 text-white focus:outline-none focus:border-emerald-500 font-medium"
+              >
+                <option value="">-- যেকোনো স্টুডেন্ট বেছে নিন ({students.length} Total) --</option>
+                {students.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.id}) - {s.phone} | {s.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Quick Select Filter Grid */}
+          {receiptSearchQuery && (
+            <div className="pt-2">
+              <span className="text-[11px] text-slate-400 font-bold block mb-2">সার্চ ফলাফল ({students.filter(s =>
+                s.name.toLowerCase().includes(receiptSearchQuery.toLowerCase()) ||
+                s.phone.includes(receiptSearchQuery) ||
+                s.id.toLowerCase().includes(receiptSearchQuery.toLowerCase()) ||
+                s.email.toLowerCase().includes(receiptSearchQuery.toLowerCase())
+              ).length} জন স্টুডেন্ট পাওয়া গেছে):</span>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-48 overflow-y-auto pr-1">
+                {students.filter(s =>
+                  s.name.toLowerCase().includes(receiptSearchQuery.toLowerCase()) ||
+                  s.phone.includes(receiptSearchQuery) ||
+                  s.id.toLowerCase().includes(receiptSearchQuery.toLowerCase()) ||
+                  s.email.toLowerCase().includes(receiptSearchQuery.toLowerCase())
+                ).map(s => (
+                  <div
+                    key={s.id}
+                    onClick={() => handleSelectStudentForReceipt(s)}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      selectedStudentForReceipt?.id === s.id
+                        ? 'bg-emerald-950/80 border-emerald-500 text-emerald-200 shadow-md'
+                        : 'bg-slate-950 hover:bg-slate-800 border-slate-800 text-slate-200'
+                    }`}
+                  >
+                    <p className="font-bold text-xs">{s.name}</p>
+                    <p className="text-[11px] text-amber-400 font-mono">{s.id}</p>
+                    <p className="text-[10px] text-slate-400">{s.phone} • {s.email}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Selected Student Active Card */}
+          {selectedStudentForReceipt && (
+            <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-950/80 to-slate-900 border border-emerald-500/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 animate-fadeIn">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500 text-slate-950 font-bold flex items-center justify-center text-lg shadow-md">
+                  👤
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-extrabold text-white text-sm">{selectedStudentForReceipt.name}</h4>
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[11px] border border-emerald-500/30">
+                      {selectedStudentForReceipt.id}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    📞 {selectedStudentForReceipt.phone} | 📧 {selectedStudentForReceipt.email} | 🎓 {selectedStudentForReceipt.batch}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedStudentForReceipt(null)}
+                className="text-xs font-bold text-rose-400 hover:underline px-3 py-1 rounded bg-rose-950/50 border border-rose-500/30"
+              >
+                ✕ পরিবর্তন করুন
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Step B: Payment Form */}
+        <form onSubmit={handleSaveReceipt} className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4 text-xs">
+          <h3 className="font-bold text-white text-sm flex items-center gap-2">
+            <span>📝</span> ধাপ ২: পেমেন্ট ও মানি রিসিট অ্যান্ট্রি (Payment Details Entry)
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">রিসিট নম্বর (Receipt Ref):</label>
+              <input
+                type="text"
+                value={receiptForm.receiptId}
+                onChange={(e) => setReceiptForm({ ...receiptForm, receiptId: e.target.value })}
+                placeholder="REC-2026-1049"
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-amber-400 font-mono font-bold focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">পেমেন্টের পরিমাণ (Amount BDT): *</label>
+              <input
+                type="number"
+                value={receiptForm.amount}
+                onChange={(e) => setReceiptForm({ ...receiptForm, amount: e.target.value })}
+                placeholder="উদাহরণ: 5000"
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-emerald-400 font-mono font-bold text-base focus:outline-none focus:border-emerald-500"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">পেমেন্ট মাধ্যম (Payment Method): *</label>
+              <select
+                value={receiptForm.paymentMethod}
+                onChange={(e) => setReceiptForm({ ...receiptForm, paymentMethod: e.target.value })}
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-white font-bold focus:outline-none focus:border-emerald-500"
+              >
+                <option value="bKash">bKash (বিকাশ)</option>
+                <option value="Nagad">Nagad (নগদ)</option>
+                <option value="Rocket">Rocket (রকেট)</option>
+                <option value="Upay">Upay (উপায়)</option>
+                <option value="Bank Transfer">Bank Transfer (ব্যাংক ট্রান্সফার)</option>
+                <option value="Cash">Cash (নগদ টাকা)</option>
+                <option value="Others">Others (অন্যান্য মেথড)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">ট্রানজেকশন আইডি (TrxID):</label>
+              <input
+                type="text"
+                value={receiptForm.trxId}
+                onChange={(e) => setReceiptForm({ ...receiptForm, trxId: e.target.value })}
+                placeholder="উদাহরণ: 9H7X2K4L1P"
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-white font-mono uppercase focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">তারিখ ও সময় (Payment Date & Time):</label>
+              <input
+                type="datetime-local"
+                value={receiptForm.paymentTime}
+                onChange={(e) => setReceiptForm({ ...receiptForm, paymentTime: e.target.value })}
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">পেমেন্ট বিবরণ / নোটিশ (Note / Description):</label>
+              <input
+                type="text"
+                value={receiptForm.note}
+                onChange={(e) => setReceiptForm({ ...receiptForm, note: e.target.value })}
+                placeholder="উদাহরণ: 18th BJS Intensive Course Fee 1st Installment"
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+          </div>
+
+          <div className="pt-2 flex justify-end">
+            <button
+              type="submit"
+              className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+            >
+              <span>💾</span> সেভ ও মানি রিসিট ইমেইল পাঠান (Save & Send Money Receipt Email)
+            </button>
+          </div>
+        </form>
+
+        {/* Step C: Receipts History Table */}
+        <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <h3 className="font-bold text-white text-sm flex items-center gap-2">
+              <span>📋</span> ইস্যুকৃত মানি রিসিট তালিকা (Issued Receipts History - {receipts.length})
+            </h3>
+            <span className="text-xs text-emerald-400 font-mono font-bold">Auto-Email & Print Enabled</span>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-800">
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="bg-slate-950 text-slate-400 font-mono text-[11px] uppercase border-b border-slate-800">
+                <tr>
+                  <th className="p-3">রিসিট নম্বর</th>
+                  <th className="p-3">তারিখ ও সময়</th>
+                  <th className="p-3">স্টুডেন্ট তথ্য</th>
+                  <th className="p-3">মেথড & TrxID</th>
+                  <th className="p-3">পেমেন্ট (BDT)</th>
+                  <th className="p-3 text-right">অ্যাকশন (Actions)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/80">
+                {receipts.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">
+                      এখনো কোনো মানি রিসিট ইস্যু করা হয়নি। উপরের ফর্মটি ব্যবহার করে নতুন রিসিট সেভ করুন।
+                    </td>
+                  </tr>
+                ) : (
+                  receipts.map(r => (
+                    <tr key={r.receiptId} className="hover:bg-slate-800/50 transition-colors">
+                      <td className="p-3 font-mono font-bold text-amber-400">
+                        {r.receiptId}
+                      </td>
+                      <td className="p-3 text-slate-400 font-mono text-[11px]">
+                        {new Date(r.paymentTime || r.createdAt).toLocaleString()}
+                      </td>
+                      <td className="p-3">
+                        <p className="font-bold text-white">{r.studentName}</p>
+                        <p className="text-[10px] text-amber-400 font-mono">{r.studentId}</p>
+                        <p className="text-[10px] text-slate-400">{r.studentPhone} • {r.studentEmail}</p>
+                      </td>
+                      <td className="p-3">
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-bold border border-slate-700 text-[10px]">
+                          {r.paymentMethod}
+                        </span>
+                        <p className="text-[11px] font-mono text-emerald-400 font-bold mt-1">
+                          Trx: {r.trxId || 'N/A'}
+                        </p>
+                      </td>
+                      <td className="p-3 font-mono font-black text-emerald-400 text-sm">
+                        ৳ {Number(r.amount || 0).toLocaleString()}
+                      </td>
+                      <td className="p-3 text-right space-x-1.5 whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => handleResendReceiptEmail(r.receiptId)}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold transition-all"
+                          title="Re-send Email to Student"
+                        >
+                          ✉️ Resend
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReceiptPreviewModal({ isOpen: true, receipt: r })}
+                          className="px-2.5 py-1 rounded-lg bg-blue-950 hover:bg-blue-900 text-blue-300 border border-blue-500/30 text-[11px] font-bold transition-all"
+                          title="Print / View Money Receipt Slip"
+                        >
+                          📥 Slip
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleEditReceipt(r)}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-[11px] font-bold transition-all"
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteReceipt(r.receiptId)}
+                          className="px-2.5 py-1 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-500/30 text-[11px] font-bold transition-all"
+                        >
+                          🗑️
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* Printable Money Receipt Slip Modal */}
+      {receiptPreviewModal.isOpen && receiptPreviewModal.receipt && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="glass-card rounded-2xl p-6 border border-emerald-500/40 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto space-y-5 bg-[#0b1325] text-slate-100 font-sans">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🧾</span>
+                <h3 className="font-extrabold text-white text-base">অফিশিয়াল মানি রিসিট (Paid Slip)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReceiptPreviewModal({ isOpen: false, receipt: null })}
+                className="text-slate-400 hover:text-white p-1 font-bold text-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Slip Printable Body */}
+            <div id="printable-receipt-slip" className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4 relative">
+              <div className="text-center border-b border-slate-800 pb-3">
+                <h2 className="text-lg font-black text-amber-400">⚖️ BJS & Bar Aspirants Academy</h2>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Official Money Receipt & Payment Voucher</p>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-xs text-slate-400 font-mono">Receipt Ref: <span className="font-bold text-amber-400">{receiptPreviewModal.receipt.receiptId}</span></p>
+                  <p className="text-[11px] text-slate-500 font-mono">{new Date(receiptPreviewModal.receipt.paymentTime || receiptPreviewModal.receipt.createdAt).toLocaleString()}</p>
+                </div>
+                <span className="px-3 py-1 rounded-md border border-emerald-500 text-emerald-400 font-bold text-xs uppercase tracking-widest bg-emerald-500/10">
+                  ✓ OFFICIAL PAID
+                </span>
+              </div>
+
+              <div className="space-y-2 text-xs bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                  <span className="text-slate-400">Student Name:</span>
+                  <span className="font-bold text-white">{receiptPreviewModal.receipt.studentName}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                  <span className="text-slate-400">Student ID:</span>
+                  <span className="font-mono font-bold text-amber-400">{receiptPreviewModal.receipt.studentId}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                  <span className="text-slate-400">Registered Email:</span>
+                  <span className="text-slate-200">{receiptPreviewModal.receipt.studentEmail}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                  <span className="text-slate-400">Phone Number:</span>
+                  <span className="text-slate-200">{receiptPreviewModal.receipt.studentPhone}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                  <span className="text-slate-400">Course / Batch:</span>
+                  <span className="text-cyan-300 font-bold">{receiptPreviewModal.receipt.batch || 'BJS & Bar Masterclass'}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                  <span className="text-slate-400">Payment Method:</span>
+                  <span className="text-amber-400 font-bold">{receiptPreviewModal.receipt.paymentMethod}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                  <span className="text-slate-400">TrxID:</span>
+                  <span className="font-mono text-emerald-400 font-bold">{receiptPreviewModal.receipt.trxId || 'N/A'}</span>
+                </div>
+                {receiptPreviewModal.receipt.note && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Description:</span>
+                    <span className="text-slate-300">{receiptPreviewModal.receipt.note}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-emerald-500/40 text-center space-y-0.5">
+                <span className="text-[10px] text-slate-400 font-mono uppercase font-bold">TOTAL AMOUNT RECEIVED</span>
+                <p className="text-2xl font-black text-emerald-400 font-mono">
+                  ৳ {Number(receiptPreviewModal.receipt.amount || 0).toLocaleString()} BDT
+                </p>
+              </div>
+
+              <div className="pt-2 text-center text-[10px] text-slate-500 font-mono border-t border-slate-800">
+                Issued & Verified By: Academic Accounts Department | Farmgate, Dhaka 1215
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center pt-2">
+              <button
+                type="button"
+                onClick={() => setReceiptPreviewModal({ isOpen: false, receipt: null })}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
+              >
+                বন্ধ করুন (Close)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const content = document.getElementById('printable-receipt-slip')?.innerHTML;
+                  const win = window.open('', '_blank');
+                  win.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                      <title>Money Receipt Slip - ${receiptPreviewModal.receipt.receiptId}</title>
+                      <style>
+                        body { font-family: Arial, sans-serif; padding: 25px; color: #020617; }
+                        .p-5 { border: 2px solid #10b981; padding: 20px; border-radius: 12px; max-width: 480px; margin: auto; }
+                        h2 { color: #d97706; margin-bottom: 2px; }
+                        table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 12px; }
+                        td { padding: 6px 0; border-bottom: 1px solid #e2e8f0; }
+                      </style>
+                    </head>
+                    <body>
+                      ${content}
+                      <script>window.print();</script>
+                    </body>
+                    </html>
+                  `);
+                  win.document.close();
+                }}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5"
+              >
+                <span>🖨️</span> স্লিপ প্রিন্ট করুন (Print Slip)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Student Portal Live Preview Modal */}
       {previewStudentModal.isOpen && previewStudentModal.student && (
