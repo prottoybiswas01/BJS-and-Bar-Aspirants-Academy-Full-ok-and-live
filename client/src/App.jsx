@@ -11,7 +11,6 @@ import AdminPanel from './pages/AdminPanel';
 import VideoPlayerModal from './components/VideoPlayerModal';
 import AiChatDrawer from './components/AiChatDrawer';
 import ProfileModal from './components/ProfileModal';
-import PaymentModal from './components/PaymentModal';
 import LessonManagerModal from './components/LessonManagerModal';
 
 function MainApp() {
@@ -45,16 +44,11 @@ function MainApp() {
   // Modals & Drawers State
   const [videoModal, setVideoModal] = useState({ isOpen: false, lesson: null });
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [paymentModal, setPaymentModal] = useState({ isOpen: false, course: null });
   const [lessonManagerModal, setLessonManagerModal] = useState({ isOpen: false, course: null });
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
 
   const openVideoModal = (lesson) => {
     setVideoModal({ isOpen: true, lesson });
-  };
-
-  const openPaymentModal = (course) => {
-    setPaymentModal({ isOpen: true, course });
   };
 
   const openLessonManager = (course) => {
@@ -72,12 +66,12 @@ function MainApp() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         {activePage === 'home' && (
-          <Home setActivePage={setActivePage} openPaymentModal={openPaymentModal} />
+          <Home setActivePage={setActivePage} />
         )}
         {activePage === 'login' && <Login setActivePage={setActivePage} />}
         {activePage === 'register' && <Register setActivePage={setActivePage} />}
         {activePage === 'dashboard' && (
-          <Dashboard openVideoModal={openVideoModal} openPaymentModal={openPaymentModal} />
+          <Dashboard openVideoModal={openVideoModal} />
         )}
         {(activePage === 'admin' || activePage === 'admin-login') && (
           user?.isAdmin ? (
@@ -115,16 +109,6 @@ function MainApp() {
       {/* Profile Modal */}
       {profileModalOpen && (
         <ProfileModal isOpen={profileModalOpen} onClose={() => setProfileModalOpen(false)} />
-      )}
-
-      {/* bKash Payment Submission Modal */}
-      {paymentModal.isOpen && (
-        <PaymentModal
-          course={paymentModal.course}
-          isOpen={paymentModal.isOpen}
-          onClose={() => setPaymentModal({ isOpen: false, course: null })}
-          onSuccess={() => setActivePage('dashboard')}
-        />
       )}
     </div>
   );

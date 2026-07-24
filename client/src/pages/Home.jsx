@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-export default function Home({ setActivePage, openPaymentModal }) {
+export default function Home({ setActivePage }) {
   const { user } = useAuth();
   const [courses, setCourses] = useState([]);
   const [mentors, setMentors] = useState([]);
@@ -193,7 +193,7 @@ export default function Home({ setActivePage, openPaymentModal }) {
                   </div>
 
                   <button
-                    onClick={() => openPaymentModal(c)}
+                    onClick={() => setActivePage('register')}
                     className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-extrabold shadow-md transition-all hover:scale-105"
                   >
                     ভর্তি হোন (Enroll)

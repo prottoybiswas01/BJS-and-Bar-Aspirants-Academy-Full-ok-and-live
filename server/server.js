@@ -18,7 +18,6 @@ const Student = require("./models/Student");
 const Course = require("./models/Course");
 const Lesson = require("./models/Lesson");
 const Registration = require("./models/Registration");
-const Payment = require("./models/Payment");
 const Device = require("./models/Device");
 const MailSetting = require("./models/MailSetting");
 const SiteSetting = require("./models/SiteSetting");
@@ -35,7 +34,6 @@ const memoryDb = {
   courses: [],
   lessons: [],
   mentors: [],
-  payments: [],
   devices: [],
   mailSettings: {
     enabled: true,
@@ -463,7 +461,6 @@ app.post("/api/admin/clear-all-demo-data", async (req, res) => {
     memoryDb.courses = [];
     memoryDb.lessons = [];
     memoryDb.registrations = [];
-    memoryDb.payments = [];
     memoryDb.devices = [];
     memoryDb.mentors = [];
 

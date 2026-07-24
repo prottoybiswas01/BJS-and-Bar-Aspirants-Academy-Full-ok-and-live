@@ -5,7 +5,6 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   const [stats, setStats] = useState({
     totalStudents: 21,
     activeCourses: 4,
-    paymentReviews: 0,
     messageLogs: 3,
     peakMonth: 'Apr (12 students)',
     monthlyAverage: '1.8',
@@ -24,7 +23,6 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     profileUpdateMails: true,
     courseAccessMails: true,
     deviceUpdateMails: true,
-    paymentReviewMails: true,
   });
 
   // Student Portal Live Preview Modal State

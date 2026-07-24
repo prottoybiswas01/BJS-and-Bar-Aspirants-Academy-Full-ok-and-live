@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-export default function Dashboard({ openVideoModal, openPaymentModal }) {
+export default function Dashboard({ openVideoModal }) {
   const { user, updateUserProfile } = useAuth();
   const [courses, setCourses] = useState([]);
   const [lessons, setLessons] = useState([]);
@@ -197,15 +197,7 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
                 <p className="text-xs text-slate-400 mt-1">{selectedCourse.description}</p>
               </div>
 
-              {!isEnrolled && (
-                <button
-                  onClick={() => openPaymentModal(selectedCourse)}
-                  className="px-5 py-3 rounded-xl bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-extrabold text-xs shadow-lg shadow-pink-600/30 transition-all flex items-center gap-2"
-                >
-                  <span>bKash দিয়ে ভর্তি হন</span>
-                  <span className="font-mono">৳{selectedCourse.price}</span>
-                </button>
-              )}
+              {/* Course Header Info */}
             </div>
 
             {/* Video Color-Coding Matrix Legend */}

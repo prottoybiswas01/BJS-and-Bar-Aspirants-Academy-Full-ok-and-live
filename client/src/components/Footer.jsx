@@ -35,7 +35,7 @@ export default function Footer({ setActivePage }) {
             <li><button onClick={() => setActivePage('register')} className="hover:text-amber-400">নতুন রেজিস্ট্রেশন (Batch Select)</button></li>
             <li><button onClick={() => setActivePage('login')} className="hover:text-amber-400">স্টুডেন্ট লগইন (Student Login)</button></li>
             <li><button onClick={() => setActivePage('dashboard')} className="hover:text-amber-400">ক্লাস ও ভিডিও মডিউল</button></li>
-            <li><span className="text-slate-500">bKash Payment Policy</span></li>
+            <li><button onClick={() => setActivePage('home')} className="hover:text-amber-400">হোম পেজ (Home)</button></li>
           </ul>
         </div>
 
