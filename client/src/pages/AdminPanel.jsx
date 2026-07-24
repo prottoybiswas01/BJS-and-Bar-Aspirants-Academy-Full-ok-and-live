@@ -78,6 +78,21 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
 
+  // Mentor & Faculty Form State
+  const [mentors, setMentors] = useState([]);
+  const [mentorForm, setMentorForm] = useState({
+    id: '',
+    name: '',
+    photoUrl: '',
+    designation: 'সহকারী জজ (BJS)',
+    posting: 'ঢাকা',
+    expertise: 'দেওয়ানী ও ফৌজদারী আইন',
+    phone: '',
+    showPhone: false,
+    status: 'Active',
+    bio: ''
+  });
+
   // Course Form State
   const [courseForm, setCourseForm] = useState({
     id: '',
@@ -193,12 +208,13 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   const loadAllAdminData = async () => {
     setLoading(true);
     try {
-      const [statsRes, studentsRes, coursesRes, mailRes, siteSettingsRes] = await Promise.all([
+      const [statsRes, studentsRes, coursesRes, mailRes, siteSettingsRes, mentorsRes] = await Promise.all([
         api.get('/admin/overview-stats'),
         api.get('/admin/students'),
         api.get('/courses'),
         api.get('/admin/mail-settings'),
-        api.get('/site-settings')
+        api.get('/site-settings'),
+        api.get('/admin/mentors')
       ]);
 
       if (statsRes.data.ok) setStats(statsRes.data);
@@ -210,10 +226,77 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       if (siteSettingsRes.data.ok && siteSettingsRes.data.settings) {
         setSiteSettingsForm(siteSettingsRes.data.settings);
       }
+      if (mentorsRes.data.ok) setMentors(mentorsRes.data.mentors || []);
     } catch (err) {
       console.log('Error loading admin data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleEditMentor = (m) => {
+    setMentorForm({
+      id: m.id,
+      name: m.name || '',
+      photoUrl: m.photoUrl || '',
+      designation: m.designation || 'সহকারী জজ (BJS)',
+      posting: m.posting || 'ঢাকা',
+      expertise: m.expertise || 'দেওয়ানী ও ফৌজদারী আইন',
+      phone: m.phone || '',
+      showPhone: !!m.showPhone,
+      status: m.status || 'Active',
+      bio: m.bio || ''
+    });
+    showToast(`Editing mentor profile for ${m.name}`, 'success');
+    setTimeout(() => {
+      document.getElementById('mentor-manager-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  };
+
+  const handleClearMentorForm = () => {
+    setMentorForm({
+      id: '',
+      name: '',
+      photoUrl: '',
+      designation: 'সহকারী জজ (BJS)',
+      posting: 'ঢাকা',
+      expertise: 'দেওয়ানী ও ফৌজদারী আইন',
+      phone: '',
+      showPhone: false,
+      status: 'Active',
+      bio: ''
+    });
+    showToast('Mentor form cleared.', 'success');
+  };
+
+  const handleSaveMentor = async (e) => {
+    e.preventDefault();
+    if (!mentorForm.name) {
+      showToast('Mentor name is required.', 'error');
+      return;
+    }
+    try {
+      const res = await api.post('/admin/mentors/save', mentorForm);
+      if (res.data.ok) {
+        showToast(res.data.message || `Mentor "${mentorForm.name}" saved successfully!`, 'success');
+        handleClearMentorForm();
+        loadAllAdminData();
+      }
+    } catch (err) {
+      showToast('Error saving mentor profile.', 'error');
+    }
+  };
+
+  const handleDeleteMentor = async (id, name) => {
+    if (!window.confirm(`Are you sure you want to delete mentor "${name}"?`)) return;
+    try {
+      const res = await api.delete(`/admin/mentors/${id}`);
+      if (res.data.ok) {
+        showToast(`Mentor "${name}" deleted successfully!`, 'success');
+        loadAllAdminData();
+      }
+    } catch (err) {
+      showToast('Error deleting mentor.', 'error');
     }
   };
 
@@ -1461,6 +1544,228 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
             </p>
           </div>
         )}
+      </section>
+
+      {/* 4.5 Mentor & Faculty Manager (মেন্টর ও শিক্ষক ব্যবস্থাপনা) */}
+      <section id="mentor-manager-section" className="space-y-4 pt-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-3 gap-3">
+          <div>
+            <span className="text-[10px] font-mono text-purple-400 uppercase font-bold">FACULTY CONTROL</span>
+            <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
+              <span>👨‍⚖️</span> মেন্টর ও শিক্ষক ব্যবস্থাপনা (Mentor & Faculty Manager)
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              হোমপেজের মেন্টর তালিকায় প্রদর্শনের জন্য মাননীয় বিচারক ও মেন্টরদের নাম, পদবী, পোস্টিং ও ছবি যুক্ত করুন।
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleClearMentorForm}
+            className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-all shadow-md"
+          >
+            Clear Form
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left Form Card */}
+          <form onSubmit={handleSaveMentor} className="lg:col-span-5 glass-card rounded-2xl p-5 border border-slate-800 space-y-3 text-xs bg-slate-950/80">
+            <h4 className="font-extrabold text-white text-sm border-b border-slate-800/80 pb-2 flex items-center justify-between">
+              <span>✍️ Mentor Profile Form</span>
+              {mentorForm.id && <span className="text-[10px] text-amber-400 font-mono">Editing: {mentorForm.id}</span>}
+            </h4>
+
+            <div className="space-y-2.5">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">MENTOR FULL NAME (নাম)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. শান্ত দেব রায় অর্ণ"
+                  value={mentorForm.name}
+                  onChange={(e) => setMentorForm({ ...mentorForm, name: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white font-medium"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">DESIGNATION / RANK (পদবী ও ক্যাডার)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. সহকারী জজ (BJS) / সুপ্রিম কোর্টের এডভোকেট"
+                  value={mentorForm.designation}
+                  onChange={(e) => setMentorForm({ ...mentorForm, designation: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">POSTING & JURISDICTION (পোস্টিং ও জেলা)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. ২য় অতিরিক্ত জেলা ও দায়রা জজ, ঢাকা"
+                  value={mentorForm.posting}
+                  onChange={(e) => setMentorForm({ ...mentorForm, posting: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">SUBJECT EXPERTISE (বিষয়ভিত্তিক বিশেষত্ব)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. দেওয়ানী আইন, পেনাল কোড ও বার কাউন্সিল এডভোকেসি"
+                  value={mentorForm.expertise}
+                  onChange={(e) => setMentorForm({ ...mentorForm, expertise: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">PHOTO URL (ছবি বা লোগো লিঙ্ক - অপশনাল)</label>
+                <input
+                  type="text"
+                  placeholder="https://..."
+                  value={mentorForm.photoUrl}
+                  onChange={(e) => setMentorForm({ ...mentorForm, photoUrl: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white font-mono text-[11px]"
+                />
+              </div>
+
+              <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-bold text-slate-400">CONTACT NUMBER (ফোন নম্বর - অপশনাল)</label>
+                  <label className="flex items-center gap-1.5 text-[10px] text-amber-300 font-bold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={mentorForm.showPhone}
+                      onChange={(e) => setMentorForm({ ...mentorForm, showPhone: e.target.checked })}
+                      className="rounded bg-slate-950 border-slate-700 text-amber-500 w-3.5 h-3.5"
+                    />
+                    <span>Show Publicly</span>
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. 01700000000"
+                  value={mentorForm.phone}
+                  onChange={(e) => setMentorForm({ ...mentorForm, phone: e.target.value })}
+                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-1.5 text-white font-mono"
+                />
+                <p className="text-[9px] text-slate-500 leading-relaxed">
+                  যদি Show Publicly টিক দেওয়া থাকে, তবে পাবলিক পোর্টালে এই নম্বরটি প্রদর্শিত হবে।
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">SHORT BIO / INTRO (সংক্ষিপ্ত বিবরণ)</label>
+                <textarea
+                  rows={2}
+                  placeholder="Mentor details or background..."
+                  value={mentorForm.bio}
+                  onChange={(e) => setMentorForm({ ...mentorForm, bio: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-slate-300 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">STATUS</label>
+                <select
+                  value={mentorForm.status}
+                  onChange={(e) => setMentorForm({ ...mentorForm, status: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white font-bold"
+                >
+                  <option value="Active">Active (Visible on Homepage)</option>
+                  <option value="Inactive">Inactive (Hidden)</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-lg shadow-purple-600/20 transition-all"
+            >
+              💾 Save Mentor Profile
+            </button>
+          </form>
+
+          {/* Right Mentors List Card */}
+          <div className="lg:col-span-7 glass-card rounded-2xl p-5 border border-slate-800 space-y-4 bg-slate-950/80">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+              <div>
+                <span className="text-[10px] font-mono text-slate-400 uppercase">FACULTY LIST</span>
+                <h3 className="font-extrabold text-white text-base">Active & Registered Mentors ({mentors.length})</h3>
+              </div>
+              <span className="text-xs font-mono text-purple-400 font-bold">
+                {mentors.filter(m => m.status === 'Active').length} Active
+              </span>
+            </div>
+
+            {mentors.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-slate-900/50 border border-slate-800 text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-purple-500/10 text-purple-400 flex items-center justify-center mx-auto text-xl font-bold">
+                  ⚖️
+                </div>
+                <h4 className="text-white font-bold text-sm">কোনো মেন্টর পাওয়া যায়নি</h4>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  নতুন মেন্টর বা শিক্ষকের তথ্য যুক্ত করতে বামপাশের ফর্মটি পূরণ করে <strong>Save Mentor Profile</strong> বাটনে ক্লিক করুন।
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-[750px] overflow-y-auto pr-1">
+                {mentors.map((m) => (
+                  <div key={m.id} className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 hover:border-purple-500/40 transition-all">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-purple-950/80 border border-purple-500/40 text-purple-300 font-bold flex items-center justify-center text-lg shrink-0 overflow-hidden">
+                        {m.photoUrl ? (
+                          <img src={m.photoUrl} alt={m.name} className="w-full h-full object-cover" />
+                        ) : (
+                          '⚖️'
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-extrabold text-white text-sm">{m.name}</h4>
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold ${
+                            m.status === 'Active' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
+                          }`}>
+                            {m.status}
+                          </span>
+                        </div>
+                        <p className="text-purple-300 text-xs font-bold mt-0.5">{m.designation}</p>
+                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                          📍 {m.posting} | 📖 {m.expertise}
+                        </p>
+                        {m.phone && (
+                          <p className="text-[10px] font-mono text-slate-400 mt-1">
+                            📞 {m.phone} {m.showPhone ? <span className="text-emerald-400 font-bold">(Public)</span> : <span className="text-slate-500">(Hidden)</span>}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => handleEditMentor(m)}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-bold text-[11px] transition-all"
+                      >
+                        ✏️ Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteMentor(m.id, m.name)}
+                        className="px-3 py-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-500/30 font-bold text-[11px] transition-all"
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </section>
 
       {/* 5. Course Control & Course Launch Manager */}

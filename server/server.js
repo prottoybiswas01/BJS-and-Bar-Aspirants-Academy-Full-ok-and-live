@@ -22,6 +22,7 @@ const Payment = require("./models/Payment");
 const Device = require("./models/Device");
 const MailSetting = require("./models/MailSetting");
 const SiteSetting = require("./models/SiteSetting");
+const Mentor = require("./models/Mentor");
 
 // State flags
 let isMongoConnected = false;
@@ -33,6 +34,7 @@ const memoryDb = {
   registrations: [],
   courses: [],
   lessons: [],
+  mentors: [],
   payments: [],
   devices: [],
   mailSettings: {
@@ -300,6 +302,71 @@ app.get("/api/lessons", async (req, res) => {
   res.json({ ok: true, lessons: filtered });
 });
 
+// 4.5 Mentors & Faculty Endpoints
+app.get("/api/mentors", async (req, res) => {
+  try {
+    if (isMongoConnected) {
+      const mentors = await Mentor.find({ status: "Active" }).sort({ createdAt: -1 });
+      return res.json({ ok: true, mentors });
+    }
+  } catch (e) {}
+  const active = memoryDb.mentors.filter(m => m.status === "Active");
+  res.json({ ok: true, mentors: active });
+});
+
+app.get("/api/admin/mentors", async (req, res) => {
+  try {
+    if (isMongoConnected) {
+      const mentors = await Mentor.find().sort({ createdAt: -1 });
+      return res.json({ ok: true, mentors });
+    }
+  } catch (e) {}
+  res.json({ ok: true, mentors: memoryDb.mentors });
+});
+
+app.post("/api/admin/mentors/save", async (req, res) => {
+  try {
+    const body = req.body;
+    if (!body.name) return res.status(400).json({ ok: false, message: "Mentor name is required." });
+
+    if (!body.id) {
+      body.id = "MTR-" + Date.now();
+    }
+
+    let savedMentor = body;
+    if (isMongoConnected) {
+      let mentor = await Mentor.findOne({ id: body.id });
+      if (mentor) {
+        Object.assign(mentor, body);
+        savedMentor = await mentor.save();
+      } else {
+        savedMentor = await Mentor.create(body);
+      }
+    }
+
+    const idx = memoryDb.mentors.findIndex(m => m.id === body.id);
+    if (idx > -1) memoryDb.mentors[idx] = { ...memoryDb.mentors[idx], ...body };
+    else memoryDb.mentors.unshift({ ...body });
+
+    return res.json({ ok: true, message: `Mentor "${body.name}" saved successfully!`, mentor: savedMentor });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error saving mentor profile." });
+  }
+});
+
+app.delete("/api/admin/mentors/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (isMongoConnected) {
+      await Mentor.deleteOne({ id });
+    }
+    memoryDb.mentors = memoryDb.mentors.filter(m => m.id !== id);
+    return res.json({ ok: true, message: "Mentor deleted successfully!" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error deleting mentor." });
+  }
+});
+
 app.post("/api/admin/clear-all-demo-data", async (req, res) => {
   try {
     if (isMongoConnected) {
@@ -309,7 +376,8 @@ app.post("/api/admin/clear-all-demo-data", async (req, res) => {
         Lesson.deleteMany({}),
         Registration.deleteMany({}),
         Payment.deleteMany({}),
-        Device.deleteMany({})
+        Device.deleteMany({}),
+        Mentor.deleteMany({})
       ]);
     }
 
@@ -319,8 +387,9 @@ app.post("/api/admin/clear-all-demo-data", async (req, res) => {
     memoryDb.registrations = [];
     memoryDb.payments = [];
     memoryDb.devices = [];
+    memoryDb.mentors = [];
 
-    return res.json({ ok: true, message: "All demo data (students, courses, lessons, registrations) wiped successfully! System ready for Production!" });
+    return res.json({ ok: true, message: "All demo data wiped successfully! System ready for Production!" });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "Error wiping demo data." });
   }

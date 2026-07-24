@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 export default function Home({ setActivePage, openPaymentModal }) {
   const { user } = useAuth();
   const [courses, setCourses] = useState([]);
+  const [mentors, setMentors] = useState([]);
+  const [isMentorsModalOpen, setIsMentorsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     studentsCount: 0,
@@ -24,6 +26,12 @@ export default function Home({ setActivePage, openPaymentModal }) {
       })
       .catch((err) => console.log('Courses error:', err))
       .finally(() => setLoading(false));
+
+    api.get('/mentors')
+      .then((res) => {
+        if (res.data.ok) setMentors(res.data.mentors || []);
+      })
+      .catch((err) => console.log('Mentors fetch error:', err));
 
     api.get('/public-stats')
       .then((res) => {
@@ -100,12 +108,25 @@ export default function Home({ setActivePage, openPaymentModal }) {
               </p>
               <p className="text-xs text-slate-400 font-medium">নিবন্ধিত শিক্ষার্থী</p>
             </div>
-            <div>
-              <p className="text-2xl sm:text-3xl font-black text-purple-400 font-mono">
-                {stats.mentorsCount > 0 ? `${stats.mentorsCount}+` : '1+'}
+
+            {/* Clickable Mentors Stat Card */}
+            <div
+              onClick={() => setIsMentorsModalOpen(true)}
+              className="p-2 rounded-xl bg-purple-950/20 border border-purple-500/30 hover:border-purple-400/60 hover:bg-purple-900/30 transition-all cursor-pointer group shadow-lg"
+              title="মাননীয় বিচারক ও মেন্টরদের প্রোফাইল দেখতে ক্লিক করুন"
+            >
+              <p className="text-2xl sm:text-3xl font-black text-purple-400 font-mono group-hover:scale-105 transition-transform flex items-center justify-center gap-1">
+                <span>{mentors.length > 0 ? `${mentors.length}+` : (stats.mentorsCount > 0 ? `${stats.mentorsCount}+` : '1+')}</span>
+                <span className="text-xs opacity-75">🔍</span>
               </p>
-              <p className="text-xs text-slate-400 font-medium">অভিজ্ঞ মেন্টর ও শিক্ষক</p>
+              <p className="text-xs text-purple-300 font-bold group-hover:text-white transition-colors">
+                অভিজ্ঞ মেন্টর ও শিক্ষক
+              </p>
+              <span className="text-[9px] text-purple-400/80 block mt-0.5 font-mono">
+                (প্রোফাইল দেখতে ক্লিক করুন)
+              </span>
             </div>
+
             <div>
               <p className="text-2xl sm:text-3xl font-black text-cyan-400 font-mono">100%</p>
               <p className="text-xs text-slate-400 font-medium">নিরাপদ ভিডিও লেকচার</p>
@@ -224,6 +245,108 @@ export default function Home({ setActivePage, openPaymentModal }) {
           </div>
         </div>
       </section>
+
+      {/* Mentors & Faculty Modal */}
+      {isMentorsModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="glass-card rounded-2xl p-6 sm:p-8 border border-purple-500/30 shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto space-y-6 bg-[#0b1325] text-slate-100 font-sans">
+            {/* Modal Header */}
+            <div className="flex justify-between items-start border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white font-bold flex items-center justify-center text-2xl shadow-lg">
+                  ⚖️
+                </div>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-extrabold text-white">
+                    আইন পাঠশালার মাননীয় মেন্টর ও শিক্ষকবৃন্দ
+                  </h2>
+                  <p className="text-xs text-purple-300 font-medium">
+                    BJS বিচারক, সুপ্রিম কোর্টের সিনিয়র আইনজীবী ও বিষয়ভিত্তিক অভিজ্ঞ মেন্টরগণ
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsMentorsModalOpen(false)}
+                className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-lg font-bold transition-all border border-slate-700 shadow-md"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Mentors List Cards Grid */}
+            {mentors.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800/80 text-center space-y-4">
+                <div className="w-16 h-16 rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center mx-auto text-3xl font-bold border border-purple-500/20">
+                  ⚖️
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-lg font-extrabold text-white">শান্ত দেব রায় অর্ণ</h3>
+                  <p className="text-xs text-purple-300 font-bold">জুডিশিয়াল অ্যাসপির্যান্ট ও প্রতিষ্ঠাতা মেন্টর, আইন পাঠশালা</p>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed pt-2">
+                    দেওয়ানী আইন, সিপিসি, পেনাল কোড ও বার কাউন্সিল পরীক্ষার প্রস্তুতি কোর্সে শীর্ষস্থান অর্জনের বিশ্বস্ত মেন্টরশিপ।
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {mentors.map((m) => (
+                  <div key={m.id} className="p-5 rounded-2xl bg-slate-900/90 border border-purple-500/25 hover:border-purple-400/50 space-y-3 transition-all shadow-lg hover:shadow-purple-950/40">
+                    <div className="flex items-start gap-4">
+                      <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-950 to-indigo-900 border border-purple-500/40 text-purple-300 font-bold flex items-center justify-center text-2xl shrink-0 overflow-hidden shadow-md">
+                        {m.photoUrl ? (
+                          <img src={m.photoUrl} alt={m.name} className="w-full h-full object-cover" />
+                        ) : (
+                          '⚖️'
+                        )}
+                      </div>
+                      <div className="space-y-1 flex-1">
+                        <h4 className="font-extrabold text-white text-base leading-snug">{m.name}</h4>
+                        <span className="inline-block px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[11px] font-extrabold border border-purple-500/30">
+                          {m.designation}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 pt-2 border-t border-slate-800/80 text-xs">
+                      <p className="text-slate-300 flex items-start gap-2">
+                        <span className="text-purple-400 font-bold shrink-0">📍 পোস্টিং:</span>
+                        <span className="font-medium text-slate-200">{m.posting}</span>
+                      </p>
+                      <p className="text-slate-300 flex items-start gap-2">
+                        <span className="text-amber-400 font-bold shrink-0">📖 বিষয়:</span>
+                        <span className="font-medium text-slate-200">{m.expertise}</span>
+                      </p>
+                      {m.showPhone && m.phone && (
+                        <p className="text-slate-300 flex items-center gap-2 pt-1 font-mono text-[11px]">
+                          <span className="text-emerald-400 font-bold shrink-0">📞 যোগাযোগ:</span>
+                          <span className="text-emerald-300 font-bold">{m.phone}</span>
+                        </p>
+                      )}
+                      {m.bio && (
+                        <p className="text-[11px] text-slate-400 italic pt-1 leading-relaxed border-t border-slate-800/50 mt-1">
+                          "{m.bio}"
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="pt-3 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsMentorsModalOpen(false)}
+                className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700 shadow-md"
+              >
+                বন্ধ করুন (Close)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
