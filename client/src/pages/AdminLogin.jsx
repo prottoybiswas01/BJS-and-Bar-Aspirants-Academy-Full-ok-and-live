@@ -32,11 +32,6 @@ export default function AdminLogin({ setActivePage }) {
     }
   };
 
-  const fillDemoAdmin = () => {
-    setIdentifier('admin');
-    setPassword('admin123');
-  };
-
   return (
     <div className="max-w-md mx-auto py-12 px-4 animate-fadeIn">
       <div className="glass-card rounded-2xl p-8 border border-purple-500/30 shadow-2xl shadow-purple-950/40 space-y-6 bg-slate-950/80">
@@ -46,20 +41,8 @@ export default function AdminLogin({ setActivePage }) {
           </div>
           <h2 className="text-2xl font-extrabold text-purple-300">অ্যাডমিন পোর্টাল লগইন</h2>
           <p className="text-xs text-slate-400">
-            সিকিউর সিস্টেম অ্যাডমিনিস্ট্রেটর প্যানেলে প্রবেশ করতে আপনার ক্রেডেনশিয়ালস দিন
+            সিকিউর সিস্টেম অ্যাডমিনিস্ট্রেটর প্যানেলে প্রবেশ করতে আপনার আইডি ও পাসওয়ার্ড দিন
           </p>
-        </div>
-
-        {/* Fast Admin Demo Button */}
-        <div className="p-3 bg-purple-950/40 rounded-xl border border-purple-500/20 space-y-2 text-xs">
-          <p className="text-[11px] font-semibold text-purple-300">⚡ অ্যাডমিন পোর্টাল ডেমো এক্সেস:</p>
-          <button
-            type="button"
-            onClick={fillDemoAdmin}
-            className="w-full py-2 px-3 rounded-lg bg-purple-900/60 hover:bg-purple-800/60 text-purple-200 border border-purple-500/40 text-[11px] font-bold transition-all"
-          >
-            ⚙️ Fill Admin Credentials
-          </button>
         </div>
 
         {error && (
@@ -77,7 +60,7 @@ export default function AdminLogin({ setActivePage }) {
               type="text"
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
-              placeholder="e.g. admin"
+              placeholder="আপনার এডমিন ইউজারনেম বা আইডি লিখুন"
               className="w-full rounded-xl bg-slate-900 border border-purple-500/30 px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
               required
             />
