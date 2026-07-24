@@ -936,15 +936,20 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   };
 
   const handleDeleteReceipt = async (receiptId) => {
-    if (!window.confirm(`আপনি কি সত্যিই মানি রিসিট ${receiptId} ডিলিট করতে চান?`)) return;
+    if (!window.confirm(`আপনি কি সত্যিই মানি রিসিট ${receiptId} স্থায়ীভাবে ডিলিট করতে চান?`)) return;
+    setReceipts(prev => prev.filter(r => r && r.receiptId !== receiptId && String(r._id) !== receiptId));
     try {
       const res = await api.delete(`/admin/receipts/${receiptId}`);
       if (res.data.ok) {
-        showToast(res.data.message || `✓ মানি রিসিট ${receiptId} ডিলিট করা হয়েছে!`, 'success');
+        showToast(res.data.message || `✓ মানি রিসিট ${receiptId} স্থায়ীভাবে ডিলিট করা হয়েছে!`, 'success');
+        loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'ডিলিট করতে সমস্যা হয়েছে।', 'error');
         loadAllAdminData();
       }
     } catch (err) {
       showToast('ডিলিট করতে সমস্যা হয়েছে।', 'error');
+      loadAllAdminData();
     }
   };
 

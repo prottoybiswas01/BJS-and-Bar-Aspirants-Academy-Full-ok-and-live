@@ -1710,25 +1710,12 @@ app.get("/api/admin/registrations", async (req, res) => {
 app.get("/api/admin/receipts", async (req, res) => {
   try {
     await ensureDbConnected();
-    let mongoReceipts = [];
     if (isMongoConnected) {
-      try {
-        mongoReceipts = await Receipt.find().sort({ createdAt: -1 }).lean();
-      } catch (e) {}
+      const mongoReceipts = await Receipt.find().sort({ createdAt: -1 }).lean();
+      memoryDb.receipts = mongoReceipts;
+      return res.json({ ok: true, receipts: mongoReceipts });
     }
-
-    const combined = [...mongoReceipts, ...(memoryDb.receipts || [])];
-    const map = new Map();
-    combined.forEach((r) => {
-      if (!r) return;
-      const key = (r.receiptId || r._id || "").toString().toLowerCase();
-      if (key && !map.has(key)) map.set(key, r);
-    });
-
-    const uniqueReceipts = Array.from(map.values());
-    memoryDb.receipts = uniqueReceipts;
-
-    return res.json({ ok: true, receipts: uniqueReceipts });
+    return res.json({ ok: true, receipts: memoryDb.receipts || [] });
   } catch (e) {
     return res.json({ ok: true, receipts: memoryDb.receipts || [] });
   }
@@ -1817,11 +1804,19 @@ app.delete("/api/admin/receipts/:receiptId", async (req, res) => {
     await ensureDbConnected();
     const { receiptId } = req.params;
     if (isMongoConnected) {
-      await Receipt.deleteOne({ receiptId });
+      await Receipt.deleteMany({
+        $or: [
+          { receiptId: receiptId },
+          { receiptId: new RegExp(`^${receiptId}$`, "i") }
+        ]
+      });
     }
-    memoryDb.receipts = (memoryDb.receipts || []).filter((r) => r.receiptId !== receiptId);
-    return res.json({ ok: true, message: `Money Receipt ${receiptId} deleted successfully!` });
+    memoryDb.receipts = (memoryDb.receipts || []).filter(
+      (r) => r && r.receiptId !== receiptId && String(r._id) !== receiptId
+    );
+    return res.json({ ok: true, message: `Money Receipt ${receiptId} deleted permanently!` });
   } catch (e) {
+    console.error("Error deleting receipt:", e);
     return res.status(500).json({ ok: false, message: "Error deleting money receipt." });
   }
 });
