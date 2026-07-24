@@ -32,13 +32,6 @@ export default function Login({ setActivePage }) {
     }
   };
 
-  const fillDemoStudent = () => {
-    setIdentifier('01978167016');
-    setPassword('123456');
-  };
-
-
-
   return (
     <div className="max-w-md mx-auto py-12 px-4 animate-fadeIn">
       <div className="glass-card rounded-2xl p-8 border border-slate-800 shadow-2xl space-y-6">
@@ -50,17 +43,6 @@ export default function Login({ setActivePage }) {
           <p className="text-xs text-slate-400">
             আপনার ফোন নম্বর, স্টুডেন্ট আইডি বা ইমেইল ব্যবহার করুন
           </p>
-        </div>
-
-        {/* Fast Demo Fill Button */}
-        <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2 text-xs">
-          <p className="text-[11px] font-semibold text-amber-400">⚡ দ্রুত টেস্টের জন্য ডেমো লগইন সিলেক্ট করুন:</p>
-          <button
-            onClick={fillDemoStudent}
-            className="w-full py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-[11px] font-bold transition-all"
-          >
-            🎓 Student Demo (Prottoy)
-          </button>
         </div>
 
         {error && (
@@ -78,7 +60,7 @@ export default function Login({ setActivePage }) {
               type="text"
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
-              placeholder="e.g. 01978167016 or STU-2026-001"
+              placeholder="আপনার মোবাইল নম্বর, আইডি বা ইমেইল লিখুন"
               className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
               required
             />
