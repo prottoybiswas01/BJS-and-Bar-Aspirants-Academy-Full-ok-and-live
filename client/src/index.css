@@ -26,26 +26,31 @@
   }
 }
 
-@keyframes floatWatermark {
+@keyframes subtleDrift {
   0% {
-    transform: translate(0, 0) rotate(-15deg);
+    top: 8%;
+    left: 8%;
   }
   25% {
-    transform: translate(15%, 10%) rotate(-10deg);
+    top: 8%;
+    left: 65%;
   }
   50% {
-    transform: translate(-10%, 15%) rotate(-18deg);
+    top: 75%;
+    left: 65%;
   }
   75% {
-    transform: translate(10%, -10%) rotate(-12deg);
+    top: 75%;
+    left: 8%;
   }
   100% {
-    transform: translate(0, 0) rotate(-15deg);
+    top: 8%;
+    left: 8%;
   }
 }
 
-.animate-watermark {
-  animation: floatWatermark 18s ease-in-out infinite alternate;
+.animate-subtle-drift {
+  animation: subtleDrift 35s linear infinite;
 }
 
 /* Custom Scrollbar */
