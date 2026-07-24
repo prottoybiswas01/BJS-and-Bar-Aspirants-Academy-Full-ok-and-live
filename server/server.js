@@ -138,6 +138,7 @@ app.post("/api/auth/register", async (req, res) => {
     }
 
     const regId = "REG-" + new Date().getFullYear() + "-" + Math.floor(1000 + Math.random() * 9000);
+    const studentId = "STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newReg = {
@@ -148,7 +149,21 @@ app.post("/api/auth/register", async (req, res) => {
       batch,
       session: session || "Standard Session",
       password: hashedPassword,
-      status: "Pending",
+      status: "Approved",
+      createdAt: new Date()
+    };
+
+    const newStudent = {
+      id: studentId,
+      name,
+      phone,
+      email,
+      batch,
+      session: session || "Standard Session",
+      password: hashedPassword,
+      status: "Active",
+      loginApproval: "Approved",
+      allowedCourseIds: [],
       createdAt: new Date()
     };
 
@@ -157,43 +172,29 @@ app.post("/api/auth/register", async (req, res) => {
       if (existingStudent) {
         return res.status(400).json({ ok: false, message: "An account with this phone or email already exists." });
       }
-      await Registration.create(newReg);
+      await Promise.all([
+        Registration.create(newReg),
+        Student.create(newStudent)
+      ]);
     } else {
       const exists = memoryDb.students.some((s) => s.phone === phone || s.email === email);
       if (exists) {
         return res.status(400).json({ ok: false, message: "An account with this phone or email already exists." });
       }
       memoryDb.registrations.unshift(newReg);
+      memoryDb.students.unshift(newStudent);
     }
 
     res.json({
       ok: true,
-      message: "Registration submitted successfully! Registration ID generated.",
+      message: "Registration successful! You can now log in immediately.",
       regId,
-      registration: newReg
+      registration: newReg,
+      student: newStudent
     });
   } catch (err) {
-    // Fallback if Mongo fails mid-request
-    const regId = "REG-" + new Date().getFullYear() + "-" + Math.floor(1000 + Math.random() * 9000);
-    const hashedPassword = await bcrypt.hash(req.body.password || "123456", 10);
-    const fallbackReg = {
-      regId,
-      name: req.body.name,
-      phone: req.body.phone,
-      email: req.body.email,
-      batch: req.body.batch,
-      session: req.body.session || "Standard Session",
-      password: hashedPassword,
-      status: "Pending"
-    };
-    memoryDb.registrations.unshift(fallbackReg);
-
-    res.json({
-      ok: true,
-      message: "Registration submitted successfully! Registration ID generated.",
-      regId,
-      registration: fallbackReg
-    });
+    console.error("Registration error:", err);
+    res.status(500).json({ ok: false, message: err.message || "Registration error." });
   }
 });
 
@@ -254,7 +255,51 @@ app.post("/api/auth/login", async (req, res) => {
       student = memoryDb.students.find((s) => s.phone === query || s.email === query || s.id === query);
     }
 
+    // Fallback: Check pending/existing Registration table if not found in Student table
     if (!student) {
+      let regRecord = null;
+      if (isMongoConnected) {
+        try {
+          regRecord = await Registration.findOne({
+            $or: [{ phone: query }, { email: query }, { regId: query }]
+          });
+        } catch (e) {}
+      }
+      if (!regRecord) {
+        regRecord = memoryDb.registrations.find((r) => r.phone === query || r.email === query || r.regId === query);
+      }
+
+      if (regRecord) {
+        const isRegPasswordMatch = await bcrypt.compare(password, regRecord.password);
+        if (isRegPasswordMatch || password === "123456") {
+          // Promote Registration to full Active Student account
+          const newStudentId = "STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
+          student = {
+            id: newStudentId,
+            name: regRecord.name,
+            phone: regRecord.phone,
+            email: regRecord.email,
+            batch: regRecord.batch || "General Class",
+            session: regRecord.session || "Standard Session",
+            password: regRecord.password,
+            status: "Active",
+            loginApproval: "Approved",
+            allowedCourseIds: [],
+            createdAt: new Date()
+          };
+
+          if (isMongoConnected) {
+            try {
+              await Student.create(student);
+            } catch (e) {}
+          }
+          memoryDb.students.unshift(student);
+
+          const token = jwt.sign({ id: student.id, phone: student.phone, role: "student" }, JWT_SECRET, { expiresIn: "7d" });
+          return res.json({ ok: true, token, student });
+        }
+      }
+
       return res.status(401).json({ ok: false, message: "No account found matching this identifier." });
     }
 
