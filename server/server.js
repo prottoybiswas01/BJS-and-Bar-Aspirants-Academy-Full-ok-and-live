@@ -67,12 +67,9 @@ async function ensureDbConnected() {
   try {
     if (!cachedConn) {
       cachedConn = mongoose.connect(MONGODB_URI, {
-        serverSelectionTimeoutMS: 4000,
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 10000,
         maxPoolSize: 10,
-      }).then(async (conn) => {
-        isMongoConnected = true;
-        syncMongoToMemoryDb();
-        return conn;
       });
     }
     await cachedConn;
@@ -85,36 +82,14 @@ async function ensureDbConnected() {
   }
 }
 
-async function syncMongoToMemoryDb() {
-  if (mongoose.connection.readyState !== 1) return;
-  try {
-    const [c, l, s, r, m] = await Promise.all([
-      Course.find().lean(),
-      Lesson.find().lean(),
-      Student.find().lean(),
-      Registration.find().lean(),
-      Mentor.find().lean()
-    ]);
-    if (c && c.length) memoryDb.courses = c;
-    if (l && l.length) memoryDb.lessons = l;
-    if (s && s.length) memoryDb.students = s;
-    if (r && r.length) memoryDb.registrations = r;
-    if (m && m.length) memoryDb.mentors = m;
-    isMongoConnected = true;
-    console.log(`⚡ Ultra-Fast Memory DB Synced: ${c.length} Courses, ${l.length} Lessons, ${s.length} Students, ${r.length} Registrations!`);
-  } catch (err) {
-    console.error("Sync Error:", err.message);
-  }
-}
-
 // Background DB Connection Initiator
 ensureDbConnected();
 
-// Non-blocking Express Middleware
-app.use((req, res, next) => {
-  if (mongoose.connection.readyState !== 1) {
-    ensureDbConnected();
-  }
+// Async Serverless Express Middleware (Guarantees DB connection before route execution)
+app.use(async (req, res, next) => {
+  try {
+    await ensureDbConnected();
+  } catch (e) {}
   next();
 });
 
