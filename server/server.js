@@ -526,7 +526,12 @@ async function sendRegistrationConfirmEmail(targetEmail, studentData) {
 }
 
 // Professional Course Enrollment & Approval Email
-async function sendCourseEnrollmentEmail(targetEmail, studentData, courseTitle) {
+async function sendCourseEnrollmentEmail(targetEmail, studentData, courseTitle, allCourseTitles = []) {
+  let coursesDisplay = courseTitle || studentData.batch || "BJS & Bar Masterclass";
+  if (Array.isArray(allCourseTitles) && allCourseTitles.length > 0) {
+    coursesDisplay = allCourseTitles.map(t => `📚 ${t}`).join("<br/>");
+  }
+
   const mailOptions = {
     from: '"BJS & Bar Academy Academic Board" <bjsacademy38@gmail.com>',
     to: targetEmail,
@@ -546,12 +551,14 @@ async function sendCourseEnrollmentEmail(targetEmail, studentData, courseTitle) 
           </div>
 
           <p style="font-size: 13px; color: #94a3b8; line-height: 1.6;">
-            We are pleased to inform you that the Academic Committee of <strong>BJS & Bar Aspirants Academy</strong> has granted you full official access to your registered course.
+            We are pleased to inform you that the Academic Committee of <strong>BJS & Bar Aspirants Academy</strong> has granted you official access to your enrolled course(s).
           </p>
 
           <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #10b981; margin: 18px 0;">
-            <p style="margin: 0 0 8px 0; font-size: 11px; color: #10b981; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Enrolled Course Module</p>
-            <p style="margin: 0; font-size: 16px; font-weight: bold; color: #ffffff;">📚 ${courseTitle || studentData.batch || 'BJS & Bar Masterclass'}</p>
+            <p style="margin: 0 0 8px 0; font-size: 11px; color: #10b981; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Enrolled Active Course Module(s)</p>
+            <div style="margin: 0; font-size: 15px; font-weight: bold; color: #ffffff; line-height: 1.6;">
+              ${coursesDisplay}
+            </div>
             
             <hr style="border: 0; border-top: 1px solid #1e293b; margin: 12px 0;" />
 
@@ -1467,12 +1474,21 @@ app.post("/api/admin/students/save", async (req, res) => {
       memoryDb.students.unshift({ ...savedStudent });
     }
 
-    // Dispatch professional course enrollment email to student
+    // Dispatch professional course enrollment email to student with ALL enrolled course titles
     if (savedStudent && savedStudent.email) {
+      let allCourseTitles = [];
+      const allowed = savedStudent.allowedCourseIds || savedStudent.enrolledCourseIds || [];
+      if (allowed.length > 0) {
+        allCourseTitles = allowed.map(id => {
+          const found = (memoryDb.courses || []).find(c => c.id === id);
+          return found ? found.title : id;
+        });
+      }
       sendCourseEnrollmentEmail(
         savedStudent.email,
         savedStudent,
-        savedStudent.batch || "BJS & Bar Council Masterclass"
+        savedStudent.batch || "BJS & Bar Council Masterclass",
+        allCourseTitles
       );
     }
 

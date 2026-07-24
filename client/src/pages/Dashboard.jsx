@@ -115,9 +115,21 @@ export default function Dashboard({ openVideoModal }) {
             <h1 className="text-2xl sm:text-3xl font-black text-white">
               স্বাগতম, <span className="text-gradient-gold">{user?.name || 'শিক্ষার্থী'}</span>!
             </h1>
-            <p className="text-xs sm:text-sm text-slate-300">
-              ব্যাচ: <strong className="text-amber-300">{user?.batch || 'Wed,Sat'}</strong> | সেশন: <span className="text-slate-400">{user?.session || '2026-04-01'}</span>
-            </p>
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="text-xs text-slate-400 font-bold">আপনার এনরোলকৃত কোর্সসমূহ:</span>
+              {courses
+                .filter(c => (user?.allowedCourseIds || user?.enrolledCourseIds || []).includes(c.id))
+                .map(c => (
+                  <span key={c.id} className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
+                    📚 {c.shortTitle || c.title}
+                  </span>
+                ))}
+              {(!user?.allowedCourseIds || user?.allowedCourseIds.length === 0) && (
+                <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
+                  📚 {user?.batch || 'BJS & Bar Masterclass'}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Learning Progress Widget */}

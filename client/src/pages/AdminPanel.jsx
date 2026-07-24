@@ -1054,6 +1054,19 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     win.document.close();
   };
 
+  const getStudentEnrolledCourseTitles = (s) => {
+    if (!s) return [];
+    const allowed = s.allowedCourseIds || s.enrolledCourseIds || [];
+    if (allowed.length === 0) {
+      return [s.batch || 'Masterclass'];
+    }
+    const titles = allowed.map(id => {
+      const found = courses.find(c => c.id === id);
+      return found ? (found.shortTitle || found.title) : id;
+    });
+    return Array.from(new Set(titles));
+  };
+
   return (
     <div className="space-y-8 pb-20 animate-fadeIn text-slate-100 font-sans relative">
       {/* Floating Toast Notification Banner (Visible across the whole page) */}
@@ -1346,11 +1359,26 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
                     </p>
                     <p className="font-mono text-[10px] text-amber-300">{s.id}</p>
                     <p className="text-[10px] text-slate-400">{s.email}</p>
+
+                    {/* Multi-Course Enrolled Badges */}
+                    <div className="flex flex-wrap gap-1 mt-1 max-w-[220px]">
+                      {getStudentEnrolledCourseTitles(s).map((cTitle, cIdx) => (
+                        <span key={cIdx} className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold text-[9px]">
+                          📚 {cTitle}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td className="p-3 font-mono text-slate-300">{s.phone}</td>
-                  <td className="p-3 text-slate-300 max-w-[140px]">
-                    <p className="line-clamp-1">{s.batch}</p>
-                    <p className="text-[10px] text-slate-500 font-mono line-clamp-1">{s.session}</p>
+                  <td className="p-3 text-slate-300 max-w-[150px]">
+                    <div className="flex flex-wrap gap-1">
+                      {getStudentEnrolledCourseTitles(s).map((cTitle, cIdx) => (
+                        <span key={cIdx} className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200 font-medium text-[10px]">
+                          {cTitle}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-mono mt-1">Session: {s.session || '2026-04-01'}</p>
                   </td>
                   <td className="p-3">
                     <select
@@ -1384,8 +1412,10 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
                       <option value="Inactive">Inactive</option>
                     </select>
                   </td>
-                  <td className="p-3 text-slate-300 font-bold text-[11px]">
-                    {(s.allowedCourseIds || s.enrolledCourseIds || []).length} Course(s)
+                  <td className="p-3">
+                    <span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/30 font-bold text-[10px] font-mono">
+                      {(s.allowedCourseIds || s.enrolledCourseIds || []).length || 1} Active Course(s)
+                    </span>
                   </td>
                   <td className="p-3 text-right space-x-1.5">
                     <button
