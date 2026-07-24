@@ -88,6 +88,7 @@ export default function AdminPanel({ openLessonManager }) {
   });
 
   // Hero Banner Settings State
+  const [showHeroBannerSettings, setShowHeroBannerSettings] = useState(false);
   const [siteSettingsForm, setSiteSettingsForm] = useState({
     badgeText: '১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!',
     heroTitle: 'বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য',
@@ -376,8 +377,8 @@ export default function AdminPanel({ openLessonManager }) {
         )}
 
       {/* 2.5 Hero Banner Settings Section */}
-      <section className="glass-card rounded-xl p-6 border border-amber-500/30 shadow-xl space-y-4 bg-slate-950/60">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-3">
+      <section className="glass-card rounded-xl p-6 border border-amber-500/30 shadow-xl space-y-4 bg-slate-950/60 transition-all">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800/80 pb-3">
           <div>
             <span className="text-[10px] font-mono text-amber-400 tracking-wider font-bold">HOMEPAGE BANNER CONTROL</span>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
@@ -387,59 +388,68 @@ export default function AdminPanel({ openLessonManager }) {
               হোমপেজের ব্যাচ নোটিশ টেক্সট, প্রধান টাইটেল এবং সাবটাইটেল/বিবরণ সেশনের তথ্য সরাসরি এডিট ও আপডেট করুন
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowHeroBannerSettings(!showHeroBannerSettings)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all shadow-md mt-2 sm:mt-0"
+          >
+            <span>{showHeroBannerSettings ? '▲ হাইড করুন (Hide)' : '▼ অন-হাইড করে এডিট করুন (Unhide Banner Settings)'}</span>
+          </button>
         </div>
 
-        <form onSubmit={handleSaveSiteSettings} className="space-y-4 text-xs pt-2">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <label className="block text-amber-300 font-bold mb-1">
-                ১. ব্যাচ নোটিশ ব্যাজ টেক্সট (Notice Badge Text)
-              </label>
-              <input
-                type="text"
-                value={siteSettingsForm.badgeText}
-                onChange={(e) => setSiteSettingsForm({ ...siteSettingsForm, badgeText: e.target.value })}
-                placeholder="e.g. ১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!"
-                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-4 py-2.5 text-white focus:outline-none focus:border-amber-500 font-medium"
-              />
+        {showHeroBannerSettings && (
+          <form onSubmit={handleSaveSiteSettings} className="space-y-4 text-xs pt-2 animate-fadeIn">
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-amber-300 font-bold mb-1">
+                  ১. ব্যাচ নোটিশ ব্যাজ টেক্সট (Notice Badge Text)
+                </label>
+                <input
+                  type="text"
+                  value={siteSettingsForm.badgeText}
+                  onChange={(e) => setSiteSettingsForm({ ...siteSettingsForm, badgeText: e.target.value })}
+                  placeholder="e.g. ১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!"
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-4 py-2.5 text-white focus:outline-none focus:border-amber-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-amber-300 font-bold mb-1">
+                  ২. হিরো মেইন টাইটেল (Hero Main Title)
+                </label>
+                <textarea
+                  rows={2}
+                  value={siteSettingsForm.heroTitle}
+                  onChange={(e) => setSiteSettingsForm({ ...siteSettingsForm, heroTitle: e.target.value })}
+                  placeholder="e.g. বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য"
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-4 py-2.5 text-white focus:outline-none focus:border-amber-500 font-bold text-sm leading-relaxed"
+                />
+              </div>
+
+              <div>
+                <label className="block text-amber-300 font-bold mb-1">
+                  ৩. হিরো সাবটাইটেল / বিবরণী (Hero Subtitle / Description)
+                </label>
+                <textarea
+                  rows={3}
+                  value={siteSettingsForm.heroSubtitle}
+                  onChange={(e) => setSiteSettingsForm({ ...siteSettingsForm, heroSubtitle: e.target.value })}
+                  placeholder="e.g. বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায়..."
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-4 py-2.5 text-slate-200 focus:outline-none focus:border-amber-500 text-xs leading-relaxed"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="block text-amber-300 font-bold mb-1">
-                ২. হিরো মেইন টাইটেল (Hero Main Title)
-              </label>
-              <textarea
-                rows={2}
-                value={siteSettingsForm.heroTitle}
-                onChange={(e) => setSiteSettingsForm({ ...siteSettingsForm, heroTitle: e.target.value })}
-                placeholder="e.g. বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য"
-                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-4 py-2.5 text-white focus:outline-none focus:border-amber-500 font-bold text-sm leading-relaxed"
-              />
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all hover:scale-105"
+              >
+                💾 ব্যানার পরিবর্তন সেভ করুন (Save Banner Settings)
+              </button>
             </div>
-
-            <div>
-              <label className="block text-amber-300 font-bold mb-1">
-                ৩. হিরো সাবটাইটেল / বিবরণী (Hero Subtitle / Description)
-              </label>
-              <textarea
-                rows={3}
-                value={siteSettingsForm.heroSubtitle}
-                onChange={(e) => setSiteSettingsForm({ ...siteSettingsForm, heroSubtitle: e.target.value })}
-                placeholder="e.g. বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায়..."
-                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-4 py-2.5 text-slate-200 focus:outline-none focus:border-amber-500 text-xs leading-relaxed"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end pt-2">
-            <button
-              type="submit"
-              className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all hover:scale-105"
-            >
-              💾 ব্যানার পরিবর্তন সেভ করুন (Save Banner Settings)
-            </button>
-          </div>
-        </form>
+          </form>
+        )}
       </section>
 
         {/* Admissions Overview & Monthly Enrollment Chart */}
