@@ -835,7 +835,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
 
       {/* 4. Editor & Selected Students PER COURSE RULE Engine Panel (Reference Screenshot 2 Sync) */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Student Profile Form */}
+        {/* Student Profile Form (Left Card) */}
         <form onSubmit={handleSaveStudent} className="lg:col-span-5 glass-card rounded-xl p-6 border border-slate-800 space-y-3 text-xs">
           <div className="flex justify-between items-center border-b border-slate-800 pb-2">
             <div>
@@ -847,56 +847,77 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
             </span>
           </div>
 
-          <div className="space-y-2">
-            <input
-              type="text"
-              placeholder="Student name (e.g. Srity)"
-              value={studentForm.name}
-              onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
-              className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
-              required
-            />
-            <input
-              type="text"
-              placeholder="Phone Number (e.g. 01781920154)"
-              value={studentForm.phone}
-              onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
-              className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
-              required
-            />
-            <input
-              type="email"
-              placeholder="Email Address (e.g. sritypaul294@gmail.com)"
-              value={studentForm.email}
-              onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
-              className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
-              required
-            />
-
-            <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-2.5">
+            <div>
+              <label className="block text-slate-400 text-[10px] font-bold mb-1">STUDENT FULL NAME</label>
               <input
                 type="text"
-                placeholder="Batch (e.g. Wed,Sat)"
-                value={studentForm.batch}
-                onChange={(e) => setStudentForm({ ...studentForm, batch: e.target.value })}
-                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
-              />
-              <input
-                type="text"
-                placeholder="Session (e.g. 2026-04-01)"
-                value={studentForm.session}
-                onChange={(e) => setStudentForm({ ...studentForm, session: e.target.value })}
-                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
+                placeholder="Student name (e.g. Srity)"
+                value={studentForm.name}
+                onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-medium"
+                required
               />
             </div>
 
-            <input
-              type="password"
-              placeholder="Password (e.g. 43146)"
-              value={studentForm.password}
-              onChange={(e) => setStudentForm({ ...studentForm, password: e.target.value })}
-              className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
-            />
+            <div>
+              <label className="block text-slate-400 text-[10px] font-bold mb-1">PHONE NUMBER</label>
+              <input
+                type="text"
+                placeholder="Phone Number (e.g. 01781920154)"
+                value={studentForm.phone}
+                onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-400 text-[10px] font-bold mb-1">EMAIL ADDRESS</label>
+              <input
+                type="email"
+                placeholder="Email Address (e.g. sritypaul294@gmail.com)"
+                value={studentForm.email}
+                onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-slate-400 text-[10px] font-bold mb-1">BATCH</label>
+                <input
+                  type="text"
+                  placeholder="Batch (e.g. Wed,Sat)"
+                  value={studentForm.batch}
+                  onChange={(e) => setStudentForm({ ...studentForm, batch: e.target.value })}
+                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 text-[10px] font-bold mb-1">SESSION</label>
+                <input
+                  type="text"
+                  placeholder="Session (e.g. 2026-04-01)"
+                  value={studentForm.session}
+                  onChange={(e) => setStudentForm({ ...studentForm, session: e.target.value })}
+                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-slate-400 text-[10px] font-bold mb-1">PASSWORD (PROTECTED)</label>
+              <input
+                type="password"
+                placeholder="•••••••• (Leave blank to keep current password)"
+                value={studentForm.password}
+                onChange={(e) => setStudentForm({ ...studentForm, password: e.target.value })}
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white font-mono"
+              />
+              <span className="text-[9px] text-slate-500 block mt-0.5">Password is encrypted & hidden for security.</span>
+            </div>
           </div>
 
           {/* Custom Device Limit */}
@@ -912,69 +933,20 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
             <p className="text-[10px] text-slate-500">All students default to 2 devices. Set custom only when overriding.</p>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
-            <select
-              value={studentForm.status}
-              onChange={(e) => setStudentForm({ ...studentForm, status: e.target.value })}
-              className="rounded-xl bg-slate-950 border border-slate-800 px-2 py-1.5 text-white"
-            >
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-            </select>
-            <select
-              value={studentForm.loginApproval}
-              onChange={(e) => setStudentForm({ ...studentForm, loginApproval: e.target.value })}
-              className="rounded-xl bg-slate-950 border border-slate-800 px-2 py-1.5 text-white"
-            >
-              <option value="Approved">Approved</option>
-              <option value="Pending">Pending</option>
-            </select>
-            <select
-              value={studentForm.portalAccessMode}
-              onChange={(e) => setStudentForm({ ...studentForm, portalAccessMode: e.target.value })}
-              className="rounded-xl bg-slate-950 border border-slate-800 px-2 py-1.5 text-amber-300 font-bold"
-            >
-              <option value="Full Video Access">Full Video Access</option>
-              <option value="Preview Mode">Preview Mode</option>
-            </select>
+          {/* Admin Note / Highlight */}
+          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+            <span className="text-[10px] text-slate-400 font-bold uppercase">ADMIN NOTE / HIGHLIGHT</span>
+            <textarea
+              placeholder="Add admin note for this student..."
+              value={studentForm.highlight}
+              onChange={(e) => setStudentForm({ ...studentForm, highlight: e.target.value })}
+              rows="2"
+              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-slate-200 text-xs"
+            ></textarea>
           </div>
 
-          <textarea
-            placeholder="Registered online. Preview access activated automatically..."
-            value={studentForm.highlight}
-            onChange={(e) => setStudentForm({ ...studentForm, highlight: e.target.value })}
-            rows="2"
-            className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-slate-300"
-          ></textarea>
-
-          {/* Allowed Courses Checkboxes */}
-          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
-            <span className="text-[10px] text-slate-400 font-bold uppercase">ALLOWED COURSES</span>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              {courses.map((c) => {
-                const checked = (studentForm.allowedCourseIds || []).includes(c.id);
-                return (
-                  <label key={c.id} className="flex items-center gap-1.5 cursor-pointer text-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        let list = studentForm.allowedCourseIds || [];
-                        if (e.target.checked) list = [...list, c.id];
-                        else list = list.filter((i) => i !== c.id);
-                        setStudentForm({ ...studentForm, allowedCourseIds: list });
-                      }}
-                      className="rounded bg-slate-900 border-slate-700 text-amber-500"
-                    />
-                    <span className="line-clamp-1">{c.shortTitle || c.title}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-
-          <button type="submit" className="w-full py-3 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-700 text-white font-extrabold transition-all">
-            Save Student
+          <button type="submit" className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all">
+            💾 Save Student Profile
           </button>
         </form>
 
@@ -982,10 +954,10 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
         <div className="lg:col-span-7 glass-card rounded-xl p-6 border border-slate-800 space-y-4 text-xs">
           <div className="border-b border-slate-800 pb-2 flex justify-between items-center">
             <div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase">SELECTED STUDENTS</span>
-              <h3 className="font-extrabold text-white text-sm">Course Assignment + Messaging</h3>
+              <span className="text-[10px] font-mono text-slate-400 uppercase">SELECTED STUDENT MANAGEMENT</span>
+              <h3 className="font-extrabold text-white text-sm">Course Assignment & Access Rules</h3>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Managing <strong className="text-amber-300">{selectedStudentForRules?.name || 'Srity'}</strong>. You can update approval, preview access, course access, and rules from this block.
+                Managing <strong className="text-amber-300">{selectedStudentForRules?.name || 'Srity'}</strong> ({selectedStudentForRules?.id || 'STU-2026-001'}).
               </p>
             </div>
             <span className="px-2.5 py-1 rounded bg-slate-800 text-amber-400 font-mono font-bold text-[10px]">
@@ -995,27 +967,54 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
 
           {/* Assign Courses */}
           <div className="space-y-2">
-            <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">ASSIGN COURSES</span>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">ASSIGN COURSES (SELECT COURSES FOR STUDENT)</span>
+              <span className="text-[10px] text-amber-400 font-mono font-bold">
+                {(studentForm.allowedCourseIds || []).length} Course(s) Granted Access
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
               {courses.map((c) => {
-                const isSelected = activeRuleCourseId === c.id;
+                const isAssigned = (studentForm.allowedCourseIds || []).includes(c.id);
+                const isSelectedRule = activeRuleCourseId === c.id;
                 return (
-                  <button
-                    type="button"
+                  <div
                     key={c.id}
                     onClick={() => setActiveRuleCourseId(c.id)}
-                    className={`p-2.5 rounded-xl text-left border flex items-center gap-2 transition-all ${
-                      isSelected
-                        ? 'bg-amber-500/10 border-amber-500 text-white'
+                    className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                      isSelectedRule
+                        ? 'bg-amber-500/15 border-amber-500 text-white shadow-lg'
+                        : isAssigned
+                        ? 'bg-slate-900 border-slate-700 text-slate-200'
                         : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                     }`}
                   >
-                    <input type="checkbox" checked={isSelected} readOnly className="rounded bg-slate-900 border-slate-700 text-amber-500" />
-                    <div>
-                      <p className="font-bold text-white line-clamp-1">{c.title}</p>
-                      <p className="text-[9px] text-slate-500">{c.category}</p>
-                    </div>
-                  </button>
+                    <label className="flex items-center gap-2 cursor-pointer flex-1" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={isAssigned}
+                        onChange={(e) => {
+                          let list = studentForm.allowedCourseIds || [];
+                          if (e.target.checked) list = [...list, c.id];
+                          else list = list.filter((i) => i !== c.id);
+                          setStudentForm({ ...studentForm, allowedCourseIds: list });
+                          if (selectedStudentForRules) {
+                            setSelectedStudentForRules({ ...selectedStudentForRules, allowedCourseIds: list });
+                          }
+                        }}
+                        className="rounded bg-slate-900 border-slate-700 text-amber-500 w-4 h-4"
+                      />
+                      <div>
+                        <p className="font-bold text-white line-clamp-1">{c.title}</p>
+                        <p className="text-[9px] font-mono text-slate-400">{c.category || 'COURSE'} • {c.faculty}</p>
+                      </div>
+                    </label>
+                    {isSelectedRule && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[9px] font-bold border border-amber-500/30 shrink-0">
+                        RULE ACTIVE
+                      </span>
+                    )}
+                  </div>
                 );
               })}
             </div>
