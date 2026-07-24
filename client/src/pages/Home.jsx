@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-export default function Home({ setActivePage }) {
+export default function Home({ setActivePage, openMentorProfile }) {
   const { user } = useAuth();
   const [courses, setCourses] = useState([]);
   const [mentors, setMentors] = useState([]);
@@ -385,6 +385,16 @@ export default function Home({ setActivePage }) {
                           "{m.bio}"
                         </p>
                       )}
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-800 flex justify-between items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openMentorProfile && openMentorProfile(m)}
+                        className="w-full px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500/20 to-amber-600/20 hover:from-amber-500/30 hover:to-amber-600/30 text-amber-300 border border-amber-500/40 text-xs font-extrabold transition-all flex items-center justify-center gap-2 shadow-md active:scale-95 cursor-pointer"
+                      >
+                        <span>⚖️</span> ফুল জুডিশিয়াল প্রোফাইল ও শেয়ার লিংক
+                      </button>
                     </div>
                   </div>
                 ))}

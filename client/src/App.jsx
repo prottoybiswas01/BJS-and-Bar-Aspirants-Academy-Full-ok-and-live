@@ -12,6 +12,8 @@ import VideoPlayerModal from './components/VideoPlayerModal';
 import AiChatDrawer from './components/AiChatDrawer';
 import ProfileModal from './components/ProfileModal';
 import LessonManagerModal from './components/LessonManagerModal';
+import MentorProfileModal from './components/MentorProfileModal';
+import api from './services/api';
 
 function MainApp() {
   const { user } = useAuth();
@@ -24,12 +26,28 @@ function MainApp() {
     return 'home';
   });
 
+  const [mentorModal, setMentorModal] = useState({ isOpen: false, mentor: null });
+
+  const openMentorProfile = (mentor) => {
+    setMentorModal({ isOpen: true, mentor });
+  };
+
   useEffect(() => {
     const handleUrlChange = () => {
       const path = window.location.pathname.toLowerCase();
       const hash = window.location.hash.toLowerCase();
       if (path === '/admin' || path === '/admin/' || path.endsWith('/admin') || hash === '#admin' || hash === '#/admin') {
         setActivePage('admin');
+      }
+
+      if (hash.startsWith('#mentor-')) {
+        const mId = window.location.hash.substring(8);
+        api.get('/mentors').then(res => {
+          if (res.data.ok) {
+            const found = (res.data.mentors || []).find(m => m.id === mId || m._id === mId);
+            if (found) setMentorModal({ isOpen: true, mentor: found });
+          }
+        }).catch(() => {});
       }
     };
     handleUrlChange();
@@ -66,7 +84,7 @@ function MainApp() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         {activePage === 'home' && (
-          <Home setActivePage={setActivePage} />
+          <Home setActivePage={setActivePage} openMentorProfile={openMentorProfile} />
         )}
         {activePage === 'login' && <Login setActivePage={setActivePage} />}
         {activePage === 'register' && <Register setActivePage={setActivePage} />}
@@ -75,7 +93,7 @@ function MainApp() {
         )}
         {(activePage === 'admin' || activePage === 'admin-login') && (
           user?.isAdmin ? (
-            <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} />
+            <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />
           ) : (
             <AdminLogin setActivePage={setActivePage} />
           )
@@ -109,6 +127,16 @@ function MainApp() {
       {/* Profile Modal */}
       {profileModalOpen && (
         <ProfileModal isOpen={profileModalOpen} onClose={() => setProfileModalOpen(false)} />
+      )}
+
+      {/* Shareable Mentor Profile Showcase Modal */}
+      {mentorModal.isOpen && mentorModal.mentor && (
+        <MentorProfileModal
+          mentor={mentorModal.mentor}
+          isOpen={mentorModal.isOpen}
+          onClose={() => setMentorModal({ isOpen: false, mentor: null })}
+          setActivePage={setActivePage}
+        />
       )}
     </div>
   );

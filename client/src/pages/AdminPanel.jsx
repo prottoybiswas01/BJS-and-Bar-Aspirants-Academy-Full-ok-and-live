@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 
-export default function AdminPanel({ openLessonManager, openVideoModal }) {
+export default function AdminPanel({ openLessonManager, openVideoModal, openMentorProfile }) {
   const [stats, setStats] = useState({
     totalStudents: 0,
     activeCourses: 0,
@@ -1924,6 +1924,14 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
                     </div>
 
                     <div className="flex items-center gap-2 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => openMentorProfile && openMentorProfile(m)}
+                        className="px-3 py-1.5 rounded-lg bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/30 font-bold text-[11px] transition-all flex items-center gap-1"
+                        title="View & Share Judicial Profile Link"
+                      >
+                        <span>👁️</span> View Profile
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleEditMentor(m)}
