@@ -421,7 +421,7 @@ const mailTransporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
     user: process.env.EMAIL_USER || "bjsacademy38@gmail.com",
-    pass: process.env.EMAIL_PASS || "nwtj gyyb krtz gggw"
+    pass: process.env.EMAIL_PASS || "kahnoeuqlfxichef"
   }
 });
 
