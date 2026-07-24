@@ -513,10 +513,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 
     return res.json({
       ok: true,
-      message: mailSent
-        ? `৬-ডিজিটের OTP ভেরিফিকেশন কোড আপনার নিবন্ধিত ইমেইল (${student.email})-এ পাঠানো হয়েছে!`
-        : `৬-ডিজিটের OTP সফলভাবে তৈরি করা হয়েছে। (OTP: ${otp})`,
-      otp: mailSent ? undefined : otp,
+      message: `৬-ডিজিটের OTP ভেরিফিকেশন কোড আপনার নিবন্ধিত ইমেইল (${student.email})-এ পাঠানো হয়েছে! অনুগ্রহ করে আপনার ইনবক্স (Inbox / Spam) চেক করুন।`,
       email: student.email,
       phone: student.phone
     });
