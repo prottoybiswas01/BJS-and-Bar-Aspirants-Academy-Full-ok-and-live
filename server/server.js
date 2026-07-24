@@ -752,7 +752,11 @@ app.post("/api/ai/chat", async (req, res) => {
   res.json({ ok: true, reply: `⚖️ **Legal AI Assistant**: Instant legal response for query "${prompt}".` });
 });
 
-// Start Express Listener
-app.listen(PORT, () => {
-  console.log(`🚀 BJS & Bar Academy Server running on http://localhost:${PORT}`);
-});
+// Start Express Listener locally & export for Vercel serverless environment
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 BJS & Bar Academy Server running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
