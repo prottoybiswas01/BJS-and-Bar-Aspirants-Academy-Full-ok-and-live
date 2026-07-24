@@ -32,6 +32,13 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
 
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState(null);
+
+  const showToast = (text, type = 'success') => {
+    setMsg({ type, text });
+    setTimeout(() => {
+      setMsg((current) => (current?.text === text ? null : current));
+    }, 4000);
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
 
