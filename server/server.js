@@ -27,73 +27,12 @@ const SiteSetting = require("./models/SiteSetting");
 let isMongoConnected = false;
 
 // Fallback In-Memory Storage Engine for Offline / IP Whitelist Blocked scenarios
+// Clean Production In-Memory Storage Engine
 const memoryDb = {
-  students: [
-    {
-      id: "STU-2026-001",
-      name: "Prottoy Kumar Biswas",
-      phone: "01978167016",
-      email: "prottoybiswas575358@gmail.com",
-      batch: "Sun, Tue, Thu at 8:30 PM",
-      session: "2026-03-14T20:30:00+06:01",
-      password: "", // hashed below
-      status: "Active",
-      loginApproval: "Approved",
-      portalAccessMode: "Full Video Access",
-      enrolledCourseIds: ["civil-laws-intensive"],
-      allowedCourseIds: ["civil-laws-intensive"],
-      maxDeviceCount: 10000,
-      joinedOn: "2026-03-14"
-    }
-  ],
+  students: [],
   registrations: [],
-  courses: [
-    {
-      id: "civil-laws-intensive",
-      title: "Civil Laws Intensive",
-      shortTitle: "Civil Law",
-      faculty: "Shanto Deb Roy Arno",
-      category: "CIVIL LAW",
-      schedule: "Wed,Sat",
-      batchRegText: "Wed,Sat",
-      sessionRegText: "2026-04-01",
-      nextLive: "Wed,Sat 8:30 PM",
-      price: "1000",
-      studentCount: 16,
-      weeklyFrequency: "2 Day",
-      status: "Active",
-      description: "Master Code of Civil Procedure 1908 and Specific Relief Act 1877."
-    },
-    {
-      id: "English",
-      title: "English Class",
-      shortTitle: "English",
-      faculty: "Shanto Deb Roy Arno",
-      category: "ENGLISH",
-      schedule: "Sun, Tue, Thu at 8:30 PM",
-      batchRegText: "Sun, Tue, Thu at 8:30 PM",
-      sessionRegText: "2026-03-14T20:30:00+06:01",
-      nextLive: "Sun 8:30 PM",
-      price: "1000",
-      studentCount: 9,
-      weeklyFrequency: "3 Day",
-      status: "Active",
-      description: "English Literature & Grammar for BJS Preliminary."
-    }
-  ],
-  lessons: [
-    {
-      id: "les-eng-1",
-      courseId: "English",
-      module: "Fast Class",
-      title: "English Class",
-      duration: "56min",
-      youtubeUrl: "https://youtu.be/7HNVqFCWZm4",
-      youtubeId: "7HNVqFCWZm4",
-      releaseDate: "2026-02-07",
-      description: "English Class Masterclass Lecture 01"
-    }
-  ],
+  courses: [],
+  lessons: [],
   payments: [],
   devices: [],
   mailSettings: {
@@ -108,11 +47,6 @@ const memoryDb = {
   }
 };
 
-// Initialize Hash for Demo Student in Memory DB
-bcrypt.hash("123456", 10).then((h) => {
-  memoryDb.students[0].password = h;
-});
-
 // Configure Mongoose options to prevent 10,000ms buffering timeouts
 mongoose.set("bufferCommands", false);
 
@@ -123,7 +57,6 @@ mongoose
   .then(() => {
     isMongoConnected = true;
     console.log("✅ Successfully connected to MongoDB Atlas (bjs_academy)");
-    seedInitialData();
   })
   .catch((err) => {
     isMongoConnected = false;
@@ -140,25 +73,6 @@ function extractYoutubeId(urlOrId) {
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
   const match = urlOrId.match(regExp);
   return (match && match[2].length === 11) ? match[2] : urlOrId;
-}
-
-async function seedInitialData() {
-  if (!isMongoConnected) return;
-  try {
-    const courseCount = await Course.countDocuments();
-    if (courseCount === 0) {
-      await Course.insertMany(memoryDb.courses);
-      await Lesson.insertMany(memoryDb.lessons);
-    }
-    const studentCount = await Student.countDocuments();
-    if (studentCount === 0) {
-      const defaultPass = await bcrypt.hash("123456", 10);
-      memoryDb.students[0].password = defaultPass;
-      await Student.insertMany(memoryDb.students);
-    }
-  } catch (err) {
-    console.error("Seed error:", err.message);
-  }
 }
 
 // REST ENDPOINTS
@@ -384,6 +298,32 @@ app.get("/api/lessons", async (req, res) => {
   } catch (e) {}
   const filtered = req.query.courseId ? memoryDb.lessons.filter((l) => l.courseId === req.query.courseId) : memoryDb.lessons;
   res.json({ ok: true, lessons: filtered });
+});
+
+app.post("/api/admin/clear-all-demo-data", async (req, res) => {
+  try {
+    if (isMongoConnected) {
+      await Promise.all([
+        Student.deleteMany({}),
+        Course.deleteMany({}),
+        Lesson.deleteMany({}),
+        Registration.deleteMany({}),
+        Payment.deleteMany({}),
+        Device.deleteMany({})
+      ]);
+    }
+
+    memoryDb.students = [];
+    memoryDb.courses = [];
+    memoryDb.lessons = [];
+    memoryDb.registrations = [];
+    memoryDb.payments = [];
+    memoryDb.devices = [];
+
+    return res.json({ ok: true, message: "All demo data (students, courses, lessons, registrations) wiped successfully! System ready for Production!" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error wiping demo data." });
+  }
 });
 
 app.post("/api/admin/courses/save", async (req, res) => {

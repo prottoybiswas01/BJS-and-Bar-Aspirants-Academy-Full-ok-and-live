@@ -283,6 +283,24 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     }
   };
 
+  const handleClearAllDemoData = async () => {
+    if (!window.confirm("⚠️ WARNING: Are you sure you want to delete ALL demo data (students, courses, lessons, registrations)? This will prepare the system for a 100% fresh Production environment!")) {
+      return;
+    }
+    try {
+      const res = await api.post('/admin/clear-all-demo-data');
+      if (res.data.ok) {
+        showToast(res.data.message || 'All demo data wiped successfully! Ready for Production.', 'success');
+        setIsEditorOpen(false);
+        setSelectedStudentForRules(null);
+        handleClearCourseForm();
+        loadAllAdminData();
+      }
+    } catch (err) {
+      showToast('Error clearing demo data.', 'error');
+    }
+  };
+
   const handleSaveStudent = async (e) => {
     e.preventDefault();
     if (!studentForm.name || !studentForm.phone || !studentForm.email) {
@@ -730,12 +748,16 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
               <span>●</span> Admin login approved.
             </p>
           </div>
-          <div className="flex gap-2 mt-3 sm:mt-0">
-            <button onClick={loadAllAdminData} className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200">
-              Refresh Data
+          <div className="flex flex-wrap gap-2 mt-3 sm:mt-0">
+            <button onClick={loadAllAdminData} className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition-all">
+              🔄 Refresh Data
             </button>
-            <button className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200">
-              Open Registration Page
+            <button
+              onClick={handleClearAllDemoData}
+              className="px-3.5 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-200 text-xs font-bold border border-rose-500/40 transition-all shadow-md flex items-center gap-1.5"
+              title="Wipe all demo students, courses, videos, and registrations to start 100% fresh for Production"
+            >
+              <span>🧹</span> ডেমো ডাটা রিমুভ করুন (Reset for Production)
             </button>
           </div>
         </div>
