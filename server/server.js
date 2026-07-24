@@ -191,6 +191,11 @@ app.post("/api/auth/register", async (req, res) => {
       }
     }
 
+    // Dispatch automatic Registration Confirmation Email
+    if (cleanEmail) {
+      sendRegistrationConfirmEmail(cleanEmail, newStudent);
+    }
+
     res.json({
       ok: true,
       message: "Registration successful! You can now log in immediately.",
@@ -457,6 +462,128 @@ async function sendOtpEmail(targetEmail, otp, studentName) {
     return true;
   } catch (err) {
     console.warn(`⚠️ Nodemailer notice: ${err.message}`);
+    return false;
+  }
+}
+
+// Automatic Registration Confirmation Email
+async function sendRegistrationConfirmEmail(targetEmail, studentData) {
+  const mailOptions = {
+    from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
+    to: targetEmail,
+    subject: `📋 BJS & Bar Academy - Registration Confirmation (${studentData.id || studentData.regId || 'STU-REF'})`,
+    html: `
+      <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 550px; margin: auto; border: 1px solid #334155;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+          <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Judiciary & Advocacy Excellence Portal</p>
+        </div>
+        
+        <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #1e293b;">
+          <h3 style="color: #10b981; margin-top: 0;">✓ Registration Submitted Successfully!</h3>
+          <p style="font-size: 13px; color: #cbd5e1; line-height: 1.6;">
+            Dear <strong>${studentData.name || 'Student'}</strong>,<br/>
+            Thank you for registering at BJS & Bar Aspirants Academy. Your registration details have been received and recorded in our academic database.
+          </p>
+
+          <div style="background: #020617; padding: 15px; border-radius: 8px; border: 1px solid #334155; margin: 15px 0; font-size: 12px; color: #cbd5e1;">
+            <p style="margin: 4px 0;">🆔 <strong>Student Reference ID:</strong> <span style="color: #f59e0b; font-family: monospace;">${studentData.id || studentData.regId || 'N/A'}</span></p>
+            <p style="margin: 4px 0;">👤 <strong>Full Name:</strong> ${studentData.name}</p>
+            <p style="margin: 4px 0;">📧 <strong>Email Address:</strong> ${studentData.email}</p>
+            <p style="margin: 4px 0;">📞 <strong>Mobile Number:</strong> ${studentData.phone}</p>
+            <p style="margin: 4px 0;">🎓 <strong>Selected Batch:</strong> ${studentData.batch}</p>
+            <p style="margin: 4px 0;">📌 <strong>Session:</strong> ${studentData.session || 'Standard Session'}</p>
+          </div>
+
+          <p style="font-size: 12px; color: #94a3b8;">
+            Our academic administration is reviewing your details. Once activated, you can log in to your Student Portal to access all video lectures and study materials.
+          </p>
+
+          <div style="text-align: center; margin-top: 20px;">
+            <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
+              🔑 Go to Student Portal Login
+            </a>
+          </div>
+        </div>
+
+        <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+          © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+        </p>
+      </div>
+    `
+  };
+
+  try {
+    await mailTransporter.sendMail(mailOptions);
+    console.log(`✉️ Registration Email sent to ${targetEmail}`);
+    return true;
+  } catch (err) {
+    console.warn(`⚠️ Registration Email notice: ${err.message}`);
+    return false;
+  }
+}
+
+// Professional Course Enrollment & Approval Email
+async function sendCourseEnrollmentEmail(targetEmail, studentData, courseTitle) {
+  const mailOptions = {
+    from: '"BJS & Bar Academy Academic Board" <bjsacademy38@gmail.com>',
+    to: targetEmail,
+    subject: `🎉 Congratulations! Course Access Activated - BJS & Bar Academy`,
+    html: `
+      <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 550px; margin: auto; border: 1px solid #334155;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+          <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Official Course Access Notification</p>
+        </div>
+        
+        <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b;">
+          <div style="text-align: center; margin-bottom: 15px;">
+            <span style="font-size: 36px;">🎓</span>
+            <h3 style="color: #10b981; margin: 8px 0 0 0;">Congratulations, ${studentData.name || 'Aspirant'}!</h3>
+            <p style="color: #cbd5e1; font-size: 13px; margin-top: 4px;">Your Official Course Access Has Been Successfully Activated!</p>
+          </div>
+
+          <p style="font-size: 13px; color: #94a3b8; line-height: 1.6;">
+            We are pleased to inform you that the Academic Committee of <strong>BJS & Bar Aspirants Academy</strong> has granted you full official access to your registered course.
+          </p>
+
+          <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #10b981; margin: 18px 0;">
+            <p style="margin: 0 0 8px 0; font-size: 11px; color: #10b981; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Enrolled Course Module</p>
+            <p style="margin: 0; font-size: 16px; font-weight: bold; color: #ffffff;">📚 ${courseTitle || studentData.batch || 'BJS & Bar Masterclass'}</p>
+            
+            <hr style="border: 0; border-top: 1px solid #1e293b; margin: 12px 0;" />
+
+            <div style="font-size: 12px; color: #cbd5e1; line-height: 1.6;">
+              <p style="margin: 3px 0;">🆔 <strong>Student ID:</strong> <span style="color: #f59e0b; font-family: monospace;">${studentData.id || 'STU-ACTIVE'}</span></p>
+              <p style="margin: 3px 0;">🔐 <strong>Access Status:</strong> <span style="color: #10b981; font-weight: bold;">Activated & Approved</span></p>
+              <p style="margin: 3px 0;">📹 <strong>Features Included:</strong> Full HD Lectures, PDF Handouts & Anti-Leak Watermark Guard</p>
+            </div>
+          </div>
+
+          <div style="text-align: center; margin-top: 25px; margin-bottom: 10px;">
+            <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #10b981; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 14px 28px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);">
+              🚀 Access Student Portal Now
+            </a>
+          </div>
+
+          <p style="font-size: 11px; color: #64748b; text-align: center; margin-top: 15px;">
+            For security reasons, your video portal is protected by dynamic anti-screen recording watermarks.
+          </p>
+        </div>
+
+        <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+          © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+        </p>
+      </div>
+    `
+  };
+
+  try {
+    await mailTransporter.sendMail(mailOptions);
+    console.log(`✉️ Course Enrollment Email sent to ${targetEmail}`);
+    return true;
+  } catch (err) {
+    console.warn(`⚠️ Course Enrollment Email notice: ${err.message}`);
     return false;
   }
 }
@@ -1244,6 +1371,16 @@ app.post("/api/admin/students/save", async (req, res) => {
     } else {
       memoryDb.students.unshift({ ...savedStudent });
     }
+
+    // Dispatch professional course enrollment email to student
+    if (savedStudent && savedStudent.email) {
+      sendCourseEnrollmentEmail(
+        savedStudent.email,
+        savedStudent,
+        savedStudent.batch || "BJS & Bar Council Masterclass"
+      );
+    }
+
     return res.json({ ok: true, message: `Student profile for "${savedStudent.name || savedStudent.id}" saved successfully!`, student: savedStudent });
   } catch (e) {
     console.error("Error saving student:", e);
