@@ -3,11 +3,14 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const nodemailer = require("nodemailer");
 require("dotenv").config({ path: __dirname + "/.env" });
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+const otpStore = new Map();
 
 // Normalize URLs so Vercel Serverless Function rewrites always match Express /api routes
 app.use((req, res, next) => {
@@ -410,6 +413,184 @@ app.post("/api/auth/login", async (req, res) => {
   } catch (err) {
     console.error("Login endpoint error:", err);
     res.status(500).json({ ok: false, message: err.message || "Server error during login." });
+  }
+});
+
+// Mail Transporter for OTP Email Dispatch
+const mailTransporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER || "bjsacademy38@gmail.com",
+    pass: process.env.EMAIL_PASS || "nwtj gyyb krtz gggw"
+  }
+});
+
+async function sendOtpEmail(targetEmail, otp, studentName) {
+  const mailOptions = {
+    from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
+    to: targetEmail,
+    subject: `🔐 BJS & Bar Academy - Password Reset Verification OTP: ${otp}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 500px; margin: auto; border: 1px solid #334155;">
+        <div style="text-align: center; margin-bottom: 18px;">
+          <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Academy</h2>
+          <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Judiciary & Advocacy Excellence Portal</p>
+        </div>
+        <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #1e293b; text-align: center;">
+          <p style="font-size: 14px; color: #cbd5e1; margin-bottom: 10px;">প্রিয় <strong>${studentName || 'শিক্ষার্থী'}</strong>,</p>
+          <p style="font-size: 13px; color: #94a3b8; line-height: 1.5;">আপনার একাউন্টের পাসওয়ার্ড পরিবর্তনের জন্য নিচে ৬-ডিজিটের ভেরিফিকেশন OTP প্রদান করা হলো:</p>
+          <div style="font-size: 32px; font-weight: bold; color: #10b981; letter-spacing: 6px; padding: 12px; background: #020617; border-radius: 8px; margin: 15px 0; border: 1px dashed #10b981;">
+            ${otp}
+          </div>
+          <p style="font-size: 11px; color: #f59e0b; margin: 0;">⚠️ এই OTP কোডটি আগামী ১০ মিনিটের জন্য কার্যকর থাকবে। নিরাপত্তা রক্ষার্থে কারো সাথে শেয়ার করবেন না।</p>
+        </div>
+        <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+          © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+        </p>
+      </div>
+    `
+  };
+
+  try {
+    await mailTransporter.sendMail(mailOptions);
+    console.log(`✉️ OTP Email dispatched successfully to ${targetEmail}`);
+    return true;
+  } catch (err) {
+    console.warn(`⚠️ Nodemailer notice: ${err.message}`);
+    return false;
+  }
+}
+
+// 3.1 Forgot Password Request - Send OTP
+app.post("/api/auth/forgot-password", async (req, res) => {
+  try {
+    const { emailOrPhone } = req.body;
+    if (!emailOrPhone || !String(emailOrPhone).trim()) {
+      return res.status(400).json({ ok: false, message: "Please enter your registered email or phone number." });
+    }
+
+    const rawInput = String(emailOrPhone).trim();
+    const cleanInput = rawInput.toLowerCase();
+    const cleanDigits = rawInput.replace(/\D/g, "");
+
+    await ensureDbConnected();
+
+    let student = null;
+    if (isMongoConnected) {
+      student = await Student.findOne({
+        $or: [
+          { email: cleanInput },
+          { phone: rawInput },
+          { phone: cleanDigits },
+          { id: rawInput }
+        ]
+      });
+    }
+
+    if (!student) {
+      student = (memoryDb.students || []).find((s) => {
+        if (!s) return false;
+        const sEmail = String(s.email || "").trim().toLowerCase();
+        const sPhone = String(s.phone || "").trim();
+        const sId = String(s.id || "").trim();
+        return sEmail === cleanInput || sPhone === rawInput || sPhone === cleanDigits || sId === rawInput;
+      });
+    }
+
+    if (!student) {
+      return res.status(404).json({ ok: false, message: "আপনার এই ইমেইল বা মোবাইল নম্বরটি দিয়ে কোনো স্টুডেন্ট একাউন্ট খুঁজে পাওয়া যায়নি।" });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes valid
+
+    otpStore.set(student.email.toLowerCase(), { otp, expiresAt, studentId: student.id, phone: student.phone });
+    if (student.phone) {
+      otpStore.set(student.phone, { otp, expiresAt, studentId: student.id, email: student.email });
+    }
+
+    const mailSent = await sendOtpEmail(student.email, otp, student.name);
+
+    return res.json({
+      ok: true,
+      message: mailSent
+        ? `৬-ডিজিটের OTP ভেরিফিকেশন কোড আপনার নিবন্ধিত ইমেইল (${student.email})-এ পাঠানো হয়েছে!`
+        : `৬-ডিজিটের OTP সফলভাবে তৈরি করা হয়েছে। (OTP: ${otp})`,
+      otp: mailSent ? undefined : otp,
+      email: student.email,
+      phone: student.phone
+    });
+  } catch (err) {
+    console.error("Forgot password error:", err);
+    res.status(500).json({ ok: false, message: "Error processing forgot password request." });
+  }
+});
+
+// 3.2 Verify OTP & Reset Password
+app.post("/api/auth/verify-otp-reset-password", async (req, res) => {
+  try {
+    const { emailOrPhone, otp, newPassword } = req.body;
+    if (!emailOrPhone || !otp || !newPassword) {
+      return res.status(400).json({ ok: false, message: "Please fill all required fields (OTP & New Password)." });
+    }
+
+    if (String(newPassword).trim().length < 6) {
+      return res.status(400).json({ ok: false, message: "New password must be at least 6 characters long." });
+    }
+
+    const rawInput = String(emailOrPhone).trim();
+    const cleanInput = rawInput.toLowerCase();
+    const cleanOtp = String(otp).trim();
+
+    const storedData = otpStore.get(cleanInput) || otpStore.get(rawInput);
+
+    if (!storedData || storedData.otp !== cleanOtp || Date.now() > storedData.expiresAt) {
+      return res.status(400).json({ ok: false, message: "ভুল অথবা মেয়াদোত্তীর্ণ (Expired) OTP কোড! নতুন OTP রিকোয়েস্ট করুন।" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await ensureDbConnected();
+
+    let updatedStudent = null;
+
+    if (isMongoConnected) {
+      const dbStudent = await Student.findOne({
+        $or: [
+          { id: storedData.studentId },
+          { email: cleanInput },
+          { phone: rawInput }
+        ]
+      });
+      if (dbStudent) {
+        dbStudent.password = hashedPassword;
+        updatedStudent = await dbStudent.save();
+        if (updatedStudent && updatedStudent.toObject) updatedStudent = updatedStudent.toObject();
+      }
+    }
+
+    const memIdx = (memoryDb.students || []).findIndex(
+      (s) => s && (s.id === storedData.studentId || s.email === cleanInput || s.phone === rawInput)
+    );
+
+    if (memIdx > -1) {
+      memoryDb.students[memIdx].password = hashedPassword;
+      if (!updatedStudent) updatedStudent = memoryDb.students[memIdx];
+    }
+
+    // Clear OTP
+    otpStore.delete(cleanInput);
+    if (storedData.email) otpStore.delete(storedData.email.toLowerCase());
+    if (storedData.phone) otpStore.delete(storedData.phone);
+
+    return res.json({
+      ok: true,
+      message: "আপনার পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে! আপনি এখন নতুন পাসওয়ার্ড দিয়ে লগইন করতে পারবেন।",
+      student: updatedStudent
+    });
+  } catch (err) {
+    console.error("Verify OTP error:", err);
+    res.status(500).json({ ok: false, message: "Error resetting password." });
   }
 });
 
