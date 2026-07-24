@@ -277,27 +277,27 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   const handleSaveMailSettings = async () => {
     try {
       const res = await api.post('/admin/mail-settings', mailSettings);
-      if (res.data.ok) setMsg({ type: 'success', text: 'Mail settings saved successfully!' });
+      if (res.data.ok) showToast('Mail settings saved successfully!', 'success');
     } catch (err) {
-      setMsg({ type: 'error', text: 'Failed to save mail settings.' });
+      showToast('Failed to save mail settings.', 'error');
     }
   };
 
   const handleSaveStudent = async (e) => {
     e.preventDefault();
     if (!studentForm.name || !studentForm.phone || !studentForm.email) {
-      setMsg({ type: 'error', text: 'Please fill name, phone, and email.' });
+      showToast('Please fill in Student Name, Phone, and Email.', 'error');
       return;
     }
 
     try {
       const res = await api.post('/admin/students/save', studentForm);
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message });
+        showToast(res.data.message || `Student profile for "${studentForm.name}" saved successfully!`, 'success');
         loadAllAdminData();
       }
     } catch (err) {
-      setMsg({ type: 'error', text: err.response?.data?.message || 'Error saving student.' });
+      showToast('Error saving student profile.', 'error');
     }
   };
 
@@ -370,6 +370,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     });
 
     setCourseRulesMap(map);
+    showToast(`Editing profile & rules for student: ${s.name}`, 'success');
 
     setTimeout(() => {
       document.getElementById('student-editor-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -411,6 +412,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
         paidMonths: '2026-04'
       }
     });
+    showToast('Student Profile Form opened for new student.', 'success');
 
     setTimeout(() => {
       document.getElementById('student-editor-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -420,6 +422,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   const handleCloseEditor = () => {
     setIsEditorOpen(false);
     setSelectedStudentForRules(null);
+    showToast('Student editor closed.', 'success');
   };
 
   const handleToggleCourseAssignment = (cId, isChecked) => {
@@ -455,7 +458,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
 
   const handleSaveCourseAccessRulesForCourse = async (courseId) => {
     if (!selectedStudentForRules) {
-      setMsg({ type: 'error', text: 'Please select a student from the list first.' });
+      showToast('Please select a student from the list first.', 'error');
       return;
     }
 
@@ -494,11 +497,11 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
 
       if (res.data.ok) {
         const courseTitle = courses.find(c => c.id === courseId)?.title || courseId;
-        setMsg({ type: 'success', text: `Rules for course "${courseTitle}" saved successfully!` });
+        showToast(`Access rules for course "${courseTitle}" saved successfully!`, 'success');
         loadAllAdminData();
       }
     } catch (err) {
-      setMsg({ type: 'error', text: 'Error saving course access rules.' });
+      showToast('Error saving course access rules.', 'error');
     }
   };
 
@@ -507,17 +510,17 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     try {
       const res = await api.delete(`/admin/students/${id}`);
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message });
+        showToast(res.data.message || `Student ${id} deleted successfully!`, 'success');
         loadAllAdminData();
       }
     } catch (err) {
-      setMsg({ type: 'error', text: 'Error deleting student.' });
+      showToast('Error deleting student.', 'error');
     }
   };
 
   const handleSendPopupMessage = async () => {
     if (selectedStudentIds.length === 0) {
-      setMsg({ type: 'error', text: 'Please select student(s) first.' });
+      showToast('Please select student(s) first.', 'error');
       return;
     }
     try {
@@ -528,18 +531,18 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
         body: popupBody
       });
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message });
+        showToast(res.data.message || 'Popup message sent!', 'success');
         setPopupTitle('');
         setPopupBody('');
       }
     } catch (err) {
-      setMsg({ type: 'error', text: 'Error sending popup message.' });
+      showToast('Error sending popup message.', 'error');
     }
   };
 
   const handleSendDirectEmail = async () => {
     if (selectedStudentIds.length === 0) {
-      setMsg({ type: 'error', text: 'Please select student(s) first.' });
+      showToast('Please select student(s) first.', 'error');
       return;
     }
     try {
@@ -550,12 +553,12 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
         body: emailBody
       });
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message });
+        showToast(res.data.message || 'Email sent!', 'success');
         setEmailSubject('');
         setEmailBody('');
       }
     } catch (err) {
-      setMsg({ type: 'error', text: 'Error sending email.' });
+      showToast('Error sending email.', 'error');
     }
   };
 
@@ -575,6 +578,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       status: c.status || 'Active',
       description: c.description || ''
     });
+
+    showToast(`Loaded course "${c.title}" into Course Launch Manager for editing.`, 'success');
 
     setTimeout(() => {
       document.getElementById('course-launch-manager-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -597,35 +602,48 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       status: 'Active',
       description: ''
     });
+    showToast('Course Launch Form reset.', 'success');
   };
 
   const handleSaveCourse = async (e) => {
     e.preventDefault();
     if (!courseForm.title) {
-      setMsg({ type: 'error', text: 'Course title is required.' });
+      showToast('Course title is required.', 'error');
       return;
     }
     try {
       const res = await api.post('/admin/courses/save', courseForm);
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message });
+        showToast(res.data.message || `Course "${courseForm.title}" saved successfully!`, 'success');
         handleClearCourseForm();
         loadAllAdminData();
       }
     } catch (err) {
-      setMsg({ type: 'error', text: 'Error saving course.' });
+      showToast('Error saving course.', 'error');
     }
   };
 
   const handleToggleCourse = async (courseId) => {
+    const target = courses.find(c => c.id === courseId);
+    const oldStatus = target?.status || 'Active';
+    const newStatus = oldStatus === 'Active' ? 'Inactive' : 'Active';
+
+    // Optimistically update ONLY this course's status so each course status is 100% independent
+    setCourses(prevCourses =>
+      prevCourses.map(c => c.id === courseId ? { ...c, status: newStatus } : c)
+    );
+
     try {
       const res = await api.post('/admin/courses/toggle', { courseId });
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message });
+        showToast(res.data.message || `Course "${target?.title || courseId}" is now ${newStatus}!`, 'success');
+      } else {
+        showToast(res.data.message || 'Error toggling course status.', 'error');
         loadAllAdminData();
       }
     } catch (err) {
-      setMsg({ type: 'error', text: 'Error toggling course status.' });
+      showToast('Error toggling course status.', 'error');
+      loadAllAdminData();
     }
   };
 
@@ -666,7 +684,30 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   };
 
   return (
-    <div className="space-y-8 pb-20 animate-fadeIn text-slate-100 font-sans">
+    <div className="space-y-8 pb-20 animate-fadeIn text-slate-100 font-sans relative">
+      {/* Floating Toast Notification Banner (Visible across the whole page) */}
+      {msg && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[100] animate-bounce-short max-w-md w-[90%] shadow-2xl">
+          <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 text-xs font-bold backdrop-blur-xl transition-all ${
+            msg.type === 'success'
+              ? 'bg-emerald-950/95 text-emerald-200 border-emerald-500/50 shadow-emerald-950/50'
+              : 'bg-rose-950/95 text-rose-200 border-rose-500/50 shadow-rose-950/50'
+          }`}>
+            <div className="flex items-center gap-2.5">
+              <span className="text-base">{msg.type === 'success' ? '✅' : '⚠️'}</span>
+              <span>{msg.text}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMsg(null)}
+              className="text-slate-400 hover:text-white px-2 py-0.5 text-xs font-mono"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 1. Header Banner */}
       <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-4">
         <div>
