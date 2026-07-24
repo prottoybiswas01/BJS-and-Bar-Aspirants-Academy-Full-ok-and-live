@@ -66,38 +66,38 @@ export default function Home({ setActivePage }) {
 
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center space-y-6">
           {siteSettings.badgeText && (
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-              {siteSettings.badgeText}
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] sm:text-xs font-semibold max-w-full text-center leading-snug">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0"></span>
+              <span className="line-clamp-2">{siteSettings.badgeText}</span>
             </div>
           )}
 
-          <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight whitespace-pre-line">
+          <h1 className="text-2xl sm:text-5xl font-extrabold text-white tracking-tight leading-snug sm:leading-tight whitespace-pre-line">
             {siteSettings.heroTitle}
           </h1>
 
-          <p className="text-sm sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
+          <p className="text-xs sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
             {siteSettings.heroSubtitle}
           </p>
 
-          <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4 pt-2 w-full max-w-md sm:max-w-none mx-auto">
             <button
               onClick={() => setActivePage('register')}
-              className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/25 transition-all hover:scale-105"
+              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/25 transition-all active:scale-95"
             >
               📝 এখনই ভর্তি হোন (Register Batch)
             </button>
             {user ? (
               <button
                 onClick={() => setActivePage('dashboard')}
-                className="px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-sm transition-all"
+                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-sm transition-all"
               >
                 🎓 আপনার স্টুডেন্ট ড্যাশবোর্ড
               </button>
             ) : (
               <button
                 onClick={() => setActivePage('login')}
-                className="px-6 py-3.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-sm transition-all"
+                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-sm transition-all"
               >
                 🔑 স্টুডেন্ট লগইন (Login)
               </button>
