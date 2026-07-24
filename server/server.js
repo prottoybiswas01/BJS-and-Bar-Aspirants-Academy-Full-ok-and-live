@@ -9,6 +9,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Normalize URLs so Vercel Serverless Function rewrites always match Express /api routes
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith("/api/") && req.url !== "/api") {
+    req.url = "/api" + (req.url.startsWith("/") ? "" : "/") + req.url;
+  }
+  next();
+});
+
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "bjs_bar_academy_super_secret_jwt_key_2026";
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://bjsacademy38_db_user:MJyyGEq7CDsMeeYs@cluster0.supygp7.mongodb.net/bjs_academy?retryWrites=true&w=majority";

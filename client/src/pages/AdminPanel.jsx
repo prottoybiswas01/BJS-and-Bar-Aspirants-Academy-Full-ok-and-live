@@ -236,7 +236,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
   const loadAllAdminData = async () => {
     setLoading(true);
     try {
-      const [statsRes, studentsRes, coursesRes, mailRes, siteSettingsRes, mentorsRes] = await Promise.all([
+      const results = await Promise.allSettled([
         api.get('/admin/overview-stats'),
         api.get('/admin/students'),
         api.get('/courses'),
@@ -245,16 +245,12 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
         api.get('/admin/mentors')
       ]);
 
-      if (statsRes.data.ok) setStats(statsRes.data);
-      if (studentsRes.data.ok) {
-        setStudents(studentsRes.data.students);
-      }
-      if (coursesRes.data.ok) setCourses(coursesRes.data.courses);
-      if (mailRes.data.ok) setMailSettings(mailRes.data.settings);
-      if (siteSettingsRes.data.ok && siteSettingsRes.data.settings) {
-        setSiteSettingsForm(siteSettingsRes.data.settings);
-      }
-      if (mentorsRes.data.ok) setMentors(mentorsRes.data.mentors || []);
+      if (results[0].status === 'fulfilled' && results[0].value.data?.ok) setStats(results[0].value.data);
+      if (results[1].status === 'fulfilled' && results[1].value.data?.ok) setStudents(results[1].value.data.students || []);
+      if (results[2].status === 'fulfilled' && results[2].value.data?.ok) setCourses(results[2].value.data.courses || []);
+      if (results[3].status === 'fulfilled' && results[3].value.data?.ok) setMailSettings(results[3].value.data.settings);
+      if (results[4].status === 'fulfilled' && results[4].value.data?.ok && results[4].value.data.settings) setSiteSettingsForm(results[4].value.data.settings);
+      if (results[5].status === 'fulfilled' && results[5].value.data?.ok) setMentors(results[5].value.data.mentors || []);
     } catch (err) {
       console.log('Error loading admin data:', err);
     } finally {
