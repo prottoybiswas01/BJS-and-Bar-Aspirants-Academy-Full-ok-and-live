@@ -569,29 +569,63 @@ app.delete("/api/admin/courses/:id", async (req, res) => {
 });
 
 app.post("/api/admin/lessons/save", async (req, res) => {
-  const body = req.body;
-  body.youtubeId = extractYoutubeId(body.youtubeUrl || body.youtubeId);
-
   try {
+    await ensureDbConnected();
+    let body = { ...req.body };
+
+    // Auto-generate unique lesson ID if missing
+    if (!body.id || !String(body.id).trim()) {
+      body.id = "les-" + Date.now() + "-" + Math.floor(1000 + Math.random() * 9000);
+    } else {
+      body.id = String(body.id).trim();
+    }
+
+    // Default title if left blank
+    if (!body.title || !String(body.title).trim()) {
+      body.title = body.chapter || body.module || "Class Video";
+    }
+
+    body.youtubeId = extractYoutubeId(body.youtubeUrl || body.youtubeId);
+
+    let savedLesson = body;
     if (isMongoConnected) {
       let lesson = await Lesson.findOne({ id: body.id });
       if (lesson) {
         Object.assign(lesson, body);
-        await lesson.save();
+        savedLesson = await lesson.save();
       } else {
-        lesson = await Lesson.create(body);
+        savedLesson = await Lesson.create(body);
       }
-      return res.json({ ok: true, message: "Lesson saved successfully!", lesson });
+      if (savedLesson && savedLesson.toObject) {
+        savedLesson = savedLesson.toObject();
+      }
     }
-  } catch (e) {}
 
-  const idx = memoryDb.lessons.findIndex((l) => l.id === body.id);
-  if (idx > -1) {
-    memoryDb.lessons[idx] = { ...memoryDb.lessons[idx], ...body };
-  } else {
-    memoryDb.lessons.push({ ...body, id: body.id || "les-" + Date.now() });
+    const idx = memoryDb.lessons.findIndex((l) => l.id === body.id);
+    if (idx > -1) {
+      memoryDb.lessons[idx] = { ...memoryDb.lessons[idx], ...savedLesson };
+    } else {
+      memoryDb.lessons.push({ ...savedLesson });
+    }
+
+    return res.json({ ok: true, message: `Video "${savedLesson.title}" saved successfully!`, lesson: savedLesson });
+  } catch (e) {
+    console.error("Lesson save error:", e);
+    return res.status(500).json({ ok: false, message: e.message || "Error saving video lesson." });
   }
-  res.json({ ok: true, message: "Lesson saved successfully!", lesson: body });
+});
+
+app.delete("/api/admin/lessons/:id", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    if (isMongoConnected) {
+      await Lesson.deleteOne({ id: req.params.id });
+    }
+    memoryDb.lessons = memoryDb.lessons.filter((l) => l.id !== req.params.id);
+    return res.json({ ok: true, message: "Video deleted successfully!" });
+  } catch (e) {
+    return res.status(500).json({ ok: false, message: "Error deleting video." });
+  }
 });
 
 app.post("/api/admin/students/course-rules", async (req, res) => {
