@@ -1388,51 +1388,6 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
                     })
                   )}
                 </div>
-
-                {/* Send Student Popup Message & Direct Email */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">SEND POPUP MESSAGE</span>
-                    <input
-                      type="text"
-                      placeholder="Message title"
-                      value={popupTitle}
-                      onChange={(e) => setPopupTitle(e.target.value)}
-                      className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-                    />
-                    <textarea
-                      placeholder="Write message for student popup..."
-                      value={popupBody}
-                      onChange={(e) => setPopupBody(e.target.value)}
-                      rows="2"
-                      className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-                    ></textarea>
-                    <button type="button" onClick={handleSendPopupMessage} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs">
-                      Send Popup
-                    </button>
-                  </div>
-
-                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">SEND DIRECT EMAIL</span>
-                    <input
-                      type="text"
-                      placeholder="Email subject"
-                      value={emailSubject}
-                      onChange={(e) => setEmailSubject(e.target.value)}
-                      className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-                    />
-                    <textarea
-                      placeholder="Write email message..."
-                      value={emailBody}
-                      onChange={(e) => setEmailBody(e.target.value)}
-                      rows="2"
-                      className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-white"
-                    ></textarea>
-                    <button type="button" onClick={handleSendDirectEmail} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs">
-                      Send Email
-                    </button>
-                  </div>
-                </div>
               </div>
             </div>
           </div>

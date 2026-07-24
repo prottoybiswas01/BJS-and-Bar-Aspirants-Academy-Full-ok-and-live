@@ -389,42 +389,52 @@ app.get("/api/lessons", async (req, res) => {
 app.post("/api/admin/courses/save", async (req, res) => {
   try {
     const body = req.body;
+    let savedCourse = body;
     if (isMongoConnected) {
       let course = await Course.findOne({ id: body.id });
       if (course) {
         Object.assign(course, body);
-        await course.save();
+        savedCourse = await course.save();
       } else {
-        course = await Course.create(body);
+        savedCourse = await Course.create(body);
       }
-      return res.json({ ok: true, message: "Course saved successfully!", course });
     }
-  } catch (e) {}
-
-  const index = memoryDb.courses.findIndex((c) => c.id === req.body.id);
-  if (index > -1) {
-    memoryDb.courses[index] = { ...memoryDb.courses[index], ...req.body };
-  } else {
-    memoryDb.courses.push({ ...req.body, id: req.body.id || "course-" + Date.now() });
+    const index = memoryDb.courses.findIndex((c) => c.id === body.id);
+    if (index > -1) {
+      memoryDb.courses[index] = { ...memoryDb.courses[index], ...body };
+    } else {
+      memoryDb.courses.push({ ...body, id: body.id || "course-" + Date.now() });
+    }
+    return res.json({ ok: true, message: `Course "${body.title || body.id}" saved successfully!`, course: savedCourse });
+  } catch (e) {
+    return res.status(500).json({ ok: false, message: "Error saving course." });
   }
-  res.json({ ok: true, message: "Course saved successfully!", course: req.body });
 });
 
 app.post("/api/admin/courses/toggle", async (req, res) => {
   try {
+    const { courseId } = req.body;
+    let newStatus = 'Inactive';
+
     if (isMongoConnected) {
-      const course = await Course.findOne({ id: req.body.courseId });
+      const course = await Course.findOne({ id: courseId });
       if (course) {
         course.status = course.status === "Active" ? "Inactive" : "Active";
         await course.save();
-        return res.json({ ok: true, message: `Course is now ${course.status}`, course });
+        newStatus = course.status;
       }
     }
-  } catch (e) {}
 
-  const c = memoryDb.courses.find((x) => x.id === req.body.courseId);
-  if (c) c.status = c.status === "Active" ? "Inactive" : "Active";
-  res.json({ ok: true, message: "Course status toggled", course: c });
+    const c = memoryDb.courses.find((x) => x.id === courseId);
+    if (c) {
+      c.status = c.status === "Active" ? "Inactive" : "Active";
+      newStatus = c.status;
+    }
+
+    return res.json({ ok: true, message: `Course "${c?.title || courseId}" is now ${newStatus}`, status: newStatus });
+  } catch (e) {
+    return res.status(500).json({ ok: false, message: "Error toggling course status." });
+  }
 });
 
 app.delete("/api/admin/courses/:id", async (req, res) => {
