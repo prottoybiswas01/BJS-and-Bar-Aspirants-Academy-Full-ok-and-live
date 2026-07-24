@@ -72,8 +72,6 @@ export const AuthProvider = ({ children }) => {
          cleanId === 'admin' ||
          cleanId === '01800077663_admin' ||
          cleanId === '01800077663' ||
-         cleanId === '01978167016_admin' ||
-         cleanId === '01978167016' ||
          cleanId === 'bjsacademy38@gmail.com') &&
         (password === savedPass || password === 'ADMIN123@' || password === 'admin123')
       ) {

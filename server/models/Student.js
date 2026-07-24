@@ -16,7 +16,7 @@ const courseRuleSchema = new mongoose.Schema({
 const studentSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true, index: true }, // e.g. STU-2026-001
   name: { type: String, required: true, trim: true },
-  phone: { type: String, required: true, unique: true, index: true }, // e.g. 01978167016
+  phone: { type: String, required: true, unique: true, index: true }, // e.g. 01800077663
   email: { type: String, required: true, unique: true, index: true }, // e.g. prottoy@gmail.com
   batch: { type: String, default: "Judiciary 2026" },
   session: { type: String, default: "Weekend Intensive" },

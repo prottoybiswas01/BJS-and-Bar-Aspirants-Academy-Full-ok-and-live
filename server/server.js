@@ -236,9 +236,6 @@ app.post("/api/auth/login", async (req, res) => {
       cleanId === "01800077663_admin" ||
       cleanId === "01800077663" ||
       cleanDigits.endsWith("1800077663") ||
-      cleanId === "01978167016_admin" ||
-      cleanId === "01978167016" ||
-      cleanDigits.endsWith("1978167016") ||
       cleanId === "bjsacademy38@gmail.com";
 
     // Standard Admin Passwords
