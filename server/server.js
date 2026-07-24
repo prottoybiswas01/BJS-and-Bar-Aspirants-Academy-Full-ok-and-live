@@ -67,7 +67,12 @@ async function ensureDbConnected() {
   try {
     if (!cachedConn) {
       cachedConn = mongoose.connect(MONGODB_URI, {
-        serverSelectionTimeoutMS: 5000,
+        serverSelectionTimeoutMS: 4000,
+        maxPoolSize: 10,
+      }).then(async (conn) => {
+        isMongoConnected = true;
+        syncMongoToMemoryDb();
+        return conn;
       });
     }
     await cachedConn;
@@ -81,29 +86,35 @@ async function ensureDbConnected() {
 }
 
 async function syncMongoToMemoryDb() {
-  if (!isMongoConnected) return;
+  if (mongoose.connection.readyState !== 1) return;
   try {
     const [c, l, s, r, m] = await Promise.all([
-      Course.find(),
-      Lesson.find(),
-      Student.find(),
-      Registration.find(),
-      Mentor.find()
+      Course.find().lean(),
+      Lesson.find().lean(),
+      Student.find().lean(),
+      Registration.find().lean(),
+      Mentor.find().lean()
     ]);
-    memoryDb.courses = c.map(x => (x.toObject ? x.toObject() : x));
-    memoryDb.lessons = l.map(x => (x.toObject ? x.toObject() : x));
-    memoryDb.students = s.map(x => (x.toObject ? x.toObject() : x));
-    memoryDb.registrations = r.map(x => (x.toObject ? x.toObject() : x));
-    memoryDb.mentors = m.map(x => (x.toObject ? x.toObject() : x));
-    console.log(`⚡ Memory DB Synced: ${c.length} Courses, ${l.length} Lessons, ${s.length} Students, ${r.length} Registrations!`);
+    if (c && c.length) memoryDb.courses = c;
+    if (l && l.length) memoryDb.lessons = l;
+    if (s && s.length) memoryDb.students = s;
+    if (r && r.length) memoryDb.registrations = r;
+    if (m && m.length) memoryDb.mentors = m;
+    isMongoConnected = true;
+    console.log(`⚡ Ultra-Fast Memory DB Synced: ${c.length} Courses, ${l.length} Lessons, ${s.length} Students, ${r.length} Registrations!`);
   } catch (err) {
     console.error("Sync Error:", err.message);
   }
 }
 
-// Auto-connect to DB before processing any incoming API route
-app.use(async (req, res, next) => {
-  await ensureDbConnected();
+// Background DB Connection Initiator
+ensureDbConnected();
+
+// Non-blocking Express Middleware
+app.use((req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    ensureDbConnected();
+  }
   next();
 });
 
@@ -420,8 +431,16 @@ app.post("/api/admin/change-password", async (req, res) => {
 // 4. Courses & Lessons
 app.get("/api/courses", async (req, res) => {
   try {
+    if (memoryDb.courses && memoryDb.courses.length > 0) {
+      res.json({ ok: true, courses: memoryDb.courses });
+      if (isMongoConnected) {
+        Course.find().lean().then(c => { if (c && c.length) memoryDb.courses = c; }).catch(()=>{});
+      }
+      return;
+    }
     if (isMongoConnected) {
-      const courses = await Course.find();
+      const courses = await Course.find().lean();
+      memoryDb.courses = courses;
       return res.json({ ok: true, courses });
     }
   } catch (e) {}
@@ -431,9 +450,27 @@ app.get("/api/courses", async (req, res) => {
 app.get("/api/lessons", async (req, res) => {
   try {
     const { courseId } = req.query;
+    if (memoryDb.lessons && memoryDb.lessons.length > 0) {
+      const filtered = courseId ? memoryDb.lessons.filter((l) => l.courseId === courseId) : memoryDb.lessons;
+      res.json({ ok: true, lessons: filtered });
+      if (isMongoConnected) {
+        const filter = courseId ? { courseId } : {};
+        Lesson.find(filter).sort({ createdAt: 1 }).lean().then(l => {
+          if (l && l.length) {
+            if (courseId) {
+              const other = memoryDb.lessons.filter(x => x.courseId !== courseId);
+              memoryDb.lessons = [...other, ...l];
+            } else {
+              memoryDb.lessons = l;
+            }
+          }
+        }).catch(()=>{});
+      }
+      return;
+    }
     if (isMongoConnected) {
       const filter = courseId ? { courseId } : {};
-      const lessons = await Lesson.find(filter).sort({ createdAt: 1 });
+      const lessons = await Lesson.find(filter).sort({ createdAt: 1 }).lean();
       return res.json({ ok: true, lessons });
     }
   } catch (e) {}
@@ -444,19 +481,37 @@ app.get("/api/lessons", async (req, res) => {
 // 4.5 Mentors & Faculty Endpoints
 app.get("/api/mentors", async (req, res) => {
   try {
+    const active = memoryDb.mentors.filter(m => m.status === "Active");
+    if (active && active.length > 0) {
+      res.json({ ok: true, mentors: active });
+      if (isMongoConnected) {
+        Mentor.find({ status: "Active" }).sort({ createdAt: -1 }).lean().then(m => {
+          if (m && m.length) memoryDb.mentors = m;
+        }).catch(()=>{});
+      }
+      return;
+    }
     if (isMongoConnected) {
-      const mentors = await Mentor.find({ status: "Active" }).sort({ createdAt: -1 });
+      const mentors = await Mentor.find({ status: "Active" }).sort({ createdAt: -1 }).lean();
       return res.json({ ok: true, mentors });
     }
   } catch (e) {}
-  const active = memoryDb.mentors.filter(m => m.status === "Active");
-  res.json({ ok: true, mentors: active });
+  res.json({ ok: true, mentors: memoryDb.mentors.filter(m => m.status === "Active") });
 });
 
 app.get("/api/admin/mentors", async (req, res) => {
   try {
+    if (memoryDb.mentors && memoryDb.mentors.length > 0) {
+      res.json({ ok: true, mentors: memoryDb.mentors });
+      if (isMongoConnected) {
+        Mentor.find().sort({ createdAt: -1 }).lean().then(m => {
+          if (m && m.length) memoryDb.mentors = m;
+        }).catch(()=>{});
+      }
+      return;
+    }
     if (isMongoConnected) {
-      const mentors = await Mentor.find().sort({ createdAt: -1 });
+      const mentors = await Mentor.find().sort({ createdAt: -1 }).lean();
       return res.json({ ok: true, mentors });
     }
   } catch (e) {}
@@ -820,9 +875,18 @@ app.post("/api/admin/mail-settings", async (req, res) => {
 
 app.get("/api/admin/students", async (req, res) => {
   try {
-    await ensureDbConnected();
+    if (memoryDb.students && memoryDb.students.length > 0) {
+      res.json({ ok: true, students: memoryDb.students });
+      if (isMongoConnected) {
+        Student.find().sort({ createdAt: -1 }).lean().then(s => {
+          if (s && s.length) memoryDb.students = s;
+        }).catch(()=>{});
+      }
+      return;
+    }
     if (isMongoConnected) {
-      const students = await Student.find().sort({ createdAt: -1 });
+      const students = await Student.find().sort({ createdAt: -1 }).lean();
+      memoryDb.students = students;
       return res.json({ ok: true, students });
     }
   } catch (e) {}
@@ -831,9 +895,18 @@ app.get("/api/admin/students", async (req, res) => {
 
 app.get("/api/admin/registrations", async (req, res) => {
   try {
-    await ensureDbConnected();
+    if (memoryDb.registrations && memoryDb.registrations.length > 0) {
+      res.json({ ok: true, registrations: memoryDb.registrations });
+      if (isMongoConnected) {
+        Registration.find().sort({ createdAt: -1 }).lean().then(r => {
+          if (r && r.length) memoryDb.registrations = r;
+        }).catch(()=>{});
+      }
+      return;
+    }
     if (isMongoConnected) {
-      const registrations = await Registration.find().sort({ createdAt: -1 });
+      const registrations = await Registration.find().sort({ createdAt: -1 }).lean();
+      memoryDb.registrations = registrations;
       return res.json({ ok: true, registrations });
     }
   } catch (e) {}
