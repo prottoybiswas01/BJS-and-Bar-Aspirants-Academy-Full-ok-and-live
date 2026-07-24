@@ -493,13 +493,57 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
     }
   };
 
+  const handleEditCourse = (c) => {
+    setCourseForm({
+      id: c.id,
+      title: c.title,
+      shortTitle: c.shortTitle || c.title,
+      faculty: c.faculty || 'Shanto Deb Roy Arno',
+      category: c.category || 'CIVIL LAW',
+      schedule: c.schedule || '',
+      batchRegText: c.batchRegText || c.schedule || '',
+      sessionRegText: c.sessionRegText || '2026-04-01',
+      nextLive: c.nextLive || '',
+      price: String(c.price || 1000),
+      paymentType: c.paymentType || 'One-time Lifetime Access',
+      status: c.status || 'Active',
+      description: c.description || ''
+    });
+
+    setTimeout(() => {
+      document.getElementById('course-launch-manager-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  };
+
+  const handleClearCourseForm = () => {
+    setCourseForm({
+      id: '',
+      title: '',
+      shortTitle: '',
+      faculty: 'Shanto Deb Roy Arno',
+      category: 'CIVIL LAW',
+      schedule: 'Wed,Sat',
+      batchRegText: 'Wed,Sat',
+      sessionRegText: '2026-04-01',
+      nextLive: 'Wed,Sat 8:30 PM',
+      price: '1000',
+      paymentType: 'One-time Lifetime Access',
+      status: 'Active',
+      description: ''
+    });
+  };
+
   const handleSaveCourse = async (e) => {
     e.preventDefault();
-    if (!courseForm.title) return;
+    if (!courseForm.title) {
+      setMsg({ type: 'error', text: 'Course title is required.' });
+      return;
+    }
     try {
       const res = await api.post('/admin/courses/save', courseForm);
       if (res.data.ok) {
         setMsg({ type: 'success', text: res.data.message });
+        handleClearCourseForm();
         loadAllAdminData();
       }
     } catch (err) {
@@ -1315,58 +1359,285 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
         )}
       </section>
 
-      {/* 5. Course Catalog */}
-      <section className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h3 className="text-base font-extrabold text-white">COURSE CATALOG — Active And Hidden Courses</h3>
-          <span className="text-xs font-mono text-amber-400">
-            {courses.filter(c => c.status === 'Active').length} active / {courses.length} total
-          </span>
+      {/* 5. Course Control & Course Launch Manager */}
+      <section id="course-launch-manager-section" className="space-y-4 pt-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-3 gap-3">
+          <div>
+            <span className="text-[10px] font-mono text-amber-400 uppercase font-bold">COURSE CONTROL</span>
+            <h2 className="text-lg font-extrabold text-white">Course Launch Manager</h2>
+          </div>
+          <button
+            type="button"
+            onClick={handleClearCourseForm}
+            className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-all shadow-md"
+          >
+            Clear Form
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-          {courses.map((c) => (
-            <div key={c.id} className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left Form Card */}
+          <form onSubmit={handleSaveCourse} className="lg:col-span-4 glass-card rounded-2xl p-5 border border-slate-800 space-y-3 text-xs bg-slate-950/80">
+            <h4 className="font-extrabold text-white text-sm border-b border-slate-800/80 pb-2 flex items-center justify-between">
+              <span>🚀 Course Launch & Edit Form</span>
+              {courseForm.id && <span className="text-[10px] text-amber-400 font-mono">Editing: {courseForm.id}</span>}
+            </h4>
+
+            <div className="space-y-2.5">
               <div>
-                <div className="flex justify-between items-start mb-2">
-                  <span className="text-[10px] font-mono font-bold text-amber-400 uppercase">{c.category}</span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${c.status === 'Active' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                    {c.status}
-                  </span>
-                </div>
-                <h4 className="font-extrabold text-white text-sm">{c.title}</h4>
-                <p className="text-slate-400 text-[11px] mt-0.5">{c.faculty}</p>
-                <p className="text-[10px] text-slate-500 font-mono mt-1">
-                  Batch: {c.batchRegText || c.schedule} | Session: {c.sessionRegText || '2026-04-01'}
-                </p>
-                <p className="text-amber-300 font-mono font-bold mt-1">Course Fee: Tk {c.price}</p>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Course ID (optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. civil-laws-intensive"
+                  value={courseForm.id}
+                  onChange={(e) => setCourseForm({ ...courseForm, id: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white font-mono placeholder-slate-600"
+                />
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-slate-900">
-                <button
-                  onClick={() => openLessonManager(c)}
-                  className="px-3 py-1.5 rounded bg-cyan-900/60 hover:bg-cyan-800 text-cyan-300 font-bold text-[11px] border border-cyan-500/30"
-                >
-                  📹 Upload & Manage Videos
-                </button>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Course title</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Civil Laws Intensive"
+                  value={courseForm.title}
+                  onChange={(e) => setCourseForm({ ...courseForm, title: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white font-medium placeholder-slate-600"
+                  required
+                />
+              </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleToggleCourse(c.id)}
-                    className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px]"
-                  >
-                    {c.status === 'Active' ? 'Deactivate' : 'Activate'}
-                  </button>
-                  <button
-                    onClick={() => handleDeleteCourse(c.id)}
-                    className="px-3 py-1.5 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold text-[11px]"
-                  >
-                    Delete
-                  </button>
-                </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Short title</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Civil Law"
+                  value={courseForm.shortTitle}
+                  onChange={(e) => setCourseForm({ ...courseForm, shortTitle: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white font-medium placeholder-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Faculty</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Shanto Deb Roy Arno"
+                  value={courseForm.faculty}
+                  onChange={(e) => setCourseForm({ ...courseForm, faculty: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white placeholder-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Category</label>
+                <input
+                  type="text"
+                  placeholder="e.g. CIVIL LAW"
+                  value={courseForm.category}
+                  onChange={(e) => setCourseForm({ ...courseForm, category: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white uppercase font-mono placeholder-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Batch shown on registration form</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Wed,Sat"
+                  value={courseForm.batchRegText}
+                  onChange={(e) => setCourseForm({ ...courseForm, batchRegText: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white placeholder-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Session shown on registration form</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 2026-04-01"
+                  value={courseForm.sessionRegText}
+                  onChange={(e) => setCourseForm({ ...courseForm, sessionRegText: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white font-mono placeholder-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Schedule</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 2 Day / Wed,Sat 8:30 PM"
+                  value={courseForm.schedule}
+                  onChange={(e) => setCourseForm({ ...courseForm, schedule: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white placeholder-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Next live date/time</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Wed,Sat 8:30 PM"
+                  value={courseForm.nextLive}
+                  onChange={(e) => setCourseForm({ ...courseForm, nextLive: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white placeholder-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Course fee (example: 1500)</label>
+                <input
+                  type="text"
+                  placeholder="1000"
+                  value={courseForm.price}
+                  onChange={(e) => setCourseForm({ ...courseForm, price: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-amber-300 font-mono font-bold placeholder-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Monthly Payment / Subscription</label>
+                <select
+                  value={courseForm.paymentType || 'One-time Lifetime Access'}
+                  onChange={(e) => setCourseForm({ ...courseForm, paymentType: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white cursor-pointer"
+                >
+                  <option value="One-time Lifetime Access">One-time Lifetime Access</option>
+                  <option value="Monthly Subscription">Monthly Subscription Fee</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Status</label>
+                <select
+                  value={courseForm.status || 'Active'}
+                  onChange={(e) => setCourseForm({ ...courseForm, status: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white font-bold cursor-pointer"
+                >
+                  <option value="Active">Active - visible to students</option>
+                  <option value="Inactive">Inactive - hidden from students</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Description</label>
+                <textarea
+                  rows={2}
+                  placeholder="Course details..."
+                  value={courseForm.description}
+                  onChange={(e) => setCourseForm({ ...courseForm, description: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-slate-300 text-xs placeholder-slate-600"
+                />
               </div>
             </div>
-          ))}
+
+            <button
+              type="submit"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all hover:scale-[1.02]"
+            >
+              💾 Save Course
+            </button>
+          </form>
+
+          {/* Right Course Catalog List */}
+          <div className="lg:col-span-8 glass-card rounded-2xl p-5 border border-slate-800 space-y-4 bg-slate-950/80">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+              <div>
+                <span className="text-[10px] font-mono text-slate-400 uppercase">COURSE CATALOG</span>
+                <h3 className="font-extrabold text-white text-base">Active And Hidden Courses</h3>
+              </div>
+              <span className="text-xs font-mono text-amber-400 font-bold">
+                {courses.filter(c => c.status === 'Active').length} active / {courses.length} total
+              </span>
+            </div>
+
+            <div className="space-y-3 max-h-[850px] overflow-y-auto pr-1">
+              {courses.map((c) => {
+                const studentCount = students.filter(s =>
+                  (s.allowedCourseIds && s.allowedCourseIds.includes(c.id)) ||
+                  (s.enrolledCourseIds && s.enrolledCourseIds.includes(c.id))
+                ).length;
+
+                return (
+                  <div key={c.id} className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2 text-xs hover:border-slate-700 transition-all">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono font-bold text-amber-300 uppercase px-2.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                          {c.category || 'COURSE'}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          c.status === 'Active' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'
+                        }`}>
+                          {c.status}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleCourse(c.id)}
+                          className={`px-3 py-1 rounded-lg font-bold text-[11px] border transition-all ${
+                            c.status === 'Active'
+                              ? 'bg-amber-950 text-amber-300 border-amber-500/30 hover:bg-amber-900'
+                              : 'bg-emerald-950 text-emerald-300 border-emerald-500/30 hover:bg-emerald-900'
+                          }`}
+                        >
+                          {c.status === 'Active' ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleEditCourse(c)}
+                          className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-bold text-[11px] transition-all"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCourse(c.id)}
+                          className="px-3 py-1 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-500/30 font-bold text-[11px] transition-all"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="font-extrabold text-white text-sm">{c.title}</h4>
+                      <p className="text-slate-400 text-[11px] mt-0.5">{c.faculty}</p>
+                      <p className="text-[10px] text-slate-500 font-mono mt-1">
+                        Batch: {c.batchRegText || c.schedule} | Session: {c.sessionRegText || '2026-04-01'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        {c.schedule}
+                      </p>
+                      {c.status !== 'Active' && (
+                        <p className="text-[10px] text-amber-400/80 italic mt-1">
+                          This course is hidden from students, videos, and registration until you activate it again.
+                        </p>
+                      )}
+                      <p className="text-amber-300 font-mono font-bold text-xs mt-1">
+                        Course Fee: Tk {c.price}
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                      <span className="text-[10px] font-mono text-slate-500">
+                        ID: {c.id} | Students: {studentCount}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => openLessonManager(c)}
+                        className="px-3 py-1 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/30 font-bold text-[11px] transition-all flex items-center gap-1"
+                      >
+                        <span>📹</span> Upload & Manage Videos
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </section>
 
