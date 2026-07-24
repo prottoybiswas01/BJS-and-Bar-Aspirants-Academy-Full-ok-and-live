@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 
 export default function Register({ setActivePage }) {
+  const [courses, setCourses] = useState([]);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
     email: '',
-    batch: 'Judiciary 2026',
-    session: 'Weekend Intensive (Fri & Sat 8:00 PM)',
+    batch: 'Regular Batch',
+    session: 'Standard Session',
     password: '',
     confirmPassword: '',
   });
@@ -16,38 +17,33 @@ export default function Register({ setActivePage }) {
   const [error, setError] = useState(null);
   const [successReg, setSuccessReg] = useState(null);
 
-  // Available Batches & Associated Auto-Filling Sessions
-  const batchOptions = [
-    {
-      name: 'Judiciary 2026',
-      defaultSession: 'Weekend Intensive (Fri & Sat 8:00 PM)',
-      sessions: [
-        'Weekend Intensive (Fri & Sat 8:00 PM)',
-        'Regular Evening (Mon, Wed, Fri 7:00 PM)',
-      ],
-    },
-    {
-      name: 'Bar Council Advocacy 2026',
-      defaultSession: 'Evening Special (Sun, Tue, Thu 9:00 PM)',
-      sessions: [
-        'Evening Special (Sun, Tue, Thu 9:00 PM)',
-        'Friday Full Day Crash Course',
-      ],
-    },
-    {
-      name: 'Civil Laws Masterclass (CPC & SRA)',
-      defaultSession: 'Sunday Special (7:30 PM)',
-      sessions: ['Sunday Special (7:30 PM)'],
-    },
-  ];
+  useEffect(() => {
+    const fetchCourses = async () => {
+      try {
+        const res = await api.get('/courses');
+        if (res.data.ok && Array.isArray(res.data.courses) && res.data.courses.length > 0) {
+          const active = res.data.courses.filter(c => c.status === 'Active');
+          if (active.length > 0) {
+            setCourses(active);
+            setFormData(prev => ({
+              ...prev,
+              batch: active[0].title || active[0].id,
+              session: active[0].schedule || 'Standard Session'
+            }));
+          }
+        }
+      } catch (err) {}
+    };
+    fetchCourses();
+  }, []);
 
   const handleBatchChange = (e) => {
-    const selectedBatchName = e.target.value;
-    const matched = batchOptions.find((b) => b.name === selectedBatchName);
+    const selectedTitle = e.target.value;
+    const matched = courses.find((c) => (c.title || c.id) === selectedTitle);
     setFormData((prev) => ({
       ...prev,
-      batch: selectedBatchName,
-      session: matched ? matched.defaultSession : '',
+      batch: selectedTitle,
+      session: matched ? matched.schedule || 'Standard Session' : 'Standard Session',
     }));
   };
 
@@ -138,7 +134,7 @@ export default function Register({ setActivePage }) {
                 name="name"
                 value={formData.name}
                 onChange={handleChange}
-                placeholder="e.g. Adv. Mahfuzur Rahman"
+                placeholder="আপনার পূর্ণ নাম লিখুন"
                 className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                 required
               />
@@ -152,7 +148,7 @@ export default function Register({ setActivePage }) {
                   name="phone"
                   value={formData.phone}
                   onChange={handleChange}
-                  placeholder="e.g. 01978167016"
+                  placeholder="আপনার মোবাইল নম্বর লিখুন"
                   className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500"
                   required
                 />
@@ -164,7 +160,7 @@ export default function Register({ setActivePage }) {
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
-                  placeholder="e.g. student@gmail.com"
+                  placeholder="আপনার ইমেইল ঠিকানা লিখুন"
                   className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                   required
                 />
@@ -180,11 +176,17 @@ export default function Register({ setActivePage }) {
                 onChange={handleBatchChange}
                 className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-amber-300 font-semibold focus:outline-none focus:border-amber-500"
               >
-                {batchOptions.map((b) => (
-                  <option key={b.name} value={b.name} className="bg-slate-900 text-white">
-                    {b.name}
+                {courses.length > 0 ? (
+                  courses.map((c) => (
+                    <option key={c.id || c.title} value={c.title || c.id} className="bg-slate-900 text-white">
+                      {c.title || c.id}
+                    </option>
+                  ))
+                ) : (
+                  <option value="Regular Batch" className="bg-slate-900 text-white">
+                    নিয়মিত ব্যাচ (Regular Batch)
                   </option>
-                ))}
+                )}
               </select>
             </div>
 
