@@ -62,11 +62,11 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
     }
   };
 
-  // Group lessons by module
+  // Group lessons by Chapter (অধ্যায়) if available, otherwise by Module
   const groupedLessons = lessons.reduce((acc, l) => {
-    const mod = l.module || 'Fast Class';
-    if (!acc[mod]) acc[mod] = [];
-    acc[mod].push(l);
+    const groupKey = l.chapter && l.chapter.trim() !== '' ? l.chapter : (l.module || 'সাধারণ বিষয়সূচি (General Module)');
+    if (!acc[groupKey]) acc[groupKey] = [];
+    acc[groupKey].push(l);
     return acc;
   }, {});
 
@@ -226,14 +226,17 @@ export default function Dashboard({ openVideoModal, openPaymentModal }) {
                   এই কোর্সের কোনো লেকচার ভিডিও পাওয়া যায়নি।
                 </p>
               ) : (
-                Object.entries(groupedLessons).map(([moduleTitle, moduleLessons]) => (
-                  <div key={moduleTitle} className="space-y-3">
-                    <h3 className="text-sm font-extrabold text-amber-300 border-l-4 border-amber-500 pl-3 py-0.5">
-                      {moduleTitle}
+                Object.entries(groupedLessons).map(([groupTitle, groupLessons]) => (
+                  <div key={groupTitle} className="space-y-3">
+                    <h3 className="text-xs sm:text-sm font-extrabold text-amber-300 border-l-4 border-amber-500 pl-3 py-1.5 flex items-center justify-between bg-slate-950/80 px-3.5 rounded-r-xl border-y border-r border-slate-800">
+                      <span className="flex items-center gap-2">📖 {groupTitle}</span>
+                      <span className="text-[10px] font-mono text-slate-400 font-bold bg-slate-900 px-2.5 py-0.5 rounded-full border border-slate-800">
+                        {groupLessons.length} টি ক্লাসের ভিডিও
+                      </span>
                     </h3>
 
                     <div className="space-y-2">
-                      {moduleLessons.map((l) => {
+                      {groupLessons.map((l) => {
                         const isCompleted = user?.completedLessonIds?.includes(l.id);
                         const hasVideo = Boolean(l.youtubeId || l.youtubeUrl);
                         const canWatch = isEnrolled && hasVideo;

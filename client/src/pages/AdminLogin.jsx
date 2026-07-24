@@ -38,8 +38,8 @@ export default function AdminLogin({ setActivePage }) {
   };
 
   return (
-    <div className="max-w-md mx-auto py-12 px-4 animate-fadeIn">
-      <div className="glass-card rounded-2xl p-8 border border-purple-500/30 shadow-2xl shadow-purple-950/40 space-y-6 bg-slate-950/80">
+    <div className="max-w-md w-full mx-auto py-6 sm:py-12 px-3 sm:px-4 animate-fadeIn">
+      <div className="glass-card rounded-2xl p-5 sm:p-8 border border-purple-500/30 shadow-2xl shadow-purple-950/40 space-y-5 bg-slate-950/80">
         <div className="text-center space-y-2">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white font-bold flex items-center justify-center text-2xl mx-auto shadow-lg shadow-purple-500/30">
             ⚙️

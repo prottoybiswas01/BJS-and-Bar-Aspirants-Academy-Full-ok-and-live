@@ -33,8 +33,8 @@ export default function Login({ setActivePage }) {
   };
 
   return (
-    <div className="max-w-md mx-auto py-12 px-4 animate-fadeIn">
-      <div className="glass-card rounded-2xl p-8 border border-slate-800 shadow-2xl space-y-6">
+    <div className="max-w-md w-full mx-auto py-6 sm:py-12 px-3 sm:px-4 animate-fadeIn">
+      <div className="glass-card rounded-2xl p-5 sm:p-8 border border-slate-800 shadow-2xl space-y-5">
         <div className="text-center space-y-2">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-bold flex items-center justify-center text-2xl mx-auto shadow-lg shadow-amber-500/20">
             🔑

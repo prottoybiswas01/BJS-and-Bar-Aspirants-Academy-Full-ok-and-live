@@ -8,6 +8,7 @@ const lessonSchema = new mongoose.Schema({
   duration: { type: String, default: "56min" },
   youtubeId: { type: String, default: "" }, // Extracted 11-char YouTube ID
   youtubeUrl: { type: String, default: "" }, // Full YouTube URL e.g. https://youtu.be/7HNVqFCWZm4
+  chapter: { type: String, default: "" }, // Optional chapter/section title e.g. "অধ্যায় ১: দেওয়ানী মামলা দায়ের"
   releaseDate: { type: String, default: "" },
   resources: [{ type: String }],
   description: { type: String, default: "" },

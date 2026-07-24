@@ -40,6 +40,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
     setForm({
       id: l.id,
       module: l.module || 'Fast Class',
+      chapter: l.chapter || '',
       title: l.title,
       duration: l.duration || '56min',
       youtubeUrl: l.youtubeUrl || l.youtubeId || '',
@@ -109,6 +110,19 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                 placeholder="e.g. Fast Class"
                 className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-white"
                 required
+              />
+            </div>
+
+            <div>
+              <label className="block text-amber-300 font-bold mb-1">
+                অধ্যায় / সেকশন টাইটেল (Chapter Name — Optional)
+              </label>
+              <input
+                type="text"
+                value={form.chapter}
+                onChange={(e) => setForm({ ...form, chapter: e.target.value })}
+                placeholder="e.g. অধ্যায় ১: দেওয়ানী কার্যবিধি সূচনা (Optional)"
+                className="w-full rounded-lg bg-slate-900 border border-amber-500/30 px-3 py-2 text-white placeholder-slate-600"
               />
             </div>
 
