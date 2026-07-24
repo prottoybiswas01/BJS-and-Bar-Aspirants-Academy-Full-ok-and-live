@@ -277,15 +277,14 @@ export default function Home({ setActivePage, openPaymentModal }) {
 
             {/* Mentors List Cards Grid */}
             {mentors.length === 0 ? (
-              <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800/80 text-center space-y-4">
-                <div className="w-16 h-16 rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center mx-auto text-3xl font-bold border border-purple-500/20">
+              <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800/80 text-center space-y-3">
+                <div className="w-14 h-14 rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center mx-auto text-2xl font-bold border border-purple-500/20">
                   ⚖️
                 </div>
                 <div className="space-y-1">
-                  <h3 className="text-lg font-extrabold text-white">শান্ত দেব রায় অর্ণ</h3>
-                  <p className="text-xs text-purple-300 font-bold">জুডিশিয়াল অ্যাসপির্যান্ট ও প্রতিষ্ঠাতা মেন্টর, আইন পাঠশালা</p>
-                  <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed pt-2">
-                    দেওয়ানী আইন, সিপিসি, পেনাল কোড ও বার কাউন্সিল পরীক্ষার প্রস্তুতি কোর্সে শীর্ষস্থান অর্জনের বিশ্বস্ত মেন্টরশিপ।
+                  <h3 className="text-base font-extrabold text-white">বর্তমানে কোনো মেন্টরের তথ্য যুক্ত করা হয়নি</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                    অ্যাডমিন প্যানেলের <strong>"মেন্টর ও শিক্ষক ব্যবস্থাপনা"</strong> থেকে মেন্টর বা শিক্ষকের প্রোফাইল যুক্ত করা হলে তা এখানে স্বয়ংক্রিয়ভাবে প্রদর্শিত হবে।
                   </p>
                 </div>
               </div>
