@@ -747,10 +747,12 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
       if (res.data.ok) {
         showToast(res.data.message || `Course "${courseForm.title}" saved successfully!`, 'success');
         handleClearCourseForm();
-        loadAllAdminData();
+        await loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'Error saving course.', 'error');
       }
     } catch (err) {
-      showToast('Error saving course.', 'error');
+      showToast(err.response?.data?.message || 'Error saving course.', 'error');
     }
   };
 
@@ -1984,6 +1986,12 @@ export default function AdminPanel({ openLessonManager, openVideoModal }) {
             </div>
 
             <div className="space-y-3 max-h-[850px] overflow-y-auto pr-1">
+              {courses.length === 0 && (
+                <div className="p-8 text-center border border-dashed border-slate-800 rounded-xl bg-slate-900/50 text-slate-400">
+                  <p className="font-semibold text-sm">কোনো কোর্স পাওয়া যায়নি / No courses available</p>
+                  <p className="text-xs text-slate-500 mt-1">বাম পাশের "Course Launch & Edit Form" ব্যবহার করে কোর্স তৈরি বা সেভ করুন।</p>
+                </div>
+              )}
               {courses.map((c) => {
                 const studentCount = students.filter(s =>
                   (s.allowedCourseIds && s.allowedCourseIds.includes(c.id)) ||

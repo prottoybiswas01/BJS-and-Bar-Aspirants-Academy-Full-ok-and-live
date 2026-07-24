@@ -475,7 +475,18 @@ app.post("/api/admin/clear-all-demo-data", async (req, res) => {
 
 app.post("/api/admin/courses/save", async (req, res) => {
   try {
-    const body = req.body;
+    let body = { ...req.body };
+
+    // Auto-generate or clean course ID if missing or invalid
+    if (!body.id || !String(body.id).trim()) {
+      const baseSlug = body.title
+        ? String(body.title).toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+        : "course";
+      body.id = (baseSlug || "course") + "-" + Date.now();
+    } else {
+      body.id = String(body.id).trim().toLowerCase().replace(/[^a-z0-9-_]/g, "-");
+    }
+
     let savedCourse = body;
     if (isMongoConnected) {
       let course = await Course.findOne({ id: body.id });
@@ -485,16 +496,26 @@ app.post("/api/admin/courses/save", async (req, res) => {
       } else {
         savedCourse = await Course.create(body);
       }
+      if (savedCourse && savedCourse.toObject) {
+        savedCourse = savedCourse.toObject();
+      }
     }
+
     const index = memoryDb.courses.findIndex((c) => c.id === body.id);
     if (index > -1) {
-      memoryDb.courses[index] = { ...memoryDb.courses[index], ...body };
+      memoryDb.courses[index] = { ...memoryDb.courses[index], ...savedCourse };
     } else {
-      memoryDb.courses.push({ ...body, id: body.id || "course-" + Date.now() });
+      memoryDb.courses.push({ ...savedCourse });
     }
-    return res.json({ ok: true, message: `Course "${body.title || body.id}" saved successfully!`, course: savedCourse });
+
+    return res.json({
+      ok: true,
+      message: `Course "${body.title || body.id}" saved successfully!`,
+      course: savedCourse
+    });
   } catch (e) {
-    return res.status(500).json({ ok: false, message: "Error saving course." });
+    console.error("Course save error:", e);
+    return res.status(500).json({ ok: false, message: e.message || "Error saving course." });
   }
 });
 

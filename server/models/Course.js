@@ -11,6 +11,7 @@ const courseSchema = new mongoose.Schema({
   sessionRegText: { type: String, default: "2026-04-01" },
   nextLive: { type: String, default: "Wed,Sat 8:30 PM" },
   price: { type: String, default: "1000" },
+  paymentType: { type: String, default: "One-time Lifetime Access" },
   studentCount: { type: Number, default: 0 },
   weeklyFrequency: { type: String, default: "2 Day" },
   description: { type: String, default: "" },
