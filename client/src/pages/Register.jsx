@@ -22,17 +22,22 @@ export default function Register({ setActivePage }) {
       try {
         const res = await api.get('/courses');
         if (res.data.ok && Array.isArray(res.data.courses) && res.data.courses.length > 0) {
-          const active = res.data.courses.filter(c => c.status === 'Active');
-          if (active.length > 0) {
-            setCourses(active);
+          const activeCourses = res.data.courses.filter(c =>
+            !c.status || c.status === 'Active' || String(c.status).toLowerCase().includes('active')
+          );
+          const listToUse = activeCourses.length > 0 ? activeCourses : res.data.courses;
+          setCourses(listToUse);
+          if (listToUse.length > 0) {
             setFormData(prev => ({
               ...prev,
-              batch: active[0].title || active[0].id,
-              session: active[0].schedule || 'Standard Session'
+              batch: listToUse[0].title || listToUse[0].id,
+              session: listToUse[0].sessionRegText || listToUse[0].schedule || 'Standard Session'
             }));
           }
         }
-      } catch (err) {}
+      } catch (err) {
+        console.error('Error loading registration courses:', err);
+      }
     };
     fetchCourses();
   }, []);
@@ -43,7 +48,7 @@ export default function Register({ setActivePage }) {
     setFormData((prev) => ({
       ...prev,
       batch: selectedTitle,
-      session: matched ? matched.schedule || 'Standard Session' : 'Standard Session',
+      session: matched ? (matched.sessionRegText || matched.schedule || matched.nextLive || 'Standard Session') : 'Standard Session',
     }));
   };
 
@@ -179,13 +184,16 @@ export default function Register({ setActivePage }) {
                 {courses.length > 0 ? (
                   courses.map((c) => (
                     <option key={c.id || c.title} value={c.title || c.id} className="bg-slate-900 text-white">
-                      {c.title || c.id}
+                      {c.title || c.id} {c.category ? `(${c.category})` : ''} {c.price ? `— Tk ${c.price}` : ''}
                     </option>
                   ))
                 ) : (
-                  <option value="Regular Batch" className="bg-slate-900 text-white">
-                    নিয়মিত ব্যাচ (Regular Batch)
-                  </option>
+                  <>
+                    <option value="সংবিধান ব্যাচ" className="bg-slate-900 text-white">সংবিধান ব্যাচ (Constitution Special Batch)</option>
+                    <option value="দেওয়ানী আইন স্পেশাল ব্যাচ" className="bg-slate-900 text-white">দেওয়ানী আইন স্পেশাল ব্যাচ (Civil Laws Intensive)</option>
+                    <option value="ফৌজিদারী আইন স্পেশাল ব্যাচ" className="bg-slate-900 text-white">ফৌজদারী আইন স্পেশাল ব্যাচ (Criminal Laws Intensive)</option>
+                    <option value="Regular Batch" className="bg-slate-900 text-white">নিয়মিত ব্যাচ (Regular Batch)</option>
+                  </>
                 )}
               </select>
             </div>
