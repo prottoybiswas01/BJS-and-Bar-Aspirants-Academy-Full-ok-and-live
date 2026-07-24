@@ -57,8 +57,28 @@ const memoryDb = {
   }
 };
 
-// Configure Mongoose options to prevent 10,000ms buffering timeouts
-mongoose.set("bufferCommands", false);
+let cachedConn = null;
+
+async function ensureDbConnected() {
+  if (mongoose.connection && mongoose.connection.readyState === 1) {
+    isMongoConnected = true;
+    return mongoose.connection;
+  }
+  try {
+    if (!cachedConn) {
+      cachedConn = mongoose.connect(MONGODB_URI, {
+        serverSelectionTimeoutMS: 5000,
+      });
+    }
+    await cachedConn;
+    isMongoConnected = true;
+    return mongoose.connection;
+  } catch (err) {
+    cachedConn = null;
+    isMongoConnected = false;
+    console.warn("⚠️ MongoDB Atlas Connection Notice:", err.message);
+  }
+}
 
 async function syncMongoToMemoryDb() {
   if (!isMongoConnected) return;
@@ -81,21 +101,11 @@ async function syncMongoToMemoryDb() {
   }
 }
 
-mongoose
-  .connect(MONGODB_URI, {
-    serverSelectionTimeoutMS: 3000, // Timeout after 3 seconds instead of 10s if IP not whitelisted
-  })
-  .then(async () => {
-    isMongoConnected = true;
-    console.log("✅ Successfully connected to MongoDB Atlas (bjs_academy)");
-    await syncMongoToMemoryDb();
-  })
-  .catch((err) => {
-    isMongoConnected = false;
-    console.warn("⚠️ MongoDB Atlas Connection Notice:", err.message);
-    console.warn("💡 Tip: If using MongoDB Atlas, make sure your current IP address is whitelisted (0.0.0.0/0) in Atlas Security settings.");
-    console.warn("🚀 Running in High-Speed Fallback Engine Mode.");
-  });
+// Auto-connect to DB before processing any incoming API route
+app.use(async (req, res, next) => {
+  await ensureDbConnected();
+  next();
+});
 
 function extractYoutubeId(urlOrId) {
   if (!urlOrId) return "";
