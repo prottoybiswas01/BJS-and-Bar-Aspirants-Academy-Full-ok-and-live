@@ -674,43 +674,153 @@ app.delete("/api/admin/lessons/:id", async (req, res) => {
 });
 
 app.post("/api/admin/students/course-rules", async (req, res) => {
-  const { studentId, courseRule } = req.body;
   try {
+    await ensureDbConnected();
+    const { studentId, courseRule } = req.body;
+    if (!studentId || !courseRule) {
+      return res.status(400).json({ ok: false, message: "studentId and courseRule required." });
+    }
+
     if (isMongoConnected) {
       const student = await Student.findOne({ id: studentId });
       if (student) {
         let rules = student.courseRules || [];
-        const index = rules.findIndex((r) => r.courseId === courseRule.courseId);
-        if (index > -1) rules[index] = courseRule;
+        const idx = rules.findIndex(r => r.courseId === courseRule.courseId);
+        if (idx > -1) rules[idx] = courseRule;
         else rules.push(courseRule);
+
         student.courseRules = rules;
         await student.save();
-        return res.json({ ok: true, message: "Course rules updated!", student });
+        return res.json({ ok: true, message: "Access rules updated successfully!", courseRules: rules });
       }
     }
-  } catch (e) {}
 
-  const st = memoryDb.students.find((s) => s.id === studentId);
-  if (st) {
-    if (!st.courseRules) st.courseRules = [];
-    const idx = st.courseRules.findIndex((r) => r.courseId === courseRule.courseId);
-    if (idx > -1) st.courseRules[idx] = courseRule;
-    else st.courseRules.push(courseRule);
+    const st = memoryDb.students.find(s => s.id === studentId);
+    if (st) {
+      st.courseRules = st.courseRules || [];
+      const idx = st.courseRules.findIndex(r => r.courseId === courseRule.courseId);
+      if (idx > -1) st.courseRules[idx] = courseRule;
+      else st.courseRules.push(courseRule);
+    }
+    res.json({ ok: true, message: "Access rules updated successfully!" });
+  } catch (e) {
+    res.status(500).json({ ok: false, message: "Error updating course access rules." });
   }
-  res.json({ ok: true, message: "Course rules updated!", student: st });
 });
 
+// Student Lesson Completion Endpoint
+app.post("/api/student/complete-lesson", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { studentId, lessonId } = req.body;
+    if (!studentId || !lessonId) {
+      return res.status(400).json({ ok: false, message: "studentId and lessonId required." });
+    }
+
+    let completedLessonIds = [];
+
+    if (isMongoConnected) {
+      const student = await Student.findOne({ id: studentId });
+      if (student) {
+        const current = student.completedLessonIds || [];
+        if (current.includes(lessonId)) {
+          student.completedLessonIds = current.filter(id => id !== lessonId);
+        } else {
+          student.completedLessonIds = [...current, lessonId];
+        }
+        await student.save();
+        completedLessonIds = student.completedLessonIds;
+      }
+    }
+
+    const memStudent = memoryDb.students.find(s => s.id === studentId);
+    if (memStudent) {
+      const current = memStudent.completedLessonIds || [];
+      if (current.includes(lessonId)) {
+        memStudent.completedLessonIds = current.filter(id => id !== lessonId);
+      } else {
+        memStudent.completedLessonIds = [...current, lessonId];
+      }
+      completedLessonIds = memStudent.completedLessonIds;
+    }
+
+    res.json({ ok: true, completedLessonIds });
+  } catch (e) {
+    res.status(500).json({ ok: false, message: "Error updating lesson completion." });
+  }
+});
+
+// Admin Password Change Endpoint
+app.post("/api/admin/change-password", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { newAdminUsername, newAdminPassword } = req.body;
+    if (!newAdminUsername || !newAdminPassword) {
+      return res.status(400).json({ ok: false, message: "Username and Password required." });
+    }
+
+    if (isMongoConnected) {
+      let settings = await SiteSetting.findOne({ id: "default_settings" });
+      if (settings) {
+        settings.adminUsername = newAdminUsername;
+        settings.adminPassword = newAdminPassword;
+        await settings.save();
+      } else {
+        await SiteSetting.create({
+          id: "default_settings",
+          adminUsername: newAdminUsername,
+          adminPassword: newAdminPassword
+        });
+      }
+    }
+
+    memoryDb.siteSettings.adminUsername = newAdminUsername;
+    memoryDb.siteSettings.adminPassword = newAdminPassword;
+
+    res.json({ ok: true, message: "Super Admin credentials updated successfully!" });
+  } catch (e) {
+    res.status(500).json({ ok: false, message: "Error updating admin credentials." });
+  }
+});
+
+// Admin Mail Settings Endpoint
 app.get("/api/admin/mail-settings", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    if (isMongoConnected) {
+      let settings = await MailSetting.findOne();
+      if (!settings) {
+        settings = await MailSetting.create(memoryDb.mailSettings);
+      }
+      return res.json({ ok: true, settings });
+    }
+  } catch (e) {}
   res.json({ ok: true, settings: memoryDb.mailSettings });
 });
 
 app.post("/api/admin/mail-settings", async (req, res) => {
-  Object.assign(memoryDb.mailSettings, req.body);
-  res.json({ ok: true, message: "Mail settings updated!", settings: memoryDb.mailSettings });
+  try {
+    await ensureDbConnected();
+    const settingsData = req.body;
+    if (isMongoConnected) {
+      let settings = await MailSetting.findOne();
+      if (settings) {
+        Object.assign(settings, settingsData);
+        await settings.save();
+      } else {
+        await MailSetting.create(settingsData);
+      }
+    }
+    memoryDb.mailSettings = { ...memoryDb.mailSettings, ...settingsData };
+    res.json({ ok: true, message: "Mail settings saved successfully!", settings: memoryDb.mailSettings });
+  } catch (e) {
+    res.status(500).json({ ok: false, message: "Error saving mail settings." });
+  }
 });
 
 app.get("/api/admin/students", async (req, res) => {
   try {
+    await ensureDbConnected();
     if (isMongoConnected) {
       const students = await Student.find().sort({ createdAt: -1 });
       return res.json({ ok: true, students });
@@ -721,6 +831,7 @@ app.get("/api/admin/students", async (req, res) => {
 
 app.get("/api/admin/registrations", async (req, res) => {
   try {
+    await ensureDbConnected();
     if (isMongoConnected) {
       const registrations = await Registration.find().sort({ createdAt: -1 });
       return res.json({ ok: true, registrations });
@@ -730,31 +841,46 @@ app.get("/api/admin/registrations", async (req, res) => {
 });
 
 app.post("/api/admin/students/save", async (req, res) => {
-  const body = req.body;
   try {
+    await ensureDbConnected();
+    let body = { ...req.body };
+
+    if (!body.id || !String(body.id).trim()) {
+      body.id = "STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
+    } else {
+      body.id = String(body.id).trim();
+    }
+
+    let savedStudent = body;
     if (isMongoConnected) {
       let student = await Student.findOne({ id: body.id });
       if (student) {
         Object.assign(student, body);
-        await student.save();
+        savedStudent = await student.save();
       } else {
-        student = await Student.create(body);
+        savedStudent = await Student.create(body);
       }
-      return res.json({ ok: true, message: "Student saved successfully!", student });
+      if (savedStudent && savedStudent.toObject) {
+        savedStudent = savedStudent.toObject();
+      }
     }
-  } catch (e) {}
 
-  const idx = memoryDb.students.findIndex((s) => s.id === body.id);
-  if (idx > -1) {
-    memoryDb.students[idx] = { ...memoryDb.students[idx], ...body };
-  } else {
-    memoryDb.students.push({ ...body, id: body.id || "STU-2026-099" });
+    const idx = memoryDb.students.findIndex((s) => s.id === body.id);
+    if (idx > -1) {
+      memoryDb.students[idx] = { ...memoryDb.students[idx], ...savedStudent };
+    } else {
+      memoryDb.students.unshift({ ...savedStudent });
+    }
+    return res.json({ ok: true, message: `Student profile for "${savedStudent.name || savedStudent.id}" saved successfully!`, student: savedStudent });
+  } catch (e) {
+    console.error("Error saving student:", e);
+    return res.status(500).json({ ok: false, message: e.message || "Error saving student profile." });
   }
-  res.json({ ok: true, message: "Student saved successfully!", student: body });
 });
 
 app.delete("/api/admin/students/:id", async (req, res) => {
   try {
+    await ensureDbConnected();
     if (isMongoConnected) await Student.deleteOne({ id: req.params.id });
   } catch (e) {}
   memoryDb.students = memoryDb.students.filter((s) => s.id !== req.params.id);
@@ -762,11 +888,38 @@ app.delete("/api/admin/students/:id", async (req, res) => {
 });
 
 app.post("/api/admin/students/message", async (req, res) => {
-  res.json({ ok: true, message: "Message dispatched successfully!" });
+  try {
+    await ensureDbConnected();
+    const { studentIds, type, title, body, subject } = req.body;
+    if (!Array.isArray(studentIds) || studentIds.length === 0) {
+      return res.status(400).json({ ok: false, message: "No students selected." });
+    }
+
+    if (type === "popup") {
+      const popupMsg = { title: title || "Notice from Admin", body: body || "", sentAt: new Date() };
+      if (isMongoConnected) {
+        await Student.updateMany(
+          { id: { $in: studentIds } },
+          { $set: { popupMessage: popupMsg } }
+        );
+      }
+      memoryDb.students.forEach(s => {
+        if (studentIds.includes(s.id)) {
+          s.popupMessage = popupMsg;
+        }
+      });
+      return res.json({ ok: true, message: `Popup notice sent to ${studentIds.length} student(s)!` });
+    }
+
+    return res.json({ ok: true, message: `Email message sent to ${studentIds.length} student(s)!` });
+  } catch (e) {
+    return res.status(500).json({ ok: false, message: "Error sending message to students." });
+  }
 });
 
 app.get("/api/admin/overview-stats", async (req, res) => {
   try {
+    await ensureDbConnected();
     let studentsList = memoryDb.students;
     let coursesList = memoryDb.courses;
 
@@ -828,6 +981,7 @@ app.get("/api/admin/overview-stats", async (req, res) => {
 
 app.get("/api/admin/registrations", async (req, res) => {
   try {
+    await ensureDbConnected();
     if (isMongoConnected) {
       const registrations = await Registration.find().sort({ createdAt: -1 });
       return res.json({ ok: true, registrations });
