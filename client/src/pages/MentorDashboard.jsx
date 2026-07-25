@@ -857,8 +857,13 @@ export default function MentorDashboard() {
                     </div>
                   </div>
                 ) : (
-                  <div className="p-6 rounded-2xl bg-slate-950 border border-slate-800 text-center text-xs text-slate-400">
-                    📷 এই উত্তরের সাথে কোনো খাতার ছবির ফাইল যুক্ত নেই।
+                  <div className="p-5 rounded-2xl bg-amber-950/30 border border-amber-500/30 text-amber-200 text-xs space-y-1">
+                    <p className="font-bold flex items-center gap-1.5">
+                      <span>🧹 অটো-গার্বেজ ক্লিনআপ নোটিশ:</span>
+                    </p>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      ১৫ দিন পার হওয়ায় স্পেস সাশ্রয়ে খাতার ছবিসমূহ ডাটাবেজ থেকে ক্লিনআপ করা হয়েছে। শিক্ষার্থী নম্বর <strong>({gradingModal.submission.marksObtained !== null ? gradingModal.submission.marksObtained : 'জমা'})</strong> ও মূল্যায়ন তথ্য ডাটাবেজে সম্পূর্ণ সুরক্ষিত রয়েছে।
+                    </p>
                   </div>
                 )}
 

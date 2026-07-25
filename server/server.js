@@ -164,6 +164,7 @@ async function ensureDbConnected() {
     }
     await cachedConn;
     isMongoConnected = true;
+    autoCleanExpiredScriptImages();
     return mongoose.connection;
   } catch (err) {
     cachedConn = null;
@@ -172,8 +173,46 @@ async function ensureDbConnected() {
   }
 }
 
+// Automated 15-Day Script Image Garbage Collector
+async function autoCleanExpiredScriptImages() {
+  const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
+  const cutoffDate = new Date(Date.now() - FIFTEEN_DAYS_MS);
+
+  try {
+    if (isMongoConnected) {
+      const result = await Submission.updateMany(
+        {
+          imageUrls: { $exists: true, $not: { $size: 0 } },
+          $or: [
+            { gradedAt: { $lte: cutoffDate } },
+            { createdAt: { $lte: cutoffDate } }
+          ]
+        },
+        { $set: { imageUrls: [] } }
+      );
+      if (result && result.modifiedCount > 0) {
+        console.log(`🧹 Auto-cleansed script images for ${result.modifiedCount} expired submissions (>15 days).`);
+      }
+    }
+
+    if (Array.isArray(memoryDb.submissions)) {
+      memoryDb.submissions.forEach(s => {
+        const subDate = new Date(s.gradedAt || s.createdAt || 0);
+        if (Date.now() - subDate.getTime() > FIFTEEN_DAYS_MS) {
+          s.imageUrls = [];
+        }
+      });
+    }
+  } catch (err) {
+    console.warn("⚠️ Script image auto-cleanup notice:", err.message);
+  }
+}
+
 // Background DB Connection Initiator
 ensureDbConnected();
+
+// Run automated garbage collection every 6 hours
+setInterval(autoCleanExpiredScriptImages, 6 * 60 * 60 * 1000);
 
 // Async Serverless Express Middleware (Guarantees DB connection before route execution)
 app.use(async (req, res, next) => {
