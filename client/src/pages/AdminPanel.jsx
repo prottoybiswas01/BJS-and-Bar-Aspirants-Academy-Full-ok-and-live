@@ -1,14 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 
-const DEFAULT_ACADEMY_COURSES = [
-  { id: 'bjs-masterclass', title: 'BJS Judicial Officer Masterclass (১৮তম বিজিএস সমন্বিত কোর্স)' },
-  { id: 'bar-advocacy', title: 'Bar Council Advocacy Premium Batch (বার কাউন্সিল ভাইবা ও লিখিত)' },
-  { id: 'civil-laws', title: 'Civil Laws Intensive Special Batch (দেওয়ানী আইন ও প্রতিকার)' },
-  { id: 'penal-evidence', title: 'Penal Code & Evidence Act Crash Course (পেনাল কোড ও সাক্ষ্য আইন)' },
-  { id: 'crpc-cpc-laws', title: 'CrPC & CPC Special Laws Procedure (ফৌজদারী ও দেওয়ানী কার্যবিধি)' }
-];
-
 export default function AdminPanel({ openLessonManager, openVideoModal, openMentorProfile }) {
   const [stats, setStats] = useState({
     totalStudents: 0,
@@ -21,7 +13,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   });
 
   const [students, setStudents] = useState([]);
-  const [courses, setCourses] = useState(DEFAULT_ACADEMY_COURSES);
+  const [courses, setCourses] = useState([]);
   const [mailSettings, setMailSettings] = useState({
     enabled: true,
     fallbackEmail: 'bjsacademy38@gmail.com',
@@ -357,11 +349,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       if (results[1].status === 'fulfilled' && results[1].value.data?.ok) setStudents(results[1].value.data.students || []);
       
       const loadedCourses = results[2].status === 'fulfilled' ? (results[2].value.data?.courses || results[2].value.data) : [];
-      if (Array.isArray(loadedCourses) && loadedCourses.length > 0) {
-        setCourses(loadedCourses);
-      } else {
-        setCourses(DEFAULT_ACADEMY_COURSES);
-      }
+      setCourses(Array.isArray(loadedCourses) ? loadedCourses : []);
 
       if (results[3].status === 'fulfilled' && results[3].value.data?.ok) setMailSettings(results[3].value.data.settings);
       if (results[4].status === 'fulfilled' && results[4].value.data?.ok && results[4].value.data.settings) setSiteSettingsForm(results[4].value.data.settings);
@@ -3010,8 +2998,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
                 className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white focus:outline-none focus:border-amber-500 cursor-pointer"
               >
                 <option value="">-- 🌐 সর্বজনীন / সকল ব্যাচ ও স্টুডেন্ট (Universal Exam) --</option>
-                {courses.map(c => (
-                  <option key={c.id || c.title} value={c.id || c.title}>{c.title}</option>
+                {courses.filter(c => c.status !== 'Inactive' && c.status !== 'Hidden').map(c => (
+                  <option key={c.id || c._id} value={c.id || c._id}>{c.title}</option>
                 ))}
               </select>
             </div>
