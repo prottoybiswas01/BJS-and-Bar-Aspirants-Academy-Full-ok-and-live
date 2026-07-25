@@ -1253,7 +1253,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
-  const filteredStudents = students.filter(s =>
+  const filteredStudents = (students || []).filter(s =>
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     s.phone.includes(searchQuery) ||
     s.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1381,9 +1381,9 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   const handlePrintAllReceiptsSummary = () => {
     const totalAmount = receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-    const bkashAmt = receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-    const nagadAmt = receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-    const rocketAmt = receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const bkashAmt = (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const nagadAmt = (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const rocketAmt = (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
     const othersAmt = totalAmount - (bkashAmt + nagadAmt + rocketAmt);
 
     const win = window.open('', '_blank');
@@ -1445,7 +1445,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             </tr>
           </thead>
           <tbody>
-            ${receipts.map(r => `
+            ${(receipts || []).map(r => `
               <tr>
                 <td><strong>${r.receiptId}</strong></td>
                 <td>${new Date(r.paymentTime || r.createdAt).toLocaleString()}</td>
@@ -1744,8 +1744,8 @@ return (
                   <span className="text-[11px] text-emerald-400 font-bold">↑ Active</span>
                 </div>
                 <div className="flex justify-between items-center text-[10px] text-slate-400 border-t border-slate-900 pt-2 font-mono">
-                  <span>Approved: {students.filter(s => s.loginApproval === 'Approved' || s.status === 'Active').length}</span>
-                  <span>Pending: {students.filter(s => s.loginApproval === 'Pending').length}</span>
+                  <span>Approved: {(students || []).filter(s => s.loginApproval === 'Approved' || s.status === 'Active').length}</span>
+                  <span>Pending: {(students || []).filter(s => s.loginApproval === 'Pending').length}</span>
                 </div>
               </div>
 
@@ -1759,8 +1759,8 @@ return (
                   <span className="text-[11px] text-cyan-400 font-bold">Live Programs</span>
                 </div>
                 <div className="flex justify-between items-center text-[10px] text-slate-400 border-t border-slate-900 pt-2 font-mono">
-                  <span>BJS: {courses.filter(c => (c.category || '').toLowerCase().includes('bjs')).length || 2}</span>
-                  <span>Bar: {courses.filter(c => (c.category || '').toLowerCase().includes('bar')).length || 2}</span>
+                  <span>BJS: {(courses || []).filter(c => (c.category || '').toLowerCase().includes('bjs')).length || 2}</span>
+                  <span>Bar: {(courses || []).filter(c => (c.category || '').toLowerCase().includes('bar')).length || 2}</span>
                 </div>
               </div>
 
@@ -1855,8 +1855,8 @@ return (
                 </div>
 
                 <div className="space-y-4">
-                  {courses.map((c) => {
-                    const enrolledCount = students.filter(s =>
+                  {(courses || []).map((c) => {
+                    const enrolledCount = (students || []).filter(s =>
                       (s.allowedCourseIds || []).includes(c.id) || s.course === c.id || (s.enrolledCourseIds || []).includes(c.id)
                     ).length;
                     const fillPercentage = Math.min(100, Math.round((enrolledCount / 50) * 100));
@@ -2036,7 +2036,7 @@ return (
                   className="bg-slate-950 border border-slate-800 text-xs text-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:border-amber-500"
                 >
                   <option value="all">All Courses ({students.length})</option>
-                  {courses.map(c => (
+                  {(courses || []).map(c => (
                     <option key={c.id} value={c.id}>
                       {c.shortTitle || c.title}
                     </option>
@@ -2471,7 +2471,7 @@ return (
                     </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                    {courses.map((c) => {
+                    {(courses || []).map((c) => {
                       const isAssigned = (studentForm.allowedCourseIds || []).includes(c.id);
                       return (
                         <div
@@ -2748,7 +2748,7 @@ return (
                 <h3 className="font-extrabold text-white text-base">Active & Registered Mentors ({mentors.length})</h3>
               </div>
               <span className="text-xs font-mono text-purple-400 font-bold">
-                {mentors.filter(m => m.status === 'Active').length} Active
+                {(mentors || []).filter(m => m.status === 'Active').length} Active
               </span>
             </div>
 
@@ -2764,7 +2764,7 @@ return (
               </div>
             ) : (
               <div className="space-y-3 max-h-[750px] overflow-y-auto pr-1">
-                {mentors.map((m) => {
+                {(mentors || []).map((m) => {
                   const isApproved = m.loginApproval === 'Approved' || (!m.loginApproval && m.status === 'Active');
                   const isPending = m.loginApproval === 'Pending';
                   const mentorCourses = m.assignedCourseIds || [];
@@ -2857,7 +2857,7 @@ return (
                       {/* Course Allocation Selector for Mentor */}
                       <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-2 text-xs">
                         <span className="text-[10px] text-slate-400 font-bold">কোর্স অ্যাসাইনমেন্ট:</span>
-                        {courses.map(c => {
+                        {(courses || []).map(c => {
                           const assigned = mentorCourses.includes(c.id);
                           return (
                             <button
@@ -2936,7 +2936,7 @@ return (
               className="w-full sm:w-96 rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2.5 text-xs font-bold text-white focus:outline-none focus:border-amber-500 cursor-pointer"
             >
               <option value="">-- পরীক্ষা / অ্যাসাইনমেন্ট পছন্দ করুন --</option>
-              {adminAssignments.map(a => (
+              {(adminAssignments || []).map(a => (
                 <option key={a.id} value={a.id}>
                   {a.title} ({courses.find(c => c.id === a.courseId)?.title || a.courseId || 'Batch Test'})
                 </option>
@@ -3048,7 +3048,7 @@ return (
                 className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white focus:outline-none focus:border-amber-500 cursor-pointer"
               >
                 <option value="">-- 🌐 সর্বজনীন / সকল ব্যাচ ও স্টুডেন্ট (Universal Exam) --</option>
-                {courses.filter(c => c.status !== 'Inactive' && c.status !== 'Hidden').map(c => (
+                {(courses || []).filter(c => c.status !== 'Inactive' && c.status !== 'Hidden').map(c => (
                   <option key={c.id || c._id} value={c.id || c._id}>{c.title}</option>
                 ))}
               </select>
@@ -3150,7 +3150,7 @@ return (
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {mcqExams.map(exam => {
+              {(mcqExams || []).map(exam => {
                 const publicUrl = `${window.location.origin}/#mcq-exam-${exam.id}`;
                 return (
                   <div key={exam.id} className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
@@ -3399,7 +3399,7 @@ return (
                 <h3 className="font-extrabold text-white text-base">Active And Hidden Courses</h3>
               </div>
               <span className="text-xs font-mono text-amber-400 font-bold">
-                {courses.filter(c => c.status === 'Active').length} active / {courses.length} total
+                {(courses || []).filter(c => c.status === 'Active').length} active / {courses.length} total
               </span>
             </div>
 
@@ -3410,8 +3410,8 @@ return (
                   <p className="text-xs text-slate-500 mt-1">বাম পাশের "Course Launch & Edit Form" ব্যবহার করে কোর্স তৈরি বা সেভ করুন।</p>
                 </div>
               )}
-              {courses.map((c) => {
-                const studentCount = students.filter(s =>
+              {(courses || []).map((c) => {
+                const studentCount = (students || []).filter(s =>
                   (s.allowedCourseIds && s.allowedCourseIds.includes(c.id)) ||
                   (s.enrolledCourseIds && s.enrolledCourseIds.includes(c.id))
                 ).length;
@@ -3541,7 +3541,7 @@ return (
           <div className="p-4 rounded-xl bg-slate-900/90 border border-amber-500/30 text-center space-y-1">
             <span className="text-[10px] font-mono text-amber-400 font-bold uppercase">BKASH TOTAL</span>
             <p className="text-lg font-bold text-amber-300 font-mono">
-              ৳ {receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
+              ৳ {(receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
             </p>
             <p className="text-[10px] text-slate-400">bKash Merchant/Personal</p>
           </div>
@@ -3549,7 +3549,7 @@ return (
           <div className="p-4 rounded-xl bg-slate-900/90 border border-orange-500/30 text-center space-y-1">
             <span className="text-[10px] font-mono text-orange-400 font-bold uppercase">NAGAD TOTAL</span>
             <p className="text-lg font-bold text-orange-300 font-mono">
-              ৳ {receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
+              ৳ {(receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
             </p>
             <p className="text-[10px] text-slate-400">Nagad Official</p>
           </div>
@@ -3557,7 +3557,7 @@ return (
           <div className="p-4 rounded-xl bg-slate-900/90 border border-purple-500/30 text-center space-y-1">
             <span className="text-[10px] font-mono text-purple-400 font-bold uppercase">ROCKET TOTAL</span>
             <p className="text-lg font-bold text-purple-300 font-mono">
-              ৳ {receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
+              ৳ {(receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
             </p>
             <p className="text-[10px] text-slate-400">DBBL Rocket</p>
           </div>
@@ -3566,9 +3566,9 @@ return (
             <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">OTHERS / CASH</span>
             <p className="text-lg font-bold text-slate-300 font-mono">
               ৳ {(receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0) - (
-                receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0) +
-                receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0) +
-                receipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+                (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0) +
+                (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0) +
+                (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
               )).toLocaleString()} BDT
             </p>
             <p className="text-[10px] text-slate-400">Upay / Bank / Cash</p>
@@ -3604,7 +3604,7 @@ return (
                 className="w-full rounded-xl bg-slate-950 border border-slate-700 px-4 py-2.5 text-white focus:outline-none focus:border-emerald-500 font-medium"
               >
                 <option value="">-- যেকোনো স্টুডেন্ট বেছে নিন ({students.length} Total) --</option>
-                {students.map(s => (
+                {(students || []).map(s => (
                   <option key={s.id} value={s.id}>
                     {s.name} ({s.id}) - {s.phone} | {s.email}
                   </option>
@@ -3616,7 +3616,7 @@ return (
           {/* Quick Select Filter Grid */}
           {receiptSearchQuery && (
             <div className="pt-2">
-              <span className="text-[11px] text-slate-400 font-bold block mb-2">সার্চ ফলাফল ({students.filter(s =>
+              <span className="text-[11px] text-slate-400 font-bold block mb-2">সার্চ ফলাফল ({(students || []).filter(s =>
                 s.name.toLowerCase().includes(receiptSearchQuery.toLowerCase()) ||
                 s.phone.includes(receiptSearchQuery) ||
                 s.id.toLowerCase().includes(receiptSearchQuery.toLowerCase()) ||
@@ -3624,7 +3624,7 @@ return (
               ).length} জন স্টুডেন্ট পাওয়া গেছে):</span>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-48 overflow-y-auto pr-1">
-                {students.filter(s =>
+                {(students || []).filter(s =>
                   s.name.toLowerCase().includes(receiptSearchQuery.toLowerCase()) ||
                   s.phone.includes(receiptSearchQuery) ||
                   s.id.toLowerCase().includes(receiptSearchQuery.toLowerCase()) ||
@@ -3746,7 +3746,7 @@ return (
                 className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-cyan-300 font-bold focus:outline-none focus:border-emerald-500"
               >
                 <option value="BJS & Bar Masterclass">-- সিলেক্ট করুন / BJS & Bar Masterclass --</option>
-                {courses.map(c => (
+                {(courses || []).map(c => (
                   <option key={c.id} value={c.title}>
                     📚 {c.title} (Tk {c.price})
                   </option>
@@ -3808,7 +3808,7 @@ return (
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
-                {receipts.filter(r => {
+                {(receipts || []).filter(r => {
                   if (!receiptSearchQuery) return true;
                   const q = receiptSearchQuery.toLowerCase();
                   return (
@@ -3827,7 +3827,7 @@ return (
                     </td>
                   </tr>
                 ) : (
-                  receipts.filter(r => {
+                  (receipts || []).filter(r => {
                     if (!receiptSearchQuery) return true;
                     const q = receiptSearchQuery.toLowerCase();
                     return (
@@ -4123,7 +4123,7 @@ return (
                 className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:border-amber-500 focus:outline-none"
               >
                 <option value="">-- 🌐 সকল কোর্স (All Courses) --</option>
-                {courses.map(c => (
+                {(courses || []).map(c => (
                   <option key={c.id || c._id} value={c.id || c.title}>{c.title}</option>
                 ))}
               </select>
@@ -4138,7 +4138,7 @@ return (
                 className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:border-amber-500 focus:outline-none"
               >
                 <option value="">-- 📝 সকল পরীক্ষা (All MCQ Exams) --</option>
-                {mcqExams.map(ex => (
+                {(mcqExams || []).map(ex => (
                   <option key={ex.id} value={ex.id}>{ex.title}</option>
                 ))}
               </select>

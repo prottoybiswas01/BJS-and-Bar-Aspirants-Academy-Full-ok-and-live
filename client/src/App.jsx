@@ -1,3 +1,4 @@
+import ErrorBoundary from './components/ErrorBoundary';
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import SecurityGuard from './components/SecurityGuard';
@@ -130,11 +131,13 @@ function MainApp() {
         {activePage === 'mentor-login' && <MentorLogin setActivePage={setActivePage} />}
         {activePage === 'mentor-dashboard' && <MentorDashboard />}
         {(activePage === 'admin' || activePage === 'admin-login') && (
-          user?.isAdmin ? (
+          <ErrorBoundary>
+          {user?.isAdmin ? (
             <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />
           ) : (
             <AdminLogin setActivePage={setActivePage} />
-          )
+          )}
+        </ErrorBoundary>
         )}
       </main>
 
@@ -190,10 +193,12 @@ function MainApp() {
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <SecurityGuard>
       <AuthProvider>
         <MainApp />
       </AuthProvider>
     </SecurityGuard>
+    </ErrorBoundary>
   );
 }
