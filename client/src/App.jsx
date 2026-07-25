@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import SecurityGuard from './components/SecurityGuard';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import Home from './pages/Home';
@@ -170,8 +171,10 @@ function MainApp() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <MainApp />
-    </AuthProvider>
+    <SecurityGuard>
+      <AuthProvider>
+        <MainApp />
+      </AuthProvider>
+    </SecurityGuard>
   );
 }

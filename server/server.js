@@ -12,6 +12,85 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// -------------------------------------------------------------
+// ENTERPRISE HIGH-GRADE SECURITY HARDENING SUITE
+// -------------------------------------------------------------
+
+// 1. Enterprise Security Headers (Prevents Clickjacking, MIME Sniffing, XSS & Code Injection)
+app.use((req, res, next) => {
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  next();
+});
+
+// 2. Strict Anti-NoSQL & Anti-XSS Sanitizer Middleware
+function sanitizeData(data) {
+  if (data === null || data === undefined) return data;
+  if (typeof data === "string") {
+    // Strip dangerous script tags and inline event handlers
+    return data
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+      .replace(/javascript:/gi, "")
+      .replace(/onload=/gi, "")
+      .replace(/onerror=/gi, "");
+  }
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeData(item));
+  }
+  if (typeof data === "object") {
+    const cleanObj = {};
+    for (const key in data) {
+      if (Object.prototype.hasOwnProperty.call(data, key)) {
+        // Strip leading $ from keys to prevent MongoDB NoSQL Injection
+        const cleanKey = key.startsWith("$") ? key.substring(1) : key;
+        cleanObj[cleanKey] = sanitizeData(data[key]);
+      }
+    }
+    return cleanObj;
+  }
+  return data;
+}
+
+app.use((req, res, next) => {
+  if (req.body) req.body = sanitizeData(req.body);
+  if (req.query) req.query = sanitizeData(req.query);
+  if (req.params) req.params = sanitizeData(req.params);
+  next();
+});
+
+// 3. Sliding Window IP Rate Limiter (Prevents DDoS, Brute-Force & Bot Attacks)
+const rateLimitMap = new Map();
+app.use((req, res, next) => {
+  const ip = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "127.0.0.1";
+  const now = Date.now();
+  const windowMs = 60 * 1000; // 1 Minute Window
+  const maxRequests = 180; // Max 180 requests per minute per IP
+
+  if (!rateLimitMap.has(ip)) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + windowMs });
+  } else {
+    const record = rateLimitMap.get(ip);
+    if (now > record.resetTime) {
+      record.count = 1;
+      record.resetTime = now + windowMs;
+    } else {
+      record.count += 1;
+      if (record.count > maxRequests) {
+        return res.status(429).json({
+          ok: false,
+          message: "Too many requests from this IP. Please wait a minute before trying again."
+        });
+      }
+    }
+  }
+  next();
+});
+
 const otpStore = new Map();
 
 // Normalize URLs so Vercel Serverless Function rewrites always match Express /api routes
