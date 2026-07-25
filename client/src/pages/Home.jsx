@@ -161,6 +161,22 @@ export default function Home({ setActivePage, openMentorProfile }) {
           <div className="text-center py-12 text-amber-400 font-mono animate-pulse">
             কোর্স ডেটা লোড হচ্ছে...
           </div>
+        ) : courses.length === 0 ? (
+          <div className="p-8 rounded-3xl bg-slate-900/80 border border-slate-800/80 text-center max-w-xl mx-auto space-y-4 shadow-2xl animate-fadeIn">
+            <span className="text-4xl block">📚</span>
+            <h3 className="text-base sm:text-lg font-bold text-white">নতুন ব্যাচ ভর্তি কার্যক্রম শীঘ্রই চালু হচ্ছে</h3>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              বিজিএস ও বার কাউন্সিল পরীক্ষা প্রস্তুতির জন্য আমাদের আপকামিং স্পেশাল ব্যাচের নোটিশ ও বিস্তারিত তথ্য খুব শীঘ্রই প্রকাশিত হবে।
+            </p>
+            <div className="pt-2">
+              <button
+                onClick={() => setActivePage('register')}
+                className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all hover:scale-105 cursor-pointer"
+              >
+                📝 রেজিস্টার / ভর্তি পেইজে যান
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {courses.map((c) => (
