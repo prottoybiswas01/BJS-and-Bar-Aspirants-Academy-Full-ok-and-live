@@ -1438,37 +1438,32 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             </div>
           </div>
 
-          {/* Navigation Group: OVERVIEW */}
-          <div className="space-y-2">
+          {/* Navigation Group: MANAGEMENT */}
+          <div className="space-y-1.5">
             <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase block px-3">
-              OVERVIEW
+              MANAGEMENT
             </span>
+
+            {/* 1. Site Settings & Banner (Top Priority Item) */}
             <button
               type="button"
-              onClick={() => setAdminTab('dashboard')}
+              onClick={() => setAdminTab('settings')}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'dashboard'
+                adminTab === 'settings'
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
                   : 'text-slate-300 hover:bg-slate-900 hover:text-white'
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <span className="text-base">📊</span>
-                <span>Dashboard</span>
+                <span className="text-base">⚙️</span>
+                <span>সাইট সেটিংস ও ব্যানার</span>
               </div>
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {students.length}
+                Edit
               </span>
             </button>
-          </div>
 
-          {/* Navigation Group: MANAGEMENT */}
-          <div className="space-y-1.5">
-            <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase block px-3 pt-2">
-              MANAGEMENT
-            </span>
-
-            {/* 1. MCQ Exam Engine */}
+            {/* 2. MCQ Exam Engine */}
             <button
               type="button"
               onClick={() => setAdminTab('mcq')}
@@ -1480,14 +1475,14 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             >
               <div className="flex items-center gap-2.5">
                 <span className="text-base">📝</span>
-                <span>온লাইন এমসিকিউ</span>
+                <span>অনলাইন এমসিকিউ</span>
               </div>
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
                 {mcqExams.length}
               </span>
             </button>
 
-            {/* 2. Merit List & PDF Generator */}
+            {/* 3. Merit List & PDF Generator */}
             <button
               type="button"
               onClick={() => setAdminTab('merit')}
@@ -1506,7 +1501,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               </span>
             </button>
 
-            {/* 3. Student Control */}
+            {/* 4. Student Control */}
             <button
               type="button"
               onClick={() => setAdminTab('students')}
@@ -1525,7 +1520,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               </span>
             </button>
 
-            {/* 4. Mentor & Faculty Control */}
+            {/* 5. Mentor & Faculty Control */}
             <button
               type="button"
               onClick={() => setAdminTab('mentors')}
@@ -1544,7 +1539,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               </span>
             </button>
 
-            {/* 5. Course Launch Manager */}
+            {/* 6. Course Launch Manager */}
             <button
               type="button"
               onClick={() => setAdminTab('courses')}
@@ -1563,7 +1558,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               </span>
             </button>
 
-            {/* 6. Payment & Receipts */}
+            {/* 7. Payment & Receipts */}
             <button
               type="button"
               onClick={() => setAdminTab('payments')}
@@ -1579,25 +1574,6 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               </div>
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
                 {receipts.length}
-              </span>
-            </button>
-
-            {/* 7. Site Settings & Banner */}
-            <button
-              type="button"
-              onClick={() => setAdminTab('settings')}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'settings'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">⚙️</span>
-                <span>সাইট সেটিংস ও ব্যানার</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                Edit
               </span>
             </button>
           </div>
