@@ -39,17 +39,53 @@ export default function Dashboard({ openVideoModal }) {
     }
   };
 
-  const handleImageFilesSelect = (e) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-
-    files.forEach(file => {
+  const compressImage = (file) => {
+    return new Promise((resolve) => {
       const reader = new FileReader();
-      reader.onload = (event) => {
-        setSubImages(prev => [...prev, event.target.result]);
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const maxDim = 1600;
+
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          resolve(compressedDataUrl);
+        };
+        img.src = e.target.result;
       };
       reader.readAsDataURL(file);
     });
+  };
+
+  const handleImageFilesSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    for (const file of files) {
+      try {
+        const compressed = await compressImage(file);
+        setSubImages(prev => [...prev, compressed]);
+      } catch (err) {
+        console.error('Image compression error:', err);
+      }
+    }
   };
 
   const removeSubImage = (index) => {
@@ -58,8 +94,8 @@ export default function Dashboard({ openVideoModal }) {
 
   const handleSubmitAssignment = async (e, assignmentId, courseId) => {
     e.preventDefault();
-    if (!subText && !subDocUrl && subImages.length === 0) {
-      alert("অনুগ্রহ করে লিখিত উত্তর, খাতার পৃষ্ঠা ছবি বা ডকুমেন্ট লিংক যোগ করুন।");
+    if (!subDocUrl && subImages.length === 0) {
+      alert("অনুগ্রহ করে খাতার পৃষ্ঠার ছবি আপলোড করুন অথবা গুগল ড্রাইভ/পিডিএফ ফাইল লিংক শেয়ার করুন।");
       return;
     }
 
@@ -549,17 +585,6 @@ export default function Dashboard({ openVideoModal }) {
 
                            {submittingAsnId === asn.id ? (
                             <form onSubmit={(e) => handleSubmitAssignment(e, asn.id, asn.courseId)} className="space-y-4 bg-slate-900 p-4 rounded-xl border border-slate-800 text-xs">
-                              <div>
-                                <label className="block text-slate-300 font-medium mb-1">আপনার লিখিত উত্তর / টাইপকৃত বিবরণ (Text Solution)</label>
-                                <textarea
-                                  rows={4}
-                                  value={subText}
-                                  onChange={(e) => setSubText(e.target.value)}
-                                  placeholder="অ্যাসাইনমেন্টের উত্তর টাইপ করুন (যদি থাকে)..."
-                                  className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 leading-relaxed"
-                                />
-                              </div>
-
                               {/* Multi-Page Handwritten Exam Paper Photo Upload */}
                               <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
                                 <div className="flex items-center justify-between">

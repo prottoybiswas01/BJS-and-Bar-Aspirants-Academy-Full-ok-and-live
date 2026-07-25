@@ -9,7 +9,8 @@ require("dotenv").config({ path: __dirname + "/.env" });
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 const otpStore = new Map();
 
@@ -1660,6 +1661,7 @@ app.post("/api/admin/mentors/save", async (req, res) => {
       body.id = "MTR-" + Date.now();
     }
     if (!body.loginApproval) body.loginApproval = "Approved";
+    if (body.email === undefined || body.email === null) body.email = "";
 
     if (body.password && !body.password.startsWith("$2a$") && !body.password.startsWith("$2b$")) {
       body.password = await bcrypt.hash(body.password, 10);
@@ -1667,22 +1669,24 @@ app.post("/api/admin/mentors/save", async (req, res) => {
 
     let savedMentor = body;
     if (isMongoConnected) {
-      let mentor = await Mentor.findOne({ id: body.id });
-      if (mentor) {
-        Object.assign(mentor, body);
-        savedMentor = await mentor.save();
-      } else {
-        savedMentor = await Mentor.create(body);
-      }
+      savedMentor = await Mentor.findOneAndUpdate(
+        { id: body.id },
+        { $set: body },
+        { upsert: true, new: true, runValidators: false }
+      ).lean();
     }
 
-    const idx = memoryDb.mentors.findIndex(m => m.id === body.id);
-    if (idx > -1) memoryDb.mentors[idx] = { ...memoryDb.mentors[idx], ...body };
-    else memoryDb.mentors.unshift({ ...body });
+    const idx = (memoryDb.mentors || []).findIndex(m => m.id === body.id);
+    if (idx > -1) {
+      memoryDb.mentors[idx] = { ...memoryDb.mentors[idx], ...savedMentor };
+    } else {
+      memoryDb.mentors.unshift(savedMentor);
+    }
 
-    return res.json({ ok: true, message: `Mentor "${body.name}" saved successfully!`, mentor: savedMentor });
+    return res.json({ ok: true, message: `মেন্টর "${body.name}" প্রোফাইল সফলভাবে সংরক্ষণ করা হয়েছে!`, mentor: savedMentor });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error saving mentor profile." });
+    console.error("Save mentor profile error:", err);
+    return res.status(500).json({ ok: false, message: "Error saving mentor profile: " + (err.message || "") });
   }
 });
 
