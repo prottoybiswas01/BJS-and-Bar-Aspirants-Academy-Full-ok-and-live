@@ -119,6 +119,9 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     allowedCourseIds: ['civil-laws-intensive']
   });
 
+  // Admin Modular Tab Navigation State
+  const [adminTab, setAdminTab] = useState('mcq'); // 'mcq' | 'merit' | 'students' | 'mentors' | 'courses' | 'payments' | 'settings'
+
   // Messaging State
   const [popupTitle, setPopupTitle] = useState('');
   const [popupBody, setPopupBody] = useState('');
@@ -1451,8 +1454,98 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             {msg.text}
           </div>
         )}
+      </section>
+
+      {/* 2.4 ADMIN EXECUTIVE MODULAR TAB SWITCHER BAR */}
+      <div className="sticky top-20 z-30 flex items-center gap-2 overflow-x-auto p-2 rounded-2xl bg-slate-950/95 border border-slate-800 backdrop-blur-md shadow-2xl">
+        <button
+          type="button"
+          onClick={() => setAdminTab('mcq')}
+          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            adminTab === 'mcq'
+              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+          }`}
+        >
+          <span>📝</span> অনলাইন এমসিকিউ এক্সাম
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('merit')}
+          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            adminTab === 'merit'
+              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+          }`}
+        >
+          <span>🏆</span> মেধা তালিকা ও রেজাল্ট
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('students')}
+          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            adminTab === 'students'
+              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+          }`}
+        >
+          <span>👨‍🎓</span> স্টুডেন্ট কন্ট্রোল ({students.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('mentors')}
+          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            adminTab === 'mentors'
+              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+          }`}
+        >
+          <span>👨‍🏫</span> মেন্টর ও ফ্যাকাল্টি ({mentors.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('courses')}
+          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            adminTab === 'courses'
+              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+          }`}
+        >
+          <span>📚</span> কোর্স লঞ্চ ম্যানেজার ({courses.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('payments')}
+          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            adminTab === 'payments'
+              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+          }`}
+        >
+          <span>💳</span> পেমেন্ট ও মানি রিসিট ({receipts.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('settings')}
+          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            adminTab === 'settings'
+              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+          }`}
+        >
+          <span>⚙️</span> সাইট সেটিংস ও ব্যানার
+        </button>
+      </div>
 
       {/* 2.5 Hero Banner Settings Section */}
+      {adminTab === 'settings' && (
+      <>
       <section className="glass-card rounded-xl p-6 border border-amber-500/30 shadow-xl space-y-4 bg-slate-950/60 transition-all">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800/80 pb-3">
           <div>
@@ -1528,7 +1621,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         )}
       </section>
 
-        {/* Admissions Overview & Monthly Enrollment Chart */}
+      {/* Admissions Overview & Monthly Enrollment Chart */}
+      <section className="glass-card rounded-xl p-6 border border-slate-800 space-y-4">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-2">
           <div className="lg:col-span-8 space-y-4">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
@@ -1628,8 +1722,12 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           </div>
         </div>
       </section>
+      </>
+      )}
 
       {/* 3. Student Control / Student Access Manager */}
+      {adminTab === 'students' && (
+      <>
       <section className="glass-card rounded-xl p-6 border border-slate-800 space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-3 gap-3">
           <div>
@@ -2048,8 +2146,11 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           </div>
         )}
       </section>
+      </>
+      )}
 
       {/* 4.5 Mentor & Faculty Manager (মেন্টর ও শিক্ষক ব্যবস্থাপনা) */}
+      {adminTab === 'mentors' && (
       <section id="mentor-manager-section" className="space-y-4 pt-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-3 gap-3">
           <div>
@@ -2384,8 +2485,10 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           </div>
         </div>
       </section>
+      )}
 
       {/* 4.5 OFFICIAL EXAM MERIT LIST & RESULT PDF GENERATOR */}
+      {adminTab === 'merit' && (
       <section className="glass-card rounded-2xl p-5 sm:p-7 border border-slate-800 space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-800 pb-4 gap-4">
           <div>
@@ -2495,8 +2598,10 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           </div>
         )}
       </section>
+      )}
 
       {/* 4.6 ONLINE MCQ EXAM MANAGER & AUTOMATED QUESTION PARSER */}
+      {adminTab === 'mcq' && (
       <section className="glass-card rounded-2xl p-5 sm:p-7 border border-slate-800 space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-800 pb-4 gap-4">
           <div>
@@ -2696,8 +2801,10 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           )}
         </div>
       </section>
+      )}
 
       {/* 5. Course Control & Course Launch Manager */}
+      {adminTab === 'courses' && (
       <section id="course-launch-manager-section" className="space-y-4 pt-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-3 gap-3">
           <div>
@@ -2984,8 +3091,10 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           </div>
         </div>
       </section>
+      )}
 
       {/* 8. PAYMENT FOR STUDENT (স্টুডেন্ট পেমেন্ট ও মানি রিসিট ব্যবস্থাপনা) */}
+      {adminTab === 'payments' && (
       <section id="payment-form-section" className="glass-card rounded-2xl p-6 border border-emerald-500/40 shadow-2xl space-y-6 bg-slate-950/70 relative">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800 pb-4 gap-3">
           <div>
@@ -3387,6 +3496,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           </div>
         </div>
       </section>
+      )}
 
       {/* Printable Money Receipt Slip Modal */}
       {receiptPreviewModal.isOpen && receiptPreviewModal.receipt && (
