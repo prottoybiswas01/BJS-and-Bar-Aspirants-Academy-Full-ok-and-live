@@ -1388,10 +1388,6 @@ app.post("/api/auth/mentor/register", async (req, res) => {
       existingByEmail = await Mentor.findOne({ email: cleanEmail });
     }
 
-    if (existingByEmail && existingByEmail.password) {
-      return res.status(400).json({ ok: false, message: "এই ইমেইল দিয়ে ইতোমধ্যে একটি মেন্টর একাউন্ট তৈরি রয়েছে।" });
-    }
-
     // 2. Check if a showcased profile with matching Name or unlinked email exists
     let existingProfile = existingByEmail;
     if (!existingProfile) {
