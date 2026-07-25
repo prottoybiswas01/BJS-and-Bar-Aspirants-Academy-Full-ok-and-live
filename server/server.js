@@ -2336,6 +2336,7 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
       status: body.status || "Active",
       startDate: body.startDate ? new Date(body.startDate) : null,
       endDate: body.endDate ? new Date(body.endDate) : null,
+      attemptLimit: Number(body.attemptLimit) !== undefined ? Number(body.attemptLimit) : 1,
       questions: Array.isArray(body.questions) ? body.questions : [],
       createdBy: body.createdBy || "Admin",
       createdAt: new Date()
@@ -2434,6 +2435,23 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
     }
     if (!exam) {
       return res.status(404).json({ ok: false, message: "এমসিকিউ পরীক্ষা খুঁজে পাওয়া যায়নি।" });
+    }
+
+    // 1.5 Check Attempt Limit (e.g. 1-Time Limit vs Unlimited)
+    const limit = Number(exam.attemptLimit) !== undefined ? Number(exam.attemptLimit) : 1;
+    if (limit > 0 && candidatePhone) {
+      let pastAttempts = 0;
+      if (isMongoConnected) {
+        pastAttempts = await McqResult.countDocuments({ examId, candidatePhone });
+      } else {
+        pastAttempts = (memoryDb.mcqResults || []).filter(r => r.examId === examId && r.candidatePhone === candidatePhone).length;
+      }
+      if (pastAttempts >= limit) {
+        return res.status(400).json({
+          ok: false,
+          message: `আপনি ইতিমধ্যে ${pastAttempts}-বার এই পরীক্ষায় অংশগ্রহণ করেছেন! আপনার জন্য সর্বোচ্চ লিমিট ${limit}-টি সুযোগ দেওয়া আছে।`
+        });
+      }
     }
 
     // 2. Grade Submission

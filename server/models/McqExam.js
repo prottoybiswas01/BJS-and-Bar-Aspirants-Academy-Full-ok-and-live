@@ -20,6 +20,7 @@ const McqExamSchema = new mongoose.Schema({
   status: { type: String, default: "Active" }, // Active / Closed
   startDate: { type: Date, default: null },
   endDate: { type: Date, default: null },
+  attemptLimit: { type: Number, default: 1 }, // 1 = Single Attempt Only per candidate, 0 = Unlimited
   questions: [McqQuestionSchema],
   createdBy: { type: String, default: "Admin" },
   createdAt: { type: Date, default: Date.now }

@@ -142,9 +142,10 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     courseId: '',
     durationMinutes: 30,
     passPercentage: 50,
+    attemptLimit: 1, // 1 = Single Attempt, 0 = Unlimited
     startDate: '',
     endDate: '',
-    rawQuestionText: '' // Automated Question Parser text input
+    rawQuestionText: ''
   });
   const [parsedQuestions, setParsedQuestions] = useState([]);
 
@@ -434,6 +435,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         courseId: mcqForm.courseId,
         durationMinutes: Number(mcqForm.durationMinutes) || 30,
         passPercentage: Number(mcqForm.passPercentage) || 50,
+        attemptLimit: Number(mcqForm.attemptLimit) !== undefined ? Number(mcqForm.attemptLimit) : 1,
         startDate: mcqForm.startDate || null,
         endDate: mcqForm.endDate || null,
         questions: parsedQuestions
@@ -441,7 +443,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
       if (res.data.ok) {
         showToast(res.data.message || '✓ এমসিকিউ পরীক্ষা সেভ ও অটো-পার্স করা হয়েছে!', 'success');
-        setMcqForm({ id: '', title: '', courseId: '', durationMinutes: 30, passPercentage: 50, startDate: '', endDate: '', rawQuestionText: '' });
+        setMcqForm({ id: '', title: '', courseId: '', durationMinutes: 30, passPercentage: 50, attemptLimit: 1, startDate: '', endDate: '', rawQuestionText: '' });
         setParsedQuestions([]);
         loadAllAdminData();
       }
@@ -2913,7 +2915,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
         {/* MCQ Exam Creation & Question Parser Form */}
         <form onSubmit={handleSaveMcqExam} className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4 text-xs">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-slate-300 font-bold mb-1">পরীক্ষার শিরোনাম (Exam Title) *</label>
               <input
@@ -2941,12 +2943,25 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               <select
                 value={mcqForm.courseId}
                 onChange={(e) => setMcqForm({ ...mcqForm, courseId: e.target.value })}
-                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white focus:outline-none focus:border-amber-500"
+                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white focus:outline-none focus:border-amber-500 cursor-pointer"
               >
                 <option value="">-- সর্বজনীন / সকল ব্যাচ --</option>
                 {courses.map(c => (
                   <option key={c.id} value={c.id}>{c.title}</option>
                 ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-amber-300 font-bold mb-1">পরীক্ষার সুযোগ লিমিট (Attempt Limit)</label>
+              <select
+                value={mcqForm.attemptLimit !== undefined ? mcqForm.attemptLimit : 1}
+                onChange={(e) => setMcqForm({ ...mcqForm, attemptLimit: Number(e.target.value) })}
+                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white focus:outline-none focus:border-amber-500 font-bold cursor-pointer"
+              >
+                <option value={1}>১-বার মাত্র (1 Time Attempt per Student)</option>
+                <option value={2}>২-বার সুযোগ (2 Attempts)</option>
+                <option value={0}>আনলিমিটেড সুযোগ (Unlimited Attempts)</option>
               </select>
             </div>
           </div>
@@ -2976,14 +2991,16 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             </div>
           </div>
 
-          {/* Direct File Upload Parser Button */}
-          <div className="p-4 rounded-xl bg-cyan-950/30 border border-cyan-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Direct File Upload Parser Box */}
+          <div className="p-5 rounded-2xl bg-cyan-950/40 border border-cyan-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
             <div>
-              <span className="text-cyan-300 font-bold block text-xs">📂 ডিরেক্ট ফাইল আপলোড পার্সার (File Drag & Drop):</span>
-              <p className="text-[11px] text-slate-400">PDF, Word Document (.docx), বা Text (.txt) প্রশ্ন ফাইল সরাসরি আপলোড করুন</p>
+              <span className="text-cyan-300 font-extrabold block text-sm flex items-center gap-2">
+                <span>📂</span> ডিরেক্ট ফাইল আপলোড পার্সার (File Drag & Drop)
+              </span>
+              <p className="text-xs text-slate-300 mt-1">PDF, Word Document (.docx), বা Text (.txt) প্রশ্ন ফাইল সরাসরি আপলোড করুন। ফাইল থেকে স্বয়ংক্রিয়ভাবে প্রশ্ন, অপশন (ক, খ, গ, ঘ) ও ব্যাখ্যা এক্সট্রাক্ট করা হবে।</p>
             </div>
-            <label className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs transition-all shadow-md cursor-pointer shrink-0 text-center">
-              <span>📂</span> প্রশ্ন ফাইল সিলেক্ট করুন
+            <label className="px-5 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs transition-all shadow-lg shadow-cyan-500/20 cursor-pointer shrink-0 text-center">
+              <span>📂</span> প্রশ্ন ফাইল সিলেক্ট করুন (.pdf, .docx, .txt)
               <input
                 type="file"
                 accept=".pdf,.docx,.txt"
@@ -2993,34 +3010,14 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             </label>
           </div>
 
-          {/* Raw Question Parser Textarea */}
-          <div className="space-y-1.5">
-            <label className="block text-amber-400 font-bold">
-              এমসিকিউ প্রশ্নব্যাংক ইনপুট/পেস্ট করুন (Automated Question Parser):
-            </label>
-            <p className="text-[11px] text-slate-400">
-              ফরম্যাট নমুনা: <code className="text-amber-300 font-mono">১. প্রশ্ন?  ক. অপশন ১  খ. অপশন ২ (✓)  গ. অপশন ৩  ঘ. অপশন ৪  ব্যাখ্যা: বিবরণ</code>
-            </p>
-            <textarea
-              rows={6}
-              value={mcqForm.rawQuestionText}
-              onChange={(e) => {
-                setMcqForm({ ...mcqForm, rawQuestionText: e.target.value });
-                handleParseQuestions(e.target.value);
-              }}
-              placeholder="এখানে প্রশ্ন, অপশন ও ব্যাখ্যা পেস্ট করুন..."
-              className="w-full rounded-xl bg-slate-900 border border-slate-800 p-3.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-amber-500 leading-relaxed"
-            />
-          </div>
-
-          {/* Parsed Preview Count */}
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-mono font-bold text-emerald-400">
-              ✓ অটো-পার্সকৃত প্রশ্ন সংখ্যা: {parsedQuestions.length} টি
+          {/* Parsed Preview Count & Submit Action */}
+          <div className="flex items-center justify-between border-t border-slate-800 pt-3">
+            <span className="text-xs font-mono font-bold text-emerald-400 flex items-center gap-1.5">
+              <span>✓</span> অটো-পার্সকৃত প্রশ্ন সংখ্যা: {parsedQuestions.length} টি
             </span>
             <button
               type="submit"
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
+              className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
             >
               📢 এমসিকিউ পরীক্ষা প্রকাশ করুন
             </button>
