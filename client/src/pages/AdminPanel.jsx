@@ -1487,21 +1487,22 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     return hasReceipt || s.loginApproval === 'Approved';
   };
 
-    const filteredMcqResults = useMemo(() => {
-    return (mcqResults || []).filter(r => {
-      if (selectedMcqCourseFilter && r.courseId !== selectedMcqCourseFilter && r.courseTitle !== selectedMcqCourseFilter) return false;
-      if (selectedMcqExamFilter && r.examId !== selectedMcqExamFilter) return false;
-      if (mcqResultSearch) {
-        const s = mcqResultSearch.toLowerCase();
-        const matchName = (r.candidateName || '').toLowerCase().includes(s);
-        const matchPhone = (r.candidatePhone || '').includes(s);
-        const matchEmail = (r.candidateEmail || '').toLowerCase().includes(s);
-        const matchExam = (r.examTitle || '').toLowerCase().includes(s);
-        if (!matchName && !matchPhone && !matchEmail && !matchExam) return false;
-      }
-      return true;
-    });
-  }, [mcqResults, selectedMcqCourseFilter, selectedMcqExamFilter, mcqResultSearch]);
+  const filteredMcqResults = (mcqResults || []).filter(r => {
+    if (!r) return false;
+    if (selectedMcqCourseFilter && r.courseId !== selectedMcqCourseFilter && r.courseTitle !== selectedMcqCourseFilter) return false;
+    if (selectedMcqExamFilter && r.examId !== selectedMcqExamFilter) return false;
+    if (mcqResultSearch) {
+      const s = String(mcqResultSearch || '').toLowerCase();
+      const matchName = (r.candidateName || '').toLowerCase().includes(s);
+      const matchPhone = String(r.candidatePhone || '').includes(s);
+      const matchEmail = (r.candidateEmail || '').toLowerCase().includes(s);
+      const matchExam = (r.examTitle || '').toLowerCase().includes(s);
+      if (!matchName && !matchPhone && !matchEmail && !matchExam) return false;
+    }
+    return true;
+  });
+
+
 
 return (
     <div className="min-h-screen bg-[#070d19] text-slate-100 font-sans flex flex-col lg:flex-row gap-6 p-2 sm:p-4 animate-fadeIn relative">
