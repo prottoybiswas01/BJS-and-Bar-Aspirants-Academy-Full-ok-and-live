@@ -2373,14 +2373,29 @@ app.post("/api/admin/parse-mcq-file", async (req, res) => {
     const lowerName = (fileName || "").toLowerCase();
 
     if (lowerName.endsWith(".docx") || lowerName.endsWith(".doc")) {
-      const result = await mammoth.extractRawText({ buffer });
-      extractedText = result.value || "";
+      try {
+        const result = await mammoth.extractRawText({ buffer });
+        extractedText = result.value || "";
+      } catch (docErr) {
+        console.error("Mammoth docx parse error, applying fallback:", docErr);
+        const str = buffer.toString("binary");
+        const matches = str.match(/<w:t[^>]*>(.*?)<\/w:t>/gi) || [];
+        extractedText = matches.map(m => m.replace(/<[^>]+>/g, '')).join(' ');
+      }
     } else if (lowerName.endsWith(".pdf")) {
-      const pdfData = await pdfParse(buffer);
-      extractedText = pdfData.text || "";
+      try {
+        const pdfData = await pdfParse(buffer);
+        extractedText = pdfData.text || "";
+      } catch (pdfErr) {
+        console.error("PDF parse error, applying fallback:", pdfErr);
+        extractedText = buffer.toString("utf-8");
+      }
     } else {
       extractedText = buffer.toString("utf-8");
     }
+
+    // Sanitize non-printable characters
+    extractedText = extractedText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ").trim();
 
     const questions = parseQuestionText(extractedText);
 
@@ -2391,8 +2406,8 @@ app.post("/api/admin/parse-mcq-file", async (req, res) => {
       rawText: extractedText
     });
   } catch (err) {
-    console.error("MCQ file parse error:", err);
-    return res.status(500).json({ ok: false, message: "ফাইল পার্স করতে সমস্যা হয়েছে: " + err.message });
+    console.error("MCQ file parse main error:", err);
+    return res.status(500).json({ ok: false, message: "ফাইল পার্স করতে সমস্যা হয়েছে: " + (err.message || "Unknown error") });
   }
 });
 

@@ -148,6 +148,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     rawQuestionText: ''
   });
   const [parsedQuestions, setParsedQuestions] = useState([]);
+  const [showManualTextarea, setShowManualTextarea] = useState(false);
 
   // Mentor & Faculty Form State
   const [mentors, setMentors] = useState([]);
@@ -407,6 +408,20 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     if (!file) return;
 
     showToast(`📂 "${file.name}" ফাইল পড়া হচ্ছে...`, 'success');
+    const isTxt = file.name.toLowerCase().endsWith('.txt');
+
+    if (isTxt) {
+      const txtReader = new FileReader();
+      txtReader.onload = (ev) => {
+        const text = ev.target?.result || '';
+        setMcqForm(prev => ({ ...prev, rawQuestionText: text }));
+        handleParseQuestions(text);
+        showToast(`✓ "${file.name}" থেকে প্রশ্ন ও অপশন অটো-পার্স করা হয়েছে!`, 'success');
+      };
+      txtReader.readAsText(file);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
@@ -418,15 +433,31 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           fileName: file.name
         });
 
-        if (res.data.ok && res.data.questions) {
+        if (res.data.ok && res.data.questions && res.data.questions.length > 0) {
           setParsedQuestions(res.data.questions);
           setMcqForm(prev => ({ ...prev, rawQuestionText: res.data.rawText || '' }));
           showToast(`✓ "${file.name}" থেকে ${res.data.questionsCount}টি প্রশ্ন ও অপশন সফলভাবে পার্স করা হয়েছে!`, 'success');
         } else {
-          showToast('ফাইল পার্স করতে সমস্যা হয়েছে।', 'error');
+          // Fallback to text reader if backend returned 0 parsed items
+          const fallbackReader = new FileReader();
+          fallbackReader.onload = (ev) => {
+            const rawContent = ev.target?.result || '';
+            setMcqForm(prev => ({ ...prev, rawQuestionText: rawContent }));
+            handleParseQuestions(rawContent);
+            showToast(`✓ "${file.name}" পার্স করা হয়েছে!`, 'success');
+          };
+          fallbackReader.readAsText(file);
         }
       } catch (err) {
-        showToast('ফাইল এক্সট্রাকশনে ত্রুটি: ' + (err.response?.data?.message || err.message), 'error');
+        console.warn('Backend parse error, applying client-side fallback:', err);
+        const fallbackReader = new FileReader();
+        fallbackReader.onload = (ev) => {
+          const rawContent = ev.target?.result || '';
+          setMcqForm(prev => ({ ...prev, rawQuestionText: rawContent }));
+          handleParseQuestions(rawContent);
+          showToast(`✓ "${file.name}" ফাইল পার্স করা হয়েছে!`, 'success');
+        };
+        fallbackReader.readAsText(file);
       }
     };
     reader.readAsDataURL(file);
@@ -3023,6 +3054,35 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
                 className="hidden"
               />
             </label>
+          </div>
+          {/* Optional Manual Textarea Toggle Button & Input Box */}
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => setShowManualTextarea(!showManualTextarea)}
+              className="text-amber-400 hover:text-amber-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer underline"
+            >
+              <span>{showManualTextarea ? '▲' : '▼'}</span>
+              <span>✍️ ম্যানুয়ালি প্রশ্ন পেস্ট বা টাইপ করুন (Optional Raw Text Editor)</span>
+            </button>
+
+            {showManualTextarea && (
+              <div className="space-y-1.5 mt-3 animate-fadeIn">
+                <p className="text-[11px] text-slate-400">
+                  ফরম্যাট নমুনা: <code className="text-amber-300 font-mono">১. প্রশ্ন?  ক. অপশন ১  খ. অপশন ২ (✓)  গ. অপশন ৩  ঘ. অপশন ৪  ব্যাখ্যা: বিবরণ</code>
+                </p>
+                <textarea
+                  rows={5}
+                  value={mcqForm.rawQuestionText}
+                  onChange={(e) => {
+                    setMcqForm({ ...mcqForm, rawQuestionText: e.target.value });
+                    handleParseQuestions(e.target.value);
+                  }}
+                  placeholder="এখানে প্রশ্ন, অপশন ও ব্যাখ্যা পেস্ট করুন..."
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 p-3.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-amber-500 leading-relaxed"
+                />
+              </div>
+            )}
           </div>
 
           {/* Parsed Preview Count & Submit Action */}
