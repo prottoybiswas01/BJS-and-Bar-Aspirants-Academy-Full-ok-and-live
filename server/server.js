@@ -2552,6 +2552,76 @@ app.delete("/api/admin/courses/:id", async (req, res) => {
   }
 });
 
+// -------------------------------------------------------------
+// SITE SETTINGS & HERO BANNER ENDPOINTS
+// -------------------------------------------------------------
+
+// GET Site Settings (Hero Banner, Admin credentials metadata)
+app.get(["/api/site-settings", "/api/admin/site-settings"], async (req, res) => {
+  try {
+    let settings = null;
+    if (isMongoConnected) {
+      settings = await SiteSetting.findOne({ id: "default_settings" }).lean();
+      if (!settings) {
+        settings = await SiteSetting.create({ id: "default_settings" });
+        if (settings.toObject) settings = settings.toObject();
+      }
+    } else {
+      settings = memoryDb.siteSettings || {
+        badgeText: "🔥 ১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!",
+        heroTitle: "বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য",
+        heroSubtitle: "বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।"
+      };
+    }
+    return res.json({ ok: true, settings });
+  } catch (err) {
+    console.error("Error fetching site settings:", err);
+    return res.json({
+      ok: true,
+      settings: {
+        badgeText: "🔥 ১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!",
+        heroTitle: "বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য",
+        heroSubtitle: "বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।"
+      }
+    });
+  }
+});
+
+// SAVE / UPDATE Site Settings (Admin Panel Hero Banner)
+app.post("/api/admin/site-settings", async (req, res) => {
+  try {
+    const body = req.body;
+    const updateData = {
+      badgeText: body.badgeText || "🔥 ১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!",
+      heroTitle: body.heroTitle || "বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য",
+      heroSubtitle: body.heroSubtitle || "বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।"
+    };
+
+    let updated = updateData;
+    if (isMongoConnected) {
+      let doc = await SiteSetting.findOne({ id: "default_settings" });
+      if (doc) {
+        Object.assign(doc, updateData);
+        updated = await doc.save();
+      } else {
+        updated = await SiteSetting.create({ id: "default_settings", ...updateData });
+      }
+      if (updated && updated.toObject) updated = updated.toObject();
+    }
+
+    memoryDb.siteSettings = { ...memoryDb.siteSettings, ...updateData };
+
+    return res.json({
+      ok: true,
+      message: "হিরো ব্যানার সেটিং সফলভাবে সেভ করা হয়েছে!",
+      settings: updated
+    });
+  } catch (err) {
+    console.error("Save site settings error:", err);
+    return res.status(500).json({ ok: false, message: "হিরো ব্যানার সেভ করতে সমস্যা হয়েছে।" });
+  }
+});
+
 // GET All MCQ Exams (Admin / Public)
 app.get("/api/admin/mcq-exams", async (req, res) => {
   try {

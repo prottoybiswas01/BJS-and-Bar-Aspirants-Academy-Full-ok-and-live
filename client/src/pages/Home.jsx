@@ -15,9 +15,9 @@ export default function Home({ setActivePage, openMentorProfile }) {
   });
 
   const [siteSettings, setSiteSettings] = useState({
-    badgeText: '🔥 ১৮তম বিজিএস ও বার কাউন্সিল স্পেশাল ব্যাচে ভর্তি চলছে',
-    heroTitle: 'BJS & Bar Aspirants Academy\nJudiciary & Advocacy Excellence Portal',
-    heroSubtitle: 'বাংলাদেশের অন্যতম প্রধান আইন একাডেমিতে আপনাকে স্বাগতম। জুডিশিয়ারি ও বার কাউন্সিল প্রস্তুতির সেরা গাইডলাইন।'
+    badgeText: '🔥 ১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!',
+    heroTitle: 'বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য',
+    heroSubtitle: 'বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।'
   });
 
   useEffect(() => {
