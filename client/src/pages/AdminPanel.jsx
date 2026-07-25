@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 
+const DEFAULT_ACADEMY_COURSES = [
+  { id: 'bjs-masterclass', title: 'BJS Judicial Officer Masterclass (১৮তম বিজিএস সমন্বিত কোর্স)' },
+  { id: 'bar-advocacy', title: 'Bar Council Advocacy Premium Batch (বার কাউন্সিল ভাইবা ও লিখিত)' },
+  { id: 'civil-laws', title: 'Civil Laws Intensive Special Batch (দেওয়ানী আইন ও প্রতিকার)' },
+  { id: 'penal-evidence', title: 'Penal Code & Evidence Act Crash Course (পেনাল কোড ও সাক্ষ্য আইন)' },
+  { id: 'crpc-cpc-laws', title: 'CrPC & CPC Special Laws Procedure (ফৌজদারী ও দেওয়ানী কার্যবিধি)' }
+];
+
 export default function AdminPanel({ openLessonManager, openVideoModal, openMentorProfile }) {
   const [stats, setStats] = useState({
     totalStudents: 0,
@@ -13,7 +21,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   });
 
   const [students, setStudents] = useState([]);
-  const [courses, setCourses] = useState([]);
+  const [courses, setCourses] = useState(DEFAULT_ACADEMY_COURSES);
   const [mailSettings, setMailSettings] = useState({
     enabled: true,
     fallbackEmail: 'bjsacademy38@gmail.com',
@@ -347,7 +355,14 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
       if (results[0].status === 'fulfilled' && results[0].value.data?.ok) setStats(results[0].value.data);
       if (results[1].status === 'fulfilled' && results[1].value.data?.ok) setStudents(results[1].value.data.students || []);
-      if (results[2].status === 'fulfilled' && results[2].value.data?.ok) setCourses(results[2].value.data.courses || []);
+      
+      const loadedCourses = results[2].status === 'fulfilled' ? (results[2].value.data?.courses || results[2].value.data) : [];
+      if (Array.isArray(loadedCourses) && loadedCourses.length > 0) {
+        setCourses(loadedCourses);
+      } else {
+        setCourses(DEFAULT_ACADEMY_COURSES);
+      }
+
       if (results[3].status === 'fulfilled' && results[3].value.data?.ok) setMailSettings(results[3].value.data.settings);
       if (results[4].status === 'fulfilled' && results[4].value.data?.ok && results[4].value.data.settings) setSiteSettingsForm(results[4].value.data.settings);
       if (results[5].status === 'fulfilled' && results[5].value.data?.ok) setMentors(results[5].value.data.mentors || []);
