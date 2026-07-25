@@ -101,12 +101,6 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
             ) : (
               <div className="flex items-center space-x-1.5 sm:space-x-2">
                 <button
-                  onClick={() => setActivePage('mentor-login')}
-                  className="px-2 sm:px-3 py-1.5 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors hidden sm:block"
-                >
-                  👨‍🏫 মেন্টর লগইন
-                </button>
-                <button
                   onClick={() => setActivePage('login')}
                   className="px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition-colors"
                 >
