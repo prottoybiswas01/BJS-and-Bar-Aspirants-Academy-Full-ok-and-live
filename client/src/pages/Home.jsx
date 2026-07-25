@@ -15,9 +15,9 @@ export default function Home({ setActivePage, openMentorProfile }) {
   });
 
   const [siteSettings, setSiteSettings] = useState({
-    badgeText: '',
-    heroTitle: '',
-    heroSubtitle: ''
+    badgeText: '🔥 ১৮তম বিজিএস ও বার কাউন্সিল স্পেশাল ব্যাচে ভর্তি চলছে',
+    heroTitle: 'BJS & Bar Aspirants Academy\nJudiciary & Advocacy Excellence Portal',
+    heroSubtitle: 'বাংলাদেশের অন্যতম প্রধান আইন একাডেমিতে আপনাকে স্বাগতম। জুডিশিয়ারি ও বার কাউন্সিল প্রস্তুতির সেরা গাইডলাইন।'
   });
 
   useEffect(() => {
@@ -56,7 +56,11 @@ export default function Home({ setActivePage, openMentorProfile }) {
     api.get('/site-settings')
       .then((res) => {
         if (res.data.ok && res.data.settings) {
-          setSiteSettings(res.data.settings);
+          setSiteSettings(prev => ({
+            badgeText: res.data.settings.badgeText || prev.badgeText,
+            heroTitle: res.data.settings.heroTitle || prev.heroTitle,
+            heroSubtitle: res.data.settings.heroSubtitle || prev.heroSubtitle
+          }));
         }
       })
       .catch((err) => console.log('Site settings error:', err));
@@ -70,19 +74,19 @@ export default function Home({ setActivePage, openMentorProfile }) {
         <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center space-y-6">
-          {siteSettings.badgeText && (
+          {(siteSettings.badgeText || '🔥 ১৮তম বিজিএস ও বার কাউন্সিল স্পেশাল ব্যাচে ভর্তি চলছে') && (
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] sm:text-xs font-semibold max-w-full text-center leading-snug">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0"></span>
-              <span className="line-clamp-2">{siteSettings.badgeText}</span>
+              <span className="line-clamp-2">{siteSettings.badgeText || '🔥 ১৮তম বিজিএস ও বার কাউন্সিল স্পেশাল ব্যাচে ভর্তি চলছে'}</span>
             </div>
           )}
 
           <h1 className="text-2xl sm:text-5xl font-extrabold text-white tracking-tight leading-snug sm:leading-tight whitespace-pre-line">
-            {siteSettings.heroTitle}
+            {siteSettings.heroTitle || "BJS & Bar Aspirants Academy\nJudiciary & Advocacy Excellence Portal"}
           </h1>
 
           <p className="text-xs sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            {siteSettings.heroSubtitle}
+            {siteSettings.heroSubtitle || "বাংলাদেশের অন্যতম প্রধান আইন একাডেমিতে আপনাকে স্বাগতম। জুডিশিয়ারি ও বার কাউন্সিল প্রস্তুতির সেরা গাইডলাইন।"}
           </p>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4 pt-2 w-full max-w-md sm:max-w-none mx-auto">
