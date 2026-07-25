@@ -17,4 +17,19 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && (error.response.status === 401 || error.response.data?.deleted)) {
+      const storedUser = localStorage.getItem('bjs_user');
+      if (storedUser) {
+        localStorage.removeItem('bjs_token');
+        localStorage.removeItem('bjs_user');
+        window.location.href = '/';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default api;

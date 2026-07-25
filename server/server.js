@@ -126,6 +126,47 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// Real-Time Account Session Verification (Triggers Instant Auto-Logout if deleted/deactivated)
+app.get("/api/auth/verify-session", async (req, res) => {
+  try {
+    const { id, isMentor, isAdmin } = req.query;
+    if (isAdmin === "true") return res.json({ ok: true });
+    if (!id) return res.status(401).json({ ok: false, deleted: true });
+
+    if (isMentor === "true") {
+      let mentor = (memoryDb.mentors || []).find(m => m.id === id || m._id === id);
+      if (!mentor && isMongoConnected) {
+        mentor = await Mentor.findOne({
+          $or: [
+            { id: id },
+            ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])
+          ]
+        });
+      }
+      if (!mentor || mentor.status === "Inactive" || mentor.loginApproval === "Rejected") {
+        return res.status(401).json({ ok: false, deleted: true, message: "একাউন্টটি স্থায়ীভাবে অপসারিত বা বাতিল করা হয়েছে।" });
+      }
+      return res.json({ ok: true, status: mentor.status });
+    } else {
+      let student = (memoryDb.students || []).find(s => s.id === id || s._id === id);
+      if (!student && isMongoConnected) {
+        student = await Student.findOne({
+          $or: [
+            { id: id },
+            ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])
+          ]
+        });
+      }
+      if (!student || student.status === "Inactive") {
+        return res.status(401).json({ ok: false, deleted: true, message: "একাউন্টটি স্থায়ীভাবে অপসারিত করা হয়েছে।" });
+      }
+      return res.json({ ok: true, status: student.status });
+    }
+  } catch (e) {
+    return res.json({ ok: true });
+  }
+});
+
 // 2. Student Registration Request
 app.post("/api/auth/register", async (req, res) => {
   try {

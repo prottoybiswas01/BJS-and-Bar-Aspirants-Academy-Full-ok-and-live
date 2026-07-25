@@ -30,6 +30,36 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, [token]);
 
+  // Real-Time Account Deletion/Deactivation Monitor (Auto Logouts deleted accounts in < 4s)
+  useEffect(() => {
+    if (!user || user.isAdmin || !user.id) return;
+
+    const checkSessionStatus = async () => {
+      try {
+        const res = await api.get('/auth/verify-session', {
+          params: {
+            id: user.id,
+            isMentor: !!user.isMentor,
+            isAdmin: !!user.isAdmin
+          }
+        });
+        if (res.data && res.data.deleted) {
+          logout();
+          window.location.href = '/';
+        }
+      } catch (err) {
+        if (err.response && (err.response.status === 401 || err.response.data?.deleted)) {
+          logout();
+          window.location.href = '/';
+        }
+      }
+    };
+
+    checkSessionStatus();
+    const interval = setInterval(checkSessionStatus, 4000);
+    return () => clearInterval(interval);
+  }, [user]);
+
   const login = async (identifier, password) => {
     const deviceId = getDeviceId();
     const platform = navigator.platform || 'Web Browser';
