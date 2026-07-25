@@ -117,6 +117,8 @@ const Mentor = require("./models/Mentor");
 const Receipt = require("./models/Receipt");
 const Assignment = require("./models/Assignment");
 const Submission = require("./models/Submission");
+const McqExam = require("./models/McqExam");
+const McqResult = require("./models/McqResult");
 
 // State flags
 let isMongoConnected = false;
@@ -132,6 +134,8 @@ const memoryDb = {
   assignments: [],
   submissions: [],
   receipts: [],
+  mcqExams: [],
+  mcqResults: [],
   devices: [],
   mailSettings: {
     enabled: true,
@@ -2304,6 +2308,328 @@ app.post("/api/admin/generate-master-submissions-pdf", async (req, res) => {
   } catch (err) {
     console.error("Master submissions PDF error:", err);
     res.status(500).json({ ok: false, message: "Error generating Master Submissions PDF: " + err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// ONLINE MCQ EXAM ENGINE & AUTOMATED QUESTION PARSER ENDPOINTS
+// -------------------------------------------------------------
+
+// SAVE / UPDATE MCQ Exam (Admin)
+app.post("/api/admin/mcq-exams/save", async (req, res) => {
+  try {
+    const body = req.body;
+    if (!body.title) {
+      return res.status(400).json({ ok: false, message: "পরীক্ষার শিরোনাম আবশ্যক।" });
+    }
+
+    const examId = body.id || ("MCQ-2026-" + Math.floor(1000 + Math.random() * 9000));
+    const examData = {
+      id: examId,
+      title: body.title,
+      courseId: body.courseId || "",
+      courseTitle: body.courseTitle || "",
+      durationMinutes: Number(body.durationMinutes) || 30,
+      totalMarks: Number(body.totalMarks) || (body.questions ? body.questions.length : 40),
+      passPercentage: Number(body.passPercentage) || 50,
+      isPublic: body.isPublic !== false,
+      status: body.status || "Active",
+      questions: Array.isArray(body.questions) ? body.questions : [],
+      createdBy: body.createdBy || "Admin",
+      createdAt: new Date()
+    };
+
+    let savedExam = examData;
+
+    if (isMongoConnected) {
+      let existing = await McqExam.findOne({ id: examId });
+      if (existing) {
+        Object.assign(existing, examData);
+        savedExam = await existing.save();
+      } else {
+        savedExam = await McqExam.create(examData);
+      }
+      if (savedExam && savedExam.toObject) savedExam = savedExam.toObject();
+    }
+
+    const idx = (memoryDb.mcqExams || []).findIndex(e => e.id === examId);
+    if (idx > -1) {
+      memoryDb.mcqExams[idx] = { ...memoryDb.mcqExams[idx], ...examData };
+    } else {
+      (memoryDb.mcqExams = memoryDb.mcqExams || []).unshift(examData);
+    }
+
+    return res.json({
+      ok: true,
+      message: `এমসিকিউ পরীক্ষা "${savedExam.title}" সফলভাবে সেভ করা হয়েছে!`,
+      exam: savedExam
+    });
+  } catch (err) {
+    console.error("Save MCQ Exam error:", err);
+    return res.status(500).json({ ok: false, message: "এমসিকিউ পরীক্ষা তৈরিতে সমস্যা হয়েছে।" });
+  }
+});
+
+// GET All MCQ Exams (Admin / Public)
+app.get("/api/admin/mcq-exams", async (req, res) => {
+  try {
+    if (isMongoConnected) {
+      const exams = await McqExam.find().sort({ createdAt: -1 }).lean();
+      return res.json({ ok: true, exams });
+    }
+    return res.json({ ok: true, exams: memoryDb.mcqExams || [] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error fetching MCQ exams." });
+  }
+});
+
+// GET Single MCQ Exam by ID (Public Exam Player)
+app.get("/api/mcq-exams/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    let exam = (memoryDb.mcqExams || []).find(e => e.id === id);
+    if (!exam && isMongoConnected) {
+      exam = await McqExam.findOne({ id }).lean();
+    }
+    if (!exam) {
+      return res.status(404).json({ ok: false, message: "এমসিকিউ পরীক্ষা খুঁজে পাওয়া যায়নি।" });
+    }
+    return res.json({ ok: true, exam });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error fetching MCQ exam." });
+  }
+});
+
+// DELETE MCQ Exam
+app.delete("/api/admin/mcq-exams/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (isMongoConnected) {
+      await McqExam.deleteMany({ id });
+      await McqResult.deleteMany({ examId: id });
+    }
+    memoryDb.mcqExams = (memoryDb.mcqExams || []).filter(e => e.id !== id);
+    memoryDb.mcqResults = (memoryDb.mcqResults || []).filter(r => r.examId !== id);
+
+    return res.json({ ok: true, message: "এমসিকিউ পরীক্ষা এবং এর সকল ফলাফল সফলভাবে ডিলিট করা হয়েছে!" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error deleting MCQ exam." });
+  }
+});
+
+// SUBMIT MCQ Exam (Candidate / Student)
+app.post("/api/mcq-exams/submit", async (req, res) => {
+  try {
+    const { examId, candidateName, candidatePhone, candidateEmail, candidateUniversity, answers } = req.body;
+    if (!examId || !candidateName) {
+      return res.status(400).json({ ok: false, message: "পরীক্ষার আইডি এবং পরীক্ষার্থীর নাম আবশ্যক।" });
+    }
+
+    // 1. Fetch Exam
+    let exam = (memoryDb.mcqExams || []).find(e => e.id === examId);
+    if (!exam && isMongoConnected) {
+      exam = await McqExam.findOne({ id: examId }).lean();
+    }
+    if (!exam) {
+      return res.status(404).json({ ok: false, message: "এমসিকিউ পরীক্ষা খুঁজে পাওয়া যায়নি।" });
+    }
+
+    // 2. Grade Submission
+    let score = 0;
+    const userAnswers = [];
+    const questions = exam.questions || [];
+
+    questions.forEach((q) => {
+      const userSel = answers ? answers[q.id] : undefined;
+      const isCorrect = userSel !== undefined && Number(userSel) === Number(q.correctIndex);
+      if (isCorrect) score += 1;
+
+      userAnswers.push({
+        questionId: q.id,
+        selectedIndex: userSel !== undefined ? Number(userSel) : -1,
+        correctIndex: q.correctIndex,
+        isCorrect
+      });
+    });
+
+    const totalMarks = questions.length || exam.totalMarks || 40;
+    const percentage = Math.round((score / totalMarks) * 100);
+    let grade = "Passed";
+    if (percentage >= 80) grade = "Distinction 🏆";
+    else if (percentage >= 50) grade = "Good Passed ✓";
+    else grade = "Needs Practice 📖";
+
+    // 3. Auto-Match Student ID if candidate's phone/email is registered
+    let matchedStudentId = "";
+    let allStudents = memoryDb.students || [];
+    if (isMongoConnected) {
+      const dbStudents = await Student.find().lean();
+      allStudents = dbStudents.length > 0 ? dbStudents : allStudents;
+    }
+
+    const cleanPhone = (candidatePhone || "").replace(/\D/g, "");
+    const cleanEmail = (candidateEmail || "").toLowerCase().trim();
+
+    const matchedStudent = allStudents.find(s => {
+      if (cleanPhone && s.phone && s.phone.replace(/\D/g, "") === cleanPhone) return true;
+      if (cleanEmail && s.email && s.email.toLowerCase().trim() === cleanEmail) return true;
+      return false;
+    });
+
+    if (matchedStudent) {
+      matchedStudentId = matchedStudent.id;
+    }
+
+    const resultId = "RES-MCQ-" + Math.floor(10000 + Math.random() * 90000);
+    const resultData = {
+      id: resultId,
+      examId,
+      examTitle: exam.title,
+      studentId: matchedStudentId,
+      candidateName,
+      candidatePhone: candidatePhone || "",
+      candidateEmail: candidateEmail || "",
+      candidateUniversity: candidateUniversity || "",
+      score,
+      totalMarks,
+      percentage,
+      grade,
+      userAnswers,
+      submittedAt: new Date()
+    };
+
+    let savedResult = resultData;
+    if (isMongoConnected) {
+      savedResult = await McqResult.create(resultData);
+      if (savedResult && savedResult.toObject) savedResult = savedResult.toObject();
+    }
+    (memoryDb.mcqResults = memoryDb.mcqResults || []).unshift(resultData);
+
+    // 4. Automated Instant Result Email
+    if (candidateEmail && candidateEmail.includes("@")) {
+      try {
+        const mailOptions = {
+          from: `"BJS & Bar Academy" <${process.env.SMTP_USER || "bjsacademy38@gmail.com"}>`,
+          to: candidateEmail,
+          subject: `⚖️ BJS & Bar Academy - MCQ Result: ${exam.title}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0f172a; color: #ffffff; padding: 25px; borderRadius: 16px; border: 1px solid #334155;">
+              <h2 style="color: #f59e0b; margin-top: 0;">⚖️ BJS & BAR ASPIRANTS ACADEMY</h2>
+              <p style="color: #cbd5e1;">প্রিয় <strong>${candidateName}</strong>,</p>
+              <p>আপনার অনুষ্ঠিত অনলাইন এমসিকিউ পরীক্ষার ফলাফল নিচে দেওয়া হলো:</p>
+              <div style="background: #1e293b; padding: 15px; borderRadius: 12px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+                <p style="margin: 5px 0; color: #94a3b8;">পরীক্ষা: <strong style="color: #ffffff;">${exam.title}</strong></p>
+                <p style="margin: 5px 0; color: #94a3b8;">প্রাপ্ত নম্বর: <strong style="color: #10b981; font-size: 18px;">${score} / ${totalMarks}</strong></p>
+                <p style="margin: 5px 0; color: #94a3b8;">পার্সেন্টেজ: <strong style="color: #f59e0b;">${percentage}%</strong></p>
+                <p style="margin: 5px 0; color: #94a3b8;">গ্রেড/স্ট্যাটাস: <strong style="color: #38bdf8;">${grade}</strong></p>
+              </div>
+              <p style="color: #94a3b8; font-size: 12px;">© 2026 BJS & Bar Aspirants Academy. Judiciary & Advocacy Excellence Portal.</p>
+            </div>
+          `
+        };
+
+        if (transporter) {
+          transporter.sendMail(mailOptions).catch(() => {});
+        }
+      } catch (mErr) {}
+    }
+
+    return res.json({
+      ok: true,
+      message: `পরীক্ষা সম্পন্ন হয়েছে! আপনার নম্বর: ${score}/${totalMarks} (${percentage}%)`,
+      result: savedResult,
+      matchedStudentId
+    });
+  } catch (err) {
+    console.error("MCQ submit error:", err);
+    return res.status(500).json({ ok: false, message: "এমসিকিউ সাবমিশনে সমস্যা হয়েছে।" });
+  }
+});
+
+// GET MCQ Results for Admin / Student Dashboard
+app.get("/api/admin/mcq-results", async (req, res) => {
+  try {
+    const { examId, studentId } = req.query;
+    let query = {};
+    if (examId) query.examId = examId;
+    if (studentId) query.studentId = studentId;
+
+    if (isMongoConnected) {
+      const results = await McqResult.find(query).sort({ submittedAt: -1 }).lean();
+      return res.json({ ok: true, results });
+    }
+
+    let list = memoryDb.mcqResults || [];
+    if (examId) list = list.filter(r => r.examId === examId);
+    if (studentId) list = list.filter(r => r.studentId === studentId);
+
+    return res.json({ ok: true, results: list });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error fetching MCQ results." });
+  }
+});
+
+// GENERATE MCQ Result Sheet PDF with Answers & Explanations (PDFKit)
+app.post("/api/admin/generate-mcq-pdf", async (req, res) => {
+  try {
+    const { examId } = req.body;
+    if (!examId) return res.status(400).json({ ok: false, message: "examId represents a required field." });
+
+    let exam = (memoryDb.mcqExams || []).find(e => e.id === examId);
+    if (!exam && isMongoConnected) {
+      exam = await McqExam.findOne({ id: examId }).lean();
+    }
+    if (!exam) return res.status(404).json({ ok: false, message: "MCQ Exam not found." });
+
+    const doc = new PDFDocument({ margin: 36, size: 'A4' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=MCQ_Exam_Sheet_${examId}.pdf`);
+
+    doc.pipe(res);
+
+    // Header Banner
+    doc.fillColor('#0b1325').rect(36, 36, 523, 75).fill();
+    doc.fillColor('#f59e0b').fontSize(16).font('Helvetica-Bold').text("BJS & BAR ASPIRANTS ACADEMY", 50, 48);
+    doc.fillColor('#ffffff').fontSize(10).font('Helvetica').text(`Official Question Bank & Answer Explanations Sheet`, 50, 68);
+    doc.fillColor('#94a3b8').fontSize(8).text(`EXAM: ${exam.title} | Duration: ${exam.durationMinutes} Mins`, 50, 84);
+
+    let y = 130;
+
+    (exam.questions || []).forEach((q, idx) => {
+      doc.fillColor('#0f172a').fontSize(10).font('Helvetica-Bold').text(`Q${idx + 1}. ${q.questionText}`, 40, y);
+      y += 18;
+
+      const optLetters = ['A', 'B', 'C', 'D'];
+      (q.options || []).forEach((opt, oIdx) => {
+        const isCorrect = oIdx === q.correctIndex;
+        if (isCorrect) {
+          doc.fillColor('#047857').font('Helvetica-Bold').text(`  [${optLetters[oIdx]}] ${opt}  (✓ Correct Answer)`, 50, y);
+        } else {
+          doc.fillColor('#475569').font('Helvetica').text(`  [${optLetters[oIdx]}] ${opt}`, 50, y);
+        }
+        y += 15;
+      });
+
+      if (q.explanation) {
+        doc.fillColor('#b45309').fontSize(8).font('Helvetica-Oblique').text(`  Explanation: ${q.explanation}`, 50, y, { width: 500 });
+        y += 18;
+      }
+
+      y += 8;
+
+      if (y > 750) {
+        doc.addPage();
+        y = 40;
+      }
+    });
+
+    doc.fillColor('#94a3b8').fontSize(7).font('Helvetica-Oblique').text("© 2026 BJS & Bar Aspirants Academy. Official Question & Answer Bank.", 36, 800, { align: 'center' });
+
+    doc.end();
+  } catch (err) {
+    console.error("MCQ PDF error:", err);
+    res.status(500).json({ ok: false, message: "Error generating MCQ PDF." });
   }
 });
 

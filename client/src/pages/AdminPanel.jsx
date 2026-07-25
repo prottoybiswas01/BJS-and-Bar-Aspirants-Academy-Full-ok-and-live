@@ -131,6 +131,18 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   const [meritList, setMeritList] = useState([]);
   const [meritLoading, setMeritLoading] = useState(false);
 
+  // Online MCQ Exams & Question Parser State
+  const [mcqExams, setMcqExams] = useState([]);
+  const [mcqForm, setMcqForm] = useState({
+    id: '',
+    title: '',
+    courseId: '',
+    durationMinutes: 30,
+    passPercentage: 50,
+    rawQuestionText: '' // Automated Question Parser text input
+  });
+  const [parsedQuestions, setParsedQuestions] = useState([]);
+
   // Mentor & Faculty Form State
   const [mentors, setMentors] = useState([]);
   const [mentorForm, setMentorForm] = useState({
@@ -322,7 +334,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         api.get('/site-settings'),
         api.get('/admin/mentors'),
         api.get('/admin/receipts'),
-        api.get('/admin/assignments')
+        api.get('/admin/assignments'),
+        api.get('/admin/mcq-exams')
       ]);
 
       if (results[0].status === 'fulfilled' && results[0].value.data?.ok) setStats(results[0].value.data);
@@ -333,10 +346,117 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       if (results[5].status === 'fulfilled' && results[5].value.data?.ok) setMentors(results[5].value.data.mentors || []);
       if (results[6].status === 'fulfilled' && results[6].value.data?.ok) setReceipts(results[6].value.data.receipts || []);
       if (results[7].status === 'fulfilled' && results[7].value.data?.ok) setAdminAssignments(results[7].value.data.assignments || []);
+      if (results[8].status === 'fulfilled' && results[8].value.data?.ok) setMcqExams(results[8].value.data.exams || []);
     } catch (err) {
       console.log('Error loading admin data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleParseQuestions = (text) => {
+    if (!text) {
+      setParsedQuestions([]);
+      return;
+    }
+    const blocks = text.split(/(?:প্রশ্ন\s*\d*[:.]|\d+[:.])/gi).filter(Boolean);
+    const parsed = blocks.map((b, idx) => {
+      const lines = b.trim().split('\n').map(l => l.trim()).filter(Boolean);
+      const questionText = lines[0] || `Question ${idx + 1}`;
+      
+      const options = [];
+      let correctIndex = 0;
+      let explanation = '';
+
+      lines.slice(1).forEach(line => {
+        if (/^(?:[কখগঘa-dA-D][:.])/i.test(line)) {
+          const optStr = line.replace(/^[কখগঘa-dA-D][:.]\s*/i, '');
+          options.push(optStr);
+          if (line.includes('✓') || line.toLowerCase().includes('correct') || line.toLowerCase().includes('উত্তর')) {
+            correctIndex = options.length - 1;
+          }
+        } else if (line.toLowerCase().includes('ব্যাখ্যা') || line.toLowerCase().includes('explanation')) {
+          explanation = line.replace(/^(?:ব্যাখ্যা|explanation)[:.]\s*/i, '');
+        }
+      });
+
+      while (options.length < 4) {
+        options.push(`অপশন ${options.length + 1}`);
+      }
+
+      return {
+        id: `Q-${idx + 1}`,
+        questionText,
+        options: options.slice(0, 4),
+        correctIndex,
+        explanation
+      };
+    });
+
+    setParsedQuestions(parsed);
+  };
+
+  const handleSaveMcqExam = async (e) => {
+    if (e) e.preventDefault();
+    if (!mcqForm.title) {
+      showToast('পরীক্ষার শিরোনাম অবশ্যই দিতে হবে।', 'error');
+      return;
+    }
+    if (parsedQuestions.length === 0) {
+      showToast('অন্তত একটি প্রশ্ন পার্স করা আবশ্যক।', 'error');
+      return;
+    }
+
+    try {
+      const res = await api.post('/admin/mcq-exams/save', {
+        id: mcqForm.id,
+        title: mcqForm.title,
+        courseId: mcqForm.courseId,
+        durationMinutes: Number(mcqForm.durationMinutes) || 30,
+        passPercentage: Number(mcqForm.passPercentage) || 50,
+        questions: parsedQuestions
+      });
+
+      if (res.data.ok) {
+        showToast(res.data.message || '✓ এমসিকিউ পরীক্ষা সেভ ও অটো-পার্স করা হয়েছে!', 'success');
+        setMcqForm({ id: '', title: '', courseId: '', durationMinutes: 30, passPercentage: 50, rawQuestionText: '' });
+        setParsedQuestions([]);
+        loadAllAdminData();
+      }
+    } catch (err) {
+      showToast('এমসিকিউ পরীক্ষা সেভ করতে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
+  const handleDeleteMcqExam = async (id, title) => {
+    if (!window.confirm(`আপনি কি সত্যিই "${title}" এমসিকিউ পরীক্ষাটি ডিলিট করতে চান?`)) return;
+    try {
+      const res = await api.delete(`/admin/mcq-exams/${id}`);
+      if (res.data.ok) {
+        showToast(res.data.message || 'ডিলিট করা হয়েছে!', 'success');
+        loadAllAdminData();
+      }
+    } catch (err) {
+      showToast('ডিলিট করতে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
+  const handleDownloadMcqPdf = async (examId, title) => {
+    try {
+      showToast(`📝 "${title}" প্রশ্ন ও উত্তর ব্যাখ্যাসহ পিডিএফে জেনারেট হচ্ছে...`, 'success');
+      const response = await api.post('/admin/generate-mcq-pdf', { examId }, { responseType: 'blob' });
+      
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `MCQ_Question_Bank_${(title || 'Exam').replace(/\s+/g, '_')}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      showToast('পিডিএফ তৈরিতে সমস্যা হয়েছে।', 'error');
     }
   };
 
@@ -2355,6 +2475,165 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             👆 ড্রপডাউন থেকে পরীক্ষা নির্বাচন করলে সরাসরি লাইভ মেধা তালিকা র‍্যাঙ্কিং ও ১-ক্লিকে পিডিএফ ডাউনলোডের সুবিধা চালু হবে।
           </div>
         )}
+      </section>
+
+      {/* 4.6 ONLINE MCQ EXAM MANAGER & AUTOMATED QUESTION PARSER */}
+      <section className="glass-card rounded-2xl p-5 sm:p-7 border border-slate-800 space-y-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-800 pb-4 gap-4">
+          <div>
+            <span className="px-2.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono text-[10px] font-bold border border-cyan-500/30">
+              PUBLIC & PRIVATE MCQ ENGINE
+            </span>
+            <h2 className="text-lg font-black text-white mt-1 flex items-center gap-2">
+              <span>📝 অনলাইন এমসিকিউ এক্সাম ম্যানেজার ও অটো-কোশ্চেন পার্সার</span>
+            </h2>
+            <p className="text-xs text-slate-400">
+              এমসিকিউ প্রশ্নব্যাংক টাইপ/পেস্ট করুন—সিস্টেম অটোমেটিক অপশন (ক, খ, গ, ঘ) ও ব্যাখ্যা পার্স করে পাবলিক লিঙ্ক তৈরি করবে।
+            </p>
+          </div>
+        </div>
+
+        {/* MCQ Exam Creation & Question Parser Form */}
+        <form onSubmit={handleSaveMcqExam} className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-slate-300 font-bold mb-1">পরীক্ষার শিরোনাম (Exam Title) *</label>
+              <input
+                type="text"
+                required
+                value={mcqForm.title}
+                onChange={(e) => setMcqForm({ ...mcqForm, title: e.target.value })}
+                placeholder="e.g. BJS Preliminary Model Test 01"
+                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-300 font-bold mb-1">পরীক্ষার সময় (Duration in Mins)</label>
+              <input
+                type="number"
+                value={mcqForm.durationMinutes}
+                onChange={(e) => setMcqForm({ ...mcqForm, durationMinutes: e.target.value })}
+                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white focus:outline-none focus:border-amber-500 font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-300 font-bold mb-1">কোর্স / ব্যাচ (Course Allocation)</label>
+              <select
+                value={mcqForm.courseId}
+                onChange={(e) => setMcqForm({ ...mcqForm, courseId: e.target.value })}
+                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white focus:outline-none focus:border-amber-500"
+              >
+                <option value="">-- সর্বজনীন / সকল ব্যাচ --</option>
+                {courses.map(c => (
+                  <option key={c.id} value={c.id}>{c.title}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Raw Question Parser Textarea */}
+          <div className="space-y-1.5">
+            <label className="block text-amber-400 font-bold">
+              এমসিকিউ প্রশ্নব্যাংক ইনপুট/পেস্ট করুন (Automated Question Parser):
+            </label>
+            <p className="text-[11px] text-slate-400">
+              ফরম্যাট নমুনা: <code className="text-amber-300 font-mono">১. প্রশ্ন?  ক. অপশন ১  খ. অপশন ২ (✓)  গ. অপশন ৩  ঘ. অপশন ৪  ব্যাখ্যা: বিবরণ</code>
+            </p>
+            <textarea
+              rows={6}
+              value={mcqForm.rawQuestionText}
+              onChange={(e) => {
+                setMcqForm({ ...mcqForm, rawQuestionText: e.target.value });
+                handleParseQuestions(e.target.value);
+              }}
+              placeholder="এখানে প্রশ্ন, অপশন ও ব্যাখ্যা পেস্ট করুন..."
+              className="w-full rounded-xl bg-slate-900 border border-slate-800 p-3.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-amber-500 leading-relaxed"
+            />
+          </div>
+
+          {/* Parsed Preview Count */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-mono font-bold text-emerald-400">
+              ✓ অটো-পার্সকৃত প্রশ্ন সংখ্যা: {parsedQuestions.length} টি
+            </span>
+            <button
+              type="submit"
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
+            >
+              📢 এমসিকিউ পরীক্ষা প্রকাশ করুন
+            </button>
+          </div>
+        </form>
+
+        {/* Existing Published MCQ Exams List */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold text-white">প্রকাশিত এমসিকিউ পরীক্ষাসমূহ ({mcqExams.length}টি)</h3>
+          
+          {mcqExams.length === 0 ? (
+            <div className="p-6 text-center text-xs text-slate-500 bg-slate-950 rounded-xl border border-slate-800">
+              এখনো কোনো এমসিকিউ পরীক্ষা প্রকাশ করা হয়নি।
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {mcqExams.map(exam => {
+                const publicUrl = `${window.location.origin}/#mcq-exam-${exam.id}`;
+                return (
+                  <div key={exam.id} className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">
+                          {exam.durationMinutes} Mins | {exam.questions?.length || 40} Qs
+                        </span>
+                        <h4 className="text-sm font-bold text-white mt-1">{exam.title}</h4>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteMcqExam(exam.id, exam.title)}
+                        className="text-rose-400 hover:text-rose-300 text-xs font-bold p-1"
+                        title="ডিলিট করুন"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+
+                    {/* Shareable Public Exam Link */}
+                    <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800/80 flex items-center justify-between text-[11px]">
+                      <span className="font-mono text-cyan-300 truncate max-w-[240px]">{publicUrl}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(publicUrl);
+                          showToast('✓ পাবলিক পরীক্ষা লিঙ্ক কপি করা হয়েছে!', 'success');
+                        }}
+                        className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[10px] shrink-0"
+                      >
+                        📋 লিঙ্ক কপি
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadMcqPdf(exam.id, exam.title)}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                      >
+                        📄 প্রশ্ন ও উত্তর ব্যাংক (PDF)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => window.open(publicUrl, '_blank')}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        👁️ প্লেয়ার টেস্ট
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </section>
 
       {/* 5. Course Control & Course Launch Manager */}

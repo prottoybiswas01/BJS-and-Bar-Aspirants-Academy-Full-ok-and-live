@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard';
 import AdminPanel from './pages/AdminPanel';
 import MentorLogin from './pages/MentorLogin';
 import MentorDashboard from './pages/MentorDashboard';
+import McqExamPlayer from './pages/McqExamPlayer';
 import VideoPlayerModal from './components/VideoPlayerModal';
 import AiChatDrawer from './components/AiChatDrawer';
 import ProfileModal from './components/ProfileModal';
@@ -21,9 +22,14 @@ import api from './services/api';
 
 function MainApp() {
   const { user } = useAuth();
+  const [mcqExamId, setMcqExamId] = useState('');
   const [activePage, setActivePage] = useState(() => {
     const path = window.location.pathname.toLowerCase();
     const hash = window.location.hash.toLowerCase();
+    if (hash.startsWith('#mcq-exam-') || path.includes('/mcq-exam/')) {
+      const eId = window.location.hash.replace('#mcq-exam-', '') || path.split('/mcq-exam/')[1];
+      return 'mcq-exam';
+    }
     if (path === '/admin' || path === '/admin/' || path.endsWith('/admin') || hash === '#admin' || hash === '#/admin') {
       return 'admin';
     }
@@ -43,6 +49,14 @@ function MainApp() {
     const handleUrlChange = () => {
       const path = window.location.pathname.toLowerCase();
       const hash = window.location.hash.toLowerCase();
+      
+      if (hash.startsWith('#mcq-exam-') || path.includes('/mcq-exam/')) {
+        const eId = window.location.hash.replace('#mcq-exam-', '') || path.split('/mcq-exam/')[1];
+        setMcqExamId(eId);
+        setActivePage('mcq-exam');
+        return;
+      }
+
       if (path === '/admin' || path === '/admin/' || path.endsWith('/admin') || hash === '#admin' || hash === '#/admin') {
         setActivePage('admin');
       }
@@ -102,6 +116,9 @@ function MainApp() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         {activePage === 'home' && (
           <Home setActivePage={setActivePage} openMentorProfile={openMentorProfile} />
+        )}
+        {activePage === 'mcq-exam' && (
+          <McqExamPlayer examId={mcqExamId} onBack={() => setActivePage('home')} />
         )}
         {activePage === 'login' && <Login setActivePage={setActivePage} />}
         {activePage === 'register' && <Register setActivePage={setActivePage} />}
