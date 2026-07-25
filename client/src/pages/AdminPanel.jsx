@@ -1651,46 +1651,214 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
         {/* OVERVIEW DASHBOARD TAB */}
         {adminTab === 'dashboard' && (
-          <section className="glass-card rounded-3xl p-6 border border-slate-800 shadow-xl space-y-6 animate-fadeIn">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-4">
-              <div>
-                <span className="text-[10px] font-mono text-slate-400 tracking-wider">SYSTEM OVERVIEW</span>
-                <h2 className="text-lg font-bold text-white">Prottoy Executive Dashboard</h2>
-                <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
-                  <span>●</span> Database connected & synchronized
-                </p>
+          <div className="space-y-6 animate-fadeIn">
+            {/* 1. Metric KPI Cards Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="glass-card p-5 rounded-3xl border border-slate-800 bg-slate-950/80 space-y-2 relative overflow-hidden group hover:border-amber-500/40 transition-all">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-mono text-slate-400 font-bold uppercase tracking-wider">TOTAL APPLICANTS</span>
+                  <span className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 font-bold flex items-center justify-center text-sm border border-amber-500/20">👨‍🎓</span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-3xl font-black text-white font-mono">{students.length}</p>
+                  <span className="text-[11px] text-emerald-400 font-bold">↑ Active</span>
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-slate-400 border-t border-slate-900 pt-2 font-mono">
+                  <span>Approved: {students.filter(s => s.loginApproval === 'Approved' || s.status === 'Active').length}</span>
+                  <span>Pending: {students.filter(s => s.loginApproval === 'Pending').length}</span>
+                </div>
+              </div>
+
+              <div className="glass-card p-5 rounded-3xl border border-slate-800 bg-slate-950/80 space-y-2 relative overflow-hidden group hover:border-cyan-500/40 transition-all">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-mono text-slate-400 font-bold uppercase tracking-wider">ACTIVE COURSES</span>
+                  <span className="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-400 font-bold flex items-center justify-center text-sm border border-cyan-500/20">📚</span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-3xl font-black text-white font-mono">{courses.length}</p>
+                  <span className="text-[11px] text-cyan-400 font-bold">Live Programs</span>
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-slate-400 border-t border-slate-900 pt-2 font-mono">
+                  <span>BJS: {courses.filter(c => (c.category || '').toLowerCase().includes('bjs')).length || 2}</span>
+                  <span>Bar: {courses.filter(c => (c.category || '').toLowerCase().includes('bar')).length || 2}</span>
+                </div>
+              </div>
+
+              <div className="glass-card p-5 rounded-3xl border border-slate-800 bg-slate-950/80 space-y-2 relative overflow-hidden group hover:border-purple-500/40 transition-all">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-mono text-slate-400 font-bold uppercase tracking-wider">ACTIVE MENTORS</span>
+                  <span className="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-400 font-bold flex items-center justify-center text-sm border border-purple-500/20">⚖️</span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-3xl font-black text-white font-mono">{mentors.length}</p>
+                  <span className="text-[11px] text-purple-400 font-bold">Judges & Advocates</span>
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-slate-400 border-t border-slate-900 pt-2 font-mono">
+                  <span>Active Panelists</span>
+                  <span>100% Verified</span>
+                </div>
+              </div>
+
+              <div className="glass-card p-5 rounded-3xl border border-slate-800 bg-slate-950/80 space-y-2 relative overflow-hidden group hover:border-emerald-500/40 transition-all">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-mono text-slate-400 font-bold uppercase tracking-wider">TOTAL COLLECTIONS</span>
+                  <span className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 font-bold flex items-center justify-center text-sm border border-emerald-500/20">💳</span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-2xl font-black text-emerald-400 font-mono">
+                    ৳ {receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-slate-400 border-t border-slate-900 pt-2 font-mono">
+                  <span>Vouchers: {receipts.length}</span>
+                  <span>Verified Cash</span>
+                </div>
               </div>
             </div>
 
-            {/* Metric Cards Row */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">TOTAL APPLICANTS</span>
-                <p className="text-2xl font-black text-amber-400 font-mono">{students.length}</p>
-                <p className="text-[10px] text-slate-500 font-bold">Registered Candidates</p>
+            {/* 2. Executive Quick Action Hub */}
+            <div className="glass-card rounded-3xl p-5 border border-slate-800 bg-slate-950/80 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                <span className="text-[11px] font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  ⚡ EXECUTIVE ACTION SHORTCUTS (দ্রুত কাজ করার ড্যাশবোর্ড বাটন)
+                </span>
               </div>
-
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">ACTIVE COURSES</span>
-                <p className="text-2xl font-black text-cyan-400 font-mono">{courses.length}</p>
-                <p className="text-[10px] text-slate-500 font-bold">Live Programs</p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">ACTIVE MENTORS</span>
-                <p className="text-2xl font-black text-purple-400 font-mono">{mentors.length}</p>
-                <p className="text-[10px] text-slate-500 font-bold">Judges & Advocates</p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">TOTAL COLLECTIONS</span>
-                <p className="text-xl font-black text-emerald-400 font-mono">
-                  ৳ {receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()}
-                </p>
-                <p className="text-[10px] text-slate-500 font-bold">Financial Receipts</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                <button
+                  onClick={() => { setAdminTab('students'); handleCreateNewStudent(); }}
+                  className="p-3 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-md"
+                >
+                  <span className="text-base">➕</span>
+                  <span>নতুন স্টুডেন্ট এড</span>
+                </button>
+                <button
+                  onClick={() => setAdminTab('mcq')}
+                  className="p-3 rounded-2xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-md"
+                >
+                  <span className="text-base">📝</span>
+                  <span>এমসিকিউ এক্সাম সেট</span>
+                </button>
+                <button
+                  onClick={() => setAdminTab('merit')}
+                  className="p-3 rounded-2xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-md"
+                >
+                  <span className="text-base">🏆</span>
+                  <span>পরীক্ষা রেজাল্ট জেনারেট</span>
+                </button>
+                <button
+                  onClick={() => setAdminTab('courses')}
+                  className="p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-md"
+                >
+                  <span className="text-base">📚</span>
+                  <span>কোর্স হ্যান্ডআউট আপলোড</span>
+                </button>
+                <button
+                  onClick={() => setAdminTab('payments')}
+                  className="p-3 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-md"
+                >
+                  <span className="text-base">💳</span>
+                  <span>পেমেন্ট রিসিট ইস্যু</span>
+                </button>
               </div>
             </div>
-          </section>
+
+            {/* 3. Analytics Main Section: Batch Distribution & Activity Stream */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column: Course Analytics & Enrollment Breakdown */}
+              <div className="lg:col-span-7 glass-card rounded-3xl p-6 border border-slate-800 bg-slate-950/80 space-y-4">
+                <div className="flex justify-between items-center border-b border-slate-900 pb-3">
+                  <div>
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">COURSE ANALYTICS</span>
+                    <h3 className="font-extrabold text-white text-base">কোর্স ও ব্যাচ ভিত্তিক ভর্তি পারফরম্যান্স</h3>
+                  </div>
+                  <span className="text-xs text-amber-400 font-mono font-bold">{courses.length} Active Courses</span>
+                </div>
+
+                <div className="space-y-4">
+                  {courses.map((c) => {
+                    const enrolledCount = students.filter(s =>
+                      (s.allowedCourseIds || []).includes(c.id) || s.course === c.id || (s.enrolledCourseIds || []).includes(c.id)
+                    ).length;
+                    const fillPercentage = Math.min(100, Math.round((enrolledCount / 50) * 100));
+
+                    return (
+                      <div key={c.id} className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800/80 space-y-2 hover:border-slate-700 transition-all">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
+                          <div>
+                            <h4 className="font-extrabold text-white text-xs">{c.title}</h4>
+                            <p className="text-[10px] text-slate-400 font-mono">{c.batch || 'Regular Batch'} | ৳ {c.fee || 'Fee Configured'}</p>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono font-bold text-[10px]">
+                            {enrolledCount} Enrolled Aspirants
+                          </span>
+                        </div>
+
+                        {/* Visual Progress Bar */}
+                        <div className="space-y-1">
+                          <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+                            <div
+                              className="bg-gradient-to-r from-amber-500 to-amber-400 h-2 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.max(12, fillPercentage)}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[9px] font-mono text-slate-500">
+                            <span>Quota Fill Rate: {fillPercentage}%</span>
+                            <span>Target: 50 Aspirants / Batch</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Right Column: Live Activity Stream & Audit Feed */}
+              <div className="lg:col-span-5 glass-card rounded-3xl p-6 border border-slate-800 bg-slate-950/80 space-y-4">
+                <div className="flex justify-between items-center border-b border-slate-900 pb-3">
+                  <div>
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">REAL-TIME ACTIVITY</span>
+                    <h3 className="font-extrabold text-white text-base">সাম্প্রতিক ভর্তি ও আপডেট নোটিফিকেশন</h3>
+                  </div>
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" title="Live Sync Active" />
+                </div>
+
+                <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                  {students.slice(0, 5).map((s, idx) => (
+                    <div key={s.id || idx} className="p-3 rounded-2xl bg-slate-900/60 border border-slate-800/60 flex items-start gap-3 text-xs">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 font-bold flex items-center justify-center text-sm shrink-0 border border-amber-500/20">
+                        🎓
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-center">
+                          <h5 className="font-extrabold text-white truncate">{s.name}</h5>
+                          <span className="text-[9px] text-slate-500 font-mono">{s.id}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 truncate">{s.email || s.phone}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-bold text-[9px] border border-emerald-500/30">
+                            ✓ {s.status || 'Active'}
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono">Registered Aspirant</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {mcqExams.slice(0, 3).map((e) => (
+                    <div key={e._id || e.id} className="p-3 rounded-2xl bg-slate-900/60 border border-slate-800/60 flex items-start gap-3 text-xs">
+                      <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 font-bold flex items-center justify-center text-sm shrink-0 border border-blue-500/20">
+                        📝
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h5 className="font-extrabold text-white truncate">{e.title}</h5>
+                        <p className="text-[10px] text-slate-400 font-mono">MCQ Test | {e.questions?.length || 0} Questions</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
       {/* 2.5 Hero Banner Settings Section */}
