@@ -100,7 +100,7 @@ ensureDbConnected();
 app.use(async (req, res, next) => {
   try {
     await ensureDbConnected();
-  } catch (e) {}
+  } catch (e) { }
   next();
 });
 
@@ -236,7 +236,7 @@ app.post("/api/auth/login", async (req, res) => {
           if (settings.adminUsername) validAdminUser = settings.adminUsername;
           if (settings.adminPassword) validAdminPass = settings.adminPassword;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const cleanId = String(identifier || "").trim().toLowerCase();
@@ -329,7 +329,7 @@ app.post("/api/auth/login", async (req, res) => {
             regOrConditions.push({ phone: new RegExp(last10 + "$") });
           }
           regRecord = await Registration.findOne({ $or: regOrConditions });
-        } catch (e) {}
+        } catch (e) { }
       }
       if (!regRecord) {
         regRecord = memoryDb.registrations.find((r) => {
@@ -351,7 +351,7 @@ app.post("/api/auth/login", async (req, res) => {
           if (regRecord.password) {
             isRegMatch = await bcrypt.compare(passInput, regRecord.password);
           }
-        } catch (e) {}
+        } catch (e) { }
 
         if (
           isRegMatch ||
@@ -378,7 +378,7 @@ app.post("/api/auth/login", async (req, res) => {
           if (isMongoConnected) {
             try {
               await Student.create(student);
-            } catch (e) {}
+            } catch (e) { }
           }
           memoryDb.students.unshift(student);
 
@@ -407,7 +407,7 @@ app.post("/api/auth/login", async (req, res) => {
       if (student.password) {
         isMatch = await bcrypt.compare(passInput, student.password);
       }
-    } catch (e) {}
+    } catch (e) { }
 
     const isPasswordValid =
       isMatch ||
@@ -1224,7 +1224,7 @@ app.get("/api/site-settings", async (req, res) => {
       }
       return res.json({ ok: true, settings });
     }
-  } catch (e) {}
+  } catch (e) { }
   res.json({ ok: true, settings: memoryDb.siteSettings });
 });
 
@@ -1292,7 +1292,7 @@ app.get("/api/courses", async (req, res) => {
       if (courses && courses.length > 0) memoryDb.courses = courses;
       return res.json({ ok: true, courses: courses || [] });
     }
-  } catch (e) {}
+  } catch (e) { }
   const activeOnly = (memoryDb.courses || []).filter(c => c && c.status !== "Inactive");
   res.json({ ok: true, courses: activeOnly });
 });
@@ -1306,7 +1306,7 @@ app.get("/api/admin/courses", async (req, res) => {
       if (courses && courses.length > 0) memoryDb.courses = courses;
       return res.json({ ok: true, courses: courses || [] });
     }
-  } catch (e) {}
+  } catch (e) { }
   res.json({ ok: true, courses: memoryDb.courses || [] });
 });
 
@@ -1319,7 +1319,7 @@ app.get("/api/lessons", async (req, res) => {
       if (!courseId) memoryDb.lessons = lessons || [];
       return res.json({ ok: true, lessons });
     }
-  } catch (e) {}
+  } catch (e) { }
   const filtered = req.query.courseId ? (memoryDb.lessons || []).filter((l) => l.courseId === req.query.courseId) : (memoryDb.lessons || []);
   res.json({ ok: true, lessons: filtered });
 });
@@ -1366,7 +1366,7 @@ app.get("/api/admin/mentors", async (req, res) => {
       memoryDb.mentors = mentors || [];
       return res.json({ ok: true, mentors: memoryDb.mentors });
     }
-  } catch (e) {}
+  } catch (e) { }
   res.json({ ok: true, mentors: memoryDb.mentors || [] });
 });
 
@@ -1484,7 +1484,7 @@ app.post("/api/auth/mentor/login", async (req, res) => {
     if (mentor.password) {
       try {
         isMatch = await bcrypt.compare(passInput, mentor.password);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const isValidPass = isMatch || passInput === mentor.password || passInput === "ADMIN123@" || passInput === "123456";
@@ -1612,7 +1612,7 @@ app.post("/api/admin/mentors/merge", async (req, res) => {
     if (source.email && (!target.email || target.email === "Email missing")) target.email = source.email;
     if (source.password && !target.password) target.password = source.password;
     if (source.loginApproval) target.loginApproval = source.loginApproval;
-    
+
     // Merge assigned courses
     const combinedCourses = Array.from(new Set([...(target.assignedCourseIds || []), ...(source.assignedCourseIds || [])]));
     target.assignedCourseIds = combinedCourses;
@@ -2191,7 +2191,7 @@ app.post("/api/admin/courses/toggle", async (req, res) => {
 app.delete("/api/admin/courses/:id", async (req, res) => {
   try {
     if (isMongoConnected) await Course.deleteOne({ id: req.params.id });
-  } catch (e) {}
+  } catch (e) { }
   memoryDb.courses = memoryDb.courses.filter((c) => c.id !== req.params.id);
   res.json({ ok: true, message: "Course deleted successfully!" });
 });
@@ -2377,7 +2377,7 @@ app.get("/api/admin/mail-settings", async (req, res) => {
       }
       return res.json({ ok: true, settings });
     }
-  } catch (e) {}
+  } catch (e) { }
   res.json({ ok: true, settings: memoryDb.mailSettings });
 });
 
@@ -2408,7 +2408,7 @@ app.get("/api/admin/students", async (req, res) => {
     if (isMongoConnected) {
       try {
         mongoStudents = await Student.find().sort({ createdAt: -1 }).lean();
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const combined = [...mongoStudents, ...(memoryDb.students || [])];
@@ -2437,7 +2437,7 @@ app.get("/api/admin/registrations", async (req, res) => {
     if (isMongoConnected) {
       try {
         mongoRegs = await Registration.find().sort({ createdAt: -1 }).lean();
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const combined = [...mongoRegs, ...(memoryDb.registrations || [])];
@@ -2530,7 +2530,7 @@ app.delete("/api/admin/students/:id", async (req, res) => {
   try {
     await ensureDbConnected();
     if (isMongoConnected) await Student.deleteOne({ id: req.params.id });
-  } catch (e) {}
+  } catch (e) { }
   memoryDb.students = memoryDb.students.filter((s) => s.id !== req.params.id);
   res.json({ ok: true, message: "Student deleted successfully!" });
 });
@@ -2634,7 +2634,7 @@ app.get("/api/admin/registrations", async (req, res) => {
       const registrations = await Registration.find().sort({ createdAt: -1 });
       return res.json({ ok: true, registrations });
     }
-  } catch (e) {}
+  } catch (e) { }
   res.json({ ok: true, registrations: memoryDb.registrations });
 });
 
@@ -2773,7 +2773,7 @@ app.post("/api/ai/chat", async (req, res) => {
       try {
         activeCourses = await Course.find({ status: { $ne: "Inactive" } }).lean();
         activeLessons = await Lesson.find().lean();
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // Match query against courses & lessons
