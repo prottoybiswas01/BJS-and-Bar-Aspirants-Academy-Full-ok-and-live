@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 
 // -------------------------------------------------------------
 // GLOBAL SERVERLESS PROCESS & EXCEPTION RESILIENCE GUARDS
@@ -1205,120 +1207,81 @@ app.get("/api/admin/merit-list", async (req, res) => {
 app.post("/api/admin/generate-merit-pdf", async (req, res) => {
   try {
     const { assignmentId } = req.body;
-    if (!assignmentId) {
-      return res.status(400).json({ ok: false, message: "অ্যাসাইনমেন্ট আইডি আবশ্যক।" });
-    }
+    if (!assignmentId) return res.status(400).json({ ok: false, message: "assignmentId is required." });
 
-    // 1. Fetch assignment details
     let assignment = (memoryDb.assignments || []).find(a => a.id === assignmentId);
-    if (!assignment && isMongoConnected) {
-      assignment = await Assignment.findOne({ id: assignmentId }).lean();
-    }
-    if (!assignment) {
-      return res.status(404).json({ ok: false, message: "অ্যাসাইনমেন্ট খুঁজে পাওয়া যায়নি।" });
-    }
+    let subs = (memoryDb.submissions || []).filter(s => s.assignmentId === assignmentId && (s.marksObtained !== null || s.gradedAt));
 
-    // 2. Fetch all evaluated submissions for this assignment
-    let subs = (memoryDb.submissions || []).filter(s => s.assignmentId === assignmentId && s.marksObtained !== null && s.marksObtained !== undefined);
     if (isMongoConnected) {
-      const dbSubs = await Submission.find({ assignmentId, marksObtained: { $ne: null } }).lean();
-      subs = dbSubs.length > 0 ? dbSubs : subs;
+      if (!assignment) assignment = await Assignment.findOne({ id: assignmentId }).lean();
+      const mongoSubs = await Submission.find({ assignmentId, gradedAt: { $ne: null } }).sort({ marksObtained: -1 }).lean();
+      if (mongoSubs && mongoSubs.length > 0) subs = mongoSubs;
     }
 
-    // 3. Fetch students to get University/Institution
-    let studentsMap = new Map();
-    if (isMongoConnected) {
-      const allStudents = await Student.find().lean();
-      allStudents.forEach(s => studentsMap.set(s.id, s));
-    }
-    (memoryDb.students || []).forEach(s => {
-      if (!studentsMap.has(s.id)) studentsMap.set(s.id, s);
-    });
+    if (!assignment) return res.status(404).json({ ok: false, message: "Assignment/Exam record not found." });
 
-    // 4. Sort submissions by marksObtained descending
     subs.sort((a, b) => Number(b.marksObtained || 0) - Number(a.marksObtained || 0));
 
-    // 5. Fetch mentors list for panel names
-    let mentors = (memoryDb.mentors || []).slice(0, 3);
-    if (mentors.length === 0 && isMongoConnected) {
-      mentors = await Mentor.find().limit(3).lean();
-    }
-    const mentorNames = (mentors || []).map(m => m.name || "মেন্টর").join(" | ") || "BJS & Bar Academy Academic Board";
-
-    // 6. Build PDF with PDFKit
     if (!PDFDocument) return res.status(500).json({ ok: false, message: "PDF generator unavailable." });
-    const doc = new PDFDocument({ margin: 36, size: 'A4' });
+    const doc = initBengaliPdfDoc();
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=Merit_List_${assignmentId}.pdf`);
 
     doc.pipe(res);
 
+    const hasBengaliFont = fs.existsSync(regularFontPath) && fs.existsSync(boldFontPath);
+    const fontBold = hasBengaliFont ? "Bengali-Bold" : "Helvetica-Bold";
+    const fontRegular = hasBengaliFont ? "Bengali-Regular" : "Helvetica";
+
+    const mentorNames = (assignment.assignedMentors || []).map(m => m.name).join(', ') || assignment.assignedMentorName || 'Senior Faculty';
+
     // Header Banner
-    doc.fillColor('#0b1325').rect(36, 36, 523, 70).fill();
-    doc.fillColor('#f59e0b').fontSize(16).font('Helvetica-Bold').text("BJS & BAR ASPIRANTS ACADEMY", 50, 48);
-    doc.fillColor('#ffffff').fontSize(10).font('Helvetica').text("Official Exam Merit List & Academic Performance Summary Sheet", 50, 68);
-    doc.fillColor('#94a3b8').fontSize(8).text(`Academic Board: ${mentorNames}`, 50, 82);
+    doc.rect(36, 36, 523, 64).fill('#0b1325');
+    doc.fillColor('#f59e0b').fontSize(14).font(fontBold).text("BJS & BAR ASPIRANTS ACADEMY", 50, 46);
+    doc.fillColor('#ffffff').fontSize(9).font(fontRegular).text("Official Exam Merit List & Academic Performance Summary Sheet", 50, 64);
+    doc.fillColor('#94a3b8').fontSize(8).font(fontRegular).text(`Academic Board: ${mentorNames}`, 50, 78);
 
-    // Metadata Block
-    doc.fillColor('#0f172a').rect(36, 115, 523, 40).fill();
-    doc.fillColor('#cbd5e1').fontSize(9).font('Helvetica-Bold').text(`EXAM / ASSIGNMENT: ${assignment.title || 'Model Test'}`, 48, 123);
-    doc.fillColor('#f59e0b').fontSize(8).font('Helvetica').text(`Total Marks: ${assignment.totalMarks || 100} | Total Candidates Evaluated: ${subs.length}`, 48, 138);
-    doc.fillColor('#64748b').fontSize(8).text(`Date: ${new Date().toLocaleDateString()}`, 420, 138);
+    doc.rect(36, 110, 523, 30).fill('#1e293b');
+    doc.fillColor('#cbd5e1').fontSize(9).font(fontBold).text(`EXAM / ASSIGNMENT: ${assignment.title || 'Model Test'}`, 48, 118);
+    doc.fillColor('#f59e0b').fontSize(8).font(fontRegular).text(`Total Marks: ${assignment.totalMarks || 100} | Total Candidates Evaluated: ${subs.length}`, 48, 130);
 
-    // Table Headers
-    const tableTop = 168;
-    doc.fillColor('#1e293b').rect(36, tableTop, 523, 20).fill();
-    doc.fillColor('#f8fafc').fontSize(8).font('Helvetica-Bold');
-    doc.text("SL", 44, tableTop + 6);
-    doc.text("RANK", 70, tableTop + 6);
-    doc.text("CANDIDATE NAME", 120, tableTop + 6);
-    doc.text("UNIVERSITY / INSTITUTION", 260, tableTop + 6);
-    doc.text("MARKS", 430, tableTop + 6);
-    doc.text("PERCENT", 490, tableTop + 6);
+    let y = 150;
+    doc.rect(36, y, 523, 22).fill('#334155');
+    doc.fillColor('#f8fafc').fontSize(8.5).font(fontBold);
+    doc.text("RANK", 45, y + 6);
+    doc.text("CANDIDATE NAME", 100, y + 6);
+    doc.text("UNIVERSITY / INST.", 250, y + 6);
+    doc.text("MARKS OBTAINED", 410, y + 6);
+    doc.text("PERCENTAGE", 485, y + 6);
 
-    let y = tableTop + 24;
-    let rank = 1;
+    y += 22;
 
     subs.forEach((s, idx) => {
-      const studentObj = studentsMap.get(s.studentId) || {};
-      const uniName = s.studentUniversity || studentObj.university || "Dhaka University (Law Dept)";
-      const marks = Number(s.marksObtained || 0);
-      const total = Number(assignment.totalMarks || 100);
-      const percent = Math.round((marks / total) * 100);
-
-      // Rank Label (1st, 2nd, 3rd...)
-      let rankText = `${rank}th`;
-      if (rank === 1) rankText = "1st 🏆";
-      else if (rank === 2) rankText = "2nd 🥈";
-      else if (rank === 3) rankText = "3rd 🥉";
-
-      // Alternate row background
-      if (idx % 2 === 1) {
-        doc.fillColor('#f8fafc').rect(36, y - 4, 523, 18).fill();
+      if (y > 740) {
+        doc.addPage();
+        y = 45;
       }
 
-      doc.fillColor('#0f172a').fontSize(8).font('Helvetica');
-      doc.text(String(idx + 1), 44, y);
-      doc.fillColor(rank <= 3 ? '#b45309' : '#334155').font('Helvetica-Bold').text(rankText, 70, y);
-      doc.fillColor('#0f172a').font('Helvetica-Bold').text(s.studentName || 'Student', 120, y, { width: 130 });
-      doc.fillColor('#475569').font('Helvetica').text(uniName, 260, y, { width: 160 });
-      doc.fillColor('#047857').font('Helvetica-Bold').text(`${marks} / ${total}`, 430, y);
-      doc.fillColor('#0f172a').font('Helvetica').text(`${percent}%`, 490, y);
+      const rank = idx + 1;
+      const rankText = rank === 1 ? '1st' : rank === 2 ? '2nd' : rank === 3 ? '3rd' : `#${rank}`;
+      const marks = s.marksObtained !== null ? s.marksObtained : 0;
+      const total = assignment.totalMarks || 100;
+      const percent = ((marks / total) * 100).toFixed(1);
+      const uniName = (s.university || 'BJS Academy Aspirant').substring(0, 30);
+
+      doc.rect(36, y, 523, 20).fill(idx % 2 === 0 ? '#ffffff' : '#f8fafc');
+
+      doc.fillColor(rank <= 3 ? '#b45309' : '#334155').fontSize(8.5).font(fontBold).text(rankText, 45, y + 4);
+      doc.fillColor('#0f172a').font(fontBold).text(s.studentName || 'Student', 100, y + 4, { width: 140 });
+      doc.fillColor('#475569').font(fontRegular).text(uniName, 250, y + 4, { width: 155 });
+      doc.fillColor('#047857').font(fontBold).text(`${marks} / ${total}`, 410, y + 4);
+      doc.fillColor('#0f172a').font(fontRegular).text(`${percent}%`, 485, y + 4);
 
       y += 20;
-      rank++;
-
-      // New page if page limit reached
-      if (y > 770) {
-        doc.addPage();
-        y = 40;
-      }
     });
 
-    // Footer
-    doc.fillColor('#94a3b8').fontSize(7).font('Helvetica-Oblique').text("© 2026 BJS & Bar Aspirants Academy. Official System-Generated Result Sheet.", 36, 800, { align: 'center' });
-
+    applyBengaliPdfWatermarkAndFooter(doc, "Official Exam Merit List");
     doc.end();
   } catch (err) {
     console.error("Generate merit PDF error:", err);
@@ -1329,90 +1292,65 @@ app.post("/api/admin/generate-merit-pdf", async (req, res) => {
 // Master Submissions & Mentor Workload Distribution PDF Generator
 app.post("/api/admin/generate-master-submissions-pdf", async (req, res) => {
   try {
-    const { courseId, mentorId } = req.body;
-
-    let subs = [];
+    let subs = memoryDb.submissions || [];
     if (isMongoConnected) {
-      subs = await Submission.find().sort({ createdAt: -1 }).lean();
-    } else {
-      subs = memoryDb.submissions || [];
+      const mongoSubs = await Submission.find().sort({ createdAt: -1 }).lean();
+      if (mongoSubs && mongoSubs.length > 0) subs = mongoSubs;
     }
-
-    if (courseId) {
-      subs = subs.filter(s => s.courseId === courseId);
-    }
-    if (mentorId) {
-      subs = subs.filter(s => s.assignedMentorId === mentorId || s.gradedBy?.includes(mentorId));
-    }
-
-    let studentsMap = new Map();
-    if (isMongoConnected) {
-      const allStudents = await Student.find().lean();
-      allStudents.forEach(s => studentsMap.set(s.id, s));
-    }
-    (memoryDb.students || []).forEach(s => {
-      if (!studentsMap.has(s.id)) studentsMap.set(s.id, s);
-    });
 
     if (!PDFDocument) return res.status(500).json({ ok: false, message: "PDF generator unavailable." });
-    const doc = new PDFDocument({ margin: 36, size: 'A4' });
+    const doc = initBengaliPdfDoc();
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=Master_Submissions_Report.pdf`);
 
     doc.pipe(res);
 
+    const hasBengaliFont = fs.existsSync(regularFontPath) && fs.existsSync(boldFontPath);
+    const fontBold = hasBengaliFont ? "Bengali-Bold" : "Helvetica-Bold";
+    const fontRegular = hasBengaliFont ? "Bengali-Regular" : "Helvetica";
+
     // Header Banner
-    doc.fillColor('#0b1325').rect(36, 36, 523, 70).fill();
-    doc.fillColor('#f59e0b').fontSize(16).font('Helvetica-Bold').text("BJS & BAR ASPIRANTS ACADEMY", 50, 48);
-    doc.fillColor('#ffffff').fontSize(10).font('Helvetica').text("Master Submissions & Mentor Workload Distribution Audit Sheet", 50, 68);
-    doc.fillColor('#94a3b8').fontSize(8).text(`Generated Date: ${new Date().toLocaleDateString()}`, 50, 82);
+    doc.rect(36, 36, 523, 64).fill('#0b1325');
+    doc.fillColor('#f59e0b').fontSize(14).font(fontBold).text("BJS & BAR ASPIRANTS ACADEMY", 50, 46);
+    doc.fillColor('#ffffff').fontSize(9).font(fontRegular).text("Master Submissions & Mentor Workload Distribution Audit Sheet", 50, 64);
+    doc.fillColor('#94a3b8').fontSize(8).font(fontRegular).text(`Generated Date: ${new Date().toLocaleDateString()}`, 50, 78);
 
-    // Metadata Block
-    doc.fillColor('#0f172a').rect(36, 115, 523, 35).fill();
-    doc.fillColor('#cbd5e1').fontSize(9).font('Helvetica-Bold').text(`TOTAL CANDIDATE SUBMISSIONS AUDITED: ${subs.length}`, 48, 126);
+    doc.rect(36, 110, 523, 26).fill('#1e293b');
+    doc.fillColor('#cbd5e1').fontSize(9).font(fontBold).text(`TOTAL CANDIDATE SUBMISSIONS AUDITED: ${subs.length}`, 48, 118);
 
-    // Table Headers
-    const tableTop = 160;
-    doc.fillColor('#1e293b').rect(36, tableTop, 523, 20).fill();
-    doc.fillColor('#f8fafc').fontSize(8).font('Helvetica-Bold');
-    doc.text("SL", 44, tableTop + 6);
-    doc.text("CANDIDATE NAME", 75, tableTop + 6);
-    doc.text("UNIVERSITY / INSTITUTION", 210, tableTop + 6);
-    doc.text("ASSIGNED MENTOR", 355, tableTop + 6);
-    doc.text("MARKS", 470, tableTop + 6);
-    doc.text("STATUS", 515, tableTop + 6);
+    let y = 145;
+    doc.rect(36, y, 523, 22).fill('#334155');
+    doc.fillColor('#f8fafc').fontSize(8.5).font(fontBold);
+    doc.text("EXAM", 45, y + 6);
+    doc.text("CANDIDATE NAME", 150, y + 6);
+    doc.text("ASSIGNED MENTOR", 300, y + 6);
+    doc.text("MARKS OBTAINED", 440, y + 6);
 
-    let y = tableTop + 24;
+    y += 22;
 
     subs.forEach((s, idx) => {
-      const studentObj = studentsMap.get(s.studentId) || {};
-      const uniName = s.studentUniversity || studentObj.university || "Dhaka University (Law Dept)";
-      const marks = s.marksObtained !== null ? `${s.marksObtained} Marks` : "Pending";
-      const mentorName = s.assignedMentorName || s.gradedBy || "Academic Panel";
-
-      if (idx % 2 === 1) {
-        doc.fillColor('#f8fafc').rect(36, y - 4, 523, 18).fill();
+      if (y > 740) {
+        doc.addPage();
+        y = 45;
       }
 
-      doc.fillColor('#0f172a').fontSize(8).font('Helvetica');
-      doc.text(String(idx + 1), 44, y);
-      doc.fillColor('#0f172a').font('Helvetica-Bold').text(s.studentName || 'Student', 75, y, { width: 130 });
-      doc.fillColor('#475569').font('Helvetica').text(uniName, 210, y, { width: 140 });
-      doc.fillColor('#0369a1').font('Helvetica-Bold').text(mentorName, 355, y, { width: 110 });
-      doc.fillColor(s.marksObtained !== null ? '#047857' : '#b45309').font('Helvetica-Bold').text(marks, 470, y);
-      doc.fillColor(s.marksObtained !== null ? '#047857' : '#b45309').font('Helvetica').text(s.marksObtained !== null ? 'Graded' : 'Pending', 515, y);
+      const examTitle = (s.assignmentTitle || 'Model Test').substring(0, 20);
+      const studentName = (s.studentName || 'Student').substring(0, 25);
+      const mentorName = (s.assignedMentorName || 'Unassigned').substring(0, 22);
+      const marks = s.marksObtained !== null ? `${s.marksObtained} Marks` : 'Pending Grade';
+
+      doc.rect(36, y, 523, 20).fill(idx % 2 === 0 ? '#ffffff' : '#f8fafc');
+
+      doc.fillColor('#0f172a').fontSize(8.5).font(fontRegular).text(examTitle, 45, y + 4, { width: 100 });
+      doc.fillColor('#0f172a').font(fontBold).text(studentName, 150, y + 4, { width: 140 });
+      doc.fillColor('#0369a1').font(fontBold).text(mentorName, 300, y + 4, { width: 130 });
+      doc.fillColor(s.marksObtained !== null ? '#047857' : '#b45309').font(fontBold).text(marks, 440, y + 4);
 
       y += 20;
-
-      if (y > 770) {
-        doc.addPage();
-        y = 40;
-      }
     });
 
-    doc.fillColor('#94a3b8').fontSize(7).font('Helvetica-Oblique').text("© 2026 BJS & Bar Aspirants Academy. Official Mentor Load & Submissions Sheet.", 36, 800, { align: 'center' });
-
+    applyBengaliPdfWatermarkAndFooter(doc, "Master Submissions Report");
     doc.end();
   } catch (err) {
     console.error("Master submissions PDF error:", err);
@@ -1420,24 +1358,6 @@ app.post("/api/admin/generate-master-submissions-pdf", async (req, res) => {
   }
 });
 
-// -------------------------------------------------------------
-// ONLINE MCQ EXAM ENGINE & AUTOMATED QUESTION PARSER ENDPOINTS
-// -------------------------------------------------------------
-
-let mammoth = null;
-try {
-  mammoth = require("mammoth");
-} catch (e) {
-  console.warn("⚠️ Mammoth serverless load notice:", e.message);
-}
-let pdfParse = null;
-try {
-  pdfParse = require("pdf-parse");
-} catch (e) {
-  console.warn("⚠️ PDF-Parse serverless load notice:", e.message);
-}
-
-// Helper function to extract structured MCQ questions from plain text
 function parseQuestionText(text) {
   if (!text) return [];
   const cleanText = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
