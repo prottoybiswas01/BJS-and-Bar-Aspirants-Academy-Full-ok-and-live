@@ -2552,6 +2552,40 @@ app.delete("/api/admin/courses/:id", async (req, res) => {
   }
 });
 
+// GET Mentors Endpoint (Public Homepage & Admin Panel)
+app.get(["/api/mentors", "/api/admin/mentors"], async (req, res) => {
+  try {
+    let mentorsList = [];
+    try {
+      mentorsList = await Mentor.find().sort({ createdAt: -1 }).lean();
+    } catch (e) {
+      mentorsList = memoryDb.mentors || [];
+    }
+    return res.json({ ok: true, mentors: mentorsList });
+  } catch (err) {
+    console.error("Error fetching mentors:", err);
+    return res.json({ ok: true, mentors: [] });
+  }
+});
+
+// GET Public Stats (Total Registered Students & Active Mentors)
+app.get("/api/public-stats", async (req, res) => {
+  try {
+    let studentsCount = 0;
+    let mentorsCount = 0;
+    try {
+      studentsCount = await Student.countDocuments();
+      mentorsCount = await Mentor.countDocuments({ status: "Active" });
+    } catch (e) {
+      studentsCount = memoryDb.students ? memoryDb.students.length : 0;
+      mentorsCount = memoryDb.mentors ? memoryDb.mentors.length : 0;
+    }
+    return res.json({ ok: true, studentsCount, mentorsCount });
+  } catch (err) {
+    return res.status(500).json({ ok: false, studentsCount: 0, mentorsCount: 0 });
+  }
+});
+
 // -------------------------------------------------------------
 // SITE SETTINGS & HERO BANNER ENDPOINTS
 // -------------------------------------------------------------
@@ -2560,14 +2594,17 @@ app.delete("/api/admin/courses/:id", async (req, res) => {
 app.get(["/api/site-settings", "/api/admin/site-settings"], async (req, res) => {
   try {
     let settings = null;
-    if (isMongoConnected) {
+    try {
       settings = await SiteSetting.findOne({ id: "default_settings" }).lean();
       if (!settings) {
         settings = await SiteSetting.create({ id: "default_settings" });
         if (settings.toObject) settings = settings.toObject();
       }
-    } else {
-      settings = memoryDb.siteSettings || {
+    } catch (e) {
+      settings = memoryDb.siteSettings;
+    }
+    if (!settings) {
+      settings = {
         badgeText: "🔥 ১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!",
         heroTitle: "বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য",
         heroSubtitle: "বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।"
@@ -2576,14 +2613,7 @@ app.get(["/api/site-settings", "/api/admin/site-settings"], async (req, res) => 
     return res.json({ ok: true, settings });
   } catch (err) {
     console.error("Error fetching site settings:", err);
-    return res.json({
-      ok: true,
-      settings: {
-        badgeText: "🔥 ১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!",
-        heroTitle: "বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য",
-        heroSubtitle: "বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।"
-      }
-    });
+    return res.json({ ok: true, settings: {} });
   }
 });
 
