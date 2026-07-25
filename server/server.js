@@ -2315,6 +2315,87 @@ app.post("/api/admin/generate-master-submissions-pdf", async (req, res) => {
 // ONLINE MCQ EXAM ENGINE & AUTOMATED QUESTION PARSER ENDPOINTS
 // -------------------------------------------------------------
 
+const mammoth = require("mammoth");
+const pdfParse = require("pdf-parse");
+
+// Helper function to extract structured MCQ questions from plain text
+function parseQuestionText(text) {
+  if (!text) return [];
+  const cleanText = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const blocks = cleanText.split(/(?:প্রশ্ন\s*\d*[:.]|\d+[:.])/gi).filter(Boolean);
+  
+  const parsed = blocks.map((b, idx) => {
+    const lines = b.trim().split("\n").map(l => l.trim()).filter(Boolean);
+    const questionText = lines[0] || `Question ${idx + 1}`;
+    
+    const options = [];
+    let correctIndex = 0;
+    let explanation = "";
+
+    lines.slice(1).forEach(line => {
+      if (/^(?:[কখগঘa-dA-D][:.])/i.test(line)) {
+        const optStr = line.replace(/^[কখগঘa-dA-D][:.]\s*/i, "");
+        options.push(optStr);
+        if (line.includes("✓") || line.toLowerCase().includes("correct") || line.toLowerCase().includes("উত্তর")) {
+          correctIndex = options.length - 1;
+        }
+      } else if (line.toLowerCase().includes("ব্যাখ্যা") || line.toLowerCase().includes("explanation")) {
+        explanation = line.replace(/^(?:ব্যাখ্যা|explanation)[:.]\s*/i, "");
+      }
+    });
+
+    while (options.length < 4) {
+      options.push(`অপশন ${options.length + 1}`);
+    }
+
+    return {
+      id: `Q-${idx + 1}`,
+      questionText,
+      options: options.slice(0, 4),
+      correctIndex,
+      explanation
+    };
+  }).filter(q => q.questionText && q.questionText.length > 2);
+
+  return parsed;
+}
+
+// POST /api/admin/parse-mcq-file (Extracts text from Word docx, PDF & Text files)
+app.post("/api/admin/parse-mcq-file", async (req, res) => {
+  try {
+    const { base64Data, fileName } = req.body;
+    if (!base64Data) {
+      return res.status(400).json({ ok: false, message: "ফাইল ডাটা পাওয়া যায়নি।" });
+    }
+
+    const buffer = Buffer.from(base64Data, "base64");
+    let extractedText = "";
+    const lowerName = (fileName || "").toLowerCase();
+
+    if (lowerName.endsWith(".docx") || lowerName.endsWith(".doc")) {
+      const result = await mammoth.extractRawText({ buffer });
+      extractedText = result.value || "";
+    } else if (lowerName.endsWith(".pdf")) {
+      const pdfData = await pdfParse(buffer);
+      extractedText = pdfData.text || "";
+    } else {
+      extractedText = buffer.toString("utf-8");
+    }
+
+    const questions = parseQuestionText(extractedText);
+
+    return res.json({
+      ok: true,
+      questionsCount: questions.length,
+      questions,
+      rawText: extractedText
+    });
+  } catch (err) {
+    console.error("MCQ file parse error:", err);
+    return res.status(500).json({ ok: false, message: "ফাইল পার্স করতে সমস্যা হয়েছে: " + err.message });
+  }
+});
+
 // SAVE / UPDATE MCQ Exam (Admin)
 app.post("/api/admin/mcq-exams/save", async (req, res) => {
   try {

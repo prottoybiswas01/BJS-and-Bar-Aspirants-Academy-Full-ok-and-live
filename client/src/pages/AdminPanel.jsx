@@ -408,13 +408,28 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
     showToast(`📂 "${file.name}" ফাইল পড়া হচ্ছে...`, 'success');
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result || '';
-      setMcqForm(prev => ({ ...prev, rawQuestionText: content }));
-      handleParseQuestions(content);
-      showToast(`✓ "${file.name}" থেকে প্রশ্ন ও অপশন অটো-পার্স করা হয়েছে!`, 'success');
+    reader.onload = async (event) => {
+      try {
+        const dataUrl = event.target?.result || '';
+        const base64Data = dataUrl.split(',')[1] || dataUrl;
+
+        const res = await api.post('/admin/parse-mcq-file', {
+          base64Data,
+          fileName: file.name
+        });
+
+        if (res.data.ok && res.data.questions) {
+          setParsedQuestions(res.data.questions);
+          setMcqForm(prev => ({ ...prev, rawQuestionText: res.data.rawText || '' }));
+          showToast(`✓ "${file.name}" থেকে ${res.data.questionsCount}টি প্রশ্ন ও অপশন সফলভাবে পার্স করা হয়েছে!`, 'success');
+        } else {
+          showToast('ফাইল পার্স করতে সমস্যা হয়েছে।', 'error');
+        }
+      } catch (err) {
+        showToast('ফাইল এক্সট্রাকশনে ত্রুটি: ' + (err.response?.data?.message || err.message), 'error');
+      }
     };
-    reader.readAsText(file);
+    reader.readAsDataURL(file);
   };
 
   const handleSaveMcqExam = async (e) => {
