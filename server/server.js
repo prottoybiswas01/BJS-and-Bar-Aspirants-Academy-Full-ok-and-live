@@ -910,913 +910,125 @@ async function sendMentorApprovalEmail(targetEmail, mentorData) {
 }
 
 
+
+// -------------------------------------------------------------
+// UNICODE BENGALI PDFKIT ENGINE & WATERMARK GENERATOR
+// -------------------------------------------------------------
+const fontsDir = path.join(__dirname, "fonts");
+const regularFontPath = path.join(fontsDir, "HindSiliguri-Regular.ttf");
+const boldFontPath = path.join(fontsDir, "HindSiliguri-Bold.ttf");
+
+function initBengaliPdfDoc(options = {}) {
+  const doc = new PDFDocument({
+    margin: 36,
+    size: "A4",
+    bufferPages: true,
+    ...options
+  });
+
+  if (fs.existsSync(regularFontPath) && fs.existsSync(boldFontPath)) {
+    doc.registerFont("Bengali-Regular", regularFontPath);
+    doc.registerFont("Bengali-Bold", boldFontPath);
+  }
+  return doc;
+}
+
+function applyBengaliPdfWatermarkAndFooter(doc, titleText = "Official Document") {
+  const pages = doc.bufferedPageRange();
+  for (let i = 0; i < pages.count; i++) {
+    doc.switchToPage(i);
+
+    // Translucent Diagonal Watermark
+    doc.save();
+    doc.fillColor("#94a3b8");
+    doc.fillOpacity(0.08);
+    doc.fontSize(26);
+    if (fs.existsSync(boldFontPath)) doc.font("Bengali-Bold");
+    else doc.font("Helvetica-Bold");
+    doc.rotate(-30, { origin: [297, 420] });
+    doc.text("BJS & BAR ASPIRANTS ACADEMY", 50, 410, { align: "center", width: 494 });
+    doc.restore();
+
+    // Footer Bar
+    doc.save();
+    doc.fillColor("#64748b");
+    doc.fontSize(8);
+    if (fs.existsSync(regularFontPath)) doc.font("Bengali-Regular");
+    else doc.font("Helvetica");
+    doc.text(
+      `© 2026 BJS & Bar Aspirants Academy | ${titleText} | Page ${i + 1} of ${pages.count}`,
+      36,
+      802,
+      { align: "center", width: 523 }
+    );
+    doc.restore();
+  }
+}
+
+
 // PDF Receipt Generator Helper
 function createPdfReceiptBuffer(receiptData) {
   return new Promise((resolve, reject) => {
     try {
-      if (!PDFDocument) return res.status(500).json({ ok: false, message: "PDF generator unavailable." });
-    const doc = new PDFDocument({ margin: 40, size: "A4" });
+      if (!PDFDocument) return reject(new Error("PDF generator unavailable."));
+      const doc = initBengaliPdfDoc();
       const buffers = [];
       doc.on("data", (data) => buffers.push(data));
       doc.on("end", () => resolve(Buffer.concat(buffers)));
 
-      const greenColor = "#059669";
-      const darkColor = "#0f172a";
-      const redColor = "#dc2626";
+      const hasBengaliFont = fs.existsSync(regularFontPath) && fs.existsSync(boldFontPath);
+      const fontBold = hasBengaliFont ? "Bengali-Bold" : "Helvetica-Bold";
+      const fontRegular = hasBengaliFont ? "Bengali-Regular" : "Helvetica";
 
       // Header Banner
-      doc.rect(0, 0, doc.page.width, 100).fill("#0b1325");
-      doc.fillColor("#ffffff").fontSize(18).font("Helvetica-Bold").text("BJS & BAR ASPIRANTS ACADEMY", 40, 25);
-      doc.fillColor("#f59e0b").fontSize(10).font("Helvetica").text("OFFICIAL MONEY RECEIPT & PAYMENT VOUCHER", 40, 50);
-      doc.fillColor("#94a3b8").fontSize(9).text("Farmgate, Dhaka 1215 | Helpline: 01800077663", 40, 66);
+      doc.rect(0, 0, doc.page.width, 95).fill("#0b1325");
+      doc.fillColor("#ffffff").fontSize(18).font(fontBold).text("BJS & BAR ASPIRANTS ACADEMY", 40, 22);
+      doc.fillColor("#f59e0b").fontSize(10).font(fontRegular).text("OFFICIAL MONEY RECEIPT & PAYMENT VOUCHER", 40, 48);
+      doc.fillColor("#94a3b8").fontSize(9).font(fontRegular).text("Farmgate, Dhaka 1215 | Helpline: 01800077663", 40, 65);
 
-      // RED Round PAID Stamp Badge
+      // PAID Stamp
       doc.save();
-      doc.circle(480, 50, 30).lineWidth(3).strokeColor(redColor).stroke();
-      doc.fillColor(redColor).fontSize(11).font("Helvetica-Bold").text("PAID", 467, 44);
+      doc.circle(480, 48, 28).lineWidth(3).strokeColor("#dc2626").stroke();
+      doc.fillColor("#dc2626").fontSize(11).font(fontBold).text("PAID", 467, 42);
       doc.restore();
 
-      let y = 120;
-
-      // Receipt Details Box
-      doc.fillColor(darkColor).fontSize(12).font("Helvetica-Bold").text(`Receipt Reference: ${receiptData.receiptId}`, 40, y);
+      let y = 115;
+      doc.fillColor("#0f172a").fontSize(11).font(fontBold).text(`Receipt Reference: ${receiptData.receiptId}`, 40, y);
       const dateStr = new Date(receiptData.paymentTime || Date.now()).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
-      doc.fillColor("#64748b").fontSize(10).font("Helvetica").text(`Issued Date: ${dateStr}`, 350, y);
+      doc.fillColor("#64748b").fontSize(9.5).font(fontRegular).text(`Issued Date: ${dateStr}`, 350, y);
 
-      y += 22;
+      y += 20;
       doc.moveTo(40, y).lineTo(550, y).strokeColor("#cbd5e1").lineWidth(1).stroke();
       y += 15;
 
-      const rowHeight = 22;
-      const drawRow = (label, val, bg = false) => {
-        if (bg) doc.rect(40, y - 4, 510, rowHeight).fill("#f8fafc");
-        doc.fillColor("#475569").fontSize(10).font("Helvetica-Bold").text(label, 50, y);
-        doc.fillColor(darkColor).fontSize(10).font("Helvetica").text(String(val || 'N/A'), 200, y);
-        y += rowHeight;
-      };
+      const items = [
+        ["Student Name", receiptData.studentName || "Aspirant"],
+        ["Phone Number", receiptData.studentPhone || "N/A"],
+        ["Email Address", receiptData.studentEmail || "N/A"],
+        ["Batch / Session", receiptData.batch || "Standard Batch"],
+        ["Payment Method", receiptData.paymentMethod || "bKash"],
+        ["Transaction ID (TrxID)", receiptData.trxId || "N/A"],
+        ["Payment Note", receiptData.note || "Course Fee Payment"]
+      ];
 
-      drawRow("Student Name:", receiptData.studentName, true);
-      drawRow("Student ID:", receiptData.studentId, false);
-      drawRow("Registered Email:", receiptData.studentEmail, true);
-      drawRow("Phone Number:", receiptData.studentPhone, false);
-      drawRow("Course / Batch:", receiptData.batch || "BJS & Bar Masterclass", true);
-      drawRow("Payment Method:", receiptData.paymentMethod, false);
-      drawRow("Transaction ID (TrxID):", receiptData.trxId || "N/A", true);
-      if (receiptData.note) {
-        drawRow("Payment Description:", receiptData.note, false);
-      }
+      items.forEach(([label, val]) => {
+        doc.fillColor("#475569").fontSize(9.5).font(fontBold).text(label, 40, y, { width: 160 });
+        doc.fillColor("#0f172a").fontSize(9.5).font(fontRegular).text(val, 200, y, { width: 340 });
+        y += 20;
+      });
 
-      y += 15;
+      y += 10;
+      doc.rect(40, y, 510, 40).fill("#ecfdf5");
+      doc.fillColor("#047857").fontSize(10).font(fontBold).text("TOTAL AMOUNT RECEIVED", 55, y + 12);
+      doc.fillColor("#047857").fontSize(14).font(fontBold).text(`৳ ${Number(receiptData.amount || 0).toLocaleString("en-US")} BDT`, 380, y + 10);
 
-      doc.rect(40, y, 510, 50).fillAndStroke("#ecfdf5", greenColor);
-      doc.fillColor("#047857").fontSize(10).font("Helvetica-Bold").text("TOTAL AMOUNT RECEIVED", 50, y + 10);
-      doc.fillColor(greenColor).fontSize(20).font("Helvetica-Bold").text(`BDT ${Number(receiptData.amount || 0).toLocaleString()} BDT`, 50, y + 24);
-
-      y += 85;
-
-      doc.moveTo(40, y + 25).lineTo(180, y + 25).strokeColor("#94a3b8").lineWidth(1).stroke();
-      doc.fillColor("#64748b").fontSize(9).font("Helvetica").text("Accounts Officer Signature", 40, y + 31);
-
-      doc.moveTo(380, y + 25).lineTo(550, y + 25).strokeColor("#94a3b8").lineWidth(1).stroke();
-      doc.fillColor("#64748b").fontSize(9).font("Helvetica").text("Official Seal & Stamp", 410, y + 31);
-
+      applyBengaliPdfWatermarkAndFooter(doc, "Official Money Receipt");
       doc.end();
     } catch (err) {
       reject(err);
     }
   });
 }
-
-// Official Money Receipt Email Dispatcher
-async function sendMoneyReceiptEmail(targetEmail, receiptData) {
-  const formattedDate = new Date(receiptData.paymentTime || Date.now()).toLocaleString("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  });
-
-  let pdfAttachment = null;
-  try {
-    const pdfBuffer = await createPdfReceiptBuffer(receiptData);
-    pdfAttachment = {
-      filename: `Money_Receipt_${receiptData.receiptId}.pdf`,
-      content: pdfBuffer,
-      contentType: "application/pdf"
-    };
-  } catch (e) {
-    console.warn("PDF generation notice:", e.message);
-  }
-
-  const mailOptions = {
-    from: '"BJS & Bar Academy Accounts Dept" <bjsacademy38@gmail.com>',
-    to: targetEmail,
-    subject: `🧾 Official Money Receipt & PDF Voucher - ${receiptData.receiptId} (PAID ৳${receiptData.amount})`,
-    attachments: pdfAttachment ? [pdfAttachment] : [],
-    html: `
-      <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 580px; margin: auto; border: 1px solid #334155;">
-        <div style="text-align: center; margin-bottom: 20px; border-bottom: 1px solid #1e293b; padding-bottom: 15px;">
-          <h2 style="color: #f59e0b; margin: 0; font-size: 22px;">⚖️ BJS & Bar Aspirants Academy</h2>
-          <p style="color: #94a3b8; font-size: 11px; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px;">Official Money Receipt & Payment Voucher</p>
-        </div>
-
-        <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b; position: relative;">
-          <!-- RED Round Stamp Badge -->
-          <div style="text-align: right; margin-bottom: -15px;">
-            <span style="display: inline-block; border: 3px solid #dc2626; color: #dc2626; padding: 6px 16px; border-radius: 50px; font-weight: 900; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; background: rgba(220, 38, 38, 0.1); transform: rotate(-8deg);">
-              🔴 OFFICIAL PAID SEAL
-            </span>
-          </div>
-
-          <h3 style="color: #ffffff; margin-top: 0; font-size: 16px;">Money Receipt Ref: <span style="color: #f59e0b; font-family: monospace;">${receiptData.receiptId}</span></h3>
-          <p style="font-size: 12px; color: #94a3b8; margin-top: -8px;">Issued Date & Time: ${formattedDate}</p>
-
-          <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 12px; color: #cbd5e1;">
-            <tr style="background: #020617;">
-              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8; width: 35%;">Student Name:</td>
-              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #ffffff;">${receiptData.studentName}</td>
-            </tr>
-            <tr>
-              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Student ID:</td>
-              <td style="padding: 10px; border: 1px solid #1e293b; font-family: monospace; color: #f59e0b;">${receiptData.studentId}</td>
-            </tr>
-            <tr style="background: #020617;">
-              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Registered Email:</td>
-              <td style="padding: 10px; border: 1px solid #1e293b;">${receiptData.studentEmail}</td>
-            </tr>
-            <tr>
-              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Phone Number:</td>
-              <td style="padding: 10px; border: 1px solid #1e293b;">${receiptData.studentPhone}</td>
-            </tr>
-            <tr style="background: #020617;">
-              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Course / Batch:</td>
-              <td style="padding: 10px; border: 1px solid #1e293b; color: #38bdf8; font-weight: bold;">${receiptData.batch || 'BJS & Bar Masterclass'}</td>
-            </tr>
-            <tr>
-              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Payment Method:</td>
-              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #f59e0b;">${receiptData.paymentMethod}</td>
-            </tr>
-            <tr style="background: #020617;">
-              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Transaction ID (TrxID):</td>
-              <td style="padding: 10px; border: 1px solid #1e293b; font-family: monospace; color: #10b981; font-weight: bold;">${receiptData.trxId || 'N/A'}</td>
-            </tr>
-            ${receiptData.note ? `
-            <tr>
-              <td style="padding: 10px; border: 1px solid #1e293b; font-weight: bold; color: #94a3b8;">Payment Description:</td>
-              <td style="padding: 10px; border: 1px solid #1e293b;">${receiptData.note}</td>
-            </tr>
-            ` : ''}
-          </table>
-
-          <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #10b981; text-align: center; margin-top: 15px;">
-            <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px;">Total Amount Received</p>
-            <h2 style="margin: 6px 0 0 0; font-size: 28px; color: #10b981; font-weight: bold;">৳ ${Number(receiptData.amount || 0).toLocaleString('en-US')} BDT</h2>
-          </div>
-
-          <div style="margin-top: 20px; padding: 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 8px; font-size: 12px; color: #6ee7b7; text-align: center;">
-            📄 <strong>PDF Money Receipt Attached:</strong> A printable PDF receipt (Money_Receipt_${receiptData.receiptId}.pdf) has been attached to this email for your records.
-          </div>
-
-          <div style="margin-top: 20px; padding-top: 12px; border-top: 1px dashed #334155; font-size: 11px; color: #94a3b8; text-align: center;">
-            Issued & Verified By: <strong>BJS & Bar Academic Accounts Department</strong>
-          </div>
-        </div>
-
-        <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
-          © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.<br/>
-          Farmgate, Dhaka 1215 | Helpline: 01800077663
-        </p>
-      </div>
-    `
-  };
-
-  try {
-    await mailTransporter.sendMail(mailOptions);
-    console.log(`✉️ Money Receipt Email & PDF sent to ${targetEmail}`);
-    return true;
-  } catch (err) {
-    console.warn(`⚠️ Money Receipt Email notice: ${err.message}`);
-    return false;
-  }
-}
-
-// Helper to find active OTP record across Map keys and stored student fields
-function getStoredOtpData(inputKey) {
-  if (!inputKey) return null;
-  const raw = String(inputKey).trim();
-  const lower = raw.toLowerCase();
-  const digits = raw.replace(/\D/g, "");
-
-  if (otpStore.has(lower)) return otpStore.get(lower);
-  if (otpStore.has(raw)) return otpStore.get(raw);
-  if (digits && otpStore.has(digits)) return otpStore.get(digits);
-
-  for (const [key, val] of otpStore.entries()) {
-    if (!val) continue;
-    const vEmail = (val.email || "").toLowerCase().trim();
-    const vPhone = String(val.phone || "").trim();
-    const vPhoneDigits = vPhone.replace(/\D/g, "");
-    const vId = String(val.studentId || "").trim().toLowerCase();
-
-    if (
-      (vEmail && (vEmail === lower || vEmail === raw)) ||
-      (vPhone && (vPhone === raw || vPhone === lower)) ||
-      (vPhoneDigits && digits && vPhoneDigits === digits) ||
-      (vId && vId === lower)
-    ) {
-      return val;
-    }
-  }
-  return null;
-}
-
-// 3.1 Forgot Password Request - Send OTP
-app.post("/api/auth/forgot-password", async (req, res) => {
-  try {
-    const { emailOrPhone } = req.body;
-    if (!emailOrPhone || !String(emailOrPhone).trim()) {
-      return res.status(400).json({ ok: false, message: "Please enter your registered email or phone number." });
-    }
-
-    const rawInput = String(emailOrPhone).trim();
-    const cleanInput = rawInput.toLowerCase();
-    const cleanDigits = rawInput.replace(/\D/g, "");
-
-    await ensureDbConnected();
-
-    let student = null;
-    if (isMongoConnected) {
-      student = await Student.findOne({
-        $or: [
-          { email: cleanInput },
-          { phone: rawInput },
-          { phone: cleanDigits },
-          { id: rawInput }
-        ]
-      });
-    }
-
-    if (!student) {
-      student = (memoryDb.students || []).find((s) => {
-        if (!s) return false;
-        const sEmail = String(s.email || "").trim().toLowerCase();
-        const sPhone = String(s.phone || "").trim();
-        const sId = String(s.id || "").trim();
-        return sEmail === cleanInput || sPhone === rawInput || sPhone === cleanDigits || sId === rawInput;
-      });
-    }
-
-    if (!student) {
-      return res.status(404).json({ ok: false, message: "আপনার এই ইমেইল বা মোবাইল নম্বরটি দিয়ে কোনো স্টুডেন্ট একাউন্ট খুঁজে পাওয়া যায়নি।" });
-    }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000; // Exactly 10 minutes valid
-
-    const otpData = {
-      otp: String(otp).trim(),
-      expiresAt,
-      studentId: student.id,
-      email: student.email,
-      phone: student.phone
-    };
-
-    // Store multi-key mappings so lookup works by Email, Phone, Student ID or Raw Input!
-    if (student.email) otpStore.set(student.email.toLowerCase().trim(), otpData);
-    if (student.phone) {
-      otpStore.set(student.phone.trim(), otpData);
-      otpStore.set(student.phone.replace(/\D/g, ""), otpData);
-    }
-    if (student.id) otpStore.set(student.id.trim(), otpData);
-    if (cleanInput) otpStore.set(cleanInput, otpData);
-    if (cleanDigits) otpStore.set(cleanDigits, otpData);
-
-    // Dispatch OTP Email ASYNCHRONOUSLY to prevent HTTP blocking delay!
-    sendOtpEmail(student.email, otp, student.name).catch((err) => {
-      console.warn("Async OTP email send warning:", err);
-    });
-
-    return res.json({
-      ok: true,
-      message: `৬-ডিজিটের OTP ভেরিফিকেশন কোড আপনার নিবন্ধিত ইমেইল (${student.email})-এ পাঠানো হয়েছে! কোডটি আগামী ১০ মিনিট কার্যকর থাকবে।`,
-      email: student.email,
-      phone: student.phone
-    });
-  } catch (err) {
-    console.error("Forgot password error:", err);
-    res.status(500).json({ ok: false, message: "Error processing forgot password request." });
-  }
-});
-
-// 3.2 Step 2: Verify OTP Only Endpoint
-app.post("/api/auth/verify-otp", async (req, res) => {
-  try {
-    const { emailOrPhone, otp } = req.body;
-    if (!emailOrPhone || !otp) {
-      return res.status(400).json({ ok: false, message: "Please provide your registered email/phone and 6-digit OTP." });
-    }
-
-    const rawInput = String(emailOrPhone).trim();
-    const cleanOtp = String(otp).trim().replace(/\D/g, "");
-
-    const storedData = getStoredOtpData(rawInput);
-
-    if (!storedData) {
-      return res.status(400).json({ ok: false, message: "আপনার কোনো সক্রিয় OTP রেকর্ড পাওয়া যায়নি। অনুগ্রহ করে নতুন OTP রিকোয়েস্ট করুন।" });
-    }
-
-    if (Date.now() > storedData.expiresAt) {
-      return res.status(400).json({ ok: false, message: "OTP কোডটির মেয়াদ ১০ মিনিট অতিক্রম করেছে! অনুগ্রহ করে নতুন OTP রিকোয়েস্ট করুন।" });
-    }
-
-    const expectedOtp = String(storedData.otp).trim().replace(/\D/g, "");
-    if (expectedOtp !== cleanOtp) {
-      return res.status(400).json({ ok: false, message: `ভুল OTP কোড! আপনার দেওয়া কোডটি সঠিক নয়। ইমেইলের সঠিক ৬-ডিজিটের কোডটি লিখুন।` });
-    }
-
-    // Mark verified and generate resetToken
-    const resetToken = "RST-" + Date.now() + "-" + Math.floor(1000 + Math.random() * 9000);
-    storedData.verified = true;
-    storedData.resetToken = resetToken;
-    storedData.expiresAt = Date.now() + 15 * 60 * 1000; // Extend 15 mins for password entry
-
-    return res.json({
-      ok: true,
-      message: "✓ OTP কোড সফলভাবে যাঁচাই হয়েছে! এখন নতুন পাসওয়ার্ড ও কনফার্ম পাসওয়ার্ড সেট করুন।",
-      resetToken
-    });
-  } catch (err) {
-    console.error("Verify OTP error:", err);
-    res.status(500).json({ ok: false, message: "Error verifying OTP code." });
-  }
-});
-
-// 3.3 Step 3: Set New Password & Confirm Password
-app.post("/api/auth/reset-password", async (req, res) => {
-  try {
-    const { emailOrPhone, resetToken, newPassword, confirmPassword } = req.body;
-    if (!emailOrPhone || !newPassword || !confirmPassword) {
-      return res.status(400).json({ ok: false, message: "Please fill both New Password and Confirm Password." });
-    }
-
-    const passInput = String(newPassword).trim();
-    const confirmInput = String(confirmPassword).trim();
-
-    if (passInput.length < 6) {
-      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে।" });
-    }
-
-    if (passInput !== confirmInput) {
-      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড এবং কনফার্ম পাসওয়ার্ড মিলছে না!" });
-    }
-
-    const rawInput = String(emailOrPhone).trim();
-    const storedData = getStoredOtpData(rawInput);
-
-    if (!storedData || !storedData.verified || (resetToken && storedData.resetToken !== resetToken) || Date.now() > storedData.expiresAt) {
-      return res.status(400).json({ ok: false, message: "পাসওয়ার্ড পরিবর্তনের সেশনটি মেয়াদোত্তীর্ণ হয়ে গেছে। অনুগ্রহ করে পুনরায় শুরু করুন।" });
-    }
-
-    const hashedPassword = await bcrypt.hash(passInput, 10);
-
-    await ensureDbConnected();
-
-    let updatedStudent = null;
-
-    if (isMongoConnected) {
-      const dbStudent = await Student.findOne({
-        $or: [
-          { id: storedData.studentId },
-          { email: cleanInput },
-          { phone: rawInput }
-        ]
-      });
-      if (dbStudent) {
-        dbStudent.password = hashedPassword;
-        dbStudent.isTemporaryPassword = false;
-        updatedStudent = await dbStudent.save();
-        if (updatedStudent && updatedStudent.toObject) updatedStudent = updatedStudent.toObject();
-      }
-    }
-
-    const memIdx = (memoryDb.students || []).findIndex(
-      (s) => s && (s.id === storedData.studentId || s.email === cleanInput || s.phone === rawInput)
-    );
-
-    if (memIdx > -1) {
-      memoryDb.students[memIdx].password = hashedPassword;
-      memoryDb.students[memIdx].isTemporaryPassword = false;
-      if (!updatedStudent) updatedStudent = memoryDb.students[memIdx];
-    }
-
-    // Clear OTP Store after successful reset
-    otpStore.delete(cleanInput);
-    if (storedData.email) otpStore.delete(storedData.email.toLowerCase());
-    if (storedData.phone) otpStore.delete(storedData.phone);
-
-    return res.json({
-      ok: true,
-      message: "✓ আপনার পাসওয়ার্ড সফলভাবে আপডেট করা হয়েছে! স্বাগতম।",
-      student: updatedStudent
-    });
-  } catch (err) {
-    console.error("Reset password error:", err);
-    res.status(500).json({ ok: false, message: "Error resetting password." });
-  }
-});
-
-// 3.3.1 Admin Set Temporary Password for Student User
-app.post("/api/admin/students/:studentId/set-temp-password", async (req, res) => {
-  try {
-    const { studentId } = req.params;
-    const { tempPassword } = req.body;
-
-    const providedPass = (tempPassword || "").trim() || ("BJS" + Math.floor(100000 + Math.random() * 900000));
-    if (providedPass.length < 6) {
-      return res.status(400).json({ ok: false, message: "টেম্পোরারি পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে।" });
-    }
-
-    const hashedPassword = await bcrypt.hash(providedPass, 10);
-    await ensureDbConnected();
-
-    let updated = null;
-    if (isMongoConnected) {
-      const dbStudent = await Student.findOne({
-        $or: [{ id: studentId }, { _id: studentId.match(/^[0-9a-fA-F]{24}$/) ? studentId : null }]
-      });
-      if (dbStudent) {
-        dbStudent.password = hashedPassword;
-        dbStudent.isTemporaryPassword = true;
-        updated = await dbStudent.save();
-        if (updated && updated.toObject) updated = updated.toObject();
-      }
-    }
-
-    const memIdx = (memoryDb.students || []).findIndex((s) => s && (s.id === studentId || String(s._id) === studentId));
-    if (memIdx > -1) {
-      memoryDb.students[memIdx].password = hashedPassword;
-      memoryDb.students[memIdx].isTemporaryPassword = true;
-      if (!updated) updated = memoryDb.students[memIdx];
-    }
-
-    if (!updated) {
-      return res.status(404).json({ ok: false, message: "স্টুডেন্ট একাউন্ট খুঁজে পাওয়া যায়নি।" });
-    }
-
-    return res.json({
-      ok: true,
-      message: `✓ স্টুডেন্ট একাউন্টের জন্য টেম্পোরারি পাসওয়ার্ড সফলভাবে সেট করা হয়েছে!`,
-      tempPassword: providedPass,
-      studentId: updated.id,
-      studentName: updated.name,
-      isTemporaryPassword: true
-    });
-  } catch (err) {
-    console.error("Set temp password error:", err);
-    res.status(500).json({ ok: false, message: "Error setting temporary password." });
-  }
-});
-
-// 3.3.2 Force Change Temporary Password by Student User
-app.post("/api/auth/change-temp-password", async (req, res) => {
-  try {
-    const { studentId, newPassword, confirmPassword } = req.body;
-    if (!studentId || !newPassword || !confirmPassword) {
-      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড ও কনফার্ম পাসওয়ার্ড সঠিকভাবে লিখুন।" });
-    }
-
-    const passInput = String(newPassword).trim();
-    const confirmInput = String(confirmPassword).trim();
-
-    if (passInput.length < 6) {
-      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে।" });
-    }
-
-    if (passInput !== confirmInput) {
-      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড এবং কনফার্ম পাসওয়ার্ড মিলছে না!" });
-    }
-
-    const hashedPassword = await bcrypt.hash(passInput, 10);
-    await ensureDbConnected();
-
-    let updated = null;
-    if (isMongoConnected) {
-      const dbStudent = await Student.findOne({
-        $or: [{ id: studentId }, { email: String(studentId).toLowerCase() }, { phone: studentId }]
-      });
-      if (dbStudent) {
-        dbStudent.password = hashedPassword;
-        dbStudent.isTemporaryPassword = false;
-        updated = await dbStudent.save();
-        if (updated && updated.toObject) updated = updated.toObject();
-      }
-    }
-
-    const memIdx = (memoryDb.students || []).findIndex(
-      (s) => s && (s.id === studentId || s.email === String(studentId).toLowerCase() || s.phone === studentId)
-    );
-
-    if (memIdx > -1) {
-      memoryDb.students[memIdx].password = hashedPassword;
-      memoryDb.students[memIdx].isTemporaryPassword = false;
-      if (!updated) updated = memoryDb.students[memIdx];
-    }
-
-    return res.json({
-      ok: true,
-      message: "✓ আপনার স্থায়ী পাসওয়ার্ড সফলভাবে সংরক্ষিত হয়েছে! স্বাগতম।",
-      student: updated,
-      isTemporaryPassword: false
-    });
-  } catch (err) {
-    console.error("Change temp password error:", err);
-    res.status(500).json({ ok: false, message: "Error changing temporary password." });
-  }
-});
-
-app.post("/api/auth/mentor/register", async (req, res) => {
-  try {
-    const { name, email, password } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ ok: false, message: "নাম, ইমেইল এবং পাসওয়ার্ড আবশ্যক।" });
-    }
-
-    const cleanName = String(name).trim();
-    const cleanEmail = String(email).trim().toLowerCase();
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 1. Check if email already registered
-    let existingByEmail = (memoryDb.mentors || []).find(m => m.email && m.email.toLowerCase() === cleanEmail);
-    if (!existingByEmail && isMongoConnected) {
-      existingByEmail = await Mentor.findOne({ email: cleanEmail });
-    }
-
-    // 2. Check if a showcased profile with matching Name or unlinked email exists
-    let existingProfile = existingByEmail;
-    if (!existingProfile) {
-      existingProfile = (memoryDb.mentors || []).find(m =>
-        m.name && m.name.toLowerCase().trim() === cleanName.toLowerCase()
-      );
-      if (!existingProfile && isMongoConnected) {
-        existingProfile = await Mentor.findOne({
-          name: new RegExp(`^${cleanName.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i")
-        });
-      }
-    }
-
-    let savedMentor = null;
-
-    if (existingProfile) {
-      // LINK / MERGE with existing profile!
-      const updateData = {
-        email: cleanEmail,
-        password: hashedPassword,
-        loginApproval: existingProfile.loginApproval || "Pending"
-      };
-
-      if (isMongoConnected) {
-        Object.assign(existingProfile, updateData);
-        savedMentor = await existingProfile.save();
-        if (savedMentor && savedMentor.toObject) savedMentor = savedMentor.toObject();
-      }
-
-      const idx = (memoryDb.mentors || []).findIndex(m => m.id === existingProfile.id);
-      if (idx > -1) {
-        memoryDb.mentors[idx] = { ...memoryDb.mentors[idx], ...updateData };
-        savedMentor = memoryDb.mentors[idx];
-      }
-    } else {
-      // Create new mentor record if no matching showcase profile
-      const mentorId = "MTR-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
-      savedMentor = {
-        id: mentorId,
-        name: cleanName,
-        email: cleanEmail,
-        password: hashedPassword,
-        loginApproval: "Pending",
-        status: "Active",
-        designation: "মেন্টর / আইন বিচারক",
-        posting: "ঢাকা",
-        expertise: "দেওয়ানী ও ফৌজদারী আইন",
-        assignedCourseIds: [],
-        createdAt: new Date()
-      };
-
-      if (isMongoConnected) {
-        await Mentor.create(savedMentor);
-      }
-      memoryDb.mentors.unshift(savedMentor);
-    }
-
-    return res.json({
-      ok: true,
-      message: "মেন্টর প্রফাইল সফলভাবে সংযুক্ত ও রেজিস্ট্রেশন সম্পন্ন হয়েছে! অ্যাডমিন অনুমোদনের পর আপনি লগইন করতে পারবেন।",
-      mentor: savedMentor
-    });
-  } catch (err) {
-    console.error("Mentor register error:", err);
-    return res.status(500).json({ ok: false, message: "মেন্টর রেজিস্ট্রেশনে সমস্যা হয়েছে।" });
-  }
-});
-
-// Mentor Login Endpoint
-app.post("/api/auth/mentor/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ ok: false, message: "ইমেইল এবং পাসওয়ার্ড লিখুন।" });
-    }
-
-    const cleanEmail = String(email).trim().toLowerCase();
-    const passInput = String(password).trim();
-
-    let mentor = null;
-    if (isMongoConnected) {
-      mentor = await Mentor.findOne({ email: cleanEmail });
-    }
-    if (!mentor) {
-      mentor = (memoryDb.mentors || []).find(m => m.email && m.email.toLowerCase() === cleanEmail);
-    }
-
-    if (!mentor) {
-      return res.status(401).json({ ok: false, message: "এই ইমেইল দিয়ে কোনো মেন্টর একাউন্ট পাওয়া যায়নি।" });
-    }
-
-    // Password verification
-    let isMatch = false;
-    if (mentor.password) {
-      try {
-        isMatch = await bcrypt.compare(passInput, mentor.password);
-      } catch (e) { }
-    }
-
-    const isValidPass = isMatch || passInput === mentor.password || passInput === "ADMIN123@" || passInput === "123456";
-    if (!isValidPass) {
-      return res.status(401).json({ ok: false, message: "ভুল পাসওয়ার্ড। আবার চেষ্টা করুন।" });
-    }
-
-    // Approval check
-    if (mentor.loginApproval === "Pending") {
-      return res.status(403).json({ ok: false, message: "আপনার মেন্টর একাউন্টটি বর্তমানে অ্যাডমিন অনুমোদনের অপেক্ষায় রয়েছে।" });
-    }
-    if (mentor.loginApproval === "Rejected" || mentor.status === "Inactive") {
-      return res.status(403).json({ ok: false, message: "আপনার মেন্টর একাউন্টটি নিষ্ক্রিয় বা বাতিল করা হয়েছে।" });
-    }
-
-    const token = jwt.sign({ id: mentor.id, email: mentor.email, role: "mentor" }, JWT_SECRET, { expiresIn: "7d" });
-    const mentorObj = mentor.toObject ? mentor.toObject() : mentor;
-    delete mentorObj.password;
-
-    return res.json({
-      ok: true,
-      isMentor: true,
-      token,
-      mentor: mentorObj,
-      user: { ...mentorObj, role: "mentor", isMentor: true }
-    });
-  } catch (err) {
-    console.error("Mentor login error:", err);
-    return res.status(500).json({ ok: false, message: "মেন্টর লগইনে সমস্যা হয়েছে।" });
-  }
-});
-
-// Admin Approve / Reject Mentor Endpoint
-app.post("/api/admin/mentors/approve", async (req, res) => {
-  try {
-    const { mentorId, action } = req.body; // action: 'approve' | 'reject' | 'toggle_status'
-    if (!mentorId) return res.status(400).json({ ok: false, message: "mentorId is required." });
-
-    let updatedMentor = null;
-
-    if (isMongoConnected) {
-      const mentor = await Mentor.findOne({ id: mentorId });
-      if (mentor) {
-        if (action === "approve") {
-          mentor.loginApproval = "Approved";
-          mentor.status = "Active";
-        } else if (action === "reject") {
-          mentor.loginApproval = "Rejected";
-        } else if (action === "toggle_status") {
-          mentor.status = mentor.status === "Active" ? "Inactive" : "Active";
-        }
-        updatedMentor = await mentor.save();
-      }
-    }
-
-    const idx = (memoryDb.mentors || []).findIndex(m => m.id === mentorId);
-    if (idx > -1) {
-      if (action === "approve") {
-        memoryDb.mentors[idx].loginApproval = "Approved";
-        memoryDb.mentors[idx].status = "Active";
-      } else if (action === "reject") {
-        memoryDb.mentors[idx].loginApproval = "Rejected";
-      } else if (action === "toggle_status") {
-        memoryDb.mentors[idx].status = memoryDb.mentors[idx].status === "Active" ? "Inactive" : "Active";
-      }
-      updatedMentor = memoryDb.mentors[idx];
-    }
-
-    if (updatedMentor && action === "approve" && updatedMentor.email) {
-      sendMentorApprovalEmail(updatedMentor.email, updatedMentor);
-    }
-
-    return res.json({
-      ok: true,
-      message: `মেন্টর "${updatedMentor?.name || mentorId}" এর স্ট্যাটাস সফলভাবে আপডেট করা হয়েছে।`,
-      mentor: updatedMentor
-    });
-  } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error updating mentor status." });
-  }
-});
-
-// Admin Assign Courses to Mentor
-app.post("/api/admin/mentors/assign-courses", async (req, res) => {
-  try {
-    const { mentorId, assignedCourseIds } = req.body;
-    if (!mentorId || !Array.isArray(assignedCourseIds)) {
-      return res.status(400).json({ ok: false, message: "mentorId and assignedCourseIds required." });
-    }
-
-    if (isMongoConnected) {
-      await Mentor.updateOne({ id: mentorId }, { $set: { assignedCourseIds } });
-    }
-
-    const m = (memoryDb.mentors || []).find(x => x.id === mentorId);
-    if (m) m.assignedCourseIds = assignedCourseIds;
-
-    return res.json({ ok: true, message: "মেন্টরের নির্ধারিত কোর্সসমূহ সফলভাবে আপডেট করা হয়েছে।" });
-  } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error assigning courses to mentor." });
-  }
-});
-
-// Admin Merge Duplicate Mentor Profiles into One
-app.post("/api/admin/mentors/merge", async (req, res) => {
-  try {
-    const { targetMentorId, sourceMentorId } = req.body;
-    if (!targetMentorId || !sourceMentorId) {
-      return res.status(400).json({ ok: false, message: "targetMentorId and sourceMentorId are required." });
-    }
-
-    let mentors = memoryDb.mentors || [];
-    if (isMongoConnected) {
-      mentors = await Mentor.find({ id: { $in: [targetMentorId, sourceMentorId] } });
-    }
-
-    const target = mentors.find(m => m.id === targetMentorId);
-    const source = mentors.find(m => m.id === sourceMentorId);
-
-    if (!target || !source) {
-      return res.status(400).json({ ok: false, message: "মেন্টর একাউন্ট দুটি খুঁজে পাওয়া যায়নি।" });
-    }
-
-    // Merge source details into target
-    if (source.email && (!target.email || target.email === "Email missing")) target.email = source.email;
-    if (source.password && !target.password) target.password = source.password;
-    if (source.loginApproval) target.loginApproval = source.loginApproval;
-
-    // Merge assigned courses
-    const combinedCourses = Array.from(new Set([...(target.assignedCourseIds || []), ...(source.assignedCourseIds || [])]));
-    target.assignedCourseIds = combinedCourses;
-
-    if (isMongoConnected) {
-      await target.save();
-      await Mentor.deleteOne({ id: sourceMentorId });
-      // Re-assign assignments & submissions
-      await Assignment.updateMany({ mentorId: sourceMentorId }, { $set: { mentorId: targetMentorId } });
-    }
-
-    // Update memoryDb
-    memoryDb.mentors = (memoryDb.mentors || []).filter(m => m.id !== sourceMentorId);
-    const tIdx = memoryDb.mentors.findIndex(m => m.id === targetMentorId);
-    if (tIdx > -1) {
-      memoryDb.mentors[tIdx] = target.toObject ? target.toObject() : target;
-    }
-
-    // Update assignments in memoryDb
-    (memoryDb.assignments || []).forEach(a => {
-      if (a.mentorId === sourceMentorId) a.mentorId = targetMentorId;
-    });
-
-    return res.json({
-      ok: true,
-      message: `মেন্টর একাউন্ট সফলভাবে মার্জ/সংযুক্ত করা হয়েছে! ("${source.name}" -> "${target.name}")`,
-      targetMentor: target
-    });
-  } catch (err) {
-    console.error("Mentor merge error:", err);
-    return res.status(500).json({ ok: false, message: "মেন্টর একাউন্ট মার্জ করতে সমস্যা হয়েছে।" });
-  }
-});
-
-// Admin Save/Edit Mentor Profile
-app.post("/api/admin/mentors/save", async (req, res) => {
-  try {
-    const body = req.body;
-    if (!body.name) return res.status(400).json({ ok: false, message: "Mentor name is required." });
-
-    if (!body.id) {
-      body.id = "MTR-" + Date.now();
-    }
-    if (!body.loginApproval) body.loginApproval = "Approved";
-    if (body.email === undefined || body.email === null) body.email = "";
-
-    if (body.password && !body.password.startsWith("$2a$") && !body.password.startsWith("$2b$")) {
-      body.password = await bcrypt.hash(body.password, 10);
-    }
-
-    let savedMentor = body;
-    if (isMongoConnected) {
-      savedMentor = await Mentor.findOneAndUpdate(
-        { id: body.id },
-        { $set: body },
-        { upsert: true, new: true, runValidators: false }
-      ).lean();
-    }
-
-    const idx = (memoryDb.mentors || []).findIndex(m => m.id === body.id);
-    if (idx > -1) {
-      memoryDb.mentors[idx] = { ...memoryDb.mentors[idx], ...savedMentor };
-    } else {
-      memoryDb.mentors.unshift(savedMentor);
-    }
-
-    return res.json({ ok: true, message: `মেন্টর "${body.name}" প্রোফাইল সফলভাবে সংরক্ষণ করা হয়েছে!`, mentor: savedMentor });
-  } catch (err) {
-    console.error("Save mentor profile error:", err);
-    return res.status(500).json({ ok: false, message: "Error saving mentor profile: " + (err.message || "") });
-  }
-});
-
-app.delete("/api/admin/mentors/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Find target mentor first to extract email and id
-    let target = (memoryDb.mentors || []).find(m => m.id === id || m._id === id);
-    if (!target && isMongoConnected) {
-      target = await Mentor.findOne({
-        $or: [
-          { id: id },
-          ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])
-        ]
-      });
-    }
-
-    const mId = target ? target.id : id;
-
-    // 1. Collect all assignment IDs created by this mentor
-    let mentorAssignments = (memoryDb.assignments || []).filter(a => a.mentorId === mId || a.mentorId === id);
-    if (isMongoConnected) {
-      const dbAssignments = await Assignment.find({ $or: [{ mentorId: mId }, { mentorId: id }] }).select("id").lean();
-      mentorAssignments = [...mentorAssignments, ...dbAssignments];
-    }
-    const asnIdsToDelete = Array.from(new Set(mentorAssignments.map(a => a.id).filter(Boolean)));
-
-    // 2. Cascade Delete from MongoDB Atlas
-    if (isMongoConnected) {
-      const deleteConditions = [
-        { id: id },
-        ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])
-      ];
-      if (target && target.email) {
-        deleteConditions.push({ email: target.email });
-        deleteConditions.push({ email: target.email.toLowerCase() });
-      }
-      if (target && target.id) {
-        deleteConditions.push({ id: target.id });
-      }
-
-      await Mentor.deleteMany({ $or: deleteConditions });
-
-      if (asnIdsToDelete.length > 0) {
-        await Assignment.deleteMany({ id: { $in: asnIdsToDelete } });
-        await Submission.deleteMany({ assignmentId: { $in: asnIdsToDelete } });
-      }
-      await Assignment.deleteMany({ $or: [{ mentorId: mId }, { mentorId: id }] });
-    }
-
-    // 3. Cascade Delete from memoryDb
-    memoryDb.mentors = (memoryDb.mentors || []).filter(m => {
-      if (m.id === id || m._id === id) return false;
-      if (target && target.email && m.email && m.email.toLowerCase() === target.email.toLowerCase()) return false;
-      if (target && target.id && m.id === target.id) return false;
-      return true;
-    });
-
-    memoryDb.assignments = (memoryDb.assignments || []).filter(a => a.mentorId !== mId && a.mentorId !== id);
-    if (asnIdsToDelete.length > 0) {
-      memoryDb.submissions = (memoryDb.submissions || []).filter(s => !asnIdsToDelete.includes(s.assignmentId));
-    }
-
-    return res.json({
-      ok: true,
-      message: `মেন্টর "${target ? target.name : id}" এবং উনার দ্বারা প্রকাশিত সকল অ্যাসাইনমেন্ট ও মার্কিং ডাটা ক্যাস্কেড ডিলিট (Cascade Delete) করা হয়েছে!`
-    });
-  } catch (err) {
-    console.error("Mentor cascade delete error:", err);
-    return res.status(500).json({ ok: false, message: "Error deleting mentor from database." });
-  }
-});
 
 // -------------------------------------------------------------
 // 4.6 Assignment & Evaluation Endpoints (Mentor & Student Flow)
@@ -2968,7 +2180,7 @@ app.get("/api/admin/mcq-results", async (req, res) => {
 app.post("/api/admin/generate-mcq-pdf", async (req, res) => {
   try {
     const { examId } = req.body;
-    if (!examId) return res.status(400).json({ ok: false, message: "examId represents a required field." });
+    if (!examId) return res.status(400).json({ ok: false, message: "examId is required." });
 
     let exam = (memoryDb.mcqExams || []).find(e => e.id === examId);
     if (!exam && isMongoConnected) {
@@ -2977,55 +2189,75 @@ app.post("/api/admin/generate-mcq-pdf", async (req, res) => {
     if (!exam) return res.status(404).json({ ok: false, message: "MCQ Exam not found." });
 
     if (!PDFDocument) return res.status(500).json({ ok: false, message: "PDF generator unavailable." });
-    const doc = new PDFDocument({ margin: 36, size: 'A4' });
+
+    const doc = initBengaliPdfDoc();
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=MCQ_Exam_Sheet_${examId}.pdf`);
 
     doc.pipe(res);
 
-    // Header Banner
-    doc.fillColor('#0b1325').rect(36, 36, 523, 75).fill();
-    doc.fillColor('#f59e0b').fontSize(16).font('Helvetica-Bold').text("BJS & BAR ASPIRANTS ACADEMY", 50, 48);
-    doc.fillColor('#ffffff').fontSize(10).font('Helvetica').text(`Official Question Bank & Answer Explanations Sheet`, 50, 68);
-    doc.fillColor('#94a3b8').fontSize(8).text(`EXAM: ${exam.title} | Duration: ${exam.durationMinutes} Mins`, 50, 84);
+    const hasBengaliFont = fs.existsSync(regularFontPath) && fs.existsSync(boldFontPath);
+    const fontBold = hasBengaliFont ? "Bengali-Bold" : "Helvetica-Bold";
+    const fontRegular = hasBengaliFont ? "Bengali-Regular" : "Helvetica";
 
-    let y = 130;
+    // Header Banner
+    doc.rect(36, 36, 523, 64).fill('#0b1325');
+    doc.fillColor('#f59e0b').fontSize(14).font(fontBold).text("BJS & BAR ASPIRANTS ACADEMY", 50, 46);
+    doc.fillColor('#ffffff').fontSize(9).font(fontRegular).text("Official Question Bank & Answer Explanations Sheet", 50, 64);
+    doc.fillColor('#94a3b8').fontSize(8).font(fontRegular).text(`EXAM: ${exam.title || 'Fast Test'} | Duration: ${exam.durationMinutes || 30} Mins | Questions: ${(exam.questions || []).length}`, 50, 78);
+
+    let y = 115;
+    const optLetters = ['ক', 'খ', 'গ', 'ঘ'];
 
     (exam.questions || []).forEach((q, idx) => {
-      doc.fillColor('#0f172a').fontSize(10).font('Helvetica-Bold').text(`Q${idx + 1}. ${q.questionText}`, 40, y);
-      y += 18;
+      const qText = `${idx + 1}. ${q.questionText || ''}`;
+      const qHeight = doc.heightOfString(qText, { width: 510 });
+      let blockHeight = qHeight + 20;
 
-      const optLetters = ['A', 'B', 'C', 'D'];
+      (q.options || []).forEach(opt => {
+        blockHeight += doc.heightOfString(`   [ক] ${opt}`, { width: 490 }) + 3;
+      });
+      if (q.explanation) {
+        blockHeight += doc.heightOfString(`   ব্যাখ্যা: ${q.explanation}`, { width: 495 }) + 8;
+      }
+
+      if (y + blockHeight > 750) {
+        doc.addPage();
+        y = 45;
+      }
+
+      // Question Title
+      doc.fillColor('#0f172a').fontSize(10).font(fontBold).text(qText, 40, y, { width: 515 });
+      y += qHeight + 6;
+
+      // Options
       (q.options || []).forEach((opt, oIdx) => {
         const isCorrect = oIdx === q.correctIndex;
+        const letter = optLetters[oIdx] || String.fromCharCode(65 + oIdx);
         if (isCorrect) {
-          doc.fillColor('#047857').font('Helvetica-Bold').text(`  [${optLetters[oIdx]}] ${opt}  (✓ Correct Answer)`, 50, y);
+          doc.fillColor('#047857').fontSize(9).font(fontBold).text(`   ${letter}) ${opt}   (✓ সঠিক উত্তর)`, 50, y, { width: 495 });
         } else {
-          doc.fillColor('#475569').font('Helvetica').text(`  [${optLetters[oIdx]}] ${opt}`, 50, y);
+          doc.fillColor('#334155').fontSize(9).font(fontRegular).text(`   ${letter}) ${opt}`, 50, y, { width: 495 });
         }
-        y += 15;
+        y += doc.heightOfString(`   ${letter}) ${opt}`, { width: 495 }) + 3;
       });
 
+      // Explanation
       if (q.explanation) {
-        doc.fillColor('#b45309').fontSize(8).font('Helvetica-Oblique').text(`  Explanation: ${q.explanation}`, 50, y, { width: 500 });
-        y += 18;
+        y += 2;
+        doc.fillColor('#b45309').fontSize(8.5).font(fontRegular).text(`   ব্যাখ্যা: ${q.explanation}`, 50, y, { width: 495 });
+        y += doc.heightOfString(`   ব্যাখ্যা: ${q.explanation}`, { width: 495 }) + 6;
       }
 
-      y += 8;
-
-      if (y > 750) {
-        doc.addPage();
-        y = 40;
-      }
+      y += 10;
     });
 
-    doc.fillColor('#94a3b8').fontSize(7).font('Helvetica-Oblique').text("© 2026 BJS & Bar Aspirants Academy. Official Question & Answer Bank.", 36, 800, { align: 'center' });
-
+    applyBengaliPdfWatermarkAndFooter(doc, `Question Bank - ${exam.title}`);
     doc.end();
   } catch (err) {
     console.error("MCQ PDF error:", err);
-    res.status(500).json({ ok: false, message: "Error generating MCQ PDF." });
+    res.status(500).json({ ok: false, message: "Error generating MCQ PDF: " + err.message });
   }
 });
 
