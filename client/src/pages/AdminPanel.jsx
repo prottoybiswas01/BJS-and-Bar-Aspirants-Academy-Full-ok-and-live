@@ -493,9 +493,11 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         setMcqForm({ id: '', title: '', courseId: '', durationMinutes: 30, passPercentage: 50, attemptLimit: 1, negativeMarks: 0.25, startDate: '', endDate: '', rawQuestionText: '' });
         setParsedQuestions([]);
         loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'এমসিকিউ পরীক্ষা সেভ করতে সমস্যা হয়েছে।', 'error');
       }
     } catch (err) {
-      showToast('এমসিকিউ পরীক্ষা সেভ করতে সমস্যা হয়েছে।', 'error');
+      showToast(err.response?.data?.message || 'এমসিকিউ পরীক্ষা সেভ করতে সমস্যা হয়েছে।', 'error');
     }
   };
 

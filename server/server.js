@@ -2430,8 +2430,8 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
       passPercentage: Number(body.passPercentage) || 50,
       isPublic: body.isPublic !== false,
       status: body.status || "Active",
-      startDate: body.startDate ? new Date(body.startDate) : null,
-      endDate: body.endDate ? new Date(body.endDate) : null,
+      startDate: (body.startDate && !isNaN(new Date(body.startDate).getTime())) ? new Date(body.startDate) : null,
+      endDate: (body.endDate && !isNaN(new Date(body.endDate).getTime())) ? new Date(body.endDate) : null,
       attemptLimit: Number(body.attemptLimit) !== undefined ? Number(body.attemptLimit) : 1,
       negativeMarks: Number(body.negativeMarks) !== undefined ? Number(body.negativeMarks) : 0.25,
       questions: Array.isArray(body.questions) ? body.questions : [],
@@ -2466,7 +2466,7 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
     });
   } catch (err) {
     console.error("Save MCQ Exam error:", err);
-    return res.status(500).json({ ok: false, message: "এমসিকিউ পরীক্ষা তৈরিতে সমস্যা হয়েছে।" });
+    return res.status(500).json({ ok: false, message: "এমসিকিউ পরীক্ষা তৈরিতে সমস্যা হয়েছে: " + (err.message || "Unknown error") });
   }
 });
 
