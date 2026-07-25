@@ -148,7 +148,6 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     rawQuestionText: ''
   });
   const [parsedQuestions, setParsedQuestions] = useState([]);
-  const [showManualTextarea, setShowManualTextarea] = useState(false);
 
   // Mentor & Faculty Form State
   const [mentors, setMentors] = useState([]);
@@ -3055,35 +3054,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               />
             </label>
           </div>
-          {/* Optional Manual Textarea Toggle Button & Input Box */}
-          <div className="pt-1">
-            <button
-              type="button"
-              onClick={() => setShowManualTextarea(!showManualTextarea)}
-              className="text-amber-400 hover:text-amber-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer underline"
-            >
-              <span>{showManualTextarea ? '▲' : '▼'}</span>
-              <span>✍️ ম্যানুয়ালি প্রশ্ন পেস্ট বা টাইপ করুন (Optional Raw Text Editor)</span>
-            </button>
 
-            {showManualTextarea && (
-              <div className="space-y-1.5 mt-3 animate-fadeIn">
-                <p className="text-[11px] text-slate-400">
-                  ফরম্যাট নমুনা: <code className="text-amber-300 font-mono">১. প্রশ্ন?  ক. অপশন ১  খ. অপশন ২ (✓)  গ. অপশন ৩  ঘ. অপশন ৪  ব্যাখ্যা: বিবরণ</code>
-                </p>
-                <textarea
-                  rows={5}
-                  value={mcqForm.rawQuestionText}
-                  onChange={(e) => {
-                    setMcqForm({ ...mcqForm, rawQuestionText: e.target.value });
-                    handleParseQuestions(e.target.value);
-                  }}
-                  placeholder="এখানে প্রশ্ন, অপশন ও ব্যাখ্যা পেস্ট করুন..."
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 p-3.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-amber-500 leading-relaxed"
-                />
-              </div>
-            )}
-          </div>
 
           {/* Parsed Preview Count & Submit Action */}
           <div className="flex items-center justify-between border-t border-slate-800 pt-3">
