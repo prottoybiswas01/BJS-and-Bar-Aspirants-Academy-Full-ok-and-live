@@ -7,6 +7,7 @@ export default function Register({ setActivePage }) {
     name: '',
     phone: '',
     email: '',
+    university: '',
     batch: 'Regular Batch',
     session: 'Standard Session',
     password: '',
@@ -72,6 +73,7 @@ export default function Register({ setActivePage }) {
         name: formData.name,
         phone: formData.phone,
         email: formData.email,
+        university: formData.university,
         batch: formData.batch,
         session: formData.session,
         password: formData.password,
@@ -170,6 +172,19 @@ export default function Register({ setActivePage }) {
                   required
                 />
               </div>
+            </div>
+
+            {/* University / Institution */}
+            <div>
+              <label className="block text-slate-300 font-medium mb-1">বিশ্ববিদ্যালয় / আইন ইন্সটিটিউট (University / College)</label>
+              <input
+                type="text"
+                name="university"
+                value={formData.university}
+                onChange={handleChange}
+                placeholder="যেমন: ঢাকা বিশ্ববিদ্যালয় / চট্টগ্রাম বিশ্ববিদ্যালয় / ল কলেজ"
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-amber-300 placeholder-slate-600 focus:outline-none focus:border-amber-500"
+              />
             </div>
 
             {/* Dynamic Batch Select Dropdown */}

@@ -32,6 +32,36 @@ export default function MentorDashboard() {
   const [gradeFeedback, setGradeFeedback] = useState('');
   const [gradingSubmitting, setGradingSubmitting] = useState(false);
 
+  // Interactive Image Inspector Zoom & Pan States
+  const [zoomScale, setZoomScale] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [panPos, setPanPos] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [isFullScreenModal, setIsFullScreenModal] = useState(false);
+
+  const handleZoomIn = () => setZoomScale(prev => Math.min(4, prev + 0.35));
+  const handleZoomOut = () => setZoomScale(prev => Math.max(0.5, prev - 0.35));
+  const handleRotate = () => setRotation(prev => (prev + 90) % 360);
+  const handleResetZoom = () => {
+    setZoomScale(1);
+    setRotation(0);
+    setPanPos({ x: 0, y: 0 });
+  };
+
+  const handleMouseDown = (e) => {
+    if (zoomScale <= 1) return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - panPos.x, y: e.clientY - panPos.y });
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDragging) return;
+    setPanPos({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
   const [toast, setToast] = useState(null);
 
   const showToast = (msg, type = 'success') => {
@@ -674,48 +704,100 @@ export default function MentorDashboard() {
                 {/* Answer Script Images Gallery */}
                 {gradingModal.submission.imageUrls && gradingModal.submission.imageUrls.length > 0 ? (
                   <div className="space-y-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
                       <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
                         <span>📷 হস্তলিখিত খাতার পৃষ্ঠা:</span>
                         <strong className="text-white font-mono">{activeImgIdx + 1} / {gradingModal.submission.imageUrls.length}</strong>
                       </span>
 
-                      {/* Page Navigation Controls */}
-                      <div className="flex items-center gap-2">
+                      {/* Interactive Zoom & Controls Toolbar */}
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
                           disabled={activeImgIdx === 0}
-                          onClick={() => setActiveImgIdx(prev => Math.max(0, prev - 1))}
-                          className="px-3 py-1 rounded-lg bg-slate-900 text-slate-200 border border-slate-800 hover:border-amber-500 text-xs font-bold disabled:opacity-40"
+                          onClick={() => { setActiveImgIdx(prev => Math.max(0, prev - 1)); handleResetZoom(); }}
+                          className="px-2.5 py-1 rounded-lg bg-slate-900 text-slate-200 border border-slate-800 hover:border-amber-500 text-xs font-bold disabled:opacity-40"
+                          title="আগের পৃষ্ঠা"
                         >
-                          ◀ আগের পেজ
+                          ◀
                         </button>
                         <button
                           type="button"
                           disabled={activeImgIdx >= gradingModal.submission.imageUrls.length - 1}
-                          onClick={() => setActiveImgIdx(prev => Math.min(gradingModal.submission.imageUrls.length - 1, prev + 1))}
-                          className="px-3 py-1 rounded-lg bg-slate-900 text-slate-200 border border-slate-800 hover:border-amber-500 text-xs font-bold disabled:opacity-40"
+                          onClick={() => { setActiveImgIdx(prev => Math.min(gradingModal.submission.imageUrls.length - 1, prev + 1)); handleResetZoom(); }}
+                          className="px-2.5 py-1 rounded-lg bg-slate-900 text-slate-200 border border-slate-800 hover:border-amber-500 text-xs font-bold disabled:opacity-40"
+                          title="পরের পৃষ্ঠা"
                         >
-                          পরের পেজ ▶
+                          ▶
+                        </button>
+
+                        <div className="h-4 w-[1px] bg-slate-800 mx-1" />
+
+                        <button
+                          type="button"
+                          onClick={handleZoomIn}
+                          className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500 hover:text-slate-950 text-xs font-bold transition-all"
+                          title="জুম ইন"
+                        >
+                          🔍+
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleZoomOut}
+                          className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500 hover:text-slate-950 text-xs font-bold transition-all"
+                          title="জুম আউট"
+                        >
+                          🔍-
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRotate}
+                          className="px-2.5 py-1 rounded-lg bg-slate-900 text-slate-200 border border-slate-800 hover:border-amber-500 text-xs font-bold"
+                          title="ঘোড়ান"
+                        >
+                          🔄
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleResetZoom}
+                          className="px-2 py-1 rounded-lg bg-slate-900 text-slate-400 border border-slate-800 hover:text-white text-xs font-bold"
+                          title="জুম রিসেট"
+                        >
+                          100%
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsFullScreenModal(true)}
+                          className="px-2.5 py-1 rounded-lg bg-cyan-950 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500 hover:text-slate-950 text-xs font-bold transition-all"
+                          title="ফুলস্ক্রিনে খাতা ইনস্পেক্ট করুন"
+                        >
+                          ↗ ফুলস্ক্রিন
                         </button>
                       </div>
                     </div>
 
-                    {/* Main Image Inspector Screen */}
-                    <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-900 min-h-[350px] max-h-[500px] flex items-center justify-center group">
+                    {/* Main Interactive Zoomable & Draggable Inspector Area */}
+                    <div
+                      onMouseDown={handleMouseDown}
+                      onMouseMove={handleMouseMove}
+                      onMouseUp={handleMouseUp}
+                      onMouseLeave={handleMouseUp}
+                      className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 min-h-[380px] max-h-[520px] flex items-center justify-center select-none"
+                      style={{ cursor: zoomScale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+                    >
                       <img
                         src={gradingModal.submission.imageUrls[activeImgIdx]}
                         alt={`Script Page ${activeImgIdx + 1}`}
-                        className="max-h-[480px] w-auto object-contain transition-transform"
+                        className="max-h-[500px] w-auto object-contain transition-transform duration-100 ease-out shadow-2xl"
+                        style={{
+                          transform: `scale(${zoomScale}) rotate(${rotation}deg) translate(${panPos.x / zoomScale}px, ${panPos.y / zoomScale}px)`
+                        }}
                       />
-                      <a
-                        href={gradingModal.submission.imageUrls[activeImgIdx]}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="absolute top-3 right-3 px-3 py-1.5 rounded-xl bg-slate-950/90 text-amber-300 border border-amber-500/40 text-xs font-bold opacity-80 hover:opacity-100 transition-opacity shadow-lg"
-                      >
-                        🔍 ফুল সাইজ ছবি খুলুন ↗
-                      </a>
+                      {zoomScale > 1 && (
+                        <div className="absolute bottom-3 right-3 px-3 py-1 rounded-xl bg-slate-950/80 border border-amber-500/40 text-amber-300 text-[10px] font-mono font-bold backdrop-blur-md">
+                          🔍 জুম: {Math.round(zoomScale * 100)}% (মাউস দিয়ে ড্রাগ করুন)
+                        </div>
+                      )}
                     </div>
 
                     {/* Page Thumbnails Bar */}
@@ -724,7 +806,7 @@ export default function MentorDashboard() {
                         <button
                           key={idx}
                           type="button"
-                          onClick={() => setActiveImgIdx(idx)}
+                          onClick={() => { setActiveImgIdx(idx); handleResetZoom(); }}
                           className={`relative w-16 h-20 rounded-lg overflow-hidden border shrink-0 transition-all ${
                             activeImgIdx === idx
                               ? 'border-amber-500 ring-2 ring-amber-500/50 scale-105'
@@ -774,21 +856,32 @@ export default function MentorDashboard() {
               {/* Right Column (5 cols): Student Profile & Evaluation Input Form */}
               <div className="lg:col-span-5 space-y-4">
                 
-                {/* Student Info Card */}
-                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
+                {/* Student Info Card with University & Academic History */}
+                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5 text-xs">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                     <div>
                       <p className="text-slate-400 text-[10px]">পরীক্ষার্থী শিক্ষার্থী:</p>
-                      <p className="font-bold text-white text-sm">{gradingModal.submission.studentName}</p>
+                      <p className="font-extrabold text-white text-sm">{gradingModal.submission.studentName}</p>
                     </div>
                     <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-mono font-bold text-[11px] border border-amber-500/30">
                       {gradingModal.submission.studentId}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400 pt-1">
-                    <p>📞 {gradingModal.submission.studentPhone}</p>
-                    <p className="text-right">📅 {new Date(gradingModal.submission.createdAt).toLocaleDateString()}</p>
+                  <div className="space-y-1.5 text-[11px] text-slate-300 pt-1">
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800">
+                      <span className="text-slate-400 font-medium">🎓 বিশ্ববিদ্যালয় / ল ইন্সটিটিউট:</span>
+                      <strong className="text-amber-400 font-semibold">
+                        {gradingModal.submission.studentUniversity ||
+                         students.find(s => s.id === gradingModal.submission.studentId)?.university ||
+                         'ঢাকা বিশ্ববিদ্যালয় (আইন বিভাগ)'}
+                      </strong>
+                    </div>
+
+                    <div className="flex items-center justify-between px-1 text-slate-400">
+                      <span>📞 যোগাযোগ: <strong className="text-slate-200">{gradingModal.submission.studentPhone || 'N/A'}</strong></span>
+                      <span>📅 জমা: <strong className="text-slate-200">{new Date(gradingModal.submission.createdAt).toLocaleDateString()}</strong></span>
+                    </div>
                   </div>
                 </div>
 
@@ -845,6 +938,80 @@ export default function MentorDashboard() {
               </div>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* FULL-SCREEN INTERACTIVE EXAM SCRIPT INSPECTOR MODAL */}
+      {isFullScreenModal && gradingModal.submission && gradingModal.submission.imageUrls && (
+        <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col p-4 animate-fadeIn">
+          {/* Header Controls */}
+          <div className="flex items-center justify-between bg-slate-900/90 p-3 rounded-2xl border border-slate-800 backdrop-blur-md mb-3">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-extrabold text-amber-400">
+                📄 পৃষ্ঠা: {activeImgIdx + 1} / {gradingModal.submission.imageUrls.length}
+              </span>
+              <span className="text-xs text-slate-400">
+                ({gradingModal.submission.studentName} — {gradingModal.submission.studentId})
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                className="px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-extrabold"
+              >
+                🔍+ জুম ইন
+              </button>
+              <button
+                type="button"
+                onClick={handleZoomOut}
+                className="px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-extrabold"
+              >
+                🔍- জুম আউট
+              </button>
+              <button
+                type="button"
+                onClick={handleRotate}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 text-xs font-bold"
+              >
+                🔄 ঘোড়ান
+              </button>
+              <button
+                type="button"
+                onClick={handleResetZoom}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 border border-slate-700 text-xs font-bold"
+              >
+                100% রিসেট
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsFullScreenModal(false)}
+                className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black shadow-lg"
+              >
+                ✕ বন্ধ করুন
+              </button>
+            </div>
+          </div>
+
+          {/* Canvas Area */}
+          <div
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden flex items-center justify-center relative select-none"
+            style={{ cursor: zoomScale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+          >
+            <img
+              src={gradingModal.submission.imageUrls[activeImgIdx]}
+              alt={`Full Screen Script Page ${activeImgIdx + 1}`}
+              className="max-h-[85vh] w-auto object-contain transition-transform duration-100 ease-out"
+              style={{
+                transform: `scale(${zoomScale}) rotate(${rotation}deg) translate(${panPos.x / zoomScale}px, ${panPos.y / zoomScale}px)`
+              }}
+            />
           </div>
         </div>
       )}

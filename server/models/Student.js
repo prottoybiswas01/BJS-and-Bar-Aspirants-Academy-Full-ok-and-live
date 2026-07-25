@@ -18,6 +18,7 @@ const studentSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   phone: { type: String, required: true, unique: true, index: true }, // e.g. 01800077663
   email: { type: String, required: true, unique: true, index: true }, // e.g. prottoy@gmail.com
+  university: { type: String, default: "" }, // University / Law Institution Name
   batch: { type: String, default: "Judiciary 2026" },
   session: { type: String, default: "Weekend Intensive" },
   password: { type: String, required: true }, // Hashed bcrypt password

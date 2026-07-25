@@ -170,13 +170,14 @@ app.get("/api/auth/verify-session", async (req, res) => {
 // 2. Student Registration Request
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { name, phone, email, batch, session, password } = req.body;
+    const { name, phone, email, university, batch, session, password } = req.body;
     if (!name || !phone || !email || !batch || !password) {
       return res.status(400).json({ ok: false, message: "Please fill all required fields." });
     }
 
     const cleanPhone = String(phone).trim();
     const cleanEmail = String(email).trim().toLowerCase();
+    const cleanUniversity = String(university || "").trim();
 
     // Check duplicate in memoryDb first
     const existsInMem = (memoryDb.students || []).some(
@@ -203,6 +204,7 @@ app.post("/api/auth/register", async (req, res) => {
       name,
       phone: cleanPhone,
       email: cleanEmail,
+      university: cleanUniversity,
       batch,
       session: session || "Standard Session",
       password: hashedPassword,
@@ -215,6 +217,7 @@ app.post("/api/auth/register", async (req, res) => {
       name,
       phone: cleanPhone,
       email: cleanEmail,
+      university: cleanUniversity,
       batch,
       session: session || "Standard Session",
       password: hashedPassword,
