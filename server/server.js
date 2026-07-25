@@ -120,6 +120,9 @@ const Submission = require("./models/Submission");
 const McqExam = require("./models/McqExam");
 const McqResult = require("./models/McqResult");
 
+// Configure Mongoose options for Serverless environment
+mongoose.set("bufferCommands", false);
+
 // State flags
 let isMongoConnected = false;
 
@@ -158,12 +161,27 @@ async function ensureDbConnected() {
     isMongoConnected = true;
     return mongoose.connection;
   }
+
+  if (mongoose.connection && mongoose.connection.readyState === 2) {
+    let retries = 0;
+    while (mongoose.connection.readyState === 2 && retries < 25) {
+      await new Promise(r => setTimeout(r, 100));
+      retries++;
+    }
+    if (mongoose.connection.readyState === 1) {
+      isMongoConnected = true;
+      return mongoose.connection;
+    }
+  }
+
   try {
-    if (!cachedConn) {
-      cachedConn = mongoose.connect(MONGODB_URI, {
-        serverSelectionTimeoutMS: 5000,
-        connectTimeoutMS: 10000,
+    const mongoUri = process.env.MONGODB_URI || MONGODB_URI;
+    if (!cachedConn || mongoose.connection.readyState === 0) {
+      cachedConn = mongoose.connect(mongoUri, {
+        serverSelectionTimeoutMS: 8000,
+        connectTimeoutMS: 15000,
         maxPoolSize: 10,
+        bufferCommands: false
       });
     }
     await cachedConn;
@@ -176,6 +194,16 @@ async function ensureDbConnected() {
     console.warn("⚠️ MongoDB Atlas Connection Notice:", err.message);
   }
 }
+
+// Express Middleware: Ensure MongoDB is connected for every incoming API request
+app.use(async (req, res, next) => {
+  try {
+    await ensureDbConnected();
+  } catch (err) {
+    console.warn("DB middleware error:", err.message);
+  }
+  next();
+});
 
 // Automated 15-Day Script Image Garbage Collector
 async function autoCleanExpiredScriptImages() {
