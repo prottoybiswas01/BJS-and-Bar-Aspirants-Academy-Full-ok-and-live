@@ -195,7 +195,7 @@ async function ensureDbConnected() {
 
   if (mongoose.connection && mongoose.connection.readyState === 2) {
     let retries = 0;
-    while (mongoose.connection.readyState === 2 && retries < 25) {
+    while (mongoose.connection.readyState === 2 && retries < 30) {
       await new Promise(r => setTimeout(r, 100));
       retries++;
     }
@@ -207,23 +207,23 @@ async function ensureDbConnected() {
 
   try {
     const mongoUri = process.env.MONGODB_URI || MONGODB_URI;
-    if (!cachedConn || mongoose.connection.readyState === 0) {
+    if (!cachedConn || mongoose.connection.readyState === 0 || mongoose.connection.readyState === 3) {
       cachedConn = mongoose.connect(mongoUri, {
-        serverSelectionTimeoutMS: 8000,
+        serverSelectionTimeoutMS: 10000,
         connectTimeoutMS: 15000,
         maxPoolSize: 10,
-        
+        socketTimeoutMS: 45000,
       });
     }
     await cachedConn;
     isMongoConnected = true;
-    autoCleanExpiredScriptImages();
     syncMemoryDbFromMongo();
     return mongoose.connection;
   } catch (err) {
     cachedConn = null;
     isMongoConnected = false;
-    console.warn("⚠️ MongoDB Atlas Connection Notice:", err.message);
+    console.error("⚠️ MongoDB Atlas Connection Error:", err.message);
+    throw err;
   }
 }
 
@@ -2352,34 +2352,90 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
 // -------------------------------------------------------------
 
 
-// GET All Courses (Admin & Student Portal) - 100% Dynamic MongoDB Database Driven
-app.get(["/api/admin/courses", "/api/courses"], async (req, res) => {
+
+// -------------------------------------------------------------
+// VERCEL & EXPRESS MONGO-FIRST DYNAMIC DATA ENGINE
+// -------------------------------------------------------------
+
+// Health & DB Diagnostic Endpoint
+app.get(["/api/health", "/health", "/api/db-diagnostic", "/db-diagnostic"], async (req, res) => {
+  let connError = null;
   try {
     await ensureDbConnected();
-    let coursesList = [];
-    if (isMongoConnected) {
-      try {
-        coursesList = await Course.find().sort({ createdAt: -1 }).lean();
-        if (coursesList && coursesList.length > 0) memoryDb.courses = coursesList;
-      } catch (e) {
-        coursesList = memoryDb.courses || [];
-      }
-    } else {
-      coursesList = memoryDb.courses || [];
-    }
-
-    if (req.path === "/api/courses") {
-      const activeOnly = (coursesList || []).filter(c => c && c.status !== "Inactive");
-      return res.json({ ok: true, courses: activeOnly });
-    }
-    return res.json({ ok: true, courses: coursesList || [] });
   } catch (err) {
-    return res.json({ ok: true, courses: memoryDb.courses || [] });
+    connError = err.message;
   }
+
+  let studentCount = 0;
+  let courseCount = 0;
+  let mentorCount = 0;
+  let lessonCount = 0;
+
+  if (isMongoConnected) {
+    try {
+      [studentCount, courseCount, mentorCount, lessonCount] = await Promise.all([
+        Student.countDocuments(),
+        Course.countDocuments(),
+        Mentor.countDocuments(),
+        Lesson.countDocuments()
+      ]);
+    } catch (e) {
+      connError = e.message;
+    }
+  }
+
+  return res.json({
+    ok: true,
+    status: "BJS & Bar Academy API Operational",
+    isMongoConnected,
+    readyState: mongoose.connection ? mongoose.connection.readyState : 0,
+    readyStateText: ["Disconnected", "Connected", "Connecting", "Disconnecting"][mongoose.connection?.readyState] || "Unknown",
+    dbCounts: {
+      students: studentCount,
+      courses: courseCount,
+      mentors: mentorCount,
+      lessons: lessonCount
+    },
+    memoryCounts: {
+      students: (memoryDb.students || []).length,
+      courses: (memoryDb.courses || []).length,
+      mentors: (memoryDb.mentors || []).length,
+      lessons: (memoryDb.lessons || []).length
+    },
+    atlasNotice: isMongoConnected
+      ? "MongoDB Atlas is connected and serving live data."
+      : "⚠️ MongoDB Atlas connection notice. Please ensure 0.0.0.0/0 is whitelisted in MongoDB Atlas -> Security -> Network Access for Vercel deployment.",
+    connectionError: connError
+  });
+});
+
+// GET All Courses (Admin & Student Portal)
+app.get(["/api/admin/courses", "/api/courses", "/admin/courses", "/courses"], async (req, res) => {
+  let dbNotice = null;
+  try {
+    await ensureDbConnected();
+    const coursesList = await Course.find().sort({ createdAt: -1 }).lean();
+    if (coursesList && coursesList.length > 0) memoryDb.courses = coursesList;
+
+    if (req.path === "/api/courses" || req.path === "/courses") {
+      const activeOnly = (coursesList || []).filter(c => c && c.status !== "Inactive");
+      return res.json({ ok: true, courses: activeOnly, source: "mongodb" });
+    }
+    return res.json({ ok: true, courses: coursesList || [], source: "mongodb" });
+  } catch (err) {
+    dbNotice = err.message;
+    console.error("Courses fetch notice:", err.message);
+  }
+
+  const fallback = memoryDb.courses || [];
+  if (req.path === "/api/courses" || req.path === "/courses") {
+    return res.json({ ok: true, courses: fallback.filter(c => c && c.status !== "Inactive"), source: "memory", dbNotice });
+  }
+  return res.json({ ok: true, courses: fallback, source: "memory", dbNotice });
 });
 
 // SAVE / CREATE / UPDATE Course
-app.post("/api/admin/courses/save", async (req, res) => {
+app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) => {
   try {
     await ensureDbConnected();
     const body = req.body;
@@ -2421,12 +2477,12 @@ app.post("/api/admin/courses/save", async (req, res) => {
 
     return res.json({ ok: true, message: `কোর্স "${saved.title}" সফলভাবে সেভ করা হয়েছে!`, course: saved });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "কোর্স সেভ করতে সমস্যা হয়েছে।" });
+    return res.status(500).json({ ok: false, message: "কোর্স সেভ করতে সমস্যা হয়েছে: " + err.message });
   }
 });
 
 // DELETE Course
-app.delete("/api/admin/courses/:id", async (req, res) => {
+app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], async (req, res) => {
   try {
     await ensureDbConnected();
     const { id } = req.params;
@@ -2436,218 +2492,164 @@ app.delete("/api/admin/courses/:id", async (req, res) => {
     memoryDb.courses = (memoryDb.courses || []).filter(c => c.id !== id);
     return res.json({ ok: true, message: "কোর্স সফলভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error deleting course." });
+    return res.status(500).json({ ok: false, message: "Error deleting course: " + err.message });
   }
 });
 
 // GET Mentors Endpoint (Public Homepage & Admin Panel)
-app.get(["/api/mentors", "/api/admin/mentors"], async (req, res) => {
+app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], async (req, res) => {
+  let dbNotice = null;
   try {
     await ensureDbConnected();
-    let mentorsList = [];
-    if (isMongoConnected) {
-      try {
-        mentorsList = await Mentor.find().sort({ createdAt: -1 }).lean();
-        if (mentorsList && mentorsList.length > 0) memoryDb.mentors = mentorsList;
-      } catch (e) {
-        mentorsList = memoryDb.mentors || [];
-      }
-    } else {
-      mentorsList = memoryDb.mentors || [];
-    }
+    const mentorsList = await Mentor.find().sort({ createdAt: -1 }).lean();
+    if (mentorsList && mentorsList.length > 0) memoryDb.mentors = mentorsList;
 
-    if (req.path === "/api/mentors") {
+    if (req.path.includes("/mentors") && !req.path.includes("admin")) {
       const activeOnly = (mentorsList || []).filter(m => m && m.status === "Active");
-      return res.json({ ok: true, mentors: activeOnly });
+      return res.json({ ok: true, mentors: activeOnly, source: "mongodb" });
     }
-    return res.json({ ok: true, mentors: mentorsList || [] });
+    return res.json({ ok: true, mentors: mentorsList || [], source: "mongodb" });
   } catch (err) {
-    return res.json({ ok: true, mentors: memoryDb.mentors || [] });
+    dbNotice = err.message;
+    console.error("Mentors fetch notice:", err.message);
   }
+
+  const fallback = memoryDb.mentors || [];
+  if (req.path.includes("/mentors") && !req.path.includes("admin")) {
+    return res.json({ ok: true, mentors: fallback.filter(m => m && m.status === "Active"), source: "memory", dbNotice });
+  }
+  return res.json({ ok: true, mentors: fallback, source: "memory", dbNotice });
 });
 
 // GET All Students (Admin Control Panel)
-app.get("/api/admin/students", async (req, res) => {
+app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
+  let dbNotice = null;
   try {
     await ensureDbConnected();
-    let mongoStudents = [];
-    if (isMongoConnected) {
-      try {
-        mongoStudents = await Student.find().sort({ createdAt: -1 }).lean();
-      } catch (e) { }
+    const mongoStudents = await Student.find().sort({ createdAt: -1 }).lean();
+    if (mongoStudents && mongoStudents.length > 0) {
+      memoryDb.students = mongoStudents;
+      return res.json({ ok: true, students: mongoStudents, source: "mongodb" });
     }
-    const combined = [...mongoStudents, ...(memoryDb.students || [])];
-    const map = new Map();
-    combined.forEach((s) => {
-      if (!s) return;
-      const key = (s.id || s._id || s.phone || s.email || "").toString().toLowerCase();
-      if (key && !map.has(key)) map.set(key, s);
-    });
-    const uniqueStudents = Array.from(map.values());
-    if (uniqueStudents.length > 0) memoryDb.students = uniqueStudents;
-    return res.json({ ok: true, students: uniqueStudents });
   } catch (err) {
-    return res.json({ ok: true, students: memoryDb.students || [] });
+    dbNotice = err.message;
+    console.error("Students fetch notice:", err.message);
   }
+
+  const fallbackStudents = memoryDb.students || [];
+  return res.json({ ok: true, students: fallbackStudents, source: "memory", dbNotice });
 });
 
 // GET Overview Stats (Admin Dashboard)
-app.get("/api/admin/overview-stats", async (req, res) => {
+app.get(["/api/admin/overview-stats", "/admin/overview-stats"], async (req, res) => {
+  let dbNotice = null;
+  let studentsList = [];
+  let coursesList = [];
+  let mentorsList = [];
+  let examsList = [];
+
   try {
     await ensureDbConnected();
-    let studentsList = [];
-    let coursesList = [];
-    let mentorsList = [];
-    let examsList = [];
-
-    if (isMongoConnected) {
-      try {
-        const [s, c, m, e] = await Promise.all([
-          Student.find().lean(),
-          Course.find().lean(),
-          Mentor.find().lean(),
-          McqExam.find().lean()
-        ]);
-        studentsList = s || [];
-        coursesList = c || [];
-        mentorsList = m || [];
-        examsList = e || [];
-        if (studentsList.length > 0) memoryDb.students = studentsList;
-        if (coursesList.length > 0) memoryDb.courses = coursesList;
-        if (mentorsList.length > 0) memoryDb.mentors = mentorsList;
-        if (examsList.length > 0) memoryDb.mcqExams = examsList;
-      } catch (err) {
-        studentsList = memoryDb.students || [];
-        coursesList = memoryDb.courses || [];
-        mentorsList = memoryDb.mentors || [];
-        examsList = memoryDb.mcqExams || [];
-      }
-    } else {
-      studentsList = memoryDb.students || [];
-      coursesList = memoryDb.courses || [];
-      mentorsList = memoryDb.mentors || [];
-      examsList = memoryDb.mcqExams || [];
-    }
-
-    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-    const monthlyCounts = { JAN: 0, FEB: 0, MAR: 0, APR: 0, MAY: 0, JUN: 0, JUL: 0, AUG: 0, SEP: 0, OCT: 0, NOV: 0, DEC: 0 };
-    const currentYear = new Date().getFullYear();
-
-    studentsList.forEach(s => {
-      if (!s) return;
-      const dateStr = s.joinedOn || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
-      if (dateStr && dateStr.startsWith(String(currentYear))) {
-        const mIdx = parseInt(dateStr.substring(5, 7), 10) - 1;
-        if (mIdx >= 0 && mIdx < 12) {
-          monthlyCounts[months[mIdx]] += 1;
-        }
-      }
-    });
-
-    let maxVal = -1;
-    let peakMonth = "None";
-    Object.entries(monthlyCounts).forEach(([m, val]) => {
-      if (val > maxVal && val > 0) {
-        maxVal = val;
-        peakMonth = `${m} (${val} students)`;
-      }
-    });
-
-    const latestStudent = studentsList.length > 0 ? (studentsList[0].name || studentsList[studentsList.length - 1].name) : "None";
-
-    return res.json({
-      ok: true,
-      studentsCount: studentsList.length,
-      coursesCount: coursesList.length,
-      mentorsCount: mentorsList.length,
-      examsCount: examsList.length,
-      totalStudents: studentsList.length,
-      activeCourses: coursesList.filter(c => c && c.status !== "Inactive").length,
-      totalCourses: coursesList.length,
-      totalMentors: mentorsList.length,
-      totalExams: examsList.length,
-      paymentReviews: 0,
-      messageLogs: 3,
-      peakMonth: peakMonth,
-      monthlyAverage: (studentsList.length / 12).toFixed(1),
-      latestAdmission: latestStudent,
-      monthlyCounts
-    });
-  } catch (error) {
-    return res.json({
-      ok: true,
-      studentsCount: (memoryDb.students || []).length,
-      coursesCount: (memoryDb.courses || []).length,
-      mentorsCount: (memoryDb.mentors || []).length,
-      examsCount: (memoryDb.mcqExams || []).length,
-      totalStudents: (memoryDb.students || []).length,
-      activeCourses: (memoryDb.courses || []).filter(c => c && c.status !== "Inactive").length,
-      paymentReviews: 0,
-      messageLogs: 3,
-      peakMonth: "N/A",
-      monthlyAverage: "0.0",
-      latestAdmission: "N/A",
-      monthlyCounts: { JAN: 0, FEB: 0, MAR: 0, APR: 0, MAY: 0, JUN: 0, JUL: 0, AUG: 0, SEP: 0, OCT: 0, NOV: 0, DEC: 0 }
-    });
+    [studentsList, coursesList, mentorsList, examsList] = await Promise.all([
+      Student.find().lean(),
+      Course.find().lean(),
+      Mentor.find().lean(),
+      McqExam.find().lean()
+    ]);
+    if (studentsList.length > 0) memoryDb.students = studentsList;
+    if (coursesList.length > 0) memoryDb.courses = coursesList;
+    if (mentorsList.length > 0) memoryDb.mentors = mentorsList;
+    if (examsList.length > 0) memoryDb.mcqExams = examsList;
+  } catch (err) {
+    dbNotice = err.message;
+    console.error("Overview stats fetch notice:", err.message);
+    studentsList = memoryDb.students || [];
+    coursesList = memoryDb.courses || [];
+    mentorsList = memoryDb.mentors || [];
+    examsList = memoryDb.mcqExams || [];
   }
+
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const monthlyCounts = { JAN: 0, FEB: 0, MAR: 0, APR: 0, MAY: 0, JUN: 0, JUL: 0, AUG: 0, SEP: 0, OCT: 0, NOV: 0, DEC: 0 };
+  const currentYear = new Date().getFullYear();
+
+  studentsList.forEach(s => {
+    if (!s) return;
+    const dateStr = s.joinedOn || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
+    if (dateStr && dateStr.startsWith(String(currentYear))) {
+      const mIdx = parseInt(dateStr.substring(5, 7), 10) - 1;
+      if (mIdx >= 0 && mIdx < 12) {
+        monthlyCounts[months[mIdx]] += 1;
+      }
+    }
+  });
+
+  let maxVal = -1;
+  let peakMonth = "None";
+  Object.entries(monthlyCounts).forEach(([m, val]) => {
+    if (val > maxVal && val > 0) {
+      maxVal = val;
+      peakMonth = `${m} (${val} students)`;
+    }
+  });
+
+  const latestStudent = studentsList.length > 0 ? (studentsList[0].name || studentsList[studentsList.length - 1].name) : "None";
+
+  return res.json({
+    ok: true,
+    studentsCount: studentsList.length,
+    coursesCount: coursesList.length,
+    mentorsCount: mentorsList.length,
+    examsCount: examsList.length,
+    totalStudents: studentsList.length,
+    activeCourses: coursesList.filter(c => c && c.status !== "Inactive").length,
+    totalCourses: coursesList.length,
+    totalMentors: mentorsList.length,
+    totalExams: examsList.length,
+    paymentReviews: 0,
+    messageLogs: 3,
+    peakMonth,
+    monthlyAverage: (studentsList.length / 12).toFixed(1),
+    latestAdmission: latestStudent,
+    monthlyCounts,
+    isMongoConnected,
+    dbNotice
+  });
 });
 
 // GET Receipts (Admin Control Panel)
-app.get("/api/admin/receipts", async (req, res) => {
+app.get(["/api/admin/receipts", "/admin/receipts"], async (req, res) => {
+  let dbNotice = null;
   try {
     await ensureDbConnected();
-    let mongoReceipts = [];
-    if (isMongoConnected) {
-      try {
-        mongoReceipts = await Receipt.find().sort({ createdAt: -1 }).lean();
-      } catch (e) { }
-    }
-    const combined = [...mongoReceipts, ...(memoryDb.receipts || [])];
-    const map = new Map();
-    combined.forEach((r) => {
-      if (!r) return;
-      const key = (r.receiptId || r._id || r.trxId || "").toString().toLowerCase();
-      if (key && !map.has(key)) map.set(key, r);
-    });
-    const uniqueReceipts = Array.from(map.values());
-    if (uniqueReceipts.length > 0) memoryDb.receipts = uniqueReceipts;
-    return res.json({ ok: true, receipts: uniqueReceipts });
-  } catch (e) {
-    return res.json({ ok: true, receipts: memoryDb.receipts || [] });
+    const mongoReceipts = await Receipt.find().sort({ createdAt: -1 }).lean();
+    if (mongoReceipts && mongoReceipts.length > 0) memoryDb.receipts = mongoReceipts;
+    return res.json({ ok: true, receipts: mongoReceipts || [], source: "mongodb" });
+  } catch (err) {
+    dbNotice = err.message;
   }
+  return res.json({ ok: true, receipts: memoryDb.receipts || [], source: "memory", dbNotice });
 });
 
 // GET Assignments (Admin & Student)
-app.get(["/api/admin/assignments", "/api/assignments"], async (req, res) => {
+app.get(["/api/admin/assignments", "/api/assignments", "/admin/assignments", "/assignments"], async (req, res) => {
+  let dbNotice = null;
   try {
     await ensureDbConnected();
-    let assignments = [];
-    if (isMongoConnected) {
-      try {
-        assignments = await Assignment.find().sort({ createdAt: -1 }).lean();
-        if (assignments && assignments.length > 0) memoryDb.assignments = assignments;
-      } catch (e) {
-        assignments = memoryDb.assignments || [];
-      }
-    } else {
-      assignments = memoryDb.assignments || [];
-    }
-    return res.json({ ok: true, assignments: assignments || [] });
+    const assignments = await Assignment.find().sort({ createdAt: -1 }).lean();
+    if (assignments && assignments.length > 0) memoryDb.assignments = assignments;
+    return res.json({ ok: true, assignments: assignments || [], source: "mongodb" });
   } catch (err) {
-    return res.json({ ok: true, assignments: memoryDb.assignments || [] });
+    dbNotice = err.message;
   }
+  return res.json({ ok: true, assignments: memoryDb.assignments || [], source: "memory", dbNotice });
 });
 
 // GET Mail Settings (Admin Control Panel)
-app.get("/api/admin/mail-settings", async (req, res) => {
+app.get(["/api/admin/mail-settings", "/admin/mail-settings"], async (req, res) => {
   try {
     await ensureDbConnected();
-    let settings = null;
-    if (isMongoConnected) {
-      try {
-        settings = await MailSetting.findOne({ id: "default_mail_settings" }).lean();
-      } catch (e) { }
-    }
+    let settings = await MailSetting.findOne({ id: "default_mail_settings" }).lean();
     if (!settings) {
       settings = memoryDb.mailSettings || { enabled: true, fallbackEmail: "bjsacademy38@gmail.com", enableAllMails: true };
     } else {
@@ -2660,22 +2662,17 @@ app.get("/api/admin/mail-settings", async (req, res) => {
 });
 
 // Site Settings Endpoint (Public & Admin)
-app.get(["/api/site-settings", "/api/admin/site-settings"], async (req, res) => {
+app.get(["/api/site-settings", "/api/admin/site-settings", "/site-settings", "/admin/site-settings"], async (req, res) => {
   try {
     await ensureDbConnected();
-    let settings = null;
-    if (isMongoConnected) {
-      try {
-        settings = await SiteSetting.findOne().lean();
-      } catch (e) { }
-    }
+    let settings = await SiteSetting.findOne().lean();
     if (!settings) {
       settings = memoryDb.siteSettings;
     } else {
       memoryDb.siteSettings = { ...memoryDb.siteSettings, ...settings };
     }
     return res.json({ ok: true, settings });
-  } catch (e) {
+  } catch (err) {
     return res.json({ ok: true, settings: memoryDb.siteSettings });
   }
 });
