@@ -1689,13 +1689,46 @@ app.post("/api/admin/mentors/save", async (req, res) => {
 app.delete("/api/admin/mentors/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    if (isMongoConnected) {
-      await Mentor.deleteOne({ id });
+
+    // Find target mentor first to extract email and id
+    let target = (memoryDb.mentors || []).find(m => m.id === id || m._id === id);
+    if (!target && isMongoConnected) {
+      target = await Mentor.findOne({
+        $or: [
+          { id: id },
+          ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])
+        ]
+      });
     }
-    memoryDb.mentors = memoryDb.mentors.filter(m => m.id !== id);
-    return res.json({ ok: true, message: "Mentor deleted successfully!" });
+
+    const deleteConditions = [
+      { id: id },
+      ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])
+    ];
+    if (target && target.email) {
+      deleteConditions.push({ email: target.email });
+      deleteConditions.push({ email: target.email.toLowerCase() });
+    }
+    if (target && target.id) {
+      deleteConditions.push({ id: target.id });
+    }
+
+    if (isMongoConnected) {
+      await Mentor.deleteMany({ $or: deleteConditions });
+    }
+
+    // Hard delete from memoryDb
+    memoryDb.mentors = (memoryDb.mentors || []).filter(m => {
+      if (m.id === id || m._id === id) return false;
+      if (target && target.email && m.email && m.email.toLowerCase() === target.email.toLowerCase()) return false;
+      if (target && target.id && m.id === target.id) return false;
+      return true;
+    });
+
+    return res.json({ ok: true, message: `মেন্টর "${target ? target.name : id}" স্থায়ীভাবে ডাটাবেজ থেকে মুছে ফেলা হয়েছে!` });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error deleting mentor." });
+    console.error("Mentor hard delete error:", err);
+    return res.status(500).json({ ok: false, message: "Error deleting mentor from database." });
   }
 });
 
@@ -1813,12 +1846,16 @@ app.delete("/api/mentor/assignments/:id", async (req, res) => {
   try {
     const { id } = req.params;
     if (isMongoConnected) {
-      await Assignment.deleteOne({ id });
+      const deleteConditions = [{ id: id }];
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        deleteConditions.push({ _id: id });
+      }
+      await Assignment.deleteMany({ $or: deleteConditions });
       await Submission.deleteMany({ assignmentId: id });
     }
-    memoryDb.assignments = (memoryDb.assignments || []).filter(a => a.id !== id);
+    memoryDb.assignments = (memoryDb.assignments || []).filter(a => a.id !== id && a._id !== id);
     memoryDb.submissions = (memoryDb.submissions || []).filter(s => s.assignmentId !== id);
-    return res.json({ ok: true, message: "অ্যাসাইনমেন্ট মুছে ফেলা হয়েছে।" });
+    return res.json({ ok: true, message: "অ্যাসাইনমেন্ট স্থায়ীভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "Error deleting assignment." });
   }
