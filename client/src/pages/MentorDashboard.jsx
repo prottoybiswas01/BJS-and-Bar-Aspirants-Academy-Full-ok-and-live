@@ -776,26 +776,30 @@ export default function MentorDashboard() {
                       </div>
                     </div>
 
-                    {/* Main Interactive Zoomable & Draggable Inspector Area */}
+                    {/* Main Centered Zoomable Inspector Area with Mouse Wheel Support */}
                     <div
-                      onMouseDown={handleMouseDown}
-                      onMouseMove={handleMouseMove}
-                      onMouseUp={handleMouseUp}
-                      onMouseLeave={handleMouseUp}
-                      className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 min-h-[380px] max-h-[520px] flex items-center justify-center select-none"
-                      style={{ cursor: zoomScale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+                      onWheel={(e) => {
+                        if (e.deltaY < 0) handleZoomIn();
+                        else if (e.deltaY > 0) handleZoomOut();
+                      }}
+                      className="relative rounded-2xl overflow-auto border border-slate-800 bg-slate-950 min-h-[380px] max-h-[520px] flex items-center justify-center p-6 select-none"
                     >
-                      <img
-                        src={gradingModal.submission.imageUrls[activeImgIdx]}
-                        alt={`Script Page ${activeImgIdx + 1}`}
-                        className="max-h-[500px] w-auto object-contain transition-transform duration-100 ease-out shadow-2xl"
+                      <div
+                        className="transition-transform duration-200 ease-out flex items-center justify-center min-w-full min-h-full"
                         style={{
-                          transform: `scale(${zoomScale}) rotate(${rotation}deg) translate(${panPos.x / zoomScale}px, ${panPos.y / zoomScale}px)`
+                          transform: `scale(${zoomScale}) rotate(${rotation}deg)`,
+                          transformOrigin: 'center center'
                         }}
-                      />
-                      {zoomScale > 1 && (
-                        <div className="absolute bottom-3 right-3 px-3 py-1 rounded-xl bg-slate-950/80 border border-amber-500/40 text-amber-300 text-[10px] font-mono font-bold backdrop-blur-md">
-                          🔍 জুম: {Math.round(zoomScale * 100)}% (মাউস দিয়ে ড্রাগ করুন)
+                      >
+                        <img
+                          src={gradingModal.submission.imageUrls[activeImgIdx]}
+                          alt={`Script Page ${activeImgIdx + 1}`}
+                          className="max-h-[460px] max-w-full w-auto object-contain shadow-2xl rounded-lg"
+                        />
+                      </div>
+                      {zoomScale !== 1 && (
+                        <div className="absolute bottom-3 right-3 px-3 py-1 rounded-xl bg-slate-900/90 border border-amber-500/40 text-amber-300 text-[10px] font-mono font-bold backdrop-blur-md shadow-lg pointer-events-none">
+                          🔍 জুম: {Math.round(zoomScale * 100)}% (মাউস হুইল দিয়ে জুম করা যাবে)
                         </div>
                       )}
                     </div>
@@ -995,23 +999,27 @@ export default function MentorDashboard() {
             </div>
           </div>
 
-          {/* Canvas Area */}
+          {/* Full Screen Centered Canvas Area */}
           <div
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden flex items-center justify-center relative select-none"
-            style={{ cursor: zoomScale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+            onWheel={(e) => {
+              if (e.deltaY < 0) handleZoomIn();
+              else if (e.deltaY > 0) handleZoomOut();
+            }}
+            className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 overflow-auto p-6 flex items-center justify-center relative select-none"
           >
-            <img
-              src={gradingModal.submission.imageUrls[activeImgIdx]}
-              alt={`Full Screen Script Page ${activeImgIdx + 1}`}
-              className="max-h-[85vh] w-auto object-contain transition-transform duration-100 ease-out"
+            <div
+              className="transition-transform duration-200 ease-out flex items-center justify-center min-w-full min-h-full"
               style={{
-                transform: `scale(${zoomScale}) rotate(${rotation}deg) translate(${panPos.x / zoomScale}px, ${panPos.y / zoomScale}px)`
+                transform: `scale(${zoomScale}) rotate(${rotation}deg)`,
+                transformOrigin: 'center center'
               }}
-            />
+            >
+              <img
+                src={gradingModal.submission.imageUrls[activeImgIdx]}
+                alt={`Full Screen Script Page ${activeImgIdx + 1}`}
+                className="max-h-[85vh] max-w-full w-auto object-contain shadow-2xl rounded-xl"
+              />
+            </div>
           </div>
         </div>
       )}
