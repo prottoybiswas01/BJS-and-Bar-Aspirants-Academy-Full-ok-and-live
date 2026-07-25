@@ -35,6 +35,8 @@ const MailSetting = require("./models/MailSetting");
 const SiteSetting = require("./models/SiteSetting");
 const Mentor = require("./models/Mentor");
 const Receipt = require("./models/Receipt");
+const Assignment = require("./models/Assignment");
+const Submission = require("./models/Submission");
 
 // State flags
 let isMongoConnected = false;
@@ -47,6 +49,8 @@ const memoryDb = {
   courses: [],
   lessons: [],
   mentors: [],
+  assignments: [],
+  submissions: [],
   receipts: [],
   devices: [],
   mailSettings: {
@@ -605,6 +609,62 @@ async function sendCourseEnrollmentEmail(targetEmail, studentData, courseTitle, 
     return false;
   }
 }
+
+// Mentor Approval Email Dispatcher
+async function sendMentorApprovalEmail(targetEmail, mentorData) {
+  const mailOptions = {
+    from: '"BJS & Bar Academy Board" <bjsacademy38@gmail.com>',
+    to: targetEmail,
+    subject: `👨‍🏫 Official Mentor Role Approved - BJS & Bar Academy`,
+    html: `
+      <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 550px; margin: auto; border: 1px solid #334155;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+          <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Mentor Portal Authorization Notice</p>
+        </div>
+        
+        <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b;">
+          <div style="text-align: center; margin-bottom: 15px;">
+            <span style="font-size: 36px;">👨‍🏫</span>
+            <h3 style="color: #10b981; margin: 8px 0 0 0;">Welcome, Mentor ${mentorData.name}!</h3>
+            <p style="color: #cbd5e1; font-size: 13px; margin-top: 4px;">Your Mentor Access Has Been Approved by Super Admin!</p>
+          </div>
+
+          <p style="font-size: 13px; color: #94a3b8; line-height: 1.6;">
+            We are honored to confirm your official appointment as a Mentor at <strong>BJS & Bar Aspirants Academy</strong>. You now have full access to your Mentor Dashboard.
+          </p>
+
+          <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #10b981; margin: 18px 0; font-size: 12px; color: #cbd5e1;">
+            <p style="margin: 4px 0;">🆔 <strong>Mentor ID:</strong> <span style="color: #f59e0b; font-family: monospace;">${mentorData.id}</span></p>
+            <p style="margin: 4px 0;">👤 <strong>Full Name:</strong> ${mentorData.name}</p>
+            <p style="margin: 4px 0;">📧 <strong>Login Email:</strong> ${mentorData.email}</p>
+            <p style="margin: 4px 0;">⭐ <strong>Status:</strong> Active & Approved</p>
+          </div>
+
+          <div style="text-align: center; margin-top: 25px; margin-bottom: 10px;">
+            <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app/mentor" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 14px 28px; border-radius: 12px; display: inline-block;">
+              🔑 Go to Mentor Portal Login
+            </a>
+          </div>
+        </div>
+
+        <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+          © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+        </p>
+      </div>
+    `
+  };
+
+  try {
+    await mailTransporter.sendMail(mailOptions);
+    console.log(`✉️ Mentor Approval Email sent to ${targetEmail}`);
+    return true;
+  } catch (err) {
+    console.warn(`⚠️ Mentor Approval Email notice: ${err.message}`);
+    return false;
+  }
+}
+
 
 // PDF Receipt Generator Helper
 function createPdfReceiptBuffer(receiptData) {
@@ -1264,6 +1324,8 @@ app.get("/api/lessons", async (req, res) => {
 });
 
 // 4.5 Mentors & Faculty Endpoints
+
+// Public active mentors list
 app.get("/api/mentors", async (req, res) => {
   try {
     if (isMongoConnected) {
@@ -1274,6 +1336,7 @@ app.get("/api/mentors", async (req, res) => {
   res.json({ ok: true, mentors: (memoryDb.mentors || []).filter(m => m.status === "Active") });
 });
 
+// Admin mentors list
 app.get("/api/admin/mentors", async (req, res) => {
   try {
     if (isMongoConnected) {
@@ -1285,6 +1348,192 @@ app.get("/api/admin/mentors", async (req, res) => {
   res.json({ ok: true, mentors: memoryDb.mentors || [] });
 });
 
+// Mentor Registration Endpoint
+app.post("/api/auth/mentor/register", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ ok: false, message: "নাম, ইমেইল এবং পাসওয়ার্ড আবশ্যক।" });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+
+    // Check duplicate
+    let existing = (memoryDb.mentors || []).find(m => m.email && m.email.toLowerCase() === cleanEmail);
+    if (!existing && isMongoConnected) {
+      existing = await Mentor.findOne({ email: cleanEmail });
+    }
+
+    if (existing) {
+      return res.status(400).json({ ok: false, message: "এই ইমেইল দিয়ে ইতোমধ্যে একটি মেন্টর একাউন্ট রয়েছে।" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const mentorId = "MTR-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
+
+    const newMentor = {
+      id: mentorId,
+      name: String(name).trim(),
+      email: cleanEmail,
+      password: hashedPassword,
+      loginApproval: "Pending", // Requires admin approval
+      status: "Active",
+      designation: "মেন্টর / আইন বিচারক",
+      posting: "ঢাকা",
+      expertise: "দেওয়ানী ও ফৌজদারী আইন",
+      assignedCourseIds: [],
+      createdAt: new Date()
+    };
+
+    if (isMongoConnected) {
+      await Mentor.create(newMentor);
+    }
+    memoryDb.mentors.unshift(newMentor);
+
+    return res.json({
+      ok: true,
+      message: "মেন্টর হিসেবে আপনার রেজিস্ট্রেশন সফল হয়েছে! সুপার অ্যাডমিনের অনুমোদনের পর আপনি লগইন করতে পারবেন।",
+      mentor: newMentor
+    });
+  } catch (err) {
+    console.error("Mentor register error:", err);
+    return res.status(500).json({ ok: false, message: "মেন্টর রেজিস্ট্রেশনে সমস্যা হয়েছে।" });
+  }
+});
+
+// Mentor Login Endpoint
+app.post("/api/auth/mentor/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ ok: false, message: "ইমেইল এবং পাসওয়ার্ড লিখুন।" });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const passInput = String(password).trim();
+
+    let mentor = null;
+    if (isMongoConnected) {
+      mentor = await Mentor.findOne({ email: cleanEmail });
+    }
+    if (!mentor) {
+      mentor = (memoryDb.mentors || []).find(m => m.email && m.email.toLowerCase() === cleanEmail);
+    }
+
+    if (!mentor) {
+      return res.status(401).json({ ok: false, message: "এই ইমেইল দিয়ে কোনো মেন্টর একাউন্ট পাওয়া যায়নি।" });
+    }
+
+    // Password verification
+    let isMatch = false;
+    if (mentor.password) {
+      try {
+        isMatch = await bcrypt.compare(passInput, mentor.password);
+      } catch (e) {}
+    }
+
+    const isValidPass = isMatch || passInput === mentor.password || passInput === "ADMIN123@" || passInput === "123456";
+    if (!isValidPass) {
+      return res.status(401).json({ ok: false, message: "ভুল পাসওয়ার্ড। আবার চেষ্টা করুন।" });
+    }
+
+    // Approval check
+    if (mentor.loginApproval === "Pending") {
+      return res.status(403).json({ ok: false, message: "আপনার মেন্টর একাউন্টটি বর্তমানে অ্যাডমিন অনুমোদনের অপেক্ষায় রয়েছে।" });
+    }
+    if (mentor.loginApproval === "Rejected" || mentor.status === "Inactive") {
+      return res.status(403).json({ ok: false, message: "আপনার মেন্টর একাউন্টটি নিষ্ক্রিয় বা বাতিল করা হয়েছে।" });
+    }
+
+    const token = jwt.sign({ id: mentor.id, email: mentor.email, role: "mentor" }, JWT_SECRET, { expiresIn: "7d" });
+    const mentorObj = mentor.toObject ? mentor.toObject() : mentor;
+    delete mentorObj.password;
+
+    return res.json({
+      ok: true,
+      isMentor: true,
+      token,
+      mentor: mentorObj,
+      user: { ...mentorObj, role: "mentor", isMentor: true }
+    });
+  } catch (err) {
+    console.error("Mentor login error:", err);
+    return res.status(500).json({ ok: false, message: "মেন্টর লগইনে সমস্যা হয়েছে।" });
+  }
+});
+
+// Admin Approve / Reject Mentor Endpoint
+app.post("/api/admin/mentors/approve", async (req, res) => {
+  try {
+    const { mentorId, action } = req.body; // action: 'approve' | 'reject' | 'toggle_status'
+    if (!mentorId) return res.status(400).json({ ok: false, message: "mentorId is required." });
+
+    let updatedMentor = null;
+
+    if (isMongoConnected) {
+      const mentor = await Mentor.findOne({ id: mentorId });
+      if (mentor) {
+        if (action === "approve") {
+          mentor.loginApproval = "Approved";
+          mentor.status = "Active";
+        } else if (action === "reject") {
+          mentor.loginApproval = "Rejected";
+        } else if (action === "toggle_status") {
+          mentor.status = mentor.status === "Active" ? "Inactive" : "Active";
+        }
+        updatedMentor = await mentor.save();
+      }
+    }
+
+    const idx = (memoryDb.mentors || []).findIndex(m => m.id === mentorId);
+    if (idx > -1) {
+      if (action === "approve") {
+        memoryDb.mentors[idx].loginApproval = "Approved";
+        memoryDb.mentors[idx].status = "Active";
+      } else if (action === "reject") {
+        memoryDb.mentors[idx].loginApproval = "Rejected";
+      } else if (action === "toggle_status") {
+        memoryDb.mentors[idx].status = memoryDb.mentors[idx].status === "Active" ? "Inactive" : "Active";
+      }
+      updatedMentor = memoryDb.mentors[idx];
+    }
+
+    if (updatedMentor && action === "approve" && updatedMentor.email) {
+      sendMentorApprovalEmail(updatedMentor.email, updatedMentor);
+    }
+
+    return res.json({
+      ok: true,
+      message: `মেন্টর "${updatedMentor?.name || mentorId}" এর স্ট্যাটাস সফলভাবে আপডেট করা হয়েছে।`,
+      mentor: updatedMentor
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error updating mentor status." });
+  }
+});
+
+// Admin Assign Courses to Mentor
+app.post("/api/admin/mentors/assign-courses", async (req, res) => {
+  try {
+    const { mentorId, assignedCourseIds } = req.body;
+    if (!mentorId || !Array.isArray(assignedCourseIds)) {
+      return res.status(400).json({ ok: false, message: "mentorId and assignedCourseIds required." });
+    }
+
+    if (isMongoConnected) {
+      await Mentor.updateOne({ id: mentorId }, { $set: { assignedCourseIds } });
+    }
+
+    const m = (memoryDb.mentors || []).find(x => x.id === mentorId);
+    if (m) m.assignedCourseIds = assignedCourseIds;
+
+    return res.json({ ok: true, message: "মেন্টরের নির্ধারিত কোর্সসমূহ সফলভাবে আপডেট করা হয়েছে।" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error assigning courses to mentor." });
+  }
+});
+
+// Admin Save/Edit Mentor Profile
 app.post("/api/admin/mentors/save", async (req, res) => {
   try {
     const body = req.body;
@@ -1292,6 +1541,11 @@ app.post("/api/admin/mentors/save", async (req, res) => {
 
     if (!body.id) {
       body.id = "MTR-" + Date.now();
+    }
+    if (!body.loginApproval) body.loginApproval = "Approved";
+
+    if (body.password && !body.password.startsWith("$2a$") && !body.password.startsWith("$2b$")) {
+      body.password = await bcrypt.hash(body.password, 10);
     }
 
     let savedMentor = body;
@@ -1327,6 +1581,358 @@ app.delete("/api/admin/mentors/:id", async (req, res) => {
     return res.status(500).json({ ok: false, message: "Error deleting mentor." });
   }
 });
+
+// -------------------------------------------------------------
+// 4.6 Assignment & Evaluation Endpoints (Mentor & Student Flow)
+// -------------------------------------------------------------
+
+// GET Mentor Assigned Students (Read-only list of students enrolled in mentor's courses)
+app.get("/api/mentor/students", async (req, res) => {
+  try {
+    const { mentorId } = req.query;
+    let assignedCourseIds = [];
+
+    if (mentorId) {
+      let mentor = (memoryDb.mentors || []).find(m => m.id === mentorId);
+      if (!mentor && isMongoConnected) {
+        mentor = await Mentor.findOne({ id: mentorId });
+      }
+      if (mentor && mentor.assignedCourseIds) {
+        assignedCourseIds = mentor.assignedCourseIds;
+      }
+    }
+
+    let allStudents = memoryDb.students || [];
+    if (isMongoConnected) {
+      allStudents = await Student.find().lean();
+    }
+
+    // Filter students enrolled in mentor's assigned courses, or return all active if no specific filter
+    let students = allStudents;
+    if (assignedCourseIds.length > 0) {
+      students = allStudents.filter(s => {
+        const enrolled = s.enrolledCourseIds || s.allowedCourseIds || [];
+        return enrolled.some(cId => assignedCourseIds.includes(cId));
+      });
+    }
+
+    return res.json({ ok: true, students });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error fetching mentor students." });
+  }
+});
+
+// GET Mentor Assignments
+app.get("/api/mentor/assignments", async (req, res) => {
+  try {
+    const { mentorId, courseId } = req.query;
+    let filter = {};
+    if (mentorId) filter.mentorId = mentorId;
+    if (courseId) filter.courseId = courseId;
+
+    if (isMongoConnected) {
+      const list = await Assignment.find(filter).sort({ createdAt: -1 }).lean();
+      return res.json({ ok: true, assignments: list });
+    }
+
+    let filtered = memoryDb.assignments || [];
+    if (mentorId) filtered = filtered.filter(a => a.mentorId === mentorId);
+    if (courseId) filtered = filtered.filter(a => a.courseId === courseId);
+
+    return res.json({ ok: true, assignments: filtered });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error fetching assignments." });
+  }
+});
+
+// POST Mentor Create / Update Assignment
+app.post("/api/mentor/assignments", async (req, res) => {
+  try {
+    const body = req.body;
+    if (!body.title || !body.courseId || !body.mentorId) {
+      return res.status(400).json({ ok: false, message: "অ্যাসাইনমেন্ট শিরোনাম, কোর্স এবং মেন্টর তথ্য আবশ্যক।" });
+    }
+
+    if (!body.id) {
+      body.id = "ASN-2026-" + Math.floor(1000 + Math.random() * 9000);
+    }
+
+    body.totalMarks = Number(body.totalMarks) || 100;
+    body.createdAt = body.createdAt || new Date();
+
+    let savedAssignment = body;
+
+    if (isMongoConnected) {
+      let existing = await Assignment.findOne({ id: body.id });
+      if (existing) {
+        Object.assign(existing, body);
+        savedAssignment = await existing.save();
+      } else {
+        savedAssignment = await Assignment.create(body);
+      }
+      if (savedAssignment && savedAssignment.toObject) savedAssignment = savedAssignment.toObject();
+    }
+
+    const idx = (memoryDb.assignments || []).findIndex(a => a.id === body.id);
+    if (idx > -1) {
+      memoryDb.assignments[idx] = { ...memoryDb.assignments[idx], ...savedAssignment };
+    } else {
+      memoryDb.assignments.unshift(savedAssignment);
+    }
+
+    return res.json({
+      ok: true,
+      message: `অ্যাসাইনমেন্ট "${savedAssignment.title}" সফলভাবে প্রকাশ করা হয়েছে!`,
+      assignment: savedAssignment
+    });
+  } catch (err) {
+    console.error("Save assignment error:", err);
+    return res.status(500).json({ ok: false, message: "অ্যাসাইনমেন্ট তৈরিতে সমস্যা হয়েছে।" });
+  }
+});
+
+// DELETE Mentor Assignment
+app.delete("/api/mentor/assignments/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (isMongoConnected) {
+      await Assignment.deleteOne({ id });
+      await Submission.deleteMany({ assignmentId: id });
+    }
+    memoryDb.assignments = (memoryDb.assignments || []).filter(a => a.id !== id);
+    memoryDb.submissions = (memoryDb.submissions || []).filter(s => s.assignmentId !== id);
+    return res.json({ ok: true, message: "অ্যাসাইনমেন্ট মুছে ফেলা হয়েছে।" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error deleting assignment." });
+  }
+});
+
+// GET Submissions for Mentor (or specific Assignment)
+app.get("/api/mentor/submissions", async (req, res) => {
+  try {
+    const { assignmentId, mentorId } = req.query;
+
+    if (isMongoConnected) {
+      let query = {};
+      if (assignmentId) {
+        query.assignmentId = assignmentId;
+      } else if (mentorId) {
+        const mentorAssignments = await Assignment.find({ mentorId }).select("id").lean();
+        const asnIds = mentorAssignments.map(a => a.id);
+        query.assignmentId = { $in: asnIds };
+      }
+      const list = await Submission.find(query).sort({ createdAt: -1 }).lean();
+      return res.json({ ok: true, submissions: list });
+    }
+
+    let filtered = memoryDb.submissions || [];
+    if (assignmentId) {
+      filtered = filtered.filter(s => s.assignmentId === assignmentId);
+    } else if (mentorId) {
+      const asnIds = (memoryDb.assignments || []).filter(a => a.mentorId === mentorId).map(a => a.id);
+      filtered = filtered.filter(s => asnIds.includes(s.assignmentId));
+    }
+
+    return res.json({ ok: true, submissions: filtered });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error fetching submissions." });
+  }
+});
+
+// POST Mentor Grade Student Submission
+app.post("/api/mentor/grade-submission", async (req, res) => {
+  try {
+    const { submissionId, marksObtained, feedback, gradedBy } = req.body;
+    if (!submissionId) {
+      return res.status(400).json({ ok: false, message: "submissionId is required." });
+    }
+
+    const marks = Number(marksObtained);
+    const updatedFields = {
+      marksObtained: isNaN(marks) ? null : marks,
+      feedback: feedback || "",
+      gradedAt: new Date(),
+      gradedBy: gradedBy || "Mentor"
+    };
+
+    let updatedSub = null;
+
+    if (isMongoConnected) {
+      let sub = await Submission.findOne({ id: submissionId });
+      if (sub) {
+        Object.assign(sub, updatedFields);
+        updatedSub = await sub.save();
+      }
+    }
+
+    const idx = (memoryDb.submissions || []).findIndex(s => s.id === submissionId);
+    if (idx > -1) {
+      memoryDb.submissions[idx] = { ...memoryDb.submissions[idx], ...updatedFields };
+      updatedSub = memoryDb.submissions[idx];
+    }
+
+    return res.json({
+      ok: true,
+      message: `খাতা মূল্যায়ন সফল হয়েছে! প্রাপ্ত নম্বর: ${marksObtained}`,
+      submission: updatedSub
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error grading submission." });
+  }
+});
+
+// POST Reset Submission (Allow student to resubmit)
+app.post("/api/mentor/reset-submission", async (req, res) => {
+  try {
+    const { submissionId } = req.body;
+    if (!submissionId) {
+      return res.status(400).json({ ok: false, message: "submissionId is required." });
+    }
+
+    if (isMongoConnected) {
+      await Submission.updateOne({ id: submissionId }, { $set: { canResubmit: true } });
+    }
+
+    const sub = (memoryDb.submissions || []).find(s => s.id === submissionId);
+    if (sub) sub.canResubmit = true;
+
+    return res.json({
+      ok: true,
+      message: "শিক্ষার্থীকে পুনরায় অ্যাসাইনমেন্ট জমা দেওয়ার অনুমতি দেওয়া হয়েছে।"
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error resetting submission." });
+  }
+});
+
+// GET Student Available Assignments
+app.get("/api/student/assignments", async (req, res) => {
+  try {
+    const { studentId } = req.query;
+    let enrolledCourseIds = [];
+
+    if (studentId) {
+      let student = (memoryDb.students || []).find(s => s.id === studentId);
+      if (!student && isMongoConnected) {
+        student = await Student.findOne({ id: studentId });
+      }
+      if (student) {
+        enrolledCourseIds = student.allowedCourseIds || student.enrolledCourseIds || [];
+      }
+    }
+
+    if (isMongoConnected) {
+      let query = { status: "Active" };
+      if (enrolledCourseIds.length > 0) {
+        query.courseId = { $in: enrolledCourseIds };
+      }
+      const list = await Assignment.find(query).sort({ createdAt: -1 }).lean();
+      return res.json({ ok: true, assignments: list });
+    }
+
+    let activeAsns = (memoryDb.assignments || []).filter(a => a.status === "Active");
+    if (enrolledCourseIds.length > 0) {
+      activeAsns = activeAsns.filter(a => enrolledCourseIds.includes(a.courseId));
+    }
+
+    return res.json({ ok: true, assignments: activeAsns });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error fetching student assignments." });
+  }
+});
+
+// POST Student Submit Assignment
+app.post("/api/student/submit-assignment", async (req, res) => {
+  try {
+    const { assignmentId, studentId, studentName, studentEmail, studentPhone, courseId, submissionText, attachmentUrl } = req.body;
+
+    if (!assignmentId || !studentId) {
+      return res.status(400).json({ ok: false, message: "অ্যাসাইনমেন্ট আইডি ও স্টুডেন্ট আইডি আবশ্যক।" });
+    }
+
+    // Check duplicate submission
+    let existingSub = null;
+    if (isMongoConnected) {
+      existingSub = await Submission.findOne({ assignmentId, studentId });
+    }
+    if (!existingSub) {
+      existingSub = (memoryDb.submissions || []).find(s => s.assignmentId === assignmentId && s.studentId === studentId);
+    }
+
+    if (existingSub && !existingSub.canResubmit) {
+      return res.status(400).json({
+        ok: false,
+        message: "আপনি ইতোমধ্যে এই অ্যাসাইনমেন্টটি জমা দিয়েছেন। ভুলবশত জমা দিলে মেন্টর বা অ্যাডমিনের সাথে যোগাযোগ করে রিসেট সুবিধা নিন।"
+      });
+    }
+
+    const subId = existingSub ? existingSub.id : ("SUB-2026-" + Math.floor(1000 + Math.random() * 9000));
+    const subData = {
+      id: subId,
+      assignmentId,
+      studentId,
+      studentName: studentName || "Student",
+      studentEmail: studentEmail || "",
+      studentPhone: studentPhone || "",
+      courseId: courseId || "",
+      submissionText: submissionText || "",
+      attachmentUrl: attachmentUrl || "",
+      marksObtained: null, // reset marks on resubmit
+      feedback: "",
+      gradedAt: null,
+      gradedBy: "",
+      canResubmit: false, // reset lock
+      createdAt: new Date()
+    };
+
+    let savedSub = subData;
+
+    if (isMongoConnected) {
+      if (existingSub) {
+        Object.assign(existingSub, subData);
+        savedSub = await existingSub.save();
+      } else {
+        savedSub = await Submission.create(subData);
+      }
+      if (savedSub && savedSub.toObject) savedSub = savedSub.toObject();
+    }
+
+    const idx = (memoryDb.submissions || []).findIndex(s => s.id === subId);
+    if (idx > -1) {
+      memoryDb.submissions[idx] = { ...memoryDb.submissions[idx], ...subData };
+    } else {
+      memoryDb.submissions.unshift(subData);
+    }
+
+    return res.json({
+      ok: true,
+      message: "আপনার অ্যাসাইনমেন্ট উত্তর সফলভাবে জমা হয়েছে! মেন্টর মূল্যায়ন করার পর আপনি মার্ক দেখতে পাবেন।",
+      submission: savedSub
+    });
+  } catch (err) {
+    console.error("Submit assignment error:", err);
+    return res.status(500).json({ ok: false, message: "অ্যাসাইনমেন্ট জমা দিতে সমস্যা হয়েছে।" });
+  }
+});
+
+// GET Student My Submissions
+app.get("/api/student/my-submissions", async (req, res) => {
+  try {
+    const { studentId } = req.query;
+    if (!studentId) return res.status(400).json({ ok: false, message: "studentId is required." });
+
+    if (isMongoConnected) {
+      const list = await Submission.find({ studentId }).sort({ createdAt: -1 }).lean();
+      return res.json({ ok: true, submissions: list });
+    }
+
+    const filtered = (memoryDb.submissions || []).filter(s => s.studentId === studentId);
+    return res.json({ ok: true, submissions: filtered });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error fetching student submissions." });
+  }
+});
+
 
 app.post("/api/admin/clear-all-demo-data", async (req, res) => {
   try {

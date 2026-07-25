@@ -8,6 +8,8 @@ import AdminLogin from './pages/AdminLogin';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import AdminPanel from './pages/AdminPanel';
+import MentorLogin from './pages/MentorLogin';
+import MentorDashboard from './pages/MentorDashboard';
 import VideoPlayerModal from './components/VideoPlayerModal';
 import AiChatDrawer from './components/AiChatDrawer';
 import ProfileModal from './components/ProfileModal';
@@ -24,6 +26,9 @@ function MainApp() {
     if (path === '/admin' || path === '/admin/' || path.endsWith('/admin') || hash === '#admin' || hash === '#/admin') {
       return 'admin';
     }
+    if (path === '/mentor' || path === '/mentor/' || path.includes('/mentor') || hash === '#mentor' || hash === '#/mentor') {
+      return user?.isMentor ? 'mentor-dashboard' : 'mentor-login';
+    }
     return 'home';
   });
 
@@ -39,6 +44,9 @@ function MainApp() {
       const hash = window.location.hash.toLowerCase();
       if (path === '/admin' || path === '/admin/' || path.endsWith('/admin') || hash === '#admin' || hash === '#/admin') {
         setActivePage('admin');
+      }
+      if (path === '/mentor' || path === '/mentor/' || path.includes('/mentor') || hash === '#mentor' || hash === '#/mentor') {
+        setActivePage(user?.isMentor ? 'mentor-dashboard' : 'mentor-login');
       }
 
       if (hash.startsWith('#mentor-')) {
@@ -58,7 +66,14 @@ function MainApp() {
       window.removeEventListener('popstate', handleUrlChange);
       window.removeEventListener('hashchange', handleUrlChange);
     };
-  }, []);
+  }, [user]);
+
+  // Auto redirect logged in mentor to mentor-dashboard if on mentor pages
+  useEffect(() => {
+    if (user?.isMentor && activePage === 'mentor-login') {
+      setActivePage('mentor-dashboard');
+    }
+  }, [user, activePage]);
 
   // Modals & Drawers State
   const [videoModal, setVideoModal] = useState({ isOpen: false, lesson: null });
@@ -92,6 +107,8 @@ function MainApp() {
         {activePage === 'dashboard' && (
           <Dashboard openVideoModal={openVideoModal} />
         )}
+        {activePage === 'mentor-login' && <MentorLogin setActivePage={setActivePage} />}
+        {activePage === 'mentor-dashboard' && <MentorDashboard />}
         {(activePage === 'admin' || activePage === 'admin-login') && (
           user?.isAdmin ? (
             <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />

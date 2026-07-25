@@ -90,6 +90,29 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const mentorLogin = async (email, password) => {
+    try {
+      const res = await api.post('/auth/mentor/login', { email, password });
+      if (res.data && res.data.ok) {
+        const newToken = res.data.token;
+        const mentorData = { ...res.data.mentor, role: 'mentor', isMentor: true };
+
+        setToken(newToken);
+        setUser(mentorData);
+
+        localStorage.setItem('bjs_token', newToken);
+        localStorage.setItem('bjs_user', JSON.stringify(mentorData));
+        return { ok: true, mentor: mentorData };
+      }
+      return { ok: false, message: res.data?.message || 'মেন্টর লগইন ব্যর্থ হয়েছে।' };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err.response?.data?.message || 'সার্ভার সংযোগ সমস্যা। তথ্য পুনরায় যাচাই করুন।'
+      };
+    }
+  };
+
   const logout = () => {
     setUser(null);
     setToken('');
@@ -104,7 +127,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, updateUserProfile, getDeviceId }}>
+    <AuthContext.Provider value={{ user, token, loading, login, mentorLogin, logout, updateUserProfile, getDeviceId }}>
       {children}
     </AuthContext.Provider>
   );

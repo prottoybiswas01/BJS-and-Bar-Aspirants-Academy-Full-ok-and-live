@@ -3,6 +3,10 @@ const mongoose = require("mongoose");
 const MentorSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
   name: { type: String, required: true },
+  email: { type: String, required: true, unique: true, index: true },
+  password: { type: String, default: "" }, // Hashed bcrypt password
+  loginApproval: { type: String, enum: ["Approved", "Pending", "Rejected"], default: "Pending" },
+  assignedCourseIds: [{ type: String }],
   photoUrl: { type: String, default: "" },
   designation: { type: String, default: "সহকারী জজ (BJS)" },
   posting: { type: String, default: "ঢাকা" },
@@ -19,3 +23,4 @@ const MentorSchema = new mongoose.Schema({
 });
 
 module.exports = mongoose.model("Mentor", MentorSchema);
+

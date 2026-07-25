@@ -9,9 +9,70 @@ export default function Dashboard({ openVideoModal }) {
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Tab state: 'lectures' | 'assignments'
+  const [selectedTab, setSelectedTab] = useState('lectures');
+  const [studentAssignments, setStudentAssignments] = useState([]);
+  const [mySubmissions, setMySubmissions] = useState([]);
+  const [submittingAsnId, setSubmittingAsnId] = useState(null);
+  const [subText, setSubText] = useState('');
+  const [subDocUrl, setSubDocUrl] = useState('');
+  const [subLoading, setSubLoading] = useState(false);
+
   useEffect(() => {
     fetchData();
-  }, []);
+    if (user?.id) {
+      fetchAssignments();
+    }
+  }, [user]);
+
+  const fetchAssignments = async () => {
+    try {
+      const [resAsn, resSub] = await Promise.all([
+        api.get('/student/assignments', { params: { studentId: user?.id } }),
+        api.get('/student/my-submissions', { params: { studentId: user?.id } })
+      ]);
+      if (resAsn.data.ok) setStudentAssignments(resAsn.data.assignments || []);
+      if (resSub.data.ok) setMySubmissions(resSub.data.submissions || []);
+    } catch (err) {
+      console.log('Assignments fetch notice:', err);
+    }
+  };
+
+  const handleSubmitAssignment = async (e, assignmentId, courseId) => {
+    e.preventDefault();
+    if (!subText && !subDocUrl) {
+      alert("অনুগ্রহ করে আপনার উত্তর বা ডকুমেন্ট লিংক শেয়ার করুন।");
+      return;
+    }
+
+    setSubLoading(true);
+    try {
+      const res = await api.post('/student/submit-assignment', {
+        assignmentId,
+        studentId: user?.id,
+        studentName: user?.name,
+        studentEmail: user?.email,
+        studentPhone: user?.phone,
+        courseId,
+        submissionText: subText,
+        attachmentUrl: subDocUrl
+      });
+
+      setSubLoading(false);
+      if (res.data.ok) {
+        alert(res.data.message || "অ্যাসাইনমেন্ট উত্তর সফলভাবে জমা হয়েছে!");
+        setSubmittingAsnId(null);
+        setSubText('');
+        setSubDocUrl('');
+        fetchAssignments();
+      } else {
+        alert(res.data.message || "জমা দিতে সমস্যা হয়েছে।");
+      }
+    } catch (err) {
+      setSubLoading(false);
+      alert(err.response?.data?.message || "অ্যাসাইনমেন্ট জমা দিতে সমস্যা হয়েছে।");
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -151,179 +212,382 @@ export default function Dashboard({ openVideoModal }) {
         </div>
       </section>
 
-      {/* Course Switcher Tabs */}
-      <section className="space-y-4">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          <span>📚 নিবন্ধিত ও লার্নিং কোর্সসমূহ</span>
-        </h2>
+      {/* Section Tab Navigation: Video Lectures vs Assignments */}
+      <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-2">
+        <button
+          onClick={() => setSelectedTab('lectures')}
+          className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all ${
+            selectedTab === 'lectures'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          📹 ভিডিও ক্লাসসমূহ (Lectures)
+        </button>
+        <button
+          onClick={() => setSelectedTab('assignments')}
+          className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative ${
+            selectedTab === 'assignments'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <span>📝 অ্যাসাইনমেন্ট ও পরীক্ষা ({studentAssignments.length})</span>
+        </button>
+      </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {courses.map((c) => {
-            const active = selectedCourse?.id === c.id;
-            const enrolled = user?.allowedCourseIds?.includes(c.id) || user?.enrolledCourseIds?.includes(c.id);
+      {/* LECTURES TAB */}
+      {selectedTab === 'lectures' && (
+        <>
+          {/* Course Switcher Tabs */}
+          <section className="space-y-4">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <span>📚 নিবন্ধিত ও লার্নিং কোর্সসমূহ</span>
+            </h2>
 
-            return (
-              <button
-                key={c.id}
-                onClick={() => handleSelectCourse(c)}
-                className={`p-4 rounded-2xl text-left transition-all border ${
-                  active
-                    ? 'bg-amber-500/10 border-amber-500 text-white shadow-lg shadow-amber-500/10'
-                    : 'glass-card border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                }`}
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <span className="text-xs font-bold font-mono text-amber-400">{c.shortTitle || c.title}</span>
-                  {enrolled ? (
-                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-                      Enrolled
-                    </span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {courses.map((c) => {
+                const active = selectedCourse?.id === c.id;
+                const enrolled = user?.allowedCourseIds?.includes(c.id) || user?.enrolledCourseIds?.includes(c.id);
+
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => handleSelectCourse(c)}
+                    className={`p-4 rounded-2xl text-left transition-all border ${
+                      active
+                        ? 'bg-amber-500/10 border-amber-500 text-white shadow-lg shadow-amber-500/10'
+                        : 'glass-card border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-xs font-bold font-mono text-amber-400">{c.shortTitle || c.title}</span>
+                      {enrolled ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                          Enrolled
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">
+                          Not Enrolled
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="font-extrabold text-sm text-white line-clamp-1">{c.title}</h3>
+                    <p className="text-[11px] text-slate-500 mt-1">ফ্যাকাল্টি: {c.faculty}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Selected Course Modules & Video Matrix */}
+          {selectedCourse && (
+            <section className="space-y-6">
+              <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-amber-400 font-mono uppercase tracking-wider">
+                        {selectedCourse.category}
+                      </span>
+                      {isUnlimited && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-bold text-[10px]">
+                          ★ Unlimited Access Active
+                        </span>
+                      )}
+                    </div>
+                    <h2 className="text-xl font-extrabold text-white">{selectedCourse.title}</h2>
+                    <p className="text-xs text-slate-400 mt-1">{selectedCourse.description}</p>
+                  </div>
+                </div>
+
+                {/* Video Color-Coding Matrix Legend */}
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-wrap items-center gap-4 text-xs">
+                  <span className="text-slate-400 font-medium">ভিডিও স্ট্যাটাস গাইড:</span>
+                  <span className="flex items-center gap-1 text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-500/30 font-semibold">
+                    🟢 Emerald Green: ভিডিও প্রস্তুত ও আনলকড
+                  </span>
+                  <span className="flex items-center gap-1 text-rose-400 bg-rose-950/40 px-2.5 py-1 rounded-lg border border-rose-500/30 font-semibold">
+                    🔴 Rose Red: ভিডিও পেন্ডিং / কোর্স আনলকড নয়
+                  </span>
+                </div>
+
+                {/* Lessons Accordion List */}
+                <div className="space-y-6 pt-2">
+                  {Object.keys(groupedLessons).length === 0 ? (
+                    <p className="text-center py-8 text-slate-500 text-xs">
+                      এই কোর্সের কোনো লেকচার ভিডিও পাওয়া যায়নি।
+                    </p>
                   ) : (
-                    <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">
-                      Not Enrolled
-                    </span>
+                    Object.entries(groupedLessons).map(([groupTitle, groupLessons]) => (
+                      <div key={groupTitle} className="space-y-3">
+                        <h3 className="text-xs sm:text-sm font-extrabold text-amber-300 border-l-4 border-amber-500 pl-3 py-1.5 flex items-center justify-between bg-slate-950/80 px-3.5 rounded-r-xl border-y border-r border-slate-800">
+                          <span className="flex items-center gap-2">📖 {groupTitle}</span>
+                          <span className="text-[10px] font-mono text-slate-400 font-bold bg-slate-900 px-2.5 py-0.5 rounded-full border border-slate-800">
+                            {groupLessons.length} টি ক্লাসের ভিডিও
+                          </span>
+                        </h3>
+
+                        <div className="space-y-2">
+                          {groupLessons.map((l) => {
+                            const isOrientation = (
+                              (l.title || '').toLowerCase().includes('orientation') ||
+                              (l.title || '').includes('অরিয়েন্টেশন') ||
+                              (l.module || '').toLowerCase().includes('orientation') ||
+                              (l.module || '').includes('অরিয়েন্টেশন') ||
+                              (l.chapter || '').toLowerCase().includes('orientation') ||
+                              (l.chapter || '').includes('অরিয়েন্টেশন')
+                            );
+                            const isCompleted = user?.completedLessonIds?.includes(l.id);
+                            const hasVideo = Boolean(l.youtubeId || l.youtubeUrl);
+                            const canWatch = (isEnrolled || isOrientation) && hasVideo;
+
+                            let cardClass = 'bg-rose-950/20 border-rose-500/30 text-rose-200';
+                            let badgeText = '🔴 Video Pending';
+                            let badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+
+                            if (isOrientation && hasVideo) {
+                              cardClass = 'bg-emerald-950/30 border-emerald-500/50 text-emerald-100 hover:border-emerald-400 shadow-md';
+                              badgeText = '🎁 Free Orientation Unlocked';
+                              badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold';
+                            } else if (!isEnrolled) {
+                              badgeText = '🔒 Course Locked';
+                            } else if (hasVideo) {
+                              cardClass = 'bg-emerald-950/25 border-emerald-500/30 text-emerald-200 hover:border-emerald-400';
+                              badgeText = '🟢 Video Unlocked';
+                              badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+                            }
+
+                            if (isCompleted) {
+                              cardClass = 'bg-emerald-900/40 border-emerald-400 text-emerald-100';
+                            }
+
+                            return (
+                              <div
+                                key={l.id}
+                                className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${cardClass}`}
+                              >
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass}`}>
+                                      {badgeText}
+                                    </span>
+                                    <span className="font-mono text-[11px] text-slate-400">⏱️ {l.duration}</span>
+                                    <span className="font-mono text-[10px] text-slate-500">Released: {l.releaseDate}</span>
+                                  </div>
+                                  <h4 className="font-bold text-white text-sm">{l.title}</h4>
+                                  <p className="text-xs text-slate-300">{l.description}</p>
+                                </div>
+
+                                <div className="flex items-center gap-3 flex-shrink-0">
+                                  <button
+                                    onClick={() => toggleComplete(l.id)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                      isCompleted
+                                        ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                                        : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
+                                    }`}
+                                  >
+                                    {isCompleted ? '✓ Completed' : 'Mark Done'}
+                                  </button>
+
+                                  <button
+                                    onClick={() => openVideoModal(l)}
+                                    className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-md transition-all cursor-pointer ${
+                                      canWatch
+                                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-400 hover:to-teal-400 hover:scale-105'
+                                        : 'bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700'
+                                    }`}
+                                  >
+                                    {canWatch ? (isOrientation ? '▶️ অরিয়েন্টেশন ফ্রি প্লে' : '▶️ প্লে ভিডিও') : '🔒 প্রিভিউ / তথ্য'}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
                   )}
                 </div>
-                <h3 className="font-extrabold text-sm text-white line-clamp-1">{c.title}</h3>
-                <p className="text-[11px] text-slate-500 mt-1">ফ্যাকাল্টি: {c.faculty}</p>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+              </div>
+            </section>
+          )}
+        </>
+      )}
 
-      {/* Selected Course Modules & Video Matrix */}
-      {selectedCourse && (
+      {/* ASSIGNMENTS TAB */}
+      {selectedTab === 'assignments' && (
         <section className="space-y-6">
           <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-amber-400 font-mono uppercase tracking-wider">
-                    {selectedCourse.category}
-                  </span>
-                  {isUnlimited && (
-                    <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-bold text-[10px]">
-                      ★ Unlimited Access Active
-                    </span>
-                  )}
-                </div>
-                <h2 className="text-xl font-extrabold text-white">{selectedCourse.title}</h2>
-                <p className="text-xs text-slate-400 mt-1">{selectedCourse.description}</p>
+                <h2 className="text-lg font-extrabold text-white">নির্ধারিত অ্যাসাইনমেন্ট ও হোমওয়ার্ক</h2>
+                <p className="text-xs text-slate-400">মেন্টর কর্তৃক প্রকাশিত অ্যাসাইনমেন্ট জমা দিন ও রেজাল্ট দেখুন</p>
               </div>
-
-              {/* Course Header Info */}
             </div>
 
-            {/* Video Color-Coding Matrix Legend */}
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-wrap items-center gap-4 text-xs">
-              <span className="text-slate-400 font-medium">ভিডিও স্ট্যাটাস গাইড:</span>
-              <span className="flex items-center gap-1 text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-500/30 font-semibold">
-                🟢 Emerald Green: ভিডিও প্রস্তুত ও আনলকড
-              </span>
-              <span className="flex items-center gap-1 text-rose-400 bg-rose-950/40 px-2.5 py-1 rounded-lg border border-rose-500/30 font-semibold">
-                🔴 Rose Red: ভিডিও পেন্ডিং / কোর্স আনলকড নয়
-              </span>
-            </div>
+            {studentAssignments.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 text-xs">
+                বর্তমানে আপনার জন্য কোনো অ্যাসাইনমেন্ট প্রকাশ করা হয়নি।
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {studentAssignments.map(asn => {
+                  const crs = courses.find(c => c.id === asn.courseId);
+                  const sub = mySubmissions.find(s => s.assignmentId === asn.id);
+                  const isSubmitted = Boolean(sub);
+                  const isGraded = sub && sub.marksObtained !== null && sub.marksObtained !== undefined;
+                  const canResubmit = sub?.canResubmit;
 
-            {/* Lessons Accordion List */}
-            <div className="space-y-6 pt-2">
-              {Object.keys(groupedLessons).length === 0 ? (
-                <p className="text-center py-8 text-slate-500 text-xs">
-                  এই কোর্সের কোনো লেকচার ভিডিও পাওয়া যায়নি।
-                </p>
-              ) : (
-                Object.entries(groupedLessons).map(([groupTitle, groupLessons]) => (
-                  <div key={groupTitle} className="space-y-3">
-                    <h3 className="text-xs sm:text-sm font-extrabold text-amber-300 border-l-4 border-amber-500 pl-3 py-1.5 flex items-center justify-between bg-slate-950/80 px-3.5 rounded-r-xl border-y border-r border-slate-800">
-                      <span className="flex items-center gap-2">📖 {groupTitle}</span>
-                      <span className="text-[10px] font-mono text-slate-400 font-bold bg-slate-900 px-2.5 py-0.5 rounded-full border border-slate-800">
-                        {groupLessons.length} টি ক্লাসের ভিডিও
-                      </span>
-                    </h3>
+                  return (
+                    <div key={asn.id} className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+                        <div>
+                          <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">
+                            {crs ? crs.title : asn.courseId}
+                          </span>
+                          <h3 className="text-base font-extrabold text-white mt-1">{asn.title}</h3>
+                          <p className="text-xs text-slate-400 font-medium">মেন্টর: {asn.mentorName || 'Faculty'}</p>
+                        </div>
 
-                    <div className="space-y-2">
-                      {groupLessons.map((l) => {
-                        const isOrientation = (
-                          (l.title || '').toLowerCase().includes('orientation') ||
-                          (l.title || '').includes('অরিয়েন্টেশন') ||
-                          (l.module || '').toLowerCase().includes('orientation') ||
-                          (l.module || '').includes('অরিয়েন্টেশন') ||
-                          (l.chapter || '').toLowerCase().includes('orientation') ||
-                          (l.chapter || '').includes('অরিয়েন্টেশন')
-                        );
-                        const isCompleted = user?.completedLessonIds?.includes(l.id);
-                        const hasVideo = Boolean(l.youtubeId || l.youtubeUrl);
-                        const canWatch = (isEnrolled || isOrientation) && hasVideo;
+                        <div className="flex items-center gap-2">
+                          <span className="px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 text-amber-400 text-xs font-mono font-bold">
+                            🎯 মোট মার্কস: {asn.totalMarks}
+                          </span>
+                          {isSubmitted ? (
+                            isGraded ? (
+                              <span className="px-3 py-1 rounded-xl bg-emerald-950 text-emerald-300 border border-emerald-500/40 text-xs font-bold">
+                                ✓ মার্কস: {sub.marksObtained} / {asn.totalMarks}
+                              </span>
+                            ) : (
+                              <span className="px-3 py-1 rounded-xl bg-amber-950 text-amber-300 border border-amber-500/40 text-xs font-bold">
+                                ⏳ মূল্যায়নের অপেক্ষায়
+                              </span>
+                            )
+                          ) : (
+                            <span className="px-3 py-1 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold">
+                              পেন্ডিং (জমা দিতে হবে)
+                            </span>
+                          )}
+                        </div>
+                      </div>
 
-                        let cardClass = 'bg-rose-950/20 border-rose-500/30 text-rose-200';
-                        let badgeText = '🔴 Video Pending';
-                        let badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+                      {asn.description && (
+                        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-200 leading-relaxed">
+                          <strong className="text-amber-400 block mb-1">অ্যাসাইনমেন্ট প্রশ্ন/নির্দেশনা:</strong>
+                          {asn.description}
+                        </div>
+                      )}
 
-                        if (isOrientation && hasVideo) {
-                          cardClass = 'bg-emerald-950/30 border-emerald-500/50 text-emerald-100 hover:border-emerald-400 shadow-md';
-                          badgeText = '🎁 Free Orientation Unlocked';
-                          badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold';
-                        } else if (!isEnrolled) {
-                          badgeText = '🔒 Course Locked';
-                        } else if (hasVideo) {
-                          cardClass = 'bg-emerald-950/25 border-emerald-500/30 text-emerald-200 hover:border-emerald-400';
-                          badgeText = '🟢 Video Unlocked';
-                          badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
-                        }
-
-                        if (isCompleted) {
-                          cardClass = 'bg-emerald-900/40 border-emerald-400 text-emerald-100';
-                        }
-
-                        return (
-                          <div
-                            key={l.id}
-                            className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${cardClass}`}
-                          >
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass}`}>
-                                  {badgeText}
-                                </span>
-                                <span className="font-mono text-[11px] text-slate-400">⏱️ {l.duration}</span>
-                                <span className="font-mono text-[10px] text-slate-500">Released: {l.releaseDate}</span>
-                              </div>
-                              <h4 className="font-bold text-white text-sm">{l.title}</h4>
-                              <p className="text-xs text-slate-300">{l.description}</p>
-                            </div>
-
-                            <div className="flex items-center gap-3 flex-shrink-0">
-                              <button
-                                onClick={() => toggleComplete(l.id)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                                  isCompleted
-                                    ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                                    : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
-                                }`}
-                              >
-                                {isCompleted ? '✓ Completed' : 'Mark Done'}
-                              </button>
-
-                              <button
-                                onClick={() => openVideoModal(l)}
-                                className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-md transition-all cursor-pointer ${
-                                  canWatch
-                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-400 hover:to-teal-400 hover:scale-105'
-                                    : 'bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700'
-                                }`}
-                              >
-                                {canWatch ? (isOrientation ? '▶️ অরিয়েন্টেশন ফ্রি প্লে' : '▶️ প্লে ভিডিও') : '🔒 প্রিভিউ / তথ্য'}
-                              </button>
-                            </div>
+                      {/* SUBMISSION STATE & FORM */}
+                      {isSubmitted && !canResubmit ? (
+                        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800/80 space-y-2 text-xs">
+                          <div className="flex items-center justify-between text-emerald-400 font-bold">
+                            <span>✓ আপনি অ্যাসাইনমেন্টটি জমা দিয়েছেন</span>
+                            <span className="font-mono text-[10px] text-slate-400">
+                              {new Date(sub.createdAt).toLocaleDateString('bn-BD', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
                           </div>
-                        );
-                      })}
+
+                          {sub.submissionText && (
+                            <p className="text-slate-300 bg-slate-950 p-2.5 rounded border border-slate-800">
+                              {sub.submissionText}
+                            </p>
+                          )}
+
+                          {sub.attachmentUrl && (
+                            <a href={sub.attachmentUrl} target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline font-semibold block">
+                              🔗 সংযুক্ত ফাইল / ডকুমেন্ট লিংক ↗
+                            </a>
+                          )}
+
+                          {isGraded && (
+                            <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl space-y-1 mt-2">
+                              <p className="text-emerald-300 font-extrabold text-xs">
+                                🏆 মেন্টর মূল্যায়ন রেজাল্ট: {sub.marksObtained} / {asn.totalMarks}
+                              </p>
+                              {sub.feedback && (
+                                <p className="text-slate-300 text-xs leading-relaxed">
+                                  💬 <strong>মেন্টর মন্তব্য:</strong> {sub.feedback}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          <p className="text-[10px] text-slate-500 pt-1">
+                            ⚠️ আপনি ইতোমধ্যে জমা দিয়েছেন। পরিবর্তন করতে চাইলে মেন্টর বা অ্যাডমিনের সাথে যোগাযোগ করুন।
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3 pt-1">
+                          {canResubmit && (
+                            <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-semibold">
+                              🔄 আপনাকে পুনরায় অ্যাসাইনমেন্ট জমা দেওয়ার অনুমতি দেওয়া হয়েছে!
+                            </div>
+                          )}
+
+                          {submittingAsnId === asn.id ? (
+                            <form onSubmit={(e) => handleSubmitAssignment(e, asn.id, asn.courseId)} className="space-y-3 bg-slate-900 p-4 rounded-xl border border-slate-800 text-xs">
+                              <div>
+                                <label className="block text-slate-300 font-medium mb-1">আপনার উত্তর / বিষয়বস্তু লিখুন *</label>
+                                <textarea
+                                  rows={4}
+                                  value={subText}
+                                  onChange={(e) => setSubText(e.target.value)}
+                                  placeholder="আপনার অ্যাসাইনমেন্টের লিখিত উত্তর এখানে টাইপ করুন..."
+                                  className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 leading-relaxed"
+                                  required
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-slate-300 font-medium mb-1">গুগল ড্রাইভ / ডক / পিডিএফ লিঙ্ক (ঐচ্ছিক)</label>
+                                <input
+                                  type="url"
+                                  value={subDocUrl}
+                                  onChange={(e) => setSubDocUrl(e.target.value)}
+                                  placeholder="https://drive.google.com/file/d/..."
+                                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                                />
+                              </div>
+
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setSubmittingAsnId(null)}
+                                  className="py-2 px-4 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold"
+                                >
+                                  বাতিল
+                                </button>
+                                <button
+                                  type="submit"
+                                  disabled={subLoading}
+                                  className="py-2 px-5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 text-xs font-extrabold hover:from-amber-400 shadow-md"
+                                >
+                                  {subLoading ? 'জমা হচ্ছে...' : '📤 জমা দিন (Submit Assignment)'}
+                                </button>
+                              </div>
+                            </form>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setSubmittingAsnId(asn.id);
+                                setSubText(sub?.submissionText || '');
+                                setSubDocUrl(sub?.attachmentUrl || '');
+                              }}
+                              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 text-xs font-extrabold shadow-md transition-all"
+                            >
+                              ✍️ {canResubmit ? 'পুনরায় উত্তর জমা দিন' : 'উত্তর জমা দিন (Submit Response)'}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </section>
       )}

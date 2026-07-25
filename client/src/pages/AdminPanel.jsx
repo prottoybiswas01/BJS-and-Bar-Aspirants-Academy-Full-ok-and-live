@@ -419,6 +419,41 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
+  const handleApproveMentor = async (mentorId, action) => {
+    try {
+      const res = await api.post('/admin/mentors/approve', { mentorId, action });
+      if (res.data.ok) {
+        showToast(res.data.message || 'মেন্টর অনুমোদন সফল হয়েছে!', 'success');
+        loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'মেন্টর অনুমোদন ব্যর্থ হয়েছে।', 'error');
+      }
+    } catch (err) {
+      showToast('মেন্টর অনুমোদন প্রক্রিয়ায় ত্রুটি।', 'error');
+    }
+  };
+
+  const handleAssignCourseToMentor = async (mentorId, courseId) => {
+    const targetMentor = mentors.find(m => m.id === mentorId);
+    let currentCourses = targetMentor?.assignedCourseIds || [];
+    if (currentCourses.includes(courseId)) {
+      currentCourses = currentCourses.filter(id => id !== courseId);
+    } else {
+      currentCourses = [...currentCourses, courseId];
+    }
+
+    try {
+      const res = await api.post('/admin/mentors/assign-courses', { mentorId, assignedCourseIds: currentCourses });
+      if (res.data.ok) {
+        showToast('মেন্টর কোর্স নির্ধারণ করা হয়েছে!', 'success');
+        loadAllAdminData();
+      }
+    } catch (err) {
+      showToast('মেন্টর কোর্স নির্ধারণে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
+
   const handleOpenStudentPreview = async (student) => {
     setPreviewStudentModal({ isOpen: true, student });
     setPreviewLoading(true);
@@ -1999,63 +2034,111 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               </div>
             ) : (
               <div className="space-y-3 max-h-[750px] overflow-y-auto pr-1">
-                {mentors.map((m) => (
-                  <div key={m.id} className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 hover:border-purple-500/40 transition-all">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-xl bg-purple-950/80 border border-purple-500/40 text-purple-300 font-bold flex items-center justify-center text-lg shrink-0 overflow-hidden">
-                        {m.photoUrl ? (
-                          <img src={m.photoUrl} alt={m.name} className="w-full h-full object-cover" />
-                        ) : (
-                          '⚖️'
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-extrabold text-white text-sm">{m.name}</h4>
-                          <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold ${
-                            m.status === 'Active' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
-                          }`}>
-                            {m.status}
-                          </span>
-                        </div>
-                        <p className="text-purple-300 text-xs font-bold mt-0.5">{m.designation}</p>
-                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                          📍 {m.posting} | 📖 {m.expertise}
-                        </p>
-                        {m.phone && (
-                          <p className="text-[10px] font-mono text-slate-400 mt-1">
-                            📞 {m.phone} {m.showPhone ? <span className="text-emerald-400 font-bold">(Public)</span> : <span className="text-slate-500">(Hidden)</span>}
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                {mentors.map((m) => {
+                  const isApproved = m.loginApproval === 'Approved' || (!m.loginApproval && m.status === 'Active');
+                  const isPending = m.loginApproval === 'Pending';
+                  const mentorCourses = m.assignedCourseIds || [];
 
-                    <div className="flex items-center gap-2 self-end sm:self-center">
-                      <button
-                        type="button"
-                        onClick={() => openMentorProfile && openMentorProfile(m)}
-                        className="px-3 py-1.5 rounded-lg bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/30 font-bold text-[11px] transition-all flex items-center gap-1"
-                        title="View & Share Judicial Profile Link"
-                      >
-                        <span>👁️</span> View Profile
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleEditMentor(m)}
-                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-bold text-[11px] transition-all"
-                      >
-                        ✏️ Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteMentor(m.id, m.name)}
-                        className="px-3 py-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-500/30 font-bold text-[11px] transition-all"
-                      >
-                        🗑️ Delete
-                      </button>
+                  return (
+                    <div key={m.id} className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col gap-3 hover:border-purple-500/40 transition-all">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl bg-purple-950/80 border border-purple-500/40 text-purple-300 font-bold flex items-center justify-center text-lg shrink-0 overflow-hidden">
+                            {m.photoUrl ? (
+                              <img src={m.photoUrl} alt={m.name} className="w-full h-full object-cover" />
+                            ) : (
+                              '⚖️'
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-extrabold text-white text-sm">{m.name}</h4>
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold ${
+                                isPending ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse' :
+                                m.status === 'Active' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300'
+                              }`}>
+                                {isPending ? '⏳ Approval Pending' : (m.status || 'Active')}
+                              </span>
+                            </div>
+                            <p className="text-purple-300 text-xs font-bold mt-0.5">{m.designation}</p>
+                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                              📧 {m.email || 'Email missing'} | 📍 {m.posting}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Approval & Management Actions */}
+                        <div className="flex flex-wrap items-center gap-2 self-end sm:self-center">
+                          {isPending && (
+                            <button
+                              type="button"
+                              onClick={() => handleApproveMentor(m.id, 'approve')}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs shadow-md transition-all flex items-center gap-1"
+                            >
+                              <span>✓</span> অনুমোদন দিন (Approve)
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleApproveMentor(m.id, 'toggle_status')}
+                            className={`px-3 py-1.5 rounded-lg font-bold text-[11px] border transition-all ${
+                              m.status === 'Active' ? 'bg-amber-950 text-amber-300 border-amber-500/30' : 'bg-emerald-950 text-emerald-300 border-emerald-500/30'
+                            }`}
+                          >
+                            {m.status === 'Active' ? 'নিষ্ক্রিয় করুন' : 'সক্রিয় করুন'}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openMentorProfile && openMentorProfile(m)}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 text-[11px] font-bold"
+                          >
+                            👁️ প্রোফাইল
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleEditMentor(m)}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-amber-300 text-[11px] font-bold"
+                          >
+                            ✏️ Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMentor(m.id, m.name)}
+                            className="px-2.5 py-1.5 rounded-lg bg-rose-950 text-rose-300 text-[11px] font-bold"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Course Allocation Selector for Mentor */}
+                      <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-[10px] text-slate-400 font-bold">কোর্স অ্যাসাইনমেন্ট:</span>
+                        {courses.map(c => {
+                          const assigned = mentorCourses.includes(c.id);
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => handleAssignCourseToMentor(m.id, c.id)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
+                                assigned
+                                  ? 'bg-purple-950 text-purple-200 border-purple-500/50 shadow-sm'
+                                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                              }`}
+                            >
+                              {assigned ? '✓ ' : '+ '} {c.title}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
