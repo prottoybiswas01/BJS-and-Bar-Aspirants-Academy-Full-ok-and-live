@@ -113,7 +113,9 @@ function MainApp() {
         openProfileModal={() => setProfileModalOpen(true)}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+      <main className={`flex-1 w-full mx-auto px-3 sm:px-5 lg:px-6 pt-6 ${
+        activePage === 'admin' ? 'max-w-[1750px]' : 'max-w-7xl'
+      }`}>
         {activePage === 'home' && (
           <Home setActivePage={setActivePage} openMentorProfile={openMentorProfile} />
         )}
