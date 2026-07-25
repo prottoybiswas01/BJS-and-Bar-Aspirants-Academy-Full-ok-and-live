@@ -40,8 +40,14 @@ export default function MentorDashboard() {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isFullScreenModal, setIsFullScreenModal] = useState(false);
 
-  const handleZoomIn = () => setZoomScale(prev => Math.min(4, prev + 0.35));
-  const handleZoomOut = () => setZoomScale(prev => Math.max(0.5, prev - 0.35));
+  const handleZoomIn = () => setZoomScale(prev => Math.min(4.5, prev + 0.35));
+  const handleZoomOut = () => {
+    setZoomScale(prev => {
+      const next = Math.max(0.6, prev - 0.35);
+      if (next <= 1) setPanPos({ x: 0, y: 0 });
+      return next;
+    });
+  };
   const handleRotate = () => setRotation(prev => (prev + 90) % 360);
   const handleResetZoom = () => {
     setZoomScale(1);
@@ -56,11 +62,26 @@ export default function MentorDashboard() {
   };
 
   const handleMouseMove = (e) => {
-    if (!isDragging) return;
+    if (!isDragging || zoomScale <= 1) return;
     setPanPos({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
   };
 
   const handleMouseUp = () => setIsDragging(false);
+
+  const handleTouchStart = (e) => {
+    if (zoomScale <= 1 || !e.touches || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    setIsDragging(true);
+    setDragStart({ x: touch.clientX - panPos.x, y: touch.clientY - panPos.y });
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isDragging || zoomScale <= 1 || !e.touches || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    setPanPos({ x: touch.clientX - dragStart.x, y: touch.clientY - dragStart.y });
+  };
+
+  const handleTouchEnd = () => setIsDragging(false);
 
   const [toast, setToast] = useState(null);
 
@@ -776,30 +797,40 @@ export default function MentorDashboard() {
                       </div>
                     </div>
 
-                    {/* Main Centered Zoomable Inspector Area with Mouse Wheel Support */}
+                    {/* Main Interactive Zoomable & Draggable Inspector Area */}
                     <div
                       onWheel={(e) => {
                         if (e.deltaY < 0) handleZoomIn();
                         else if (e.deltaY > 0) handleZoomOut();
                       }}
-                      className="relative rounded-2xl overflow-auto border border-slate-800 bg-slate-950 min-h-[380px] max-h-[520px] flex items-center justify-center p-6 select-none"
+                      onMouseDown={handleMouseDown}
+                      onMouseMove={handleMouseMove}
+                      onMouseUp={handleMouseUp}
+                      onMouseLeave={handleMouseUp}
+                      onTouchStart={handleTouchStart}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
+                      className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 min-h-[380px] max-h-[520px] flex items-center justify-center p-4 select-none touch-none"
+                      style={{ cursor: zoomScale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
                     >
                       <div
-                        className="transition-transform duration-200 ease-out flex items-center justify-center min-w-full min-h-full"
+                        className="transition-transform duration-75 ease-out flex items-center justify-center"
                         style={{
-                          transform: `scale(${zoomScale}) rotate(${rotation}deg)`,
-                          transformOrigin: 'center center'
+                          transform: `translate(${panPos.x}px, ${panPos.y}px) scale(${zoomScale}) rotate(${rotation}deg)`,
+                          transformOrigin: 'center center',
+                          willChange: 'transform'
                         }}
                       >
                         <img
                           src={gradingModal.submission.imageUrls[activeImgIdx]}
                           alt={`Script Page ${activeImgIdx + 1}`}
-                          className="max-h-[460px] max-w-full w-auto object-contain shadow-2xl rounded-lg"
+                          className="max-h-[460px] max-w-full w-auto object-contain shadow-2xl rounded-lg pointer-events-none"
+                          draggable={false}
                         />
                       </div>
-                      {zoomScale !== 1 && (
-                        <div className="absolute bottom-3 right-3 px-3 py-1 rounded-xl bg-slate-900/90 border border-amber-500/40 text-amber-300 text-[10px] font-mono font-bold backdrop-blur-md shadow-lg pointer-events-none">
-                          🔍 জুম: {Math.round(zoomScale * 100)}% (মাউস হুইল দিয়ে জুম করা যাবে)
+                      {zoomScale > 1 && (
+                        <div className="absolute bottom-3 right-3 px-3 py-1 rounded-xl bg-slate-950/90 border border-amber-500/40 text-amber-300 text-[10px] font-mono font-bold backdrop-blur-md shadow-lg pointer-events-none">
+                          🔍 জুম: {Math.round(zoomScale * 100)}% (মাউস/আঙ্গুল দিয়ে ড্রাগ করুন)
                         </div>
                       )}
                     </div>
@@ -999,25 +1030,35 @@ export default function MentorDashboard() {
             </div>
           </div>
 
-          {/* Full Screen Centered Canvas Area */}
+          {/* Full Screen Centered & Draggable Canvas Area */}
           <div
             onWheel={(e) => {
               if (e.deltaY < 0) handleZoomIn();
               else if (e.deltaY > 0) handleZoomOut();
             }}
-            className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 overflow-auto p-6 flex items-center justify-center relative select-none"
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden p-4 flex items-center justify-center relative select-none touch-none"
+            style={{ cursor: zoomScale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
           >
             <div
-              className="transition-transform duration-200 ease-out flex items-center justify-center min-w-full min-h-full"
+              className="transition-transform duration-75 ease-out flex items-center justify-center"
               style={{
-                transform: `scale(${zoomScale}) rotate(${rotation}deg)`,
-                transformOrigin: 'center center'
+                transform: `translate(${panPos.x}px, ${panPos.y}px) scale(${zoomScale}) rotate(${rotation}deg)`,
+                transformOrigin: 'center center',
+                willChange: 'transform'
               }}
             >
               <img
                 src={gradingModal.submission.imageUrls[activeImgIdx]}
                 alt={`Full Screen Script Page ${activeImgIdx + 1}`}
-                className="max-h-[85vh] max-w-full w-auto object-contain shadow-2xl rounded-xl"
+                className="max-h-[85vh] max-w-full w-auto object-contain shadow-2xl rounded-xl pointer-events-none"
+                draggable={false}
               />
             </div>
           </div>
