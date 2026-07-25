@@ -120,7 +120,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   });
 
   // Admin Modular Tab Navigation State
-  const [adminTab, setAdminTab] = useState('mcq'); // 'mcq' | 'merit' | 'students' | 'mentors' | 'courses' | 'payments' | 'settings'
+  const [adminTab, setAdminTab] = useState('settings'); // 'settings' | 'students' | 'mentors' | 'courses' | 'payments' | 'mcq' | 'merit'
 
   // Messaging State
   const [popupTitle, setPopupTitle] = useState('');
@@ -1444,7 +1444,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               MANAGEMENT
             </span>
 
-            {/* 1. Site Settings & Banner (Top Priority Item) */}
+            {/* 1. Site Settings & Banner */}
             <button
               type="button"
               onClick={() => setAdminTab('settings')}
@@ -1463,45 +1463,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               </span>
             </button>
 
-            {/* 2. MCQ Exam Engine */}
-            <button
-              type="button"
-              onClick={() => setAdminTab('mcq')}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'mcq'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">📝</span>
-                <span>অনলাইন এমসিকিউ</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {mcqExams.length}
-              </span>
-            </button>
-
-            {/* 3. Merit List & PDF Generator */}
-            <button
-              type="button"
-              onClick={() => setAdminTab('merit')}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'merit'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">🏆</span>
-                <span>মেধা তালিকা ও রেজাল্ট</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                PDF
-              </span>
-            </button>
-
-            {/* 4. Student Control */}
+            {/* 2. Student Control */}
             <button
               type="button"
               onClick={() => setAdminTab('students')}
@@ -1520,7 +1482,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               </span>
             </button>
 
-            {/* 5. Mentor & Faculty Control */}
+            {/* 3. Mentor & Faculty Control */}
             <button
               type="button"
               onClick={() => setAdminTab('mentors')}
@@ -1539,7 +1501,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               </span>
             </button>
 
-            {/* 6. Course Launch Manager */}
+            {/* 4. Course Launch Manager */}
             <button
               type="button"
               onClick={() => setAdminTab('courses')}
@@ -1558,7 +1520,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               </span>
             </button>
 
-            {/* 7. Payment & Receipts */}
+            {/* 5. Payment & Receipts */}
             <button
               type="button"
               onClick={() => setAdminTab('payments')}
@@ -1574,6 +1536,44 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
               </div>
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
                 {receipts.length}
+              </span>
+            </button>
+
+            {/* 6. MCQ Exam Engine */}
+            <button
+              type="button"
+              onClick={() => setAdminTab('mcq')}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'mcq'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">📝</span>
+                <span>অনলাইন এমসিকিউ</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                {mcqExams.length}
+              </span>
+            </button>
+
+            {/* 7. Merit List & PDF Generator */}
+            <button
+              type="button"
+              onClick={() => setAdminTab('merit')}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'merit'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">🏆</span>
+                <span>মেধা তালিকা ও রেজাল্ট</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                PDF
               </span>
             </button>
           </div>
