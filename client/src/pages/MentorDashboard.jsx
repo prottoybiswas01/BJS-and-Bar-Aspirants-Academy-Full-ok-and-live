@@ -90,6 +90,26 @@ export default function MentorDashboard() {
     setTimeout(() => setToast(null), 4000);
   };
 
+  const handleDownloadMeritPdf = async (assignmentId, title) => {
+    try {
+      showToast(`🏆 "${title}" মেধা তালিকা পিডিএফে কনভার্ট ও প্রসেস হচ্ছে...`, 'success');
+      const response = await api.post('/admin/generate-merit-pdf', { assignmentId }, { responseType: 'blob' });
+      
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Merit_List_${(title || 'Assignment').replace(/\s+/g, '_')}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('PDF download error:', err);
+      showToast('পিডিএফ মেধা তালিকা ডাউনলোডে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
   useEffect(() => {
     loadData();
   }, [user]);
@@ -535,7 +555,15 @@ export default function MentorDashboard() {
                           </span>
                           <h4 className="text-sm font-bold text-white mt-1">{asn.title}</h4>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => handleDownloadMeritPdf(asn.id, asn.title)}
+                            className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-400/40 text-xs font-black transition-all shadow-md flex items-center gap-1"
+                            title="মেধা তালিকা পিডিএফে রেজাল্ট শিট ডাউনলোড করুন"
+                          >
+                            🏆 মেধা তালিকা (PDF)
+                          </button>
+
                           <button
                             onClick={() => {
                               setActiveTab('evaluations');

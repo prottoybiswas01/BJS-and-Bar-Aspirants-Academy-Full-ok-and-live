@@ -2048,6 +2048,172 @@ app.delete("/api/mentor/assignments/:id", async (req, res) => {
   }
 });
 
+// -------------------------------------------------------------
+// Official Exam Merit List & Result Summary Sheet PDF Generator
+// -------------------------------------------------------------
+app.get("/api/admin/merit-list", async (req, res) => {
+  try {
+    const { assignmentId } = req.query;
+    if (!assignmentId) return res.status(400).json({ ok: false, message: "Assignment ID required" });
+
+    let subs = (memoryDb.submissions || []).filter(s => s.assignmentId === assignmentId && s.marksObtained !== null && s.marksObtained !== undefined);
+    if (isMongoConnected) {
+      const dbSubs = await Submission.find({ assignmentId, marksObtained: { $ne: null } }).lean();
+      subs = dbSubs.length > 0 ? dbSubs : subs;
+    }
+
+    let studentsMap = new Map();
+    if (isMongoConnected) {
+      const allStudents = await Student.find().lean();
+      allStudents.forEach(s => studentsMap.set(s.id, s));
+    }
+    (memoryDb.students || []).forEach(s => {
+      if (!studentsMap.has(s.id)) studentsMap.set(s.id, s);
+    });
+
+    subs.sort((a, b) => Number(b.marksObtained || 0) - Number(a.marksObtained || 0));
+
+    const rankedList = subs.map((s, idx) => {
+      const studentObj = studentsMap.get(s.studentId) || {};
+      return {
+        rank: idx + 1,
+        studentId: s.studentId,
+        studentName: s.studentName,
+        university: s.studentUniversity || studentObj.university || "ঢাকা বিশ্ববিদ্যালয় (আইন বিভাগ)",
+        marksObtained: s.marksObtained,
+        createdAt: s.createdAt
+      };
+    });
+
+    return res.json({ ok: true, meritList: rankedList });
+  } catch (e) {
+    return res.status(500).json({ ok: false, message: "Error fetching merit list" });
+  }
+});
+
+app.post("/api/admin/generate-merit-pdf", async (req, res) => {
+  try {
+    const { assignmentId } = req.body;
+    if (!assignmentId) {
+      return res.status(400).json({ ok: false, message: "অ্যাসাইনমেন্ট আইডি আবশ্যক।" });
+    }
+
+    // 1. Fetch assignment details
+    let assignment = (memoryDb.assignments || []).find(a => a.id === assignmentId);
+    if (!assignment && isMongoConnected) {
+      assignment = await Assignment.findOne({ id: assignmentId }).lean();
+    }
+    if (!assignment) {
+      return res.status(404).json({ ok: false, message: "অ্যাসাইনমেন্ট খুঁজে পাওয়া যায়নি।" });
+    }
+
+    // 2. Fetch all evaluated submissions for this assignment
+    let subs = (memoryDb.submissions || []).filter(s => s.assignmentId === assignmentId && s.marksObtained !== null && s.marksObtained !== undefined);
+    if (isMongoConnected) {
+      const dbSubs = await Submission.find({ assignmentId, marksObtained: { $ne: null } }).lean();
+      subs = dbSubs.length > 0 ? dbSubs : subs;
+    }
+
+    // 3. Fetch students to get University/Institution
+    let studentsMap = new Map();
+    if (isMongoConnected) {
+      const allStudents = await Student.find().lean();
+      allStudents.forEach(s => studentsMap.set(s.id, s));
+    }
+    (memoryDb.students || []).forEach(s => {
+      if (!studentsMap.has(s.id)) studentsMap.set(s.id, s);
+    });
+
+    // 4. Sort submissions by marksObtained descending
+    subs.sort((a, b) => Number(b.marksObtained || 0) - Number(a.marksObtained || 0));
+
+    // 5. Fetch mentors list for panel names
+    let mentors = (memoryDb.mentors || []).slice(0, 3);
+    if (mentors.length === 0 && isMongoConnected) {
+      mentors = await Mentor.find().limit(3).lean();
+    }
+    const mentorNames = (mentors || []).map(m => m.name || "মেন্টর").join(" | ") || "BJS & Bar Academy Academic Board";
+
+    // 6. Build PDF with PDFKit
+    const doc = new PDFDocument({ margin: 36, size: 'A4' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=Merit_List_${assignmentId}.pdf`);
+
+    doc.pipe(res);
+
+    // Header Banner
+    doc.fillColor('#0b1325').rect(36, 36, 523, 70).fill();
+    doc.fillColor('#f59e0b').fontSize(16).font('Helvetica-Bold').text("BJS & BAR ASPIRANTS ACADEMY", 50, 48);
+    doc.fillColor('#ffffff').fontSize(10).font('Helvetica').text("Official Exam Merit List & Academic Performance Summary Sheet", 50, 68);
+    doc.fillColor('#94a3b8').fontSize(8).text(`Academic Board: ${mentorNames}`, 50, 82);
+
+    // Metadata Block
+    doc.fillColor('#0f172a').rect(36, 115, 523, 40).fill();
+    doc.fillColor('#cbd5e1').fontSize(9).font('Helvetica-Bold').text(`EXAM / ASSIGNMENT: ${assignment.title || 'Model Test'}`, 48, 123);
+    doc.fillColor('#f59e0b').fontSize(8).font('Helvetica').text(`Total Marks: ${assignment.totalMarks || 100} | Total Candidates Evaluated: ${subs.length}`, 48, 138);
+    doc.fillColor('#64748b').fontSize(8).text(`Date: ${new Date().toLocaleDateString()}`, 420, 138);
+
+    // Table Headers
+    const tableTop = 168;
+    doc.fillColor('#1e293b').rect(36, tableTop, 523, 20).fill();
+    doc.fillColor('#f8fafc').fontSize(8).font('Helvetica-Bold');
+    doc.text("SL", 44, tableTop + 6);
+    doc.text("RANK", 70, tableTop + 6);
+    doc.text("CANDIDATE NAME", 120, tableTop + 6);
+    doc.text("UNIVERSITY / INSTITUTION", 260, tableTop + 6);
+    doc.text("MARKS", 430, tableTop + 6);
+    doc.text("PERCENT", 490, tableTop + 6);
+
+    let y = tableTop + 24;
+    let rank = 1;
+
+    subs.forEach((s, idx) => {
+      const studentObj = studentsMap.get(s.studentId) || {};
+      const uniName = s.studentUniversity || studentObj.university || "Dhaka University (Law Dept)";
+      const marks = Number(s.marksObtained || 0);
+      const total = Number(assignment.totalMarks || 100);
+      const percent = Math.round((marks / total) * 100);
+
+      // Rank Label (1st, 2nd, 3rd...)
+      let rankText = `${rank}th`;
+      if (rank === 1) rankText = "1st 🏆";
+      else if (rank === 2) rankText = "2nd 🥈";
+      else if (rank === 3) rankText = "3rd 🥉";
+
+      // Alternate row background
+      if (idx % 2 === 1) {
+        doc.fillColor('#f8fafc').rect(36, y - 4, 523, 18).fill();
+      }
+
+      doc.fillColor('#0f172a').fontSize(8).font('Helvetica');
+      doc.text(String(idx + 1), 44, y);
+      doc.fillColor(rank <= 3 ? '#b45309' : '#334155').font('Helvetica-Bold').text(rankText, 70, y);
+      doc.fillColor('#0f172a').font('Helvetica-Bold').text(s.studentName || 'Student', 120, y, { width: 130 });
+      doc.fillColor('#475569').font('Helvetica').text(uniName, 260, y, { width: 160 });
+      doc.fillColor('#047857').font('Helvetica-Bold').text(`${marks} / ${total}`, 430, y);
+      doc.fillColor('#0f172a').font('Helvetica').text(`${percent}%`, 490, y);
+
+      y += 20;
+      rank++;
+
+      // New page if page limit reached
+      if (y > 770) {
+        doc.addPage();
+        y = 40;
+      }
+    });
+
+    // Footer
+    doc.fillColor('#94a3b8').fontSize(7).font('Helvetica-Oblique').text("© 2026 BJS & Bar Aspirants Academy. Official System-Generated Result Sheet.", 36, 800, { align: 'center' });
+
+    doc.end();
+  } catch (err) {
+    console.error("Generate merit PDF error:", err);
+    res.status(500).json({ ok: false, message: "Error generating Merit List PDF: " + err.message });
+  }
+});
+
 // GET Submissions for Mentor (or specific Assignment)
 app.get("/api/mentor/submissions", async (req, res) => {
   try {
