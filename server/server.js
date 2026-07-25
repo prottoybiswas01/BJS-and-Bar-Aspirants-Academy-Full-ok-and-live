@@ -2568,6 +2568,119 @@ app.get(["/api/mentors", "/api/admin/mentors"], async (req, res) => {
   }
 });
 
+// GET All Students (Admin Control Panel)
+app.get("/api/admin/students", async (req, res) => {
+  try {
+    let students = [];
+    try {
+      students = await Student.find().sort({ createdAt: -1 }).lean();
+    } catch (e) {
+      students = memoryDb.students || [];
+    }
+    return res.json({ ok: true, students });
+  } catch (err) {
+    console.error("Error fetching admin students:", err);
+    return res.json({ ok: true, students: [] });
+  }
+});
+
+// GET Overview Stats (Admin Dashboard)
+app.get("/api/admin/overview-stats", async (req, res) => {
+  try {
+    let totalStudents = 0;
+    let totalCourses = 0;
+    let totalMentors = 0;
+    let totalExams = 0;
+    try {
+      totalStudents = await Student.countDocuments();
+      totalCourses = await Course.countDocuments();
+      totalMentors = await Mentor.countDocuments();
+      totalExams = await McqExam.countDocuments();
+    } catch (e) {
+      totalStudents = (memoryDb.students || []).length;
+      totalCourses = (memoryDb.courses || []).length;
+      totalMentors = (memoryDb.mentors || []).length;
+      totalExams = (memoryDb.mcqExams || []).length;
+    }
+    return res.json({
+      ok: true,
+      studentsCount: totalStudents,
+      coursesCount: totalCourses,
+      mentorsCount: totalMentors,
+      examsCount: totalExams,
+      totalStudents,
+      totalCourses,
+      totalMentors,
+      totalExams
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, totalStudents: 0, totalCourses: 0, totalMentors: 0, totalExams: 0 });
+  }
+});
+
+// GET Receipts (Admin Control Panel)
+app.get("/api/admin/receipts", async (req, res) => {
+  try {
+    let receipts = [];
+    try {
+      receipts = await Receipt.find().sort({ createdAt: -1 }).lean();
+    } catch (e) {
+      receipts = memoryDb.receipts || [];
+    }
+    return res.json({ ok: true, receipts });
+  } catch (err) {
+    return res.json({ ok: true, receipts: [] });
+  }
+});
+
+// GET Assignments (Admin & Student)
+app.get(["/api/admin/assignments", "/api/assignments"], async (req, res) => {
+  try {
+    let assignments = [];
+    try {
+      assignments = await Assignment.find().sort({ createdAt: -1 }).lean();
+    } catch (e) {
+      assignments = memoryDb.assignments || [];
+    }
+    return res.json({ ok: true, assignments });
+  } catch (err) {
+    return res.json({ ok: true, assignments: [] });
+  }
+});
+
+// GET Mail Settings (Admin Control Panel)
+app.get("/api/admin/mail-settings", async (req, res) => {
+  try {
+    let settings = null;
+    try {
+      settings = await MailSetting.findOne({ id: "default_mail_settings" }).lean();
+    } catch (e) {
+      settings = memoryDb.mailSettings;
+    }
+    if (!settings) {
+      settings = memoryDb.mailSettings || { enabled: true, fallbackEmail: "bjsacademy38@gmail.com", enableAllMails: true };
+    }
+    return res.json({ ok: true, settings });
+  } catch (err) {
+    return res.json({ ok: true, settings: { enabled: true } });
+  }
+});
+
+// GET All Lessons / Video Modules
+app.get("/api/lessons", async (req, res) => {
+  try {
+    let lessons = [];
+    try {
+      lessons = await Lesson.find().sort({ order: 1, createdAt: -1 }).lean();
+    } catch (e) {
+      lessons = memoryDb.lessons || [];
+    }
+    return res.json({ ok: true, lessons });
+  } catch (err) {
+    return res.json({ ok: true, lessons: [] });
+  }
+});
+
 // GET Public Stats (Total Registered Students & Active Mentors)
 app.get("/api/public-stats", async (req, res) => {
   try {
