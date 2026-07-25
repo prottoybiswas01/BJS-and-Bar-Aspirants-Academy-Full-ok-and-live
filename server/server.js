@@ -1844,7 +1844,7 @@ app.get("/api/student/assignments", async (req, res) => {
 // POST Student Submit Assignment
 app.post("/api/student/submit-assignment", async (req, res) => {
   try {
-    const { assignmentId, studentId, studentName, studentEmail, studentPhone, courseId, submissionText, attachmentUrl } = req.body;
+    const { assignmentId, studentId, studentName, studentEmail, studentPhone, courseId, submissionText, attachmentUrl, imageUrls } = req.body;
 
     if (!assignmentId || !studentId) {
       return res.status(400).json({ ok: false, message: "অ্যাসাইনমেন্ট আইডি ও স্টুডেন্ট আইডি আবশ্যক।" });
@@ -1877,6 +1877,7 @@ app.post("/api/student/submit-assignment", async (req, res) => {
       courseId: courseId || "",
       submissionText: submissionText || "",
       attachmentUrl: attachmentUrl || "",
+      imageUrls: Array.isArray(imageUrls) ? imageUrls : [],
       marksObtained: null, // reset marks on resubmit
       feedback: "",
       gradedAt: null,

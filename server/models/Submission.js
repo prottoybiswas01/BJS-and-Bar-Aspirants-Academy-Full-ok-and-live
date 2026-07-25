@@ -10,6 +10,7 @@ const SubmissionSchema = new mongoose.Schema({
   courseId: { type: String, default: "" },
   submissionText: { type: String, default: "" },
   attachmentUrl: { type: String, default: "" },
+  imageUrls: [{ type: String }], // Array of handwritten answer sheet image URLs/Base64 strings
   marksObtained: { type: Number, default: null },
   feedback: { type: String, default: "" },
   gradedAt: { type: Date, default: null },

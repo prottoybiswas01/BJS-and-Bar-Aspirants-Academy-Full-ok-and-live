@@ -26,6 +26,8 @@ export default function MentorDashboard() {
 
   // Evaluation Grading Modal State
   const [gradingModal, setGradingModal] = useState({ isOpen: false, submission: null });
+  const [activeImgIdx, setActiveImgIdx] = useState(0);
+  const [isFullScriptView, setIsFullScriptView] = useState(false);
   const [gradeMarks, setGradeMarks] = useState('');
   const [gradeFeedback, setGradeFeedback] = useState('');
   const [gradingSubmitting, setGradingSubmitting] = useState(false);
@@ -568,7 +570,12 @@ export default function MentorDashboard() {
                             <p className="font-bold text-slate-200 line-clamp-1">{asn ? asn.title : sub.assignmentId}</p>
                             <p className="text-[10px] text-slate-400">মোট মার্কস: {asn?.totalMarks || 100}</p>
                           </td>
-                          <td className="p-3.5 max-w-xs">
+                          <td className="p-3.5 max-w-xs space-y-1">
+                            {sub.imageUrls && sub.imageUrls.length > 0 && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-bold">
+                                📷 {sub.imageUrls.length}টি খাতার পৃষ্ঠা যুক্ত
+                              </span>
+                            )}
                             {sub.submissionText && (
                               <p className="text-[11px] text-slate-300 bg-slate-950 p-2 rounded border border-slate-800 line-clamp-2 leading-relaxed">
                                 {sub.submissionText}
@@ -579,9 +586,9 @@ export default function MentorDashboard() {
                                 href={sub.attachmentUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="inline-block mt-1 text-[11px] text-cyan-400 font-semibold hover:underline"
+                                className="inline-block text-[11px] text-cyan-400 font-semibold hover:underline"
                               >
-                                🔗 ডক/ফাইল লিংক খুলুন ↗
+                                🔗 ডক/পিডিএফ লিংক খুলুন ↗
                               </a>
                             )}
                           </td>
@@ -607,12 +614,13 @@ export default function MentorDashboard() {
                             <button
                               onClick={() => {
                                 setGradingModal({ isOpen: true, submission: sub });
+                                setActiveImgIdx(0);
                                 setGradeMarks(sub.marksObtained !== null ? sub.marksObtained : '');
                                 setGradeFeedback(sub.feedback || '');
                               }}
-                              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all shadow-md"
+                              className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold transition-all shadow-md flex-inline items-center gap-1"
                             >
-                              {isGraded ? 'সম্পাদনা' : 'নম্বর দিন'}
+                              📄 {isGraded ? 'খাতা ও মার্কস দেখুন' : 'খাতা দেখুন ও নম্বর দিন'}
                             </button>
 
                             <button
@@ -634,69 +642,209 @@ export default function MentorDashboard() {
         </div>
       )}
 
-      {/* GRADING & EVALUATION MODAL */}
+      {/* ADVANCED EXAM SCRIPT INSPECTOR & GRADING MODAL */}
       {gradingModal.isOpen && gradingModal.submission && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
-          <div className="glass-card max-w-md w-full rounded-2xl p-6 border border-slate-800 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-base font-extrabold text-white">খাতা মূল্যায়ন ও মার্ক প্রদান</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/90 backdrop-blur-md animate-fadeIn overflow-y-auto">
+          <div className="glass-card max-w-5xl w-full rounded-3xl p-5 sm:p-7 border border-slate-800 shadow-2xl space-y-5 my-auto max-h-[92vh] flex flex-col">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
+              <div>
+                <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">
+                  HANDWRITTEN EXAM SCRIPT INSPECTOR
+                </span>
+                <h3 className="text-lg font-black text-white mt-1">
+                  শিক্ষার্থী খাতা মূল্যায়ন ও মার্কিং প্যানেল
+                </h3>
+              </div>
               <button
                 onClick={() => setGradingModal({ isOpen: false, submission: null })}
-                className="text-slate-400 hover:text-white text-lg font-bold"
+                className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-lg font-bold transition-all"
               >
                 ✕
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                <p className="text-slate-400">শিক্ষার্থীর নাম:</p>
-                <p className="font-bold text-white text-sm">{gradingModal.submission.studentName}</p>
-                <p className="text-[10px] text-amber-400 font-mono mt-0.5">{gradingModal.submission.studentId}</p>
+            {/* Modal Body: Grid Split View */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-y-auto flex-1 pr-1">
+              
+              {/* Left Column (8 cols): Exam Paper Handwritten Photos & Script Viewer */}
+              <div className="lg:col-span-7 space-y-4">
+                
+                {/* Answer Script Images Gallery */}
+                {gradingModal.submission.imageUrls && gradingModal.submission.imageUrls.length > 0 ? (
+                  <div className="space-y-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                        <span>📷 হস্তলিখিত খাতার পৃষ্ঠা:</span>
+                        <strong className="text-white font-mono">{activeImgIdx + 1} / {gradingModal.submission.imageUrls.length}</strong>
+                      </span>
+
+                      {/* Page Navigation Controls */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={activeImgIdx === 0}
+                          onClick={() => setActiveImgIdx(prev => Math.max(0, prev - 1))}
+                          className="px-3 py-1 rounded-lg bg-slate-900 text-slate-200 border border-slate-800 hover:border-amber-500 text-xs font-bold disabled:opacity-40"
+                        >
+                          ◀ আগের পেজ
+                        </button>
+                        <button
+                          type="button"
+                          disabled={activeImgIdx >= gradingModal.submission.imageUrls.length - 1}
+                          onClick={() => setActiveImgIdx(prev => Math.min(gradingModal.submission.imageUrls.length - 1, prev + 1))}
+                          className="px-3 py-1 rounded-lg bg-slate-900 text-slate-200 border border-slate-800 hover:border-amber-500 text-xs font-bold disabled:opacity-40"
+                        >
+                          পরের পেজ ▶
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Main Image Inspector Screen */}
+                    <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-900 min-h-[350px] max-h-[500px] flex items-center justify-center group">
+                      <img
+                        src={gradingModal.submission.imageUrls[activeImgIdx]}
+                        alt={`Script Page ${activeImgIdx + 1}`}
+                        className="max-h-[480px] w-auto object-contain transition-transform"
+                      />
+                      <a
+                        href={gradingModal.submission.imageUrls[activeImgIdx]}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="absolute top-3 right-3 px-3 py-1.5 rounded-xl bg-slate-950/90 text-amber-300 border border-amber-500/40 text-xs font-bold opacity-80 hover:opacity-100 transition-opacity shadow-lg"
+                      >
+                        🔍 ফুল সাইজ ছবি খুলুন ↗
+                      </a>
+                    </div>
+
+                    {/* Page Thumbnails Bar */}
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                      {gradingModal.submission.imageUrls.map((img, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setActiveImgIdx(idx)}
+                          className={`relative w-16 h-20 rounded-lg overflow-hidden border shrink-0 transition-all ${
+                            activeImgIdx === idx
+                              ? 'border-amber-500 ring-2 ring-amber-500/50 scale-105'
+                              : 'border-slate-800 opacity-60 hover:opacity-100'
+                          }`}
+                        >
+                          <img src={img} alt={`Thumb ${idx+1}`} className="w-full h-full object-cover" />
+                          <span className="absolute bottom-0 left-0 right-0 bg-slate-950/80 text-[8px] font-mono font-bold text-slate-200 text-center py-0.5">
+                            P.{idx+1}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-6 rounded-2xl bg-slate-950 border border-slate-800 text-center text-xs text-slate-400">
+                    📷 এই উত্তরের সাথে কোনো খাতার ছবির ফাইল যুক্ত নেই।
+                  </div>
+                )}
+
+                {/* Typed Text Answer */}
+                {gradingModal.submission.submissionText && (
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
+                    <span className="text-amber-400 font-bold block">📝 শিক্ষার্থীর টাইপকৃত উত্তর (Written Answer Text):</span>
+                    <div className="p-3 rounded-xl bg-slate-900 text-slate-200 leading-relaxed font-sans max-h-48 overflow-y-auto border border-slate-800/80 whitespace-pre-wrap">
+                      {gradingModal.submission.submissionText}
+                    </div>
+                  </div>
+                )}
+
+                {/* PDF / Attachment Link */}
+                {gradingModal.submission.attachmentUrl && (
+                  <div className="p-3.5 rounded-2xl bg-cyan-950/40 border border-cyan-500/30 flex items-center justify-between text-xs">
+                    <span className="text-cyan-200 font-bold">📄 গুগল ড্রাইভ / পিডিএফ ডকুমেন্ট লিংক:</span>
+                    <a
+                      href={gradingModal.submission.attachmentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded-xl bg-cyan-500 text-slate-950 font-extrabold shadow hover:bg-cyan-400 transition-all"
+                    >
+                      ডকুমেন্ট সরাসরি খুলুন ↗
+                    </a>
+                  </div>
+                )}
               </div>
 
-              <form onSubmit={handleSaveGrade} className="space-y-3">
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">প্রাপ্ত নম্বর (Obtained Marks) *</label>
-                  <input
-                    type="number"
-                    value={gradeMarks}
-                    onChange={(e) => setGradeMarks(e.target.value)}
-                    placeholder="উদাহরণ: 85"
-                    className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-2.5 text-amber-400 font-bold text-lg focus:outline-none focus:border-amber-500"
-                    required
-                  />
+              {/* Right Column (5 cols): Student Profile & Evaluation Input Form */}
+              <div className="lg:col-span-5 space-y-4">
+                
+                {/* Student Info Card */}
+                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div>
+                      <p className="text-slate-400 text-[10px]">পরীক্ষার্থী শিক্ষার্থী:</p>
+                      <p className="font-bold text-white text-sm">{gradingModal.submission.studentName}</p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-mono font-bold text-[11px] border border-amber-500/30">
+                      {gradingModal.submission.studentId}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400 pt-1">
+                    <p>📞 {gradingModal.submission.studentPhone}</p>
+                    <p className="text-right">📅 {new Date(gradingModal.submission.createdAt).toLocaleDateString()}</p>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">মেন্টর পরামর্শ ও ফিডব্যাক (Feedback Notes)</label>
-                  <textarea
-                    rows={3}
-                    value={gradeFeedback}
-                    onChange={(e) => setGradeFeedback(e.target.value)}
-                    placeholder="খাতা মূল্যায়নের উপর মেন্টরের পরামর্শ লিখুন..."
-                    className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 leading-relaxed"
-                  />
-                </div>
+                {/* Grading Form */}
+                <form onSubmit={handleSaveGrade} className="space-y-4 text-xs">
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                    <label className="block text-amber-400 font-extrabold text-sm">
+                      প্রাপ্ত নম্বর (Obtained Marks) *
+                    </label>
+                    <input
+                      type="number"
+                      value={gradeMarks}
+                      onChange={(e) => setGradeMarks(e.target.value)}
+                      placeholder="যেমন: 85"
+                      className="w-full rounded-xl bg-slate-900 border border-slate-700 px-4 py-3 text-amber-400 font-extrabold text-2xl focus:outline-none focus:border-amber-500"
+                      required
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      নোট: মোট বরাদ্দকৃত মার্কসের ওপর প্রাপ্ত পয়েন্ট প্রদান করুন।
+                    </p>
+                  </div>
 
-                <div className="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setGradingModal({ isOpen: false, submission: null })}
-                    className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
-                  >
-                    বাতিল
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={gradingSubmitting}
-                    className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 text-xs font-extrabold hover:from-amber-400 shadow-md"
-                  >
-                    {gradingSubmitting ? 'সংরক্ষণ হচ্ছে...' : 'সংরক্ষণ করুন'}
-                  </button>
-                </div>
-              </form>
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">
+                      মেন্টর পরামর্শ ও ফিডব্যাক নোট (Evaluation Feedback Notes)
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={gradeFeedback}
+                      onChange={(e) => setGradeFeedback(e.target.value)}
+                      placeholder="খাতায় ভুলত্রুটি বা উন্নতির পরামর্শ লিখুন..."
+                      className="w-full rounded-2xl bg-slate-950 border border-slate-800 p-3.5 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 leading-relaxed"
+                    />
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setGradingModal({ isOpen: false, submission: null })}
+                      className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700"
+                    >
+                      বাতিল
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={gradingSubmitting}
+                      className="flex-1 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 text-xs font-extrabold hover:from-amber-400 shadow-lg shadow-amber-500/20"
+                    >
+                      {gradingSubmitting ? 'সংরক্ষণ হচ্ছে...' : '✓ মার্কস সংরক্ষণ করুন'}
+                    </button>
+                  </div>
+                </form>
+
+              </div>
             </div>
+
           </div>
         </div>
       )}

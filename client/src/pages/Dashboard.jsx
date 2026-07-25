@@ -16,6 +16,7 @@ export default function Dashboard({ openVideoModal }) {
   const [submittingAsnId, setSubmittingAsnId] = useState(null);
   const [subText, setSubText] = useState('');
   const [subDocUrl, setSubDocUrl] = useState('');
+  const [subImages, setSubImages] = useState([]); // Array of base64 image strings or URLs
   const [subLoading, setSubLoading] = useState(false);
 
   useEffect(() => {
@@ -38,10 +39,27 @@ export default function Dashboard({ openVideoModal }) {
     }
   };
 
+  const handleImageFilesSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setSubImages(prev => [...prev, event.target.result]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeSubImage = (index) => {
+    setSubImages(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmitAssignment = async (e, assignmentId, courseId) => {
     e.preventDefault();
-    if (!subText && !subDocUrl) {
-      alert("অনুগ্রহ করে আপনার উত্তর বা ডকুমেন্ট লিংক শেয়ার করুন।");
+    if (!subText && !subDocUrl && subImages.length === 0) {
+      alert("অনুগ্রহ করে লিখিত উত্তর, খাতার পৃষ্ঠা ছবি বা ডকুমেন্ট লিংক যোগ করুন।");
       return;
     }
 
@@ -55,7 +73,8 @@ export default function Dashboard({ openVideoModal }) {
         studentPhone: user?.phone,
         courseId,
         submissionText: subText,
-        attachmentUrl: subDocUrl
+        attachmentUrl: subDocUrl,
+        imageUrls: subImages
       });
 
       setSubLoading(false);
@@ -64,6 +83,7 @@ export default function Dashboard({ openVideoModal }) {
         setSubmittingAsnId(null);
         setSubText('');
         setSubDocUrl('');
+        setSubImages([]);
         fetchAssignments();
       } else {
         alert(res.data.message || "জমা দিতে সমস্যা হয়েছে।");
@@ -527,27 +547,68 @@ export default function Dashboard({ openVideoModal }) {
                             </div>
                           )}
 
-                          {submittingAsnId === asn.id ? (
-                            <form onSubmit={(e) => handleSubmitAssignment(e, asn.id, asn.courseId)} className="space-y-3 bg-slate-900 p-4 rounded-xl border border-slate-800 text-xs">
+                           {submittingAsnId === asn.id ? (
+                            <form onSubmit={(e) => handleSubmitAssignment(e, asn.id, asn.courseId)} className="space-y-4 bg-slate-900 p-4 rounded-xl border border-slate-800 text-xs">
                               <div>
-                                <label className="block text-slate-300 font-medium mb-1">আপনার উত্তর / বিষয়বস্তু লিখুন *</label>
+                                <label className="block text-slate-300 font-medium mb-1">আপনার লিখিত উত্তর / টাইপকৃত বিবরণ (Text Solution)</label>
                                 <textarea
                                   rows={4}
                                   value={subText}
                                   onChange={(e) => setSubText(e.target.value)}
-                                  placeholder="আপনার অ্যাসাইনমেন্টের লিখিত উত্তর এখানে টাইপ করুন..."
+                                  placeholder="অ্যাসাইনমেন্টের উত্তর টাইপ করুন (যদি থাকে)..."
                                   className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 leading-relaxed"
-                                  required
                                 />
                               </div>
 
+                              {/* Multi-Page Handwritten Exam Paper Photo Upload */}
+                              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <label className="block text-amber-400 font-bold">
+                                    📷 খাতার পৃষ্ঠার ছবি আপলোড (Handwritten Answer Sheet Photos)
+                                  </label>
+                                  <span className="text-[10px] text-slate-400">একাধিক পেজ সিলেক্ট করুন ({subImages.length}টি যুক্ত)</span>
+                                </div>
+
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  onChange={handleImageFilesSelect}
+                                  className="w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-500 file:text-slate-950 hover:file:bg-amber-400 cursor-pointer"
+                                />
+
+                                {/* Preview Thumbnails of Uploaded Exam Pages */}
+                                {subImages.length > 0 && (
+                                  <div className="pt-2 flex flex-wrap gap-2">
+                                    {subImages.map((imgUrl, idx) => (
+                                      <div key={idx} className="relative group w-20 h-24 rounded-lg overflow-hidden border border-slate-700 bg-slate-900">
+                                        <img src={imgUrl} alt={`Page ${idx+1}`} className="w-full h-full object-cover" />
+                                        <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-1 text-center">
+                                          <span className="text-[9px] text-amber-300 font-bold">Page {idx+1}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => removeSubImage(idx)}
+                                            className="px-1 py-0.5 rounded bg-rose-600 text-white text-[9px] font-bold"
+                                          >
+                                            ✕ মুছে ফেলুন
+                                          </button>
+                                        </div>
+                                        <span className="absolute bottom-0 left-0 right-0 bg-slate-950/80 text-[8px] text-slate-300 text-center font-mono py-0.5">
+                                          পৃষ্ঠা {idx+1}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
                               <div>
-                                <label className="block text-slate-300 font-medium mb-1">গুগল ড্রাইভ / ডক / পিডিএফ লিঙ্ক (ঐচ্ছিক)</label>
+                                <label className="block text-slate-300 font-medium mb-1">গুগল ড্রাইভ / পিডিএফ / এক্সটার্নাল ডকুমেন্ট লিঙ্ক (ঐচ্ছিক)</label>
                                 <input
                                   type="url"
                                   value={subDocUrl}
                                   onChange={(e) => setSubDocUrl(e.target.value)}
-                                  placeholder="https://drive.google.com/file/d/..."
+                                  placeholder="https://drive.google.com/file/d/... বা PDF লিঙ্ক"
                                   className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                                 />
                               </div>
