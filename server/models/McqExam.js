@@ -18,6 +18,8 @@ const McqExamSchema = new mongoose.Schema({
   passPercentage: { type: Number, default: 50 },
   isPublic: { type: Boolean, default: true },
   status: { type: String, default: "Active" }, // Active / Closed
+  startDate: { type: Date, default: null },
+  endDate: { type: Date, default: null },
   questions: [McqQuestionSchema],
   createdBy: { type: String, default: "Admin" },
   createdAt: { type: Date, default: Date.now }

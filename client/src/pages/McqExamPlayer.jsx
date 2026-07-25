@@ -97,6 +97,10 @@ export default function McqExamPlayer({ examId, onBack }) {
     return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
+  const now = new Date();
+  const isUpcoming = exam?.startDate && new Date(exam.startDate) > now;
+  const isExpired = exam?.endDate && new Date(exam.endDate) < now;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#070d19] text-white flex items-center justify-center p-6">
@@ -111,6 +115,36 @@ export default function McqExamPlayer({ examId, onBack }) {
         <p className="text-rose-400 font-bold">⚠️ এমসিকিউ পরীক্ষাটি খুঁজে পাওয়া যায়নি বা বন্ধ করা হয়েছে।</p>
         <button onClick={onBack} className="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs">
           ← হোমপেজে ফিরে যান
+        </button>
+      </div>
+    );
+  }
+
+  if (isUpcoming) {
+    return (
+      <div className="min-h-screen bg-[#070d19] text-white flex flex-col items-center justify-center p-6 space-y-4 text-center">
+        <span className="text-5xl">⏳</span>
+        <h2 className="text-xl font-bold text-amber-400">পরীক্ষার সময় নির্ধারিত হয়নি বা এখনো শুরু হয়নি</h2>
+        <p className="text-xs text-slate-300 max-w-md leading-relaxed">
+          এই পরীক্ষাটি আগামী <strong className="text-amber-300 font-mono">{new Date(exam.startDate).toLocaleString()}</strong> এ শুরু হবে। নির্ধারিত সময়ে পরীক্ষা দেওয়া শুরু করুন।
+        </p>
+        <button onClick={onBack} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-colors">
+          ← প্রধান পেজে ফিরে যান
+        </button>
+      </div>
+    );
+  }
+
+  if (isExpired) {
+    return (
+      <div className="min-h-screen bg-[#070d19] text-white flex flex-col items-center justify-center p-6 space-y-4 text-center">
+        <span className="text-5xl">🔒</span>
+        <h2 className="text-xl font-bold text-rose-400">পরীক্ষার সময়সীমা অতিক্রান্ত হয়েছে</h2>
+        <p className="text-xs text-slate-300 max-w-md leading-relaxed">
+          এই পরীক্ষার নির্ধারিত সময়সীমা (<strong className="text-rose-300 font-mono">{new Date(exam.endDate).toLocaleString()}</strong>) শেষ হওয়ায় উত্তর সাবমিট করা বন্ধ রয়েছে।
+        </p>
+        <button onClick={onBack} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-colors">
+          ← প্রধান পেজে ফিরে যান
         </button>
       </div>
     );

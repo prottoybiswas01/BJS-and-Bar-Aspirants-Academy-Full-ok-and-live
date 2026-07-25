@@ -139,6 +139,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     courseId: '',
     durationMinutes: 30,
     passPercentage: 50,
+    startDate: '',
+    endDate: '',
     rawQuestionText: '' // Automated Question Parser text input
   });
   const [parsedQuestions, setParsedQuestions] = useState([]);
@@ -396,6 +398,21 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     setParsedQuestions(parsed);
   };
 
+  const handleMcqFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    showToast(`📂 "${file.name}" ফাইল পড়া হচ্ছে...`, 'success');
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result || '';
+      setMcqForm(prev => ({ ...prev, rawQuestionText: content }));
+      handleParseQuestions(content);
+      showToast(`✓ "${file.name}" থেকে প্রশ্ন ও অপশন অটো-পার্স করা হয়েছে!`, 'success');
+    };
+    reader.readAsText(file);
+  };
+
   const handleSaveMcqExam = async (e) => {
     if (e) e.preventDefault();
     if (!mcqForm.title) {
@@ -414,12 +431,14 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         courseId: mcqForm.courseId,
         durationMinutes: Number(mcqForm.durationMinutes) || 30,
         passPercentage: Number(mcqForm.passPercentage) || 50,
+        startDate: mcqForm.startDate || null,
+        endDate: mcqForm.endDate || null,
         questions: parsedQuestions
       });
 
       if (res.data.ok) {
         showToast(res.data.message || '✓ এমসিকিউ পরীক্ষা সেভ ও অটো-পার্স করা হয়েছে!', 'success');
-        setMcqForm({ id: '', title: '', courseId: '', durationMinutes: 30, passPercentage: 50, rawQuestionText: '' });
+        setMcqForm({ id: '', title: '', courseId: '', durationMinutes: 30, passPercentage: 50, startDate: '', endDate: '', rawQuestionText: '' });
         setParsedQuestions([]);
         loadAllAdminData();
       }
@@ -2531,6 +2550,48 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
                 ))}
               </select>
             </div>
+          </div>
+
+          {/* Schedule Start Date & End Date Inputs */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+            <div>
+              <label className="block text-amber-300 font-bold mb-1">📅 পরীক্ষা শুরু হওয়ার সময় (Schedule Start Time):</label>
+              <input
+                type="datetime-local"
+                value={mcqForm.startDate}
+                onChange={(e) => setMcqForm({ ...mcqForm, startDate: e.target.value })}
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500 text-xs font-mono"
+              />
+              <span className="text-[10px] text-slate-500">ফাঁকা রাখলে সাথে সাথেই শুরু হবে</span>
+            </div>
+
+            <div>
+              <label className="block text-rose-300 font-bold mb-1">🔒 পরীক্ষা শেষ হওয়ার সময় (Schedule End Time):</label>
+              <input
+                type="datetime-local"
+                value={mcqForm.endDate}
+                onChange={(e) => setMcqForm({ ...mcqForm, endDate: e.target.value })}
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-slate-200 focus:outline-none focus:border-rose-500 text-xs font-mono"
+              />
+              <span className="text-[10px] text-slate-500">ফাঁকা রাখলে সবসময় খোলা থাকবে</span>
+            </div>
+          </div>
+
+          {/* Direct File Upload Parser Button */}
+          <div className="p-4 rounded-xl bg-cyan-950/30 border border-cyan-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <span className="text-cyan-300 font-bold block text-xs">📂 ডিরেক্ট ফাইল আপলোড পার্সার (File Drag & Drop):</span>
+              <p className="text-[11px] text-slate-400">PDF, Word Document (.docx), বা Text (.txt) প্রশ্ন ফাইল সরাসরি আপলোড করুন</p>
+            </div>
+            <label className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs transition-all shadow-md cursor-pointer shrink-0 text-center">
+              <span>📂</span> প্রশ্ন ফাইল সিলেক্ট করুন
+              <input
+                type="file"
+                accept=".pdf,.docx,.txt"
+                onChange={handleMcqFileUpload}
+                className="hidden"
+              />
+            </label>
           </div>
 
           {/* Raw Question Parser Textarea */}

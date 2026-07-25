@@ -2334,6 +2334,8 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
       passPercentage: Number(body.passPercentage) || 50,
       isPublic: body.isPublic !== false,
       status: body.status || "Active",
+      startDate: body.startDate ? new Date(body.startDate) : null,
+      endDate: body.endDate ? new Date(body.endDate) : null,
       questions: Array.isArray(body.questions) ? body.questions : [],
       createdBy: body.createdBy || "Admin",
       createdAt: new Date()
