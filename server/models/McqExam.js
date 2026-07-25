@@ -21,6 +21,7 @@ const McqExamSchema = new mongoose.Schema({
   startDate: { type: Date, default: null },
   endDate: { type: Date, default: null },
   attemptLimit: { type: Number, default: 1 }, // 1 = Single Attempt Only per candidate, 0 = Unlimited
+  negativeMarks: { type: Number, default: 0.25 }, // Negative deduction per wrong answer (0.25 / 0.50 / 0)
   questions: [McqQuestionSchema],
   createdBy: { type: String, default: "Admin" },
   createdAt: { type: Date, default: Date.now }

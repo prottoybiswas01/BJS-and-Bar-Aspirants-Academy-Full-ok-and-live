@@ -2433,6 +2433,7 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
       startDate: body.startDate ? new Date(body.startDate) : null,
       endDate: body.endDate ? new Date(body.endDate) : null,
       attemptLimit: Number(body.attemptLimit) !== undefined ? Number(body.attemptLimit) : 1,
+      negativeMarks: Number(body.negativeMarks) !== undefined ? Number(body.negativeMarks) : 0.25,
       questions: Array.isArray(body.questions) ? body.questions : [],
       createdBy: body.createdBy || "Admin",
       createdAt: new Date()
@@ -2550,23 +2551,38 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
       }
     }
 
-    // 2. Grade Submission
-    let score = 0;
+    // 2. Grade Submission with Negative Marking Calculation
+    let correctCount = 0;
+    let wrongCount = 0;
+    let unansweredCount = 0;
+    const negPerWrong = Number(exam.negativeMarks) !== undefined ? Number(exam.negativeMarks) : 0.25;
     const userAnswers = [];
     const questions = exam.questions || [];
 
     questions.forEach((q) => {
       const userSel = answers ? answers[q.id] : undefined;
-      const isCorrect = userSel !== undefined && Number(userSel) === Number(q.correctIndex);
-      if (isCorrect) score += 1;
+      const isSelected = userSel !== undefined && Number(userSel) >= 0;
+      const isCorrect = isSelected && Number(userSel) === Number(q.correctIndex);
+      
+      if (isCorrect) {
+        correctCount += 1;
+      } else if (isSelected) {
+        wrongCount += 1;
+      } else {
+        unansweredCount += 1;
+      }
 
       userAnswers.push({
         questionId: q.id,
-        selectedIndex: userSel !== undefined ? Number(userSel) : -1,
+        selectedIndex: isSelected ? Number(userSel) : -1,
         correctIndex: q.correctIndex,
         isCorrect
       });
     });
+
+    const grossScore = correctCount * 1;
+    const negativeDeduction = wrongCount * negPerWrong;
+    const score = Math.max(0, Math.round((grossScore - negativeDeduction) * 100) / 100);
 
     const totalMarks = questions.length || exam.totalMarks || 40;
     const percentage = Math.round((score / totalMarks) * 100);

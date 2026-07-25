@@ -143,6 +143,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     durationMinutes: 30,
     passPercentage: 50,
     attemptLimit: 1, // 1 = Single Attempt, 0 = Unlimited
+    negativeMarks: 0.25, // 0.25 | 0.50 | 0
     startDate: '',
     endDate: '',
     rawQuestionText: ''
@@ -481,6 +482,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         durationMinutes: Number(mcqForm.durationMinutes) || 30,
         passPercentage: Number(mcqForm.passPercentage) || 50,
         attemptLimit: Number(mcqForm.attemptLimit) !== undefined ? Number(mcqForm.attemptLimit) : 1,
+        negativeMarks: Number(mcqForm.negativeMarks) !== undefined ? Number(mcqForm.negativeMarks) : 0.25,
         startDate: mcqForm.startDate || null,
         endDate: mcqForm.endDate || null,
         questions: parsedQuestions
@@ -488,7 +490,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
       if (res.data.ok) {
         showToast(res.data.message || '✓ এমসিকিউ পরীক্ষা সেভ ও অটো-পার্স করা হয়েছে!', 'success');
-        setMcqForm({ id: '', title: '', courseId: '', durationMinutes: 30, passPercentage: 50, attemptLimit: 1, startDate: '', endDate: '', rawQuestionText: '' });
+        setMcqForm({ id: '', title: '', courseId: '', durationMinutes: 30, passPercentage: 50, attemptLimit: 1, negativeMarks: 0.25, startDate: '', endDate: '', rawQuestionText: '' });
         setParsedQuestions([]);
         loadAllAdminData();
       }
@@ -2960,7 +2962,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
         {/* MCQ Exam Creation & Question Parser Form */}
         <form onSubmit={handleSaveMcqExam} className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4 text-xs">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
             <div>
               <label className="block text-slate-300 font-bold mb-1">পরীক্ষার শিরোনাম (Exam Title) *</label>
               <input
@@ -2974,7 +2976,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             </div>
 
             <div>
-              <label className="block text-slate-300 font-bold mb-1">পরীক্ষার সময় (Duration in Mins)</label>
+              <label className="block text-slate-300 font-bold mb-1">পরীক্ষার সময় (Mins)</label>
               <input
                 type="number"
                 value={mcqForm.durationMinutes}
@@ -2984,7 +2986,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             </div>
 
             <div>
-              <label className="block text-slate-300 font-bold mb-1">কোর্স / ব্যাচ (Course Allocation)</label>
+              <label className="block text-slate-300 font-bold mb-1">কোর্স / ব্যাচ (Allocation)</label>
               <select
                 value={mcqForm.courseId}
                 onChange={(e) => setMcqForm({ ...mcqForm, courseId: e.target.value })}
@@ -2998,15 +3000,28 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             </div>
 
             <div>
-              <label className="block text-amber-300 font-bold mb-1">পরীক্ষার সুযোগ লিমিট (Attempt Limit)</label>
+              <label className="block text-amber-300 font-bold mb-1">পরীক্ষার লিমিট (Attempts)</label>
               <select
                 value={mcqForm.attemptLimit !== undefined ? mcqForm.attemptLimit : 1}
                 onChange={(e) => setMcqForm({ ...mcqForm, attemptLimit: Number(e.target.value) })}
-                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white focus:outline-none focus:border-amber-500 font-bold cursor-pointer"
+                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white focus:outline-none focus:border-amber-500 font-bold cursor-pointer text-xs"
               >
-                <option value={1}>১-বার মাত্র (1 Time Attempt per Student)</option>
+                <option value={1}>১-বার মাত্র (1 Attempt)</option>
                 <option value={2}>২-বার সুযোগ (2 Attempts)</option>
-                <option value={0}>আনলিমিটেড সুযোগ (Unlimited Attempts)</option>
+                <option value={0}>আনলিমিটেড (Unlimited)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-rose-300 font-bold mb-1">নেগেটিভ মার্কস (Deduction)</label>
+              <select
+                value={mcqForm.negativeMarks !== undefined ? mcqForm.negativeMarks : 0.25}
+                onChange={(e) => setMcqForm({ ...mcqForm, negativeMarks: Number(e.target.value) })}
+                className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-white focus:outline-none focus:border-rose-500 font-bold cursor-pointer text-xs"
+              >
+                <option value={0.25}>-০.২৫ কাটা যাবে (-0.25)</option>
+                <option value={0.50}>-০.৫০ কাটা যাবে (-0.50)</option>
+                <option value={0}>কোনো নেগেটিভ মার্কিং নেই (0)</option>
               </select>
             </div>
           </div>
