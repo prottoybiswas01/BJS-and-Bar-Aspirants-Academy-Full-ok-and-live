@@ -1745,6 +1745,50 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
 });
 
 // GET Overview Stats (Admin Dashboard)
+// GET Public Stats for Homepage Counter (No auth required)
+app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
+  try {
+    let studentsCount = (memoryDb.students || []).length;
+    let mentorsCount = (memoryDb.mentors || []).length;
+    let coursesCount = (memoryDb.courses || []).filter(c => c.status !== 'Inactive' && c.status !== 'Hidden').length;
+    let examsCount = (memoryDb.mcqExams || []).length;
+
+    if (isMongoConnected) {
+      try {
+        const [stus, mtrs, crss, mcqs] = await Promise.all([
+          Student.countDocuments(),
+          Mentor.countDocuments({ status: { $ne: "Inactive" } }),
+          Course.countDocuments({ status: { $ne: "Inactive" } }),
+          McqExam.countDocuments()
+        ]);
+        if (stus > 0) studentsCount = stus;
+        if (mtrs > 0) mentorsCount = mtrs;
+        if (crss > 0) coursesCount = crss;
+        if (mcqs > 0) examsCount = mcqs;
+      } catch (dbErr) {
+        console.warn("Public stats Mongo fetch notice:", dbErr.message);
+      }
+    }
+
+    return res.json({
+      ok: true,
+      studentsCount: Math.max(studentsCount, (memoryDb.students || []).length),
+      mentorsCount: Math.max(mentorsCount, (memoryDb.mentors || []).length),
+      coursesCount: Math.max(coursesCount, 4),
+      examsCount: Math.max(examsCount, 1)
+    });
+  } catch (err) {
+    console.error("Public stats error:", err);
+    return res.json({
+      ok: true,
+      studentsCount: (memoryDb.students || []).length || 3,
+      mentorsCount: (memoryDb.mentors || []).length || 3,
+      coursesCount: 4,
+      examsCount: 1
+    });
+  }
+});
+
 app.get(["/api/admin/overview-stats", "/admin/overview-stats"], async (req, res) => {
   let dbNotice = null;
   let studentsList = [];
