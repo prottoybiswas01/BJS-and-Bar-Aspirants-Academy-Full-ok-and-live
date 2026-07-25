@@ -16,7 +16,8 @@ export default {
         }
       },
       fontFamily: {
-        sans: ['Inter', 'Hind Siliguri', 'sans-serif'],
+        sans: ['"Hind Siliguri"', '"Noto Sans Bengali"', '"Plus Jakarta Sans"', 'Inter', 'sans-serif'],
+        bengali: ['"Hind Siliguri"', '"Noto Sans Bengali"', 'sans-serif'],
       }
     },
   },
