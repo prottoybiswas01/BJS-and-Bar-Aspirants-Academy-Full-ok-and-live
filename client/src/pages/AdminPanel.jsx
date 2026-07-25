@@ -1400,8 +1400,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   };
 
   return (
-    <div className="space-y-8 pb-20 animate-fadeIn text-slate-100 font-sans relative">
-      {/* Floating Toast Notification Banner (Visible across the whole page) */}
+    <div className="min-h-screen bg-[#070d19] text-slate-100 font-sans flex flex-col lg:flex-row gap-6 p-2 sm:p-4 animate-fadeIn relative">
+      {/* Floating Toast Notification Banner */}
       {msg && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[100] animate-bounce-short max-w-md w-[90%] shadow-2xl">
           <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 text-xs font-bold backdrop-blur-xl transition-all ${
@@ -1424,124 +1424,274 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         </div>
       )}
 
-      {/* 1. Header Banner */}
-      <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-4">
-        <div>
-          <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase">AIN PATHSHALA</span>
-          <h1 className="text-2xl font-black text-white tracking-tight">Admin Control Panel</h1>
-        </div>
-      </header>
-
-      {/* 2. Live Sheet Control / Prottoy Dashboard */}
-      <section className="glass-card rounded-xl p-6 border border-slate-800 shadow-xl space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-3">
-          <div>
-            <span className="text-[10px] font-mono text-slate-400 tracking-wider">LIVE SHEET CONTROL</span>
-            <h2 className="text-lg font-bold text-white">Prottoy Dashboard</h2>
-            <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
-              <span>●</span> Admin login approved.
-            </p>
+      {/* LEFT EXECUTIVE NAVIGATION SIDEBAR */}
+      <aside className="w-full lg:w-72 glass-card rounded-3xl p-5 border border-slate-800 shrink-0 space-y-6 flex flex-col justify-between self-start sticky top-20 z-30 bg-[#0b1325]/95 backdrop-blur-xl shadow-2xl">
+        <div className="space-y-6">
+          {/* Brand Profile Header */}
+          <div className="flex items-center gap-3 border-b border-slate-800/80 pb-4">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-black text-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
+              PN
+            </div>
+            <div>
+              <h3 className="font-extrabold text-white text-sm">আইন পাঠশালা বিডি</h3>
+              <p className="text-[11px] text-amber-400 font-mono font-bold">Admin Control Panel</p>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2 mt-3 sm:mt-0">
-            <button onClick={loadAllAdminData} className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition-all">
-              🔄 Refresh Data
+
+          {/* Navigation Group: OVERVIEW */}
+          <div className="space-y-2">
+            <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase block px-3">
+              OVERVIEW
+            </span>
+            <button
+              type="button"
+              onClick={() => setAdminTab('dashboard')}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'dashboard'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">📊</span>
+                <span>Dashboard</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                {students.length}
+              </span>
+            </button>
+          </div>
+
+          {/* Navigation Group: MANAGEMENT */}
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase block px-3 pt-2">
+              MANAGEMENT
+            </span>
+
+            {/* 1. MCQ Exam Engine */}
+            <button
+              type="button"
+              onClick={() => setAdminTab('mcq')}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'mcq'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">📝</span>
+                <span>온লাইন এমসিকিউ</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                {mcqExams.length}
+              </span>
+            </button>
+
+            {/* 2. Merit List & PDF Generator */}
+            <button
+              type="button"
+              onClick={() => setAdminTab('merit')}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'merit'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">🏆</span>
+                <span>মেধা তালিকা ও রেজাল্ট</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                PDF
+              </span>
+            </button>
+
+            {/* 3. Student Control */}
+            <button
+              type="button"
+              onClick={() => setAdminTab('students')}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'students'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">👨‍🎓</span>
+                <span>স্টুডেন্ট কন্ট্রোল</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                {students.length}
+              </span>
+            </button>
+
+            {/* 4. Mentor & Faculty Control */}
+            <button
+              type="button"
+              onClick={() => setAdminTab('mentors')}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'mentors'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">👨‍🏫</span>
+                <span>মেন্টর ও ফ্যাকাল্টি</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                {mentors.length}
+              </span>
+            </button>
+
+            {/* 5. Course Launch Manager */}
+            <button
+              type="button"
+              onClick={() => setAdminTab('courses')}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'courses'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">📚</span>
+                <span>কোর্স লঞ্চ ম্যানেজার</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                {courses.length}
+              </span>
+            </button>
+
+            {/* 6. Payment & Receipts */}
+            <button
+              type="button"
+              onClick={() => setAdminTab('payments')}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'payments'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">💳</span>
+                <span>পেমেন্ট ও মানি রিসিট</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                {receipts.length}
+              </span>
+            </button>
+
+            {/* 7. Site Settings & Banner */}
+            <button
+              type="button"
+              onClick={() => setAdminTab('settings')}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'settings'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">⚙️</span>
+                <span>সাইট সেটিংস ও ব্যানার</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                Edit
+              </span>
             </button>
           </div>
         </div>
 
-        {msg && (
-          <div className={`p-3 rounded-xl text-xs font-bold ${msg.type === 'success' ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/30' : 'bg-rose-950/90 text-rose-300'}`}>
-            {msg.text}
+        {/* Sidebar Bottom Footer */}
+        <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shadow-md">
+              P
+            </div>
+            <div>
+              <p className="text-xs font-bold text-white leading-none">Prottoy</p>
+              <p className="text-[10px] text-slate-400 font-mono">Administrator</p>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={loadAllAdminData}
+            className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-bold transition-all border border-slate-800 cursor-pointer"
+            title="Refresh Data"
+          >
+            🔄
+          </button>
+        </div>
+      </aside>
+
+      {/* RIGHT DYNAMIC MAIN CONTENT AREA */}
+      <main className="flex-1 space-y-6 overflow-hidden">
+        {/* Welcome Dashboard Top Header Card */}
+        <div className="glass-card rounded-3xl p-5 sm:p-6 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-950/80">
+          <div>
+            <h1 className="text-xl font-black text-white flex items-center gap-2">
+              <span>Welcome Dashboard</span>
+            </h1>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Hello, Prottoy 👋 Welcome to BJS & Bar Aspirants Academy Executive Control Panel
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search by name, email, mobile..."
+              className="rounded-2xl bg-slate-900 border border-slate-800 px-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-full sm:w-64"
+            />
+          </div>
+        </div>
+
+        {/* OVERVIEW DASHBOARD TAB */}
+        {adminTab === 'dashboard' && (
+          <section className="glass-card rounded-3xl p-6 border border-slate-800 shadow-xl space-y-6 animate-fadeIn">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-4">
+              <div>
+                <span className="text-[10px] font-mono text-slate-400 tracking-wider">SYSTEM OVERVIEW</span>
+                <h2 className="text-lg font-bold text-white">Prottoy Executive Dashboard</h2>
+                <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
+                  <span>●</span> Database connected & synchronized
+                </p>
+              </div>
+            </div>
+
+            {/* Metric Cards Row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">TOTAL APPLICANTS</span>
+                <p className="text-2xl font-black text-amber-400 font-mono">{students.length}</p>
+                <p className="text-[10px] text-slate-500 font-bold">Registered Candidates</p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">ACTIVE COURSES</span>
+                <p className="text-2xl font-black text-cyan-400 font-mono">{courses.length}</p>
+                <p className="text-[10px] text-slate-500 font-bold">Live Programs</p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">ACTIVE MENTORS</span>
+                <p className="text-2xl font-black text-purple-400 font-mono">{mentors.length}</p>
+                <p className="text-[10px] text-slate-500 font-bold">Judges & Advocates</p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">TOTAL COLLECTIONS</span>
+                <p className="text-xl font-black text-emerald-400 font-mono">
+                  ৳ {receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()}
+                </p>
+                <p className="text-[10px] text-slate-500 font-bold">Financial Receipts</p>
+              </div>
+            </div>
+          </section>
         )}
-      </section>
-
-      {/* 2.4 ADMIN EXECUTIVE MODULAR TAB SWITCHER BAR */}
-      <div className="sticky top-20 z-30 flex items-center gap-2 overflow-x-auto p-2 rounded-2xl bg-slate-950/95 border border-slate-800 backdrop-blur-md shadow-2xl">
-        <button
-          type="button"
-          onClick={() => setAdminTab('mcq')}
-          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
-            adminTab === 'mcq'
-              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
-              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-          }`}
-        >
-          <span>📝</span> অনলাইন এমসিকিউ এক্সাম
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setAdminTab('merit')}
-          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
-            adminTab === 'merit'
-              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
-              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-          }`}
-        >
-          <span>🏆</span> মেধা তালিকা ও রেজাল্ট
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setAdminTab('students')}
-          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
-            adminTab === 'students'
-              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
-              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-          }`}
-        >
-          <span>👨‍🎓</span> স্টুডেন্ট কন্ট্রোল ({students.length})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setAdminTab('mentors')}
-          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
-            adminTab === 'mentors'
-              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
-              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-          }`}
-        >
-          <span>👨‍🏫</span> মেন্টর ও ফ্যাকাল্টি ({mentors.length})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setAdminTab('courses')}
-          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
-            adminTab === 'courses'
-              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
-              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-          }`}
-        >
-          <span>📚</span> কোর্স লঞ্চ ম্যানেজার ({courses.length})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setAdminTab('payments')}
-          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
-            adminTab === 'payments'
-              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
-              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-          }`}
-        >
-          <span>💳</span> পেমেন্ট ও মানি রিসিট ({receipts.length})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setAdminTab('settings')}
-          className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
-            adminTab === 'settings'
-              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
-              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-          }`}
-        >
-          <span>⚙️</span> সাইট সেটিংস ও ব্যানার
-        </button>
-      </div>
 
       {/* 2.5 Hero Banner Settings Section */}
       {adminTab === 'settings' && (
@@ -3497,6 +3647,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         </div>
       </section>
       )}
+      </main>
 
       {/* Printable Money Receipt Slip Modal */}
       {receiptPreviewModal.isOpen && receiptPreviewModal.receipt && (
