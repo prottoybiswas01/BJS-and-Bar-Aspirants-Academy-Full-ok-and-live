@@ -253,10 +253,40 @@ export default function McqExamPlayer({ examId, onBack }) {
               </span>
             </div>
 
+            {/* Question Quick-Jump Palette */}
+            <div className="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-2.5">
+              <div className="flex justify-between items-center text-[11px] font-bold">
+                <span className="text-amber-400 flex items-center gap-1">
+                  <span>🎯</span> প্রশ্ন নেভিগেটর (ক্লিক করে যেকোনো প্রশ্নে লাফিয়ে যান):
+                </span>
+                <span className="text-slate-400 font-mono">
+                  <span className="text-emerald-400">■</span> উত্তর দেওয়া ({Object.keys(answers).length}) | <span className="text-slate-500">■</span> বাকি ({exam.questions.length - Object.keys(answers).length})
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                {exam.questions.map((q, idx) => {
+                  const isAnswered = answers[q.id] !== undefined;
+                  return (
+                    <a
+                      key={idx}
+                      href={`#question-${idx + 1}`}
+                      className={`w-7 h-7 rounded-lg text-xs font-mono font-bold flex items-center justify-center transition-all border ${
+                        isAnswered
+                          ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-sm'
+                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-600 hover:text-white'
+                      }`}
+                    >
+                      {idx + 1}
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Questions List */}
             <div className="space-y-6">
               {exam.questions.map((q, qIdx) => (
-                <div key={q.id || qIdx} className="glass-card rounded-2xl p-5 sm:p-6 border border-slate-800 space-y-4">
+                <div id={`question-${qIdx + 1}`} key={q.id || qIdx} className="glass-card rounded-2xl p-5 sm:p-6 border border-slate-800 space-y-4">
                   <div className="flex items-start gap-3">
                     <span className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-300 font-mono font-bold flex items-center justify-center text-xs shrink-0 border border-amber-500/30">
                       {qIdx + 1}
