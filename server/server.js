@@ -2478,9 +2478,10 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
 app.get(["/api/admin/courses", "/api/courses"], async (req, res) => {
   try {
     let coursesList = [];
-    if (isMongoConnected) {
+    try {
       coursesList = await Course.find().sort({ createdAt: -1 }).lean();
-    } else {
+    } catch (e) {
+      console.warn("MongoDB course query fallback to memoryDb:", e.message);
       coursesList = memoryDb.courses || [];
     }
     return res.json({ ok: true, courses: coursesList });
