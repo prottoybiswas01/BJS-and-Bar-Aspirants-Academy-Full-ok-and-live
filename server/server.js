@@ -4,7 +4,12 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
-const PDFDocument = require("pdfkit");
+let PDFDocument = null;
+try {
+  PDFDocument = require("pdfkit");
+} catch (e) {
+  console.warn("⚠️ PDFKit serverless load notice:", e.message);
+}
 require("dotenv").config({ path: __dirname + "/.env" });
 
 const app = express();
@@ -897,7 +902,8 @@ async function sendMentorApprovalEmail(targetEmail, mentorData) {
 function createPdfReceiptBuffer(receiptData) {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: 40, size: "A4" });
+      if (!PDFDocument) return res.status(500).json({ ok: false, message: "PDF generator unavailable." });
+    const doc = new PDFDocument({ margin: 40, size: "A4" });
       const buffers = [];
       doc.on("data", (data) => buffers.push(data));
       doc.on("end", () => resolve(Buffer.concat(buffers)));
@@ -2016,6 +2022,7 @@ app.post("/api/admin/generate-merit-pdf", async (req, res) => {
     const mentorNames = (mentors || []).map(m => m.name || "মেন্টর").join(" | ") || "BJS & Bar Academy Academic Board";
 
     // 6. Build PDF with PDFKit
+    if (!PDFDocument) return res.status(500).json({ ok: false, message: "PDF generator unavailable." });
     const doc = new PDFDocument({ margin: 36, size: 'A4' });
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -2123,6 +2130,7 @@ app.post("/api/admin/generate-master-submissions-pdf", async (req, res) => {
       if (!studentsMap.has(s.id)) studentsMap.set(s.id, s);
     });
 
+    if (!PDFDocument) return res.status(500).json({ ok: false, message: "PDF generator unavailable." });
     const doc = new PDFDocument({ margin: 36, size: 'A4' });
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -2192,8 +2200,18 @@ app.post("/api/admin/generate-master-submissions-pdf", async (req, res) => {
 // ONLINE MCQ EXAM ENGINE & AUTOMATED QUESTION PARSER ENDPOINTS
 // -------------------------------------------------------------
 
-const mammoth = require("mammoth");
-const pdfParse = require("pdf-parse");
+let mammoth = null;
+try {
+  mammoth = require("mammoth");
+} catch (e) {
+  console.warn("⚠️ Mammoth serverless load notice:", e.message);
+}
+let pdfParse = null;
+try {
+  pdfParse = require("pdf-parse");
+} catch (e) {
+  console.warn("⚠️ PDF-Parse serverless load notice:", e.message);
+}
 
 // Helper function to extract structured MCQ questions from plain text
 function parseQuestionText(text) {
@@ -2919,6 +2937,7 @@ app.post("/api/admin/generate-mcq-pdf", async (req, res) => {
     }
     if (!exam) return res.status(404).json({ ok: false, message: "MCQ Exam not found." });
 
+    if (!PDFDocument) return res.status(500).json({ ok: false, message: "PDF generator unavailable." });
     const doc = new PDFDocument({ margin: 36, size: 'A4' });
 
     res.setHeader('Content-Type', 'application/pdf');
