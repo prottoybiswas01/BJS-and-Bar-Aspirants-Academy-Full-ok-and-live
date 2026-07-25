@@ -940,21 +940,36 @@ function applyBengaliPdfWatermarkAndFooter(doc, titleText = "Official Document")
   for (let i = 0; i < pages.count; i++) {
     doc.switchToPage(i);
 
-    // Translucent Diagonal Watermark
+    // 1. Bolder & Prominent Translucent Diagonal Watermark
     doc.save();
-    doc.fillColor("#94a3b8");
-    doc.fillOpacity(0.08);
-    doc.fontSize(26);
+    doc.fillColor("#475569");
+    doc.fillOpacity(0.14);
+    doc.fontSize(32);
     if (fs.existsSync(boldFontPath)) doc.font("Bengali-Bold");
     else doc.font("Helvetica-Bold");
     doc.rotate(-30, { origin: [297, 420] });
-    doc.text("BJS & BAR ASPIRANTS ACADEMY", 50, 410, { align: "center", width: 494 });
+    doc.text("BJS & BAR ASPIRANTS ACADEMY", 36, 400, { align: "center", width: 523 });
     doc.restore();
 
-    // Footer Bar
+    // 2. Official 2-Line Footer (Admission Numbers + Page Count)
     doc.save();
-    doc.fillColor("#64748b");
-    doc.fontSize(8);
+    
+    // Thin divider line above footer
+    doc.moveTo(36, 785).lineTo(559, 785).strokeColor("#cbd5e1").lineWidth(0.5).stroke();
+
+    // Footer Line 1: Official Hotline & Admission Notice
+    doc.fillColor("#0284c7").fontSize(8);
+    if (fs.existsSync(boldFontPath)) doc.font("Bengali-Bold");
+    else doc.font("Helvetica-Bold");
+    doc.text(
+      "📞 ভর্তি ও যে কোনো তথ্যের জন্য যোগাযোগ (Admission Hotline): 01800077663, 01978167016",
+      36,
+      790,
+      { align: "center", width: 523 }
+    );
+
+    // Footer Line 2: Copyright & Page Numbering
+    doc.fillColor("#64748b").fontSize(7.5);
     if (fs.existsSync(regularFontPath)) doc.font("Bengali-Regular");
     else doc.font("Helvetica");
     doc.text(
@@ -963,10 +978,10 @@ function applyBengaliPdfWatermarkAndFooter(doc, titleText = "Official Document")
       802,
       { align: "center", width: 523 }
     );
+
     doc.restore();
   }
 }
-
 
 // PDF Receipt Generator Helper
 function createPdfReceiptBuffer(receiptData) {
