@@ -2992,9 +2992,9 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
                 onChange={(e) => setMcqForm({ ...mcqForm, courseId: e.target.value })}
                 className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-white focus:outline-none focus:border-amber-500 cursor-pointer"
               >
-                <option value="">-- সর্বজনীন / সকল ব্যাচ --</option>
+                <option value="">-- 🌐 সর্বজনীন / সকল ব্যাচ ও স্টুডেন্ট (Universal Exam) --</option>
                 {courses.map(c => (
-                  <option key={c.id} value={c.id}>{c.title}</option>
+                  <option key={c.id || c.title} value={c.id || c.title}>{c.title}</option>
                 ))}
               </select>
             </div>

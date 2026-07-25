@@ -2470,6 +2470,149 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
   }
 });
 
+// -------------------------------------------------------------
+// COURSE MANAGER ENDPOINTS & ACADEMY SEED DATA
+// -------------------------------------------------------------
+
+const DEFAULT_COURSES = [
+  {
+    id: "bjs-masterclass",
+    title: "BJS Judicial Officer Masterclass (১৮তম বিজিএস সমন্বিত কোর্স)",
+    shortTitle: "BJS Masterclass",
+    faculty: "Shanto Deb Roy Arno",
+    category: "BJS PRELIMINARY",
+    schedule: "Sun,Tue,Thu 8:30 PM",
+    batchRegText: "Sun,Tue,Thu",
+    sessionRegText: "2026-04-01",
+    price: "1500",
+    paymentType: "One-time Lifetime Access",
+    status: "Active"
+  },
+  {
+    id: "bar-advocacy",
+    title: "Bar Council Advocacy Premium Batch (বার কাউন্সিল ভাইবা ও লিখিত)",
+    shortTitle: "Bar Advocacy",
+    faculty: "Advocate Prottoy",
+    category: "BAR ADVOCACY",
+    schedule: "Wed,Sat 9:00 PM",
+    batchRegText: "Wed,Sat",
+    sessionRegText: "2026-04-01",
+    price: "1200",
+    paymentType: "One-time Lifetime Access",
+    status: "Active"
+  },
+  {
+    id: "civil-laws",
+    title: "Civil Laws Intensive Special Batch (দেওয়ানী আইন ও প্রতিকার)",
+    shortTitle: "Civil Laws",
+    faculty: "Shanto Deb Roy Arno",
+    category: "CIVIL LAW",
+    schedule: "Mon,Thu 8:30 PM",
+    batchRegText: "Mon,Thu",
+    sessionRegText: "2026-04-01",
+    price: "1000",
+    paymentType: "One-time Lifetime Access",
+    status: "Active"
+  },
+  {
+    id: "penal-evidence",
+    title: "Penal Code & Evidence Act Crash Course (পেনাল কোড ও সাক্ষ্য আইন)",
+    shortTitle: "Penal & Evidence",
+    faculty: "Guest Faculty",
+    category: "CRIMINAL LAW",
+    schedule: "Fri,Sat 7:30 PM",
+    batchRegText: "Fri,Sat",
+    sessionRegText: "2026-04-01",
+    price: "1000",
+    paymentType: "One-time Lifetime Access",
+    status: "Active"
+  }
+];
+
+// GET All Courses (Admin & Student Portal)
+app.get(["/api/admin/courses", "/api/courses"], async (req, res) => {
+  try {
+    let coursesList = [];
+    if (isMongoConnected) {
+      coursesList = await Course.find().sort({ createdAt: -1 }).lean();
+      if (!coursesList || coursesList.length === 0) {
+        await Course.insertMany(DEFAULT_COURSES);
+        coursesList = await Course.find().sort({ createdAt: -1 }).lean();
+      }
+    } else {
+      if (!memoryDb.courses || memoryDb.courses.length === 0) {
+        memoryDb.courses = [...DEFAULT_COURSES];
+      }
+      coursesList = memoryDb.courses;
+    }
+    return res.json({ ok: true, courses: coursesList });
+  } catch (err) {
+    console.error("Error fetching courses:", err);
+    return res.json({ ok: true, courses: DEFAULT_COURSES });
+  }
+});
+
+// SAVE / CREATE / UPDATE Course
+app.post("/api/admin/courses/save", async (req, res) => {
+  try {
+    const body = req.body;
+    const courseId = body.id || ("course-" + Date.now());
+    const courseData = {
+      id: courseId,
+      title: body.title || "New Legal Course",
+      shortTitle: body.shortTitle || body.title,
+      faculty: body.faculty || "Shanto Deb Roy Arno",
+      category: body.category || "CIVIL LAW",
+      schedule: body.schedule || "Wed,Sat",
+      batchRegText: body.batchRegText || "Wed,Sat",
+      sessionRegText: body.sessionRegText || "2026-04-01",
+      nextLive: body.nextLive || "Wed,Sat 8:30 PM",
+      price: body.price || "1000",
+      paymentType: body.paymentType || "One-time Lifetime Access",
+      description: body.description || "",
+      status: body.status || "Active"
+    };
+
+    let saved = courseData;
+    if (isMongoConnected) {
+      let existing = await Course.findOne({ id: courseId });
+      if (existing) {
+        Object.assign(existing, courseData);
+        saved = await existing.save();
+      } else {
+        saved = await Course.create(courseData);
+      }
+      if (saved && saved.toObject) saved = saved.toObject();
+    }
+
+    const idx = (memoryDb.courses || []).findIndex(c => c.id === courseId);
+    if (idx > -1) {
+      memoryDb.courses[idx] = { ...memoryDb.courses[idx], ...courseData };
+    } else {
+      (memoryDb.courses = memoryDb.courses || []).unshift(courseData);
+    }
+
+    return res.json({ ok: true, message: `কোর্স "${saved.title}" সফলভাবে সেভ করা হয়েছে!`, course: saved });
+  } catch (err) {
+    console.error("Save course error:", err);
+    return res.status(500).json({ ok: false, message: "কোর্স সেভ করতে সমস্যা হয়েছে।" });
+  }
+});
+
+// DELETE Course
+app.delete("/api/admin/courses/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (isMongoConnected) {
+      await Course.deleteOne({ id });
+    }
+    memoryDb.courses = (memoryDb.courses || []).filter(c => c.id !== id);
+    return res.json({ ok: true, message: "কোর্স সফলভাবে মুছে ফেলা হয়েছে।" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error deleting course." });
+  }
+});
+
 // GET All MCQ Exams (Admin / Public)
 app.get("/api/admin/mcq-exams", async (req, res) => {
   try {
