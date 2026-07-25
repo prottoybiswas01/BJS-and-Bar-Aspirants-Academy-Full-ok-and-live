@@ -24,11 +24,16 @@ export default function Home({ setActivePage, openMentorProfile }) {
     api.get('/courses')
       .then((res) => {
         if (res.data.ok && Array.isArray(res.data.courses)) {
-          const activeOnly = res.data.courses.filter(c => c.status !== 'Inactive');
+          const activeOnly = res.data.courses.filter(c => c.status !== 'Inactive' && c.status !== 'Hidden');
           setCourses(activeOnly);
+        } else {
+          setCourses([]);
         }
       })
-      .catch((err) => console.log('Courses error:', err))
+      .catch((err) => {
+        console.log('Courses error:', err);
+        setCourses([]);
+      })
       .finally(() => setLoading(false));
 
     api.get('/mentors')

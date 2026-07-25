@@ -2474,81 +2474,19 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
 // COURSE MANAGER ENDPOINTS & ACADEMY SEED DATA
 // -------------------------------------------------------------
 
-const DEFAULT_COURSES = [
-  {
-    id: "bjs-masterclass",
-    title: "BJS Judicial Officer Masterclass (১৮তম বিজিএস সমন্বিত কোর্স)",
-    shortTitle: "BJS Masterclass",
-    faculty: "Shanto Deb Roy Arno",
-    category: "BJS PRELIMINARY",
-    schedule: "Sun,Tue,Thu 8:30 PM",
-    batchRegText: "Sun,Tue,Thu",
-    sessionRegText: "2026-04-01",
-    price: "1500",
-    paymentType: "One-time Lifetime Access",
-    status: "Active"
-  },
-  {
-    id: "bar-advocacy",
-    title: "Bar Council Advocacy Premium Batch (বার কাউন্সিল ভাইবা ও লিখিত)",
-    shortTitle: "Bar Advocacy",
-    faculty: "Advocate Prottoy",
-    category: "BAR ADVOCACY",
-    schedule: "Wed,Sat 9:00 PM",
-    batchRegText: "Wed,Sat",
-    sessionRegText: "2026-04-01",
-    price: "1200",
-    paymentType: "One-time Lifetime Access",
-    status: "Active"
-  },
-  {
-    id: "civil-laws",
-    title: "Civil Laws Intensive Special Batch (দেওয়ানী আইন ও প্রতিকার)",
-    shortTitle: "Civil Laws",
-    faculty: "Shanto Deb Roy Arno",
-    category: "CIVIL LAW",
-    schedule: "Mon,Thu 8:30 PM",
-    batchRegText: "Mon,Thu",
-    sessionRegText: "2026-04-01",
-    price: "1000",
-    paymentType: "One-time Lifetime Access",
-    status: "Active"
-  },
-  {
-    id: "penal-evidence",
-    title: "Penal Code & Evidence Act Crash Course (পেনাল কোড ও সাক্ষ্য আইন)",
-    shortTitle: "Penal & Evidence",
-    faculty: "Guest Faculty",
-    category: "CRIMINAL LAW",
-    schedule: "Fri,Sat 7:30 PM",
-    batchRegText: "Fri,Sat",
-    sessionRegText: "2026-04-01",
-    price: "1000",
-    paymentType: "One-time Lifetime Access",
-    status: "Active"
-  }
-];
-
-// GET All Courses (Admin & Student Portal)
+// GET All Courses (Admin & Student Portal) - 100% Dynamic MongoDB Database Driven
 app.get(["/api/admin/courses", "/api/courses"], async (req, res) => {
   try {
     let coursesList = [];
     if (isMongoConnected) {
       coursesList = await Course.find().sort({ createdAt: -1 }).lean();
-      if (!coursesList || coursesList.length === 0) {
-        await Course.insertMany(DEFAULT_COURSES);
-        coursesList = await Course.find().sort({ createdAt: -1 }).lean();
-      }
     } else {
-      if (!memoryDb.courses || memoryDb.courses.length === 0) {
-        memoryDb.courses = [...DEFAULT_COURSES];
-      }
-      coursesList = memoryDb.courses;
+      coursesList = memoryDb.courses || [];
     }
     return res.json({ ok: true, courses: coursesList });
   } catch (err) {
     console.error("Error fetching courses:", err);
-    return res.json({ ok: true, courses: DEFAULT_COURSES });
+    return res.status(500).json({ ok: false, courses: [], message: "Error fetching courses." });
   }
 });
 
