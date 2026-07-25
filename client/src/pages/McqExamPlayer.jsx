@@ -85,7 +85,7 @@ export default function McqExamPlayer({ examId, onBack }) {
       }
     } catch (err) {
       console.error("MCQ Submit Error:", err);
-      alert("পরীক্ষা সাবমিট করতে সমস্যা হয়েছে।");
+      alert(err.response?.data?.message || "পরীক্ষা সাবমিট করতে সমস্যা হয়েছে।");
     } finally {
       setSubmitting(false);
     }
