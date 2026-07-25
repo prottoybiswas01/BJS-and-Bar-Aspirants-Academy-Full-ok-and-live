@@ -2091,10 +2091,19 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
 // GET MCQ Results for Admin / Student Dashboard
 app.get("/api/admin/mcq-results", async (req, res) => {
   try {
-    const { examId, studentId } = req.query;
+    const { examId, studentId, courseId, search } = req.query;
     let query = {};
     if (examId) query.examId = examId;
     if (studentId) query.studentId = studentId;
+    if (courseId) query.courseId = courseId;
+    if (search) {
+      query.$or = [
+        { candidateName: { $regex: search, $options: "i" } },
+        { candidatePhone: { $regex: search, $options: "i" } },
+        { candidateEmail: { $regex: search, $options: "i" } },
+        { examTitle: { $regex: search, $options: "i" } }
+      ];
+    }
 
     if (isMongoConnected) {
       const results = await McqResult.find(query).sort({ submittedAt: -1 }).lean();
@@ -2104,6 +2113,16 @@ app.get("/api/admin/mcq-results", async (req, res) => {
     let list = memoryDb.mcqResults || [];
     if (examId) list = list.filter(r => r.examId === examId);
     if (studentId) list = list.filter(r => r.studentId === studentId);
+    if (courseId) list = list.filter(r => r.courseId === courseId);
+    if (search) {
+      const s = search.toLowerCase();
+      list = list.filter(r =>
+        (r.candidateName || '').toLowerCase().includes(s) ||
+        (r.candidatePhone || '').includes(s) ||
+        (r.candidateEmail || '').toLowerCase().includes(s) ||
+        (r.examTitle || '').toLowerCase().includes(s)
+      );
+    }
 
     return res.json({ ok: true, results: list });
   } catch (err) {
