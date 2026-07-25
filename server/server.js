@@ -1742,23 +1742,40 @@ app.delete("/api/admin/mentors/:id", async (req, res) => {
       });
     }
 
-    const deleteConditions = [
-      { id: id },
-      ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])
-    ];
-    if (target && target.email) {
-      deleteConditions.push({ email: target.email });
-      deleteConditions.push({ email: target.email.toLowerCase() });
-    }
-    if (target && target.id) {
-      deleteConditions.push({ id: target.id });
-    }
+    const mId = target ? target.id : id;
 
+    // 1. Collect all assignment IDs created by this mentor
+    let mentorAssignments = (memoryDb.assignments || []).filter(a => a.mentorId === mId || a.mentorId === id);
     if (isMongoConnected) {
+      const dbAssignments = await Assignment.find({ $or: [{ mentorId: mId }, { mentorId: id }] }).select("id").lean();
+      mentorAssignments = [...mentorAssignments, ...dbAssignments];
+    }
+    const asnIdsToDelete = Array.from(new Set(mentorAssignments.map(a => a.id).filter(Boolean)));
+
+    // 2. Cascade Delete from MongoDB Atlas
+    if (isMongoConnected) {
+      const deleteConditions = [
+        { id: id },
+        ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])
+      ];
+      if (target && target.email) {
+        deleteConditions.push({ email: target.email });
+        deleteConditions.push({ email: target.email.toLowerCase() });
+      }
+      if (target && target.id) {
+        deleteConditions.push({ id: target.id });
+      }
+
       await Mentor.deleteMany({ $or: deleteConditions });
+
+      if (asnIdsToDelete.length > 0) {
+        await Assignment.deleteMany({ id: { $in: asnIdsToDelete } });
+        await Submission.deleteMany({ assignmentId: { $in: asnIdsToDelete } });
+      }
+      await Assignment.deleteMany({ $or: [{ mentorId: mId }, { mentorId: id }] });
     }
 
-    // Hard delete from memoryDb
+    // 3. Cascade Delete from memoryDb
     memoryDb.mentors = (memoryDb.mentors || []).filter(m => {
       if (m.id === id || m._id === id) return false;
       if (target && target.email && m.email && m.email.toLowerCase() === target.email.toLowerCase()) return false;
@@ -1766,9 +1783,17 @@ app.delete("/api/admin/mentors/:id", async (req, res) => {
       return true;
     });
 
-    return res.json({ ok: true, message: `মেন্টর "${target ? target.name : id}" স্থায়ীভাবে ডাটাবেজ থেকে মুছে ফেলা হয়েছে!` });
+    memoryDb.assignments = (memoryDb.assignments || []).filter(a => a.mentorId !== mId && a.mentorId !== id);
+    if (asnIdsToDelete.length > 0) {
+      memoryDb.submissions = (memoryDb.submissions || []).filter(s => !asnIdsToDelete.includes(s.assignmentId));
+    }
+
+    return res.json({
+      ok: true,
+      message: `মেন্টর "${target ? target.name : id}" এবং উনার দ্বারা প্রকাশিত সকল অ্যাসাইনমেন্ট ও মার্কিং ডাটা ক্যাস্কেড ডিলিট (Cascade Delete) করা হয়েছে!`
+    });
   } catch (err) {
-    console.error("Mentor hard delete error:", err);
+    console.error("Mentor cascade delete error:", err);
     return res.status(500).json({ ok: false, message: "Error deleting mentor from database." });
   }
 });
