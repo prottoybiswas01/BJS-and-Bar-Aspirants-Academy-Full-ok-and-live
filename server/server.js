@@ -962,7 +962,7 @@ function applyBengaliPdfWatermarkAndFooter(doc, titleText = "Official Document")
     if (fs.existsSync(boldFontPath)) doc.font("Bengali-Bold");
     else doc.font("Helvetica-Bold");
     doc.text(
-      "📞 ভর্তি ও যে কোনো তথ্যের জন্য যোগাযোগ (Admission Hotline): 01800077663, 01978167016",
+      "📞 ভর্তি ও যে কোনো তথ্যের জন্য যোগাযোগ (Admission Hotline): 01800077663",
       36,
       794,
       { align: "center", width: 523, lineBreak: false }
