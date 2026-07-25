@@ -4,15 +4,15 @@
 
 @layer base {
   html, body {
-    font-family: 'Hind Siliguri', 'Noto Sans Bengali', 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: 'Anek Bangla', 'Hind Siliguri', 'Noto Sans Bengali', 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    line-height: 1.65;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Hind Siliguri', 'Noto Sans Bengali', 'Plus Jakarta Sans', 'Inter', sans-serif;
+    font-family: 'Anek Bangla', 'Hind Siliguri', 'Noto Serif Bengali', 'Plus Jakarta Sans', 'Inter', sans-serif;
     letter-spacing: -0.01em;
   }
 }

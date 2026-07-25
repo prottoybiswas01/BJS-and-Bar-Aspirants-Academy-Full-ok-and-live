@@ -364,29 +364,57 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
-  const handleParseQuestions = (text) => {
+    const handleParseQuestions = (text) => {
     if (!text) {
       setParsedQuestions([]);
       return;
     }
-    const blocks = text.split(/(?:প্রশ্ন\s*\d*[:.]|\d+[:.])/gi).filter(Boolean);
-    const parsed = blocks.map((b, idx) => {
-      const lines = b.trim().split('\n').map(l => l.trim()).filter(Boolean);
-      const questionText = lines[0] || `Question ${idx + 1}`;
-      
+    const cleanText = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    const rawBlocks = cleanText.split(/(?=\n\s*(?:প্রশ্ন\s*[০-৯\d]+[:.]?|[০-৯\d]+[\.:\)])\s*)/gi).filter(Boolean);
+    const banglaToEngOptionMap = { 'ক': 0, 'খ': 1, 'গ': 2, 'ঘ': 3, 'a': 0, 'b': 1, 'c': 2, 'd': 3 };
+
+    const parsed = rawBlocks.map((block, idx) => {
+      const lines = block.trim().split("\n").map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) return null;
+
+      let questionText = lines[0].replace(/^(?:প্রশ্ন\s*[০-৯\d]+[:.]?|[০-৯\d]+[\.:\)])\s*/i, "").trim();
+      if (!questionText) questionText = lines[0];
+
       const options = [];
       let correctIndex = 0;
-      let explanation = '';
+      let explanation = "";
+      let foundAnswerHeader = false;
 
       lines.slice(1).forEach(line => {
-        if (/^(?:[কখগঘa-dA-D][:.])/i.test(line)) {
-          const optStr = line.replace(/^[কখগঘa-dA-D][:.]\s*/i, '');
-          options.push(optStr);
-          if (line.includes('✓') || line.toLowerCase().includes('correct') || line.toLowerCase().includes('উত্তর')) {
-            correctIndex = options.length - 1;
+        const optMatch = line.match(/^\s*(?:\(?\s*([কখগঘa-dA-D])\s*[\)\.:]|\b([কখগঘa-dA-D])[\)\.:])\s*(.*)/i);
+        const ansMatch = line.match(/^(?:উত্তর|উঃ|answer|ans|correct)\s*[:.\-]?\s*(?:\(?\s*([কখগঘa-dA-D])\s*[\)\.:]?)?\s*(.*)/i);
+        const expMatch = line.match(/^(?:ব্যাখ্যা|explanation|exp)\s*[:.\-]?\s*(.*)/i);
+
+        if (ansMatch) {
+          foundAnswerHeader = true;
+          const optLetter = (ansMatch[1] || "").toLowerCase();
+          const ansText = (ansMatch[2] || "").trim();
+
+          if (optLetter && banglaToEngOptionMap[optLetter] !== undefined) {
+            correctIndex = banglaToEngOptionMap[optLetter];
+          } else if (ansText) {
+            const matchIdx = options.findIndex(o => ansText.includes(o) || o.includes(ansText));
+            if (matchIdx !== -1) correctIndex = matchIdx;
           }
-        } else if (line.toLowerCase().includes('ব্যাখ্যা') || line.toLowerCase().includes('explanation')) {
-          explanation = line.replace(/^(?:ব্যাখ্যা|explanation)[:.]\s*/i, '');
+        } else if (expMatch) {
+          explanation = expMatch[1] ? expMatch[1].trim() : "";
+        } else if (optMatch) {
+          const optContent = optMatch[3] ? optMatch[3].trim() : line;
+          const cleanContent = optContent.replace(/[✓✔]\s*$/, "").trim();
+          options.push(cleanContent);
+
+          if (!foundAnswerHeader) {
+            if (line.includes("✓") || line.includes("✔") || line.toLowerCase().includes("correct")) {
+              correctIndex = options.length - 1;
+            }
+          }
+        } else if (explanation) {
+          explanation += " " + line;
         }
       });
 
@@ -399,9 +427,9 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         questionText,
         options: options.slice(0, 4),
         correctIndex,
-        explanation
+        explanation: explanation.trim()
       };
-    });
+    }).filter(Boolean);
 
     setParsedQuestions(parsed);
   };
