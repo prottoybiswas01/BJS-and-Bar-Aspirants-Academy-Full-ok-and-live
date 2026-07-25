@@ -453,6 +453,32 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
+  const [mergeMentorModal, setMergeMentorModal] = useState({ isOpen: false, targetMentor: null, sourceMentorId: '' });
+
+  const handleMergeMentors = async () => {
+    if (!mergeMentorModal.targetMentor || !mergeMentorModal.sourceMentorId) {
+      showToast('অনুগ্রহ করে সংযুক্ত করার জন্য দ্বিতীয় মেন্টর প্রফাইলটি সিলেক্ট করুন।', 'error');
+      return;
+    }
+
+    try {
+      const res = await api.post('/admin/mentors/merge', {
+        targetMentorId: mergeMentorModal.targetMentor.id,
+        sourceMentorId: mergeMentorModal.sourceMentorId
+      });
+
+      if (res.data.ok) {
+        showToast(res.data.message || 'মেন্টর একাউন্ট সফলভাবে সংযুক্ত/মার্জ হয়েছে!', 'success');
+        setMergeMentorModal({ isOpen: false, targetMentor: null, sourceMentorId: '' });
+        loadAllAdminData();
+      } else {
+        showToast(res.data.message || 'মার্জ করতে সমস্যা হয়েছে।', 'error');
+      }
+    } catch (err) {
+      showToast('মেন্টর একাউন্ট মার্জ করতে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
 
   const handleOpenStudentPreview = async (student) => {
     setPreviewStudentModal({ isOpen: true, student });
@@ -2107,6 +2133,15 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
                           <button
                             type="button"
+                            onClick={() => setMergeMentorModal({ isOpen: true, targetMentor: m, sourceMentorId: '' })}
+                            className="px-2.5 py-1.5 rounded-lg bg-purple-950/80 hover:bg-purple-900 text-purple-200 border border-purple-500/40 text-[11px] font-bold"
+                            title="অন্য মেন্টর প্রফাইলের সাথে একাউন্ট সংযুক্ত / মার্জ করুন"
+                          >
+                            🔗 একাউন্ট কানেক্ট/মার্জ
+                          </button>
+
+                          <button
+                            type="button"
                             onClick={() => handleDeleteMentor(m.id, m.name)}
                             className="px-2.5 py-1.5 rounded-lg bg-rose-950 text-rose-300 text-[11px] font-bold"
                           >
@@ -3183,6 +3218,72 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
                   className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer"
                 >
                   💾 Save Temp Password
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MERGE MENTOR PROFILES MODAL */}
+      {mergeMentorModal.isOpen && mergeMentorModal.targetMentor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+          <div className="glass-card max-w-lg w-full rounded-2xl p-6 border border-slate-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🔗</span>
+                <div>
+                  <h3 className="font-extrabold text-white text-base">মেন্টর প্রফাইল একাউন্ট কানেক্ট / মার্জ করুন</h3>
+                  <p className="text-xs text-amber-400 font-mono">মূল প্রফাইল: {mergeMentorModal.targetMentor.name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setMergeMentorModal({ isOpen: false, targetMentor: null, sourceMentorId: '' })}
+                className="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3.5 rounded-xl bg-purple-950/40 border border-purple-500/30 text-purple-200 leading-relaxed">
+                💡 <strong>কানেক্ট / মার্জ নির্দেশিকা:</strong> রেজিস্ট্রেশন করা মেন্টর একাউন্টটি (যেমন: {mergeMentorModal.targetMentor.email || 'নতুন মেন্টর একাউন্ট'}) পূর্বে তৈরি করা বিস্তারিত মেন্টর প্রফাইলের সাথে একসূত্রে সংযুক্ত করুন। এর ফলে ডুপ্লিকেট কার্ড মুছে যাবে এবং মেন্টর তার নিজস্ব ইমেইল দিয়ে মূল প্রফাইলে লগইন করতে পারবেন।
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">
+                  যে প্রফাইলটির সাথে সংযুক্ত/একত্রিত (Merge) করতে চান নির্বাচন করুন *
+                </label>
+                <select
+                  value={mergeMentorModal.sourceMentorId}
+                  onChange={(e) => setMergeMentorModal(prev => ({ ...prev, sourceMentorId: e.target.value }))}
+                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-3 text-white focus:outline-none focus:border-amber-500 text-xs"
+                >
+                  <option value="">-- মেন্টর প্রফাইল নির্বাচন করুন --</option>
+                  {mentors
+                    .filter(m => m.id !== mergeMentorModal.targetMentor.id)
+                    .map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} ({m.designation || 'মেন্টর'}) - {m.email || 'Email missing'}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setMergeMentorModal({ isOpen: false, targetMentor: null, sourceMentorId: '' })}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white text-xs font-bold"
+                >
+                  বাতিল (Cancel)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMergeMentors}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
+                >
+                  🔗 প্রফাইল মার্জ ও কানেক্ট করুন
                 </button>
               </div>
             </div>

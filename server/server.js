@@ -1325,15 +1325,36 @@ app.get("/api/lessons", async (req, res) => {
 
 // 4.5 Mentors & Faculty Endpoints
 
-// Public active mentors list
+// Public active mentors list (Deduplicated)
 app.get("/api/mentors", async (req, res) => {
   try {
+    let list = [];
     if (isMongoConnected) {
-      const mentors = await Mentor.find({ status: "Active" }).sort({ createdAt: -1 }).lean();
-      return res.json({ ok: true, mentors });
+      list = await Mentor.find({ status: "Active" }).sort({ createdAt: -1 }).lean();
+    } else {
+      list = (memoryDb.mentors || []).filter(m => m.status === "Active");
     }
-  } catch (e) {}
-  res.json({ ok: true, mentors: (memoryDb.mentors || []).filter(m => m.status === "Active") });
+
+    // Deduplicate by lower-cased name or email
+    const map = new Map();
+    (list || []).forEach(m => {
+      if (!m) return;
+      const key = (m.email && m.email !== "Email missing" ? m.email.toLowerCase() : m.name.toLowerCase().trim());
+      if (!map.has(key)) {
+        map.set(key, m);
+      } else {
+        // Merge richer details into map item
+        const existing = map.get(key);
+        if (!existing.photoUrl && m.photoUrl) existing.photoUrl = m.photoUrl;
+        if (!existing.designation && m.designation) existing.designation = m.designation;
+      }
+    });
+
+    const uniqueMentors = Array.from(map.values());
+    return res.json({ ok: true, mentors: uniqueMentors });
+  } catch (e) {
+    return res.json({ ok: true, mentors: [] });
+  }
 });
 
 // Admin mentors list
@@ -1348,7 +1369,7 @@ app.get("/api/admin/mentors", async (req, res) => {
   res.json({ ok: true, mentors: memoryDb.mentors || [] });
 });
 
-// Mentor Registration Endpoint
+// Mentor Registration Endpoint (Smart Link to Existing Showcase Profile)
 app.post("/api/auth/mentor/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -1356,44 +1377,81 @@ app.post("/api/auth/mentor/register", async (req, res) => {
       return res.status(400).json({ ok: false, message: "নাম, ইমেইল এবং পাসওয়ার্ড আবশ্যক।" });
     }
 
+    const cleanName = String(name).trim();
     const cleanEmail = String(email).trim().toLowerCase();
-
-    // Check duplicate
-    let existing = (memoryDb.mentors || []).find(m => m.email && m.email.toLowerCase() === cleanEmail);
-    if (!existing && isMongoConnected) {
-      existing = await Mentor.findOne({ email: cleanEmail });
-    }
-
-    if (existing) {
-      return res.status(400).json({ ok: false, message: "এই ইমেইল দিয়ে ইতোমধ্যে একটি মেন্টর একাউন্ট রয়েছে।" });
-    }
-
     const hashedPassword = await bcrypt.hash(password, 10);
-    const mentorId = "MTR-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
 
-    const newMentor = {
-      id: mentorId,
-      name: String(name).trim(),
-      email: cleanEmail,
-      password: hashedPassword,
-      loginApproval: "Pending", // Requires admin approval
-      status: "Active",
-      designation: "মেন্টর / আইন বিচারক",
-      posting: "ঢাকা",
-      expertise: "দেওয়ানী ও ফৌজদারী আইন",
-      assignedCourseIds: [],
-      createdAt: new Date()
-    };
-
-    if (isMongoConnected) {
-      await Mentor.create(newMentor);
+    // 1. Check if email already registered
+    let existingByEmail = (memoryDb.mentors || []).find(m => m.email && m.email.toLowerCase() === cleanEmail);
+    if (!existingByEmail && isMongoConnected) {
+      existingByEmail = await Mentor.findOne({ email: cleanEmail });
     }
-    memoryDb.mentors.unshift(newMentor);
+
+    if (existingByEmail && existingByEmail.password) {
+      return res.status(400).json({ ok: false, message: "এই ইমেইল দিয়ে ইতোমধ্যে একটি মেন্টর একাউন্ট তৈরি রয়েছে।" });
+    }
+
+    // 2. Check if a showcased profile with matching Name or unlinked email exists
+    let existingProfile = existingByEmail;
+    if (!existingProfile) {
+      existingProfile = (memoryDb.mentors || []).find(m =>
+        m.name && m.name.toLowerCase().trim() === cleanName.toLowerCase()
+      );
+      if (!existingProfile && isMongoConnected) {
+        existingProfile = await Mentor.findOne({
+          name: new RegExp(`^${cleanName.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i")
+        });
+      }
+    }
+
+    let savedMentor = null;
+
+    if (existingProfile) {
+      // LINK / MERGE with existing profile!
+      const updateData = {
+        email: cleanEmail,
+        password: hashedPassword,
+        loginApproval: existingProfile.loginApproval || "Pending"
+      };
+
+      if (isMongoConnected) {
+        Object.assign(existingProfile, updateData);
+        savedMentor = await existingProfile.save();
+        if (savedMentor && savedMentor.toObject) savedMentor = savedMentor.toObject();
+      }
+
+      const idx = (memoryDb.mentors || []).findIndex(m => m.id === existingProfile.id);
+      if (idx > -1) {
+        memoryDb.mentors[idx] = { ...memoryDb.mentors[idx], ...updateData };
+        savedMentor = memoryDb.mentors[idx];
+      }
+    } else {
+      // Create new mentor record if no matching showcase profile
+      const mentorId = "MTR-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
+      savedMentor = {
+        id: mentorId,
+        name: cleanName,
+        email: cleanEmail,
+        password: hashedPassword,
+        loginApproval: "Pending",
+        status: "Active",
+        designation: "মেন্টর / আইন বিচারক",
+        posting: "ঢাকা",
+        expertise: "দেওয়ানী ও ফৌজদারী আইন",
+        assignedCourseIds: [],
+        createdAt: new Date()
+      };
+
+      if (isMongoConnected) {
+        await Mentor.create(savedMentor);
+      }
+      memoryDb.mentors.unshift(savedMentor);
+    }
 
     return res.json({
       ok: true,
-      message: "মেন্টর হিসেবে আপনার রেজিস্ট্রেশন সফল হয়েছে! সুপার অ্যাডমিনের অনুমোদনের পর আপনি লগইন করতে পারবেন।",
-      mentor: newMentor
+      message: "মেন্টর প্রফাইল সফলভাবে সংযুক্ত ও রেজিস্ট্রেশন সম্পন্ন হয়েছে! অ্যাডমিন অনুমোদনের পর আপনি লগইন করতে পারবেন।",
+      mentor: savedMentor
     });
   } catch (err) {
     console.error("Mentor register error:", err);
@@ -1530,6 +1588,65 @@ app.post("/api/admin/mentors/assign-courses", async (req, res) => {
     return res.json({ ok: true, message: "মেন্টরের নির্ধারিত কোর্সসমূহ সফলভাবে আপডেট করা হয়েছে।" });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "Error assigning courses to mentor." });
+  }
+});
+
+// Admin Merge Duplicate Mentor Profiles into One
+app.post("/api/admin/mentors/merge", async (req, res) => {
+  try {
+    const { targetMentorId, sourceMentorId } = req.body;
+    if (!targetMentorId || !sourceMentorId) {
+      return res.status(400).json({ ok: false, message: "targetMentorId and sourceMentorId are required." });
+    }
+
+    let mentors = memoryDb.mentors || [];
+    if (isMongoConnected) {
+      mentors = await Mentor.find({ id: { $in: [targetMentorId, sourceMentorId] } });
+    }
+
+    const target = mentors.find(m => m.id === targetMentorId);
+    const source = mentors.find(m => m.id === sourceMentorId);
+
+    if (!target || !source) {
+      return res.status(400).json({ ok: false, message: "মেন্টর একাউন্ট দুটি খুঁজে পাওয়া যায়নি।" });
+    }
+
+    // Merge source details into target
+    if (source.email && (!target.email || target.email === "Email missing")) target.email = source.email;
+    if (source.password && !target.password) target.password = source.password;
+    if (source.loginApproval) target.loginApproval = source.loginApproval;
+    
+    // Merge assigned courses
+    const combinedCourses = Array.from(new Set([...(target.assignedCourseIds || []), ...(source.assignedCourseIds || [])]));
+    target.assignedCourseIds = combinedCourses;
+
+    if (isMongoConnected) {
+      await target.save();
+      await Mentor.deleteOne({ id: sourceMentorId });
+      // Re-assign assignments & submissions
+      await Assignment.updateMany({ mentorId: sourceMentorId }, { $set: { mentorId: targetMentorId } });
+    }
+
+    // Update memoryDb
+    memoryDb.mentors = (memoryDb.mentors || []).filter(m => m.id !== sourceMentorId);
+    const tIdx = memoryDb.mentors.findIndex(m => m.id === targetMentorId);
+    if (tIdx > -1) {
+      memoryDb.mentors[tIdx] = target.toObject ? target.toObject() : target;
+    }
+
+    // Update assignments in memoryDb
+    (memoryDb.assignments || []).forEach(a => {
+      if (a.mentorId === sourceMentorId) a.mentorId = targetMentorId;
+    });
+
+    return res.json({
+      ok: true,
+      message: `মেন্টর একাউন্ট সফলভাবে মার্জ/সংযুক্ত করা হয়েছে! ("${source.name}" -> "${target.name}")`,
+      targetMentor: target
+    });
+  } catch (err) {
+    console.error("Mentor merge error:", err);
+    return res.status(500).json({ ok: false, message: "মেন্টর একাউন্ট মার্জ করতে সমস্যা হয়েছে।" });
   }
 });
 
