@@ -125,6 +125,12 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
 
+  // Exam Merit List Generator State
+  const [adminAssignments, setAdminAssignments] = useState([]);
+  const [selectedMeritAsnId, setSelectedMeritAsnId] = useState('');
+  const [meritList, setMeritList] = useState([]);
+  const [meritLoading, setMeritLoading] = useState(false);
+
   // Mentor & Faculty Form State
   const [mentors, setMentors] = useState([]);
   const [mentorForm, setMentorForm] = useState({
@@ -315,7 +321,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         api.get('/admin/mail-settings'),
         api.get('/site-settings'),
         api.get('/admin/mentors'),
-        api.get('/admin/receipts')
+        api.get('/admin/receipts'),
+        api.get('/admin/assignments')
       ]);
 
       if (results[0].status === 'fulfilled' && results[0].value.data?.ok) setStats(results[0].value.data);
@@ -325,10 +332,69 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       if (results[4].status === 'fulfilled' && results[4].value.data?.ok && results[4].value.data.settings) setSiteSettingsForm(results[4].value.data.settings);
       if (results[5].status === 'fulfilled' && results[5].value.data?.ok) setMentors(results[5].value.data.mentors || []);
       if (results[6].status === 'fulfilled' && results[6].value.data?.ok) setReceipts(results[6].value.data.receipts || []);
+      if (results[7].status === 'fulfilled' && results[7].value.data?.ok) setAdminAssignments(results[7].value.data.assignments || []);
     } catch (err) {
       console.log('Error loading admin data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMeritList = async (asnId) => {
+    if (!asnId) {
+      setMeritList([]);
+      return;
+    }
+    setMeritLoading(true);
+    try {
+      const res = await api.get('/admin/merit-list', { params: { assignmentId: asnId } });
+      if (res.data.ok) {
+        setMeritList(res.data.meritList || []);
+      }
+    } catch (err) {
+      console.error('Error fetching merit list:', err);
+    } finally {
+      setMeritLoading(false);
+    }
+  };
+
+  const handleDownloadMeritPdf = async (asnId, title) => {
+    try {
+      showToast(`🏆 "${title || 'পরীক্ষা'}" মেধা তালিকা পিডিএফে কনভার্ট ও প্রসেস হচ্ছে...`, 'success');
+      const response = await api.post('/admin/generate-merit-pdf', { assignmentId: asnId }, { responseType: 'blob' });
+      
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Merit_List_${(title || 'Exam').replace(/\s+/g, '_')}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('PDF download error:', err);
+      showToast('পিডিএফ মেধা তালিকা ডাউনলোডে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
+  const handleDownloadMasterSubmissionsPdf = async () => {
+    try {
+      showToast(`📋 মাস্টার সাবমিশন অডিট রেকর্ড পিডিএফে জেনারেট হচ্ছে...`, 'success');
+      const response = await api.post('/admin/generate-master-submissions-pdf', {}, { responseType: 'blob' });
+      
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Master_Submissions_Audit_Report.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Master PDF error:', err);
+      showToast('পিডিএফ রিপোর্টে সমস্যা হয়েছে।', 'error');
     }
   };
 
@@ -2178,6 +2244,117 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             )}
           </div>
         </div>
+      </section>
+
+      {/* 4.5 OFFICIAL EXAM MERIT LIST & RESULT PDF GENERATOR */}
+      <section className="glass-card rounded-2xl p-5 sm:p-7 border border-slate-800 space-y-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-800 pb-4 gap-4">
+          <div>
+            <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/30">
+              OFFICIAL ACADEMIC BOARD RESULTS
+            </span>
+            <h2 className="text-lg font-black text-white mt-1 flex items-center gap-2">
+              <span>🏆 পরীক্ষা মেধা তালিকা ও রেজাল্ট পিডিএফ জেনারেটর</span>
+            </h2>
+            <p className="text-xs text-slate-400">
+              যেকোনো মডেল টেস্ট বা অ্যাসাইনমেন্টের ফলাফল নির্বাচন করে ভেক্টর পিডিএফ মেধা তালিকা সরাসরি ডাউনলোড করুন।
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => handleDownloadMasterSubmissionsPdf()}
+              className="px-3.5 py-2 rounded-xl bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-500/40 font-extrabold text-xs transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>📋</span> মাস্টার সাবমিশন অডিট (PDF)
+            </button>
+
+            {selectedMeritAsnId && (
+              <button
+                onClick={() => {
+                  const asnObj = adminAssignments.find(a => a.id === selectedMeritAsnId);
+                  handleDownloadMeritPdf(selectedMeritAsnId, asnObj ? asnObj.title : 'Exam');
+                }}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>📥</span> ডাউনলোড মেধা তালিকা পিডিএফ
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Select Exam Dropdown */}
+        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1.5 w-full sm:w-auto">
+            <label className="text-xs font-bold text-amber-400 block">পরীক্ষা / মডেল টেস্ট নির্বাচন করুন:</label>
+            <select
+              value={selectedMeritAsnId}
+              onChange={(e) => {
+                setSelectedMeritAsnId(e.target.value);
+                loadMeritList(e.target.value);
+              }}
+              className="w-full sm:w-96 rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2.5 text-xs font-bold text-white focus:outline-none focus:border-amber-500 cursor-pointer"
+            >
+              <option value="">-- পরীক্ষা / অ্যাসাইনমেন্ট পছন্দ করুন --</option>
+              {adminAssignments.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.title} ({courses.find(c => c.id === a.courseId)?.title || a.courseId || 'Batch Test'})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedMeritAsnId && (
+            <span className="text-xs font-mono font-bold text-amber-300 px-3.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30">
+              মূল্যায়নকৃত পরীক্ষার্থী: {meritList.length} জন
+            </span>
+          )}
+        </div>
+
+        {/* Live Merit List Ranking Table */}
+        {selectedMeritAsnId ? (
+          meritLoading ? (
+            <div className="p-8 text-center text-xs text-amber-400 font-bold">⏳ মেধা তালিকা প্রক্রিয়াকরণ হচ্ছে...</div>
+          ) : meritList.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-400 bg-slate-950 rounded-xl border border-slate-800">
+              এই পরীক্ষার জন্য এখনো কোনো খাতা মূল্যায়ন করা হয়নি।
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-950 border-b border-slate-800 text-amber-400 font-bold">
+                    <th className="p-3 text-center">ক্রমিক</th>
+                    <th className="p-3">মেধা স্থান (Rank)</th>
+                    <th className="p-3">পরীক্ষার্থীর নাম</th>
+                    <th className="p-3">বিশ্ববিদ্যালয় / ল ইন্সটিটিউট</th>
+                    <th className="p-3 text-right">প্রাপ্ত নম্বর</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/80 bg-slate-900/60">
+                  {meritList.map((m, idx) => (
+                    <tr key={idx} className="hover:bg-slate-800/50">
+                      <td className="p-3 text-center font-mono text-slate-400">{idx + 1}</td>
+                      <td className="p-3 font-extrabold">
+                        {idx === 0 ? <span className="text-amber-400">1st 🏆</span> :
+                         idx === 1 ? <span className="text-slate-300">2nd 🥈</span> :
+                         idx === 2 ? <span className="text-amber-600">3rd 🥉</span> :
+                         <span className="text-slate-400 font-mono">{m.rank}th</span>}
+                      </td>
+                      <td className="p-3 font-bold text-white">{m.studentName}</td>
+                      <td className="p-3 text-slate-300">{m.university || 'ঢাকা বিশ্ববিদ্যালয় (আইন বিভাগ)'}</td>
+                      <td className="p-3 text-right font-mono font-bold text-emerald-400">{m.marksObtained} Marks</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : (
+          <div className="p-8 text-center text-xs text-slate-400 bg-slate-950/80 rounded-2xl border border-slate-800">
+            👆 ড্রপডাউন থেকে পরীক্ষা নির্বাচন করলে সরাসরি লাইভ মেধা তালিকা র‍্যাঙ্কিং ও ১-ক্লিকে পিডিএফ ডাউনলোডের সুবিধা চালু হবে।
+          </div>
+        )}
       </section>
 
       {/* 5. Course Control & Course Launch Manager */}

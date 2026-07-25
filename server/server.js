@@ -2339,6 +2339,19 @@ app.get("/api/mentor/submissions", async (req, res) => {
   }
 });
 
+// GET All Assignments for Admin
+app.get("/api/admin/assignments", async (req, res) => {
+  try {
+    if (isMongoConnected) {
+      const list = await Assignment.find().sort({ createdAt: -1 }).lean();
+      return res.json({ ok: true, assignments: list });
+    }
+    return res.json({ ok: true, assignments: memoryDb.assignments || [] });
+  } catch (e) {
+    return res.status(500).json({ ok: false, message: "Error fetching admin assignments" });
+  }
+});
+
 // POST Mentor Grade Student Submission
 app.post("/api/mentor/grade-submission", async (req, res) => {
   try {
