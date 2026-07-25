@@ -947,7 +947,7 @@ export default function MentorDashboard() {
                     </div>
 
                     <div className="flex items-center justify-between px-1 text-slate-400">
-                      <span>📞 যোগাযোগ: <strong className="text-slate-200">{gradingModal.submission.studentPhone || 'N/A'}</strong></span>
+                      <span>🏛️ একাডেমিক রেজাল্ট আইডি: <strong className="text-amber-300 font-mono">{gradingModal.submission.studentId}</strong></span>
                       <span>📅 জমা: <strong className="text-slate-200">{new Date(gradingModal.submission.createdAt).toLocaleDateString()}</strong></span>
                     </div>
                   </div>

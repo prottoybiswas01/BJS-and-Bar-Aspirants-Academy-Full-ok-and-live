@@ -2214,6 +2214,99 @@ app.post("/api/admin/generate-merit-pdf", async (req, res) => {
   }
 });
 
+// Master Submissions & Mentor Workload Distribution PDF Generator
+app.post("/api/admin/generate-master-submissions-pdf", async (req, res) => {
+  try {
+    const { courseId, mentorId } = req.body;
+
+    let subs = [];
+    if (isMongoConnected) {
+      subs = await Submission.find().sort({ createdAt: -1 }).lean();
+    } else {
+      subs = memoryDb.submissions || [];
+    }
+
+    if (courseId) {
+      subs = subs.filter(s => s.courseId === courseId);
+    }
+    if (mentorId) {
+      subs = subs.filter(s => s.assignedMentorId === mentorId || s.gradedBy?.includes(mentorId));
+    }
+
+    let studentsMap = new Map();
+    if (isMongoConnected) {
+      const allStudents = await Student.find().lean();
+      allStudents.forEach(s => studentsMap.set(s.id, s));
+    }
+    (memoryDb.students || []).forEach(s => {
+      if (!studentsMap.has(s.id)) studentsMap.set(s.id, s);
+    });
+
+    const doc = new PDFDocument({ margin: 36, size: 'A4' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=Master_Submissions_Report.pdf`);
+
+    doc.pipe(res);
+
+    // Header Banner
+    doc.fillColor('#0b1325').rect(36, 36, 523, 70).fill();
+    doc.fillColor('#f59e0b').fontSize(16).font('Helvetica-Bold').text("BJS & BAR ASPIRANTS ACADEMY", 50, 48);
+    doc.fillColor('#ffffff').fontSize(10).font('Helvetica').text("Master Submissions & Mentor Workload Distribution Audit Sheet", 50, 68);
+    doc.fillColor('#94a3b8').fontSize(8).text(`Generated Date: ${new Date().toLocaleDateString()}`, 50, 82);
+
+    // Metadata Block
+    doc.fillColor('#0f172a').rect(36, 115, 523, 35).fill();
+    doc.fillColor('#cbd5e1').fontSize(9).font('Helvetica-Bold').text(`TOTAL CANDIDATE SUBMISSIONS AUDITED: ${subs.length}`, 48, 126);
+
+    // Table Headers
+    const tableTop = 160;
+    doc.fillColor('#1e293b').rect(36, tableTop, 523, 20).fill();
+    doc.fillColor('#f8fafc').fontSize(8).font('Helvetica-Bold');
+    doc.text("SL", 44, tableTop + 6);
+    doc.text("CANDIDATE NAME", 75, tableTop + 6);
+    doc.text("UNIVERSITY / INSTITUTION", 210, tableTop + 6);
+    doc.text("ASSIGNED MENTOR", 355, tableTop + 6);
+    doc.text("MARKS", 470, tableTop + 6);
+    doc.text("STATUS", 515, tableTop + 6);
+
+    let y = tableTop + 24;
+
+    subs.forEach((s, idx) => {
+      const studentObj = studentsMap.get(s.studentId) || {};
+      const uniName = s.studentUniversity || studentObj.university || "Dhaka University (Law Dept)";
+      const marks = s.marksObtained !== null ? `${s.marksObtained} Marks` : "Pending";
+      const mentorName = s.assignedMentorName || s.gradedBy || "Academic Panel";
+
+      if (idx % 2 === 1) {
+        doc.fillColor('#f8fafc').rect(36, y - 4, 523, 18).fill();
+      }
+
+      doc.fillColor('#0f172a').fontSize(8).font('Helvetica');
+      doc.text(String(idx + 1), 44, y);
+      doc.fillColor('#0f172a').font('Helvetica-Bold').text(s.studentName || 'Student', 75, y, { width: 130 });
+      doc.fillColor('#475569').font('Helvetica').text(uniName, 210, y, { width: 140 });
+      doc.fillColor('#0369a1').font('Helvetica-Bold').text(mentorName, 355, y, { width: 110 });
+      doc.fillColor(s.marksObtained !== null ? '#047857' : '#b45309').font('Helvetica-Bold').text(marks, 470, y);
+      doc.fillColor(s.marksObtained !== null ? '#047857' : '#b45309').font('Helvetica').text(s.marksObtained !== null ? 'Graded' : 'Pending', 515, y);
+
+      y += 20;
+
+      if (y > 770) {
+        doc.addPage();
+        y = 40;
+      }
+    });
+
+    doc.fillColor('#94a3b8').fontSize(7).font('Helvetica-Oblique').text("© 2026 BJS & Bar Aspirants Academy. Official Mentor Load & Submissions Sheet.", 36, 800, { align: 'center' });
+
+    doc.end();
+  } catch (err) {
+    console.error("Master submissions PDF error:", err);
+    res.status(500).json({ ok: false, message: "Error generating Master Submissions PDF: " + err.message });
+  }
+});
+
 // GET Submissions for Mentor (or specific Assignment)
 app.get("/api/mentor/submissions", async (req, res) => {
   try {
@@ -2373,6 +2466,17 @@ app.post("/api/student/submit-assignment", async (req, res) => {
       });
     }
 
+    // Auto Load-Balancing Mentor Assignment logic
+    let activeMentors = (memoryDb.mentors || []).filter(m => m.status === 'Active');
+    if (activeMentors.length === 0 && isMongoConnected) {
+      activeMentors = await Mentor.find({ status: 'Active' }).lean();
+    }
+    let assignedMentor = null;
+    if (activeMentors.length > 0) {
+      const totalSubsCount = (memoryDb.submissions || []).length;
+      assignedMentor = activeMentors[totalSubsCount % activeMentors.length];
+    }
+
     const subId = existingSub ? existingSub.id : ("SUB-2026-" + Math.floor(1000 + Math.random() * 9000));
     const subData = {
       id: subId,
@@ -2385,6 +2489,8 @@ app.post("/api/student/submit-assignment", async (req, res) => {
       submissionText: submissionText || "",
       attachmentUrl: attachmentUrl || "",
       imageUrls: Array.isArray(imageUrls) ? imageUrls : [],
+      assignedMentorId: assignedMentor ? assignedMentor.id : "",
+      assignedMentorName: assignedMentor ? assignedMentor.name : "",
       marksObtained: null, // reset marks on resubmit
       feedback: "",
       gradedAt: null,
