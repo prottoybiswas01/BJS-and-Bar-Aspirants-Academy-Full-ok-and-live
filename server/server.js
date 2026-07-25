@@ -922,7 +922,7 @@ const boldFontPath = path.join(fontsDir, "HindSiliguri-Bold.ttf");
 
 function initBengaliPdfDoc(options = {}) {
   const doc = new PDFDocument({
-    margin: 36,
+    margin: { top: 36, bottom: 25, left: 36, right: 36 },
     size: "A4",
     bufferPages: true,
     ...options
@@ -940,7 +940,7 @@ function applyBengaliPdfWatermarkAndFooter(doc, titleText = "Official Document")
   for (let i = 0; i < pages.count; i++) {
     doc.switchToPage(i);
 
-    // 1. Prominent Translucent Diagonal Watermark
+    // 1. Bolder & Prominent Translucent Diagonal Watermark
     doc.save();
     doc.fillColor("#475569");
     doc.fillOpacity(0.14);
@@ -954,28 +954,28 @@ function applyBengaliPdfWatermarkAndFooter(doc, titleText = "Official Document")
     // 2. Official 2-Line Footer (Admission Numbers + Page Count)
     doc.save();
     
-    // Thin divider line above footer at y = 780
-    doc.moveTo(36, 780).lineTo(559, 780).strokeColor("#cbd5e1").lineWidth(0.5).stroke();
+    // Thin divider line above footer at y = 790
+    doc.moveTo(36, 790).lineTo(559, 790).strokeColor("#cbd5e1").lineWidth(0.5).stroke();
 
-    // Footer Line 1: Official Hotline & Admission Notice at y = 786
-    doc.fillColor("#0284c7").fontSize(8);
+    // Footer Line 1: Official Hotline & Admission Notice at y = 794
+    doc.fillColor("#0284c7").fontSize(7.5);
     if (fs.existsSync(boldFontPath)) doc.font("Bengali-Bold");
     else doc.font("Helvetica-Bold");
     doc.text(
       "📞 ভর্তি ও যে কোনো তথ্যের জন্য যোগাযোগ (Admission Hotline): 01800077663, 01978167016",
       36,
-      786,
+      794,
       { align: "center", width: 523, lineBreak: false }
     );
 
-    // Footer Line 2: Copyright & Page Numbering at y = 798
-    doc.fillColor("#64748b").fontSize(7.5);
+    // Footer Line 2: Copyright & Page Numbering at y = 805
+    doc.fillColor("#64748b").fontSize(7);
     if (fs.existsSync(regularFontPath)) doc.font("Bengali-Regular");
     else doc.font("Helvetica");
     doc.text(
       `© 2026 BJS & Bar Aspirants Academy | ${titleText} | Page ${i + 1} of ${pages.count}`,
       36,
-      798,
+      805,
       { align: "center", width: 523, lineBreak: false }
     );
 
@@ -2157,7 +2157,7 @@ app.post("/api/admin/generate-mcq-pdf", async (req, res) => {
         blockHeight += doc.heightOfString(`   ব্যাখ্যা: ${q.explanation}`, { width: 495 }) + 8;
       }
 
-      if (y + blockHeight > 750) {
+      if (y + blockHeight > 730) {
         doc.addPage();
         y = 45;
       }
@@ -2171,7 +2171,7 @@ app.post("/api/admin/generate-mcq-pdf", async (req, res) => {
         const isCorrect = oIdx === q.correctIndex;
         const letter = optLetters[oIdx] || String.fromCharCode(65 + oIdx);
         if (isCorrect) {
-          doc.fillColor('#047857').fontSize(9).font(fontBold).text(`   ${letter}) ${opt}   (✓ সঠিক উত্তর)`, 50, y, { width: 495 });
+          doc.fillColor('#047857').fontSize(9).font(fontBold).text(`   ${letter}) ${opt}   (সঠিক উত্তর)`, 50, y, { width: 495 });
         } else {
           doc.fillColor('#334155').fontSize(9).font(fontRegular).text(`   ${letter}) ${opt}`, 50, y, { width: 495 });
         }
