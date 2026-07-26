@@ -1705,6 +1705,108 @@ app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], async (req, res) =>
   }
 });
 
+// -------------------------------------------------------------
+// LESSONS & VIDEO LECTURE MANAGEMENT ENDPOINTS
+// -------------------------------------------------------------
+
+// GET Lessons (All or filtered by courseId)
+app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { courseId } = req.query;
+
+    let query = {};
+    if (courseId) {
+      query.courseId = courseId;
+    }
+
+    let lessonsList = [];
+    if (isMongoConnected) {
+      lessonsList = await Lesson.find(query).sort({ createdAt: -1 }).lean();
+    }
+
+    if (!lessonsList || lessonsList.length === 0) {
+      lessonsList = memoryDb.lessons || [];
+      if (courseId) {
+        lessonsList = lessonsList.filter(l => l.courseId === courseId || l.courseId === String(courseId));
+      }
+    }
+
+    return res.json({ ok: true, lessons: lessonsList || [], count: (lessonsList || []).length });
+  } catch (err) {
+    console.error("Fetch lessons error:", err);
+    const fallback = (memoryDb.lessons || []).filter(l => !req.query.courseId || l.courseId === req.query.courseId);
+    return res.json({ ok: true, lessons: fallback, count: fallback.length, dbNotice: err.message });
+  }
+});
+
+// SAVE / CREATE / UPDATE Lesson Video
+app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admin/lessons/save", "/admin/lessons"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const body = req.body;
+    const lessonId = body.id || body._id || (`les-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`);
+    const youtubeId = extractYoutubeId(body.youtubeUrl || body.youtubeId || "");
+
+    const lessonData = {
+      id: lessonId,
+      courseId: body.courseId || "General Class",
+      module: body.module || "Fast Class",
+      chapter: body.chapter || "",
+      title: body.title || body.chapter || body.module || "Class Video",
+      duration: body.duration || "56min",
+      youtubeUrl: body.youtubeUrl || (youtubeId ? `https://youtu.be/${youtubeId}` : ""),
+      youtubeId: youtubeId,
+      releaseDate: body.releaseDate || new Date().toISOString().split("T")[0],
+      description: body.description || ""
+    };
+
+    let saved = lessonData;
+    if (isMongoConnected) {
+      let existing = await Lesson.findOne({ $or: [{ id: lessonId }, ...(mongoose.Types.ObjectId.isValid(lessonId) ? [{ _id: lessonId }] : [])] });
+      if (existing) {
+        Object.assign(existing, lessonData);
+        saved = await existing.save();
+      } else {
+        saved = await Lesson.create(lessonData);
+      }
+      if (saved && saved.toObject) saved = saved.toObject();
+    }
+
+    // Sync in memory DB
+    const idx = (memoryDb.lessons || []).findIndex(l => l.id === lessonId || l._id === lessonId);
+    if (idx > -1) {
+      memoryDb.lessons[idx] = { ...memoryDb.lessons[idx], ...lessonData };
+    } else {
+      (memoryDb.lessons = memoryDb.lessons || []).unshift(lessonData);
+    }
+
+    return res.json({
+      ok: true,
+      message: `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে!`,
+      lesson: saved
+    });
+  } catch (err) {
+    console.error("Save lesson error:", err);
+    return res.status(500).json({ ok: false, message: "Error saving video lesson: " + err.message });
+  }
+});
+
+// DELETE Lesson Video
+app.delete(["/api/admin/lessons/:id", "/api/lessons/:id", "/admin/lessons/:id", "/lessons/:id"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { id } = req.params;
+    if (isMongoConnected) {
+      await Lesson.deleteOne({ $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])] });
+    }
+    memoryDb.lessons = (memoryDb.lessons || []).filter(l => l.id !== id && l._id !== id);
+    return res.json({ ok: true, message: "✓ ভিডিওটি সফলভাবে মুছে ফেলা হয়েছে।" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error deleting lesson: " + err.message });
+  }
+});
+
 // GET Mentors Endpoint (Public Homepage & Admin Panel)
 app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], async (req, res) => {
   let dbNotice = null;
