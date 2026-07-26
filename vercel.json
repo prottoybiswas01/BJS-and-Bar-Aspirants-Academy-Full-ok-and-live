@@ -17,7 +17,28 @@
       "dest": "server/server.js"
     },
     {
-      "handle": "filesystem"
+      "src": "/assets/(.*)",
+      "dest": "client/assets/$1"
+    },
+    {
+      "src": "/manifest.json",
+      "dest": "client/manifest.json"
+    },
+    {
+      "src": "/sw.js",
+      "dest": "client/sw.js"
+    },
+    {
+      "src": "/pwa-192x192.png",
+      "dest": "client/pwa-192x192.png"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "dest": "client/pwa-512x512.png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "dest": "client/apple-touch-icon.png"
     },
     {
       "src": "/(.*)",
