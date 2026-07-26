@@ -1,0 +1,25 @@
+{
+  "name": "BJS & Bar Aspirants Academy - আইন পাঠশালা",
+  "short_name": "BJS Academy",
+  "description": "BJS এবং বার কাউন্সিল পরীক্ষার প্রস্তুতির জন্য বিশ্বস্ত অনলাইন লার্নিং প্ল্যাটফর্ম।",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b1325",
+  "theme_color": "#0b1325",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

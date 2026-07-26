@@ -19,6 +19,7 @@ import ProfileModal from './components/ProfileModal';
 import LessonManagerModal from './components/LessonManagerModal';
 import MentorProfileModal from './components/MentorProfileModal';
 import ForceTempPasswordModal from './components/ForceTempPasswordModal';
+import PwaInstallBanner from './components/PwaInstallBanner';
 import api from './services/api';
 
 function MainApp() {
@@ -187,6 +188,9 @@ function MainApp() {
 
       {/* Force One-Time Temporary Password Change Modal */}
       <ForceTempPasswordModal />
+
+      {/* PWA Floating Mobile Install Prompt Banner & iOS Modal */}
+      <PwaInstallBanner />
     </div>
   );
 }
