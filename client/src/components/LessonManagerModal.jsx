@@ -282,7 +282,18 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {lessons.map((l, index) => (
+                    {[...lessons].sort((a, b) => {
+                      const strA = (a.title || '') + ' ' + (a.chapter || '') + ' ' + (a.module || '') + ' ' + (a.id || '');
+                      const strB = (b.title || '') + ' ' + (b.chapter || '') + ' ' + (b.module || '') + ' ' + (b.id || '');
+                      const matchA = strA.match(/(?:class|lecture|lesson|\#|ক্লাস|পাঠ)[-_\s]*(\d+)/i) || strA.match(/(\d+)/);
+                      const matchB = strB.match(/(?:class|lecture|lesson|\#|ক্লাস|পাঠ)[-_\s]*(\d+)/i) || strB.match(/(\d+)/);
+                      const numA = matchA ? parseInt(matchA[1], 10) : 999999;
+                      const numB = matchB ? parseInt(matchB[1], 10) : 999999;
+                      if (numA !== numB) return numA - numB;
+                      const dateA = new Date(a.createdAt || a.releaseDate || 0).getTime();
+                      const dateB = new Date(b.createdAt || b.releaseDate || 0).getTime();
+                      return dateA - dateB;
+                    }).map((l, index) => (
                       <tr key={l.id || index} className="hover:bg-slate-900/60 transition-colors">
                         <td className="p-2.5 font-mono font-bold text-amber-400 text-center">{index + 1}</td>
                         <td className="p-2.5 font-semibold text-amber-300">{l.module}</td>

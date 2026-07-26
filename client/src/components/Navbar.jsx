@@ -29,7 +29,7 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
 
           {/* Navigation Links */}
           <div className="hidden md:flex items-center space-x-2">
-            {user && !user.isAdmin && !user.isMentor && (
+            {user && !user.isAdmin && !user.isMentor && activePage !== 'admin' && activePage !== 'admin-login' && (
               <button
                 onClick={() => setActivePage('dashboard')}
                 className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
@@ -73,7 +73,7 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
 
             {user ? (
               <div className="flex items-center gap-1.5 sm:gap-2">
-                {!user.isAdmin && (
+                {!user.isAdmin && activePage !== 'admin' && activePage !== 'admin-login' && (
                   <button
                     onClick={openProfileModal}
                     className="flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 hover:border-amber-500/50 transition-all text-left"

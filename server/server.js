@@ -488,6 +488,20 @@ app.post("/api/auth/login", async (req, res) => {
     const cleanDigits = cleanId.replace(/\D/g, "");
     const passInput = String(password || "").trim();
 
+    // Admin Identifiers List
+    const isAdminUsername =
+      cleanId === "admin" ||
+      cleanId === "prttoy" ||
+      cleanId === "prottoy" ||
+      cleanId === "01800077663_admin" ||
+      cleanId === "01800077663" ||
+      cleanDigits.endsWith("1800077663") ||
+      cleanId === "bjsacademy38@gmail.com" ||
+      cleanId === "prottoybiswas575358@gmail.com" ||
+      cleanId === "prottoybiswa575358@gmail.com" ||
+      cleanId.includes("prottoy") ||
+      cleanId === validAdminUser.toLowerCase();
+
     // Standard Admin Passwords
     const isAdminPassword =
       passInput === validAdminPass ||
@@ -498,21 +512,21 @@ app.post("/api/auth/login", async (req, res) => {
       passInput === "prttoy" ||
       passInput === "prottoy";
 
-    // Strict Admin Portal Check: ONLY log in as Admin if explicitly requested via Admin Portal OR cleanId is dedicated admin username
-    const isStrictAdminUsername =
-      cleanId === "admin" ||
-      cleanId === "prttoy" ||
-      cleanId === "01800077663_admin" ||
-      cleanId === validAdminUser.toLowerCase();
-
-    if ((isAdminPortal || isStrictAdminUsername) && isStrictAdminUsername && isAdminPassword) {
-      const token = jwt.sign({ role: "admin", id: "ADMIN-001" }, JWT_SECRET, { expiresIn: "7d" });
-      return res.json({
-        ok: true,
-        isAdmin: true,
-        token,
-        user: { id: "ADMIN-001", name: "Super Admin (Prottoy)", role: "admin" }
-      });
+    // 1. DIRECT ADMIN PORTAL LOGIN
+    if (isAdminPortal || (isAdminUsername && isAdminPassword)) {
+      if (isAdminUsername || isAdminPortal) {
+        if (isAdminPassword) {
+          const token = jwt.sign({ role: "admin", id: "ADMIN-001" }, JWT_SECRET, { expiresIn: "7d" });
+          return res.json({
+            ok: true,
+            isAdmin: true,
+            token,
+            user: { id: "ADMIN-001", name: "Super Admin (Prottoy)", role: "admin", isAdmin: true }
+          });
+        } else if (isAdminPortal) {
+          return res.status(401).json({ ok: false, message: "ভুল অ্যাডমিন পাসওয়ার্ড! অনুগ্রহ করে সঠিক পাসওয়ার্ড দিন।" });
+        }
+      }
     }
 
     // STUDENT LOGIN FLOW (Guaranteed to return Student profile for Student Dashboard)
@@ -1698,7 +1712,7 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
 
     let lessonsList = [];
     if (isMongoConnected) {
-      lessonsList = await Lesson.find(query).sort({ createdAt: -1 }).lean();
+      lessonsList = await Lesson.find(query).lean();
     }
 
     if (!lessonsList || lessonsList.length === 0) {
@@ -1707,6 +1721,22 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
         lessonsList = lessonsList.filter(l => l.courseId === courseId || l.courseId === String(courseId));
       }
     }
+
+    // Sort lessons serially in ascending order (#1, #2, #3 ... #15)
+    const parseLessonNum = (l) => {
+      const str = (l.title || '') + ' ' + (l.chapter || '') + ' ' + (l.module || '') + ' ' + (l.id || '');
+      const match = str.match(/(?:class|lecture|lesson|\#|ক্লাস|পাঠ)[-_\s]*(\d+)/i) || str.match(/(\d+)/);
+      return match ? parseInt(match[1], 10) : 999999;
+    };
+
+    lessonsList.sort((a, b) => {
+      const numA = parseLessonNum(a);
+      const numB = parseLessonNum(b);
+      if (numA !== numB) return numA - numB;
+      const dateA = new Date(a.createdAt || a.releaseDate || 0).getTime();
+      const dateB = new Date(b.createdAt || b.releaseDate || 0).getTime();
+      return dateA - dateB;
+    });
 
     return res.json({ ok: true, lessons: lessonsList || [], count: (lessonsList || []).length });
   } catch (err) {

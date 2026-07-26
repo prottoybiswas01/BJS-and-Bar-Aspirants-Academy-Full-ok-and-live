@@ -188,8 +188,24 @@ export default function Dashboard({ openVideoModal }) {
     }
   };
 
+  // Helper to extract lesson number from title/chapter/module/id for serial ascending order (#1, #2 ... #15)
+  const getLessonNum = (l) => {
+    const str = (l.title || '') + ' ' + (l.chapter || '') + ' ' + (l.module || '') + ' ' + (l.id || '');
+    const match = str.match(/(?:class|lecture|lesson|\#|ক্লাস|পাঠ)[-_\s]*(\d+)/i) || str.match(/(\d+)/);
+    return match ? parseInt(match[1], 10) : 999999;
+  };
+
+  const sortedLessons = [...lessons].sort((a, b) => {
+    const numA = getLessonNum(a);
+    const numB = getLessonNum(b);
+    if (numA !== numB) return numA - numB;
+    const dateA = new Date(a.createdAt || a.releaseDate || 0).getTime();
+    const dateB = new Date(b.createdAt || b.releaseDate || 0).getTime();
+    return dateA - dateB;
+  });
+
   // Group lessons by Chapter (অধ্যায়) if available, otherwise by Module
-  const groupedLessons = lessons.reduce((acc, l) => {
+  const groupedLessons = sortedLessons.reduce((acc, l) => {
     const groupKey = l.chapter && l.chapter.trim() !== '' ? l.chapter : (l.module || 'সাধারণ বিষয়সূচি (General Module)');
     if (!acc[groupKey]) acc[groupKey] = [];
     acc[groupKey].push(l);
