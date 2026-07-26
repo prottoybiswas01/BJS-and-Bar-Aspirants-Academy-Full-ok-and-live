@@ -19,7 +19,7 @@ export default function AdminLogin({ setActivePage }) {
     setError(null);
 
     try {
-      const result = await login(identifier, password);
+      const result = await login(identifier, password, true);
       if (result.ok) {
         if (result.user.isAdmin) {
           setActivePage('admin');

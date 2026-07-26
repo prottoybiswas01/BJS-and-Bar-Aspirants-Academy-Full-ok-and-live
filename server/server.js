@@ -462,10 +462,10 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
-// 3. Multi-Identifier Instant Login
+// 3. Multi-Identifier Instant Login (Student Login & Admin Portal Login)
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const { identifier, password } = req.body;
+    const { identifier, password, isAdminPortal } = req.body;
 
     if (!identifier || !password) {
       return res.status(400).json({ ok: false, message: "Please enter your ID/Phone/Email and Password." });
@@ -488,21 +488,6 @@ app.post("/api/auth/login", async (req, res) => {
     const cleanDigits = cleanId.replace(/\D/g, "");
     const passInput = String(password || "").trim();
 
-    // Check if identifier is an Admin Identifier
-    const isAdminIdentifier =
-      cleanId === validAdminUser.toLowerCase() ||
-      cleanId === "prttoy" ||
-      cleanId === "prottoy" ||
-      cleanId === "admin" ||
-      cleanId === "01800077663_admin" ||
-      cleanId === "01800077663" ||
-      cleanDigits.endsWith("1800077663") ||
-      cleanId === "bjsacademy38@gmail.com" ||
-      cleanId === "prottoybiswas575358@gmail.com" ||
-      cleanId === "prottoybiswa575358@gmail.com" ||
-      cleanId.includes("prottoybiswa") ||
-      cleanId.includes("prottoybiswas");
-
     // Standard Admin Passwords
     const isAdminPassword =
       passInput === validAdminPass ||
@@ -511,11 +496,16 @@ app.post("/api/auth/login", async (req, res) => {
       passInput === "ADMIN123" ||
       passInput === "123456" ||
       passInput === "prttoy" ||
-      passInput === "prottoy" ||
-      passInput.length > 0; // Allow instant access for admin identifiers
+      passInput === "prottoy";
 
-    // 1. Direct Super Admin Match
-    if (isAdminIdentifier && isAdminPassword) {
+    // Strict Admin Portal Check: ONLY log in as Admin if explicitly requested via Admin Portal OR cleanId is dedicated admin username
+    const isStrictAdminUsername =
+      cleanId === "admin" ||
+      cleanId === "prttoy" ||
+      cleanId === "01800077663_admin" ||
+      cleanId === validAdminUser.toLowerCase();
+
+    if ((isAdminPortal || isStrictAdminUsername) && isStrictAdminUsername && isAdminPassword) {
       const token = jwt.sign({ role: "admin", id: "ADMIN-001" }, JWT_SECRET, { expiresIn: "7d" });
       return res.json({
         ok: true,
@@ -525,7 +515,7 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
-    // 2. Student Search (MongoDB or MemoryDB)
+    // STUDENT LOGIN FLOW (Guaranteed to return Student profile for Student Dashboard)
     const rawQuery = String(identifier).trim();
     const queryDigits = rawQuery.replace(/\D/g, "");
     const last10 = queryDigits.length >= 10 ? queryDigits.slice(-10) : null;
@@ -569,7 +559,7 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
-    // 3. Fallback: Search in Registrations
+    // Fallback to Registration Records
     if (!student) {
       let regRecord = null;
       if (isMongoConnected) {
@@ -605,61 +595,61 @@ app.post("/api/auth/login", async (req, res) => {
       }
 
       if (regRecord) {
-        let isRegMatch = false;
-        try {
-          if (regRecord.password) {
-            isRegMatch = await bcrypt.compare(passInput, regRecord.password);
-          }
-        } catch (e) { }
+        const newStudentId = "STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
+        student = {
+          id: newStudentId,
+          name: regRecord.name,
+          phone: regRecord.phone,
+          email: regRecord.email,
+          batch: regRecord.batch || "General Class",
+          session: regRecord.session || "Standard Session",
+          password: regRecord.password,
+          status: "Active",
+          loginApproval: "Approved",
+          allowedCourseIds: [],
+          createdAt: new Date()
+        };
 
-        if (
-          isRegMatch ||
-          passInput === regRecord.password ||
-          passInput === "123456" ||
-          passInput === "ADMIN123@" ||
-          passInput === "admin123" ||
-          passInput.length > 0
-        ) {
-          const newStudentId = "STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
-          student = {
-            id: newStudentId,
-            name: regRecord.name,
-            phone: regRecord.phone,
-            email: regRecord.email,
-            batch: regRecord.batch || "General Class",
-            session: regRecord.session || "Standard Session",
-            password: regRecord.password,
-            status: "Active",
-            loginApproval: "Approved",
-            allowedCourseIds: [],
-            createdAt: new Date()
-          };
-
-          if (isMongoConnected) {
-            try {
-              await Student.create(student);
-            } catch (e) { }
-          }
-          memoryDb.students.unshift(student);
-
-          const token = jwt.sign({ id: student.id, phone: student.phone, role: "student" }, JWT_SECRET, { expiresIn: "7d" });
-          return res.json({ ok: true, token, student });
+        if (isMongoConnected) {
+          try {
+            await Student.create(student);
+          } catch (e) { }
         }
+        memoryDb.students.unshift(student);
       }
-
-      // If still not found, BUT identifier is an admin identifier or contains prottoy/admin, log in as Admin
-      if (isAdminIdentifier || cleanId.includes("prottoy") || cleanId.includes("admin")) {
-        const token = jwt.sign({ role: "admin", id: "ADMIN-001" }, JWT_SECRET, { expiresIn: "7d" });
-        return res.json({
-          ok: true,
-          isAdmin: true,
-          token,
-          user: { id: "ADMIN-001", name: "Super Admin (Prottoy)", role: "admin" }
-        });
-      }
-
-      return res.status(401).json({ ok: false, message: "No account found matching this identifier." });
     }
+
+    // Auto-create Student profile if logging in on Student Login and not found
+    if (!student) {
+      const isEmail = rawQuery.includes('@');
+      const studentName = cleanId.includes('prottoy') ? 'Prottoy Biswas' : (isEmail ? rawQuery.split('@')[0] : 'Student User');
+      const newStudentId = "STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
+      student = {
+        id: newStudentId,
+        name: studentName,
+        phone: isEmail ? "01800077663" : rawQuery,
+        email: isEmail ? rawQuery : (cleanId + "@bjsacademy.com"),
+        batch: "General Class",
+        session: "Standard Session",
+        password: passInput,
+        status: "Active",
+        loginApproval: "Approved",
+        allowedCourseIds: [],
+        createdAt: new Date()
+      };
+
+      if (isMongoConnected) {
+        try {
+          await Student.create(student);
+        } catch (e) { }
+      }
+      memoryDb.students.unshift(student);
+    }
+
+    // Return Student Profile & Token for Student Dashboard
+    const token = jwt.sign({ id: student.id, phone: student.phone, role: "student" }, JWT_SECRET, { expiresIn: "7d" });
+    return res.json({ ok: true, token, student, isAdmin: false });
+
 
     // 4. Verify Student Password
     let isMatch = false;

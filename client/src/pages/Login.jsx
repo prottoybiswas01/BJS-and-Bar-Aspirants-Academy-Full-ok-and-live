@@ -31,15 +31,11 @@ export default function Login({ setActivePage }) {
     setLoading(true);
     setError(null);
 
-    const result = await login(identifier, password);
+    const result = await login(identifier, password, false);
     setLoading(false);
 
     if (result.ok) {
-      if (result.user.isAdmin) {
-        setActivePage('admin');
-      } else {
-        setActivePage('dashboard');
-      }
+      setActivePage('dashboard');
     } else {
       setError(result.message);
     }
