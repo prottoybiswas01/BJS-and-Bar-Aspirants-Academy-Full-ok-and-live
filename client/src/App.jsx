@@ -28,6 +28,18 @@ function MainApp() {
   const [activePage, setActivePage] = useState(() => {
     const path = window.location.pathname.toLowerCase();
     const hash = window.location.hash.toLowerCase();
+
+    const storedUser = localStorage.getItem('bjs_user');
+    let isStudentLoggedIn = false;
+    try {
+      if (storedUser) {
+        const u = JSON.parse(storedUser);
+        if (u && u.id && !u.isAdmin && !u.isMentor) {
+          isStudentLoggedIn = true;
+        }
+      }
+    } catch (e) {}
+
     if (hash.startsWith('#mcq-exam-') || path.includes('/mcq-exam/')) {
       const eId = window.location.hash.replace('#mcq-exam-', '') || path.split('/mcq-exam/')[1];
       return 'mcq-exam';
@@ -36,7 +48,13 @@ function MainApp() {
       return 'admin';
     }
     if (path === '/mentor' || path === '/mentor/' || path.includes('/mentor') || hash === '#mentor' || hash === '#/mentor') {
-      return user?.isMentor ? 'mentor-dashboard' : 'mentor-login';
+      return 'mentor-dashboard';
+    }
+    if (hash === '#home' || path === '/home') {
+      return 'home';
+    }
+    if (hash === '#dashboard' || path === '/dashboard' || isStudentLoggedIn) {
+      return 'dashboard';
     }
     return 'home';
   });

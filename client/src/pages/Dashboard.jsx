@@ -11,6 +11,7 @@ export default function Dashboard({ openVideoModal }) {
 
   // Tab state: 'lectures' | 'assignments'
   const [selectedTab, setSelectedTab] = useState('lectures');
+  const [showCoursesSection, setShowCoursesSection] = useState(true);
   const [studentAssignments, setStudentAssignments] = useState([]);
   const [mySubmissions, setMySubmissions] = useState([]);
   const [submittingAsnId, setSubmittingAsnId] = useState(null);
@@ -146,8 +147,12 @@ export default function Dashboard({ openVideoModal }) {
         );
         setCourses(activeCourses);
         if (activeCourses.length > 0) {
-          setSelectedCourse(activeCourses[0]);
-          fetchLessons(activeCourses[0].id);
+          // Prioritize the student's enrolled course first
+          const enrolled = activeCourses.find(c => 
+            (user?.allowedCourseIds || user?.enrolledCourseIds || []).includes(c.id)
+          ) || activeCourses[0];
+          setSelectedCourse(enrolled);
+          fetchLessons(enrolled.id);
         }
       }
     } catch (err) {
@@ -341,43 +346,54 @@ export default function Dashboard({ openVideoModal }) {
         <>
           {/* Course Switcher Tabs */}
           <section className="space-y-4">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span>📚 নিবন্ধিত ও লার্নিং কোর্সসমূহ</span>
-            </h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {courses.map((c) => {
-                const active = selectedCourse?.id === c.id;
-                const enrolled = user?.allowedCourseIds?.includes(c.id) || user?.enrolledCourseIds?.includes(c.id);
-
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => handleSelectCourse(c)}
-                    className={`p-4 rounded-2xl text-left transition-all border ${
-                      active
-                        ? 'bg-amber-500/10 border-amber-500 text-white shadow-lg shadow-amber-500/10'
-                        : 'glass-card border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-xs font-bold font-mono text-amber-400">{c.shortTitle || c.title}</span>
-                      {enrolled ? (
-                        <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-                          Enrolled
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">
-                          Not Enrolled
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="font-extrabold text-sm text-white line-clamp-1">{c.title}</h3>
-                    <p className="text-[11px] text-slate-500 mt-1">ফ্যাকাল্টি: {c.faculty}</p>
-                  </button>
-                );
-              })}
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <span>📚 নিবন্ধিত ও লার্নিং কোর্সসমূহ</span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowCoursesSection(!showCoursesSection)}
+                className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-amber-400 hover:text-amber-300 transition-all flex items-center gap-1.5 shadow-sm"
+              >
+                <span>{showCoursesSection ? '👁️ হাইড করুন (Hide)' : '👁️ দেখান (Show Courses)'}</span>
+              </button>
             </div>
+
+            {showCoursesSection && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fadeIn">
+                {courses.map((c) => {
+                  const active = selectedCourse?.id === c.id;
+                  const enrolled = user?.allowedCourseIds?.includes(c.id) || user?.enrolledCourseIds?.includes(c.id);
+
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => handleSelectCourse(c)}
+                      className={`p-4 rounded-2xl text-left transition-all border ${
+                        active
+                          ? 'bg-amber-500/10 border-amber-500 text-white shadow-lg shadow-amber-500/10'
+                          : 'glass-card border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-xs font-bold font-mono text-amber-400">{c.shortTitle || c.title}</span>
+                        {enrolled ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                            Enrolled
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">
+                            Not Enrolled
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="font-extrabold text-sm text-white line-clamp-1">{c.title}</h3>
+                      <p className="text-[11px] text-slate-500 mt-1">ফ্যাকাল্টি: {c.faculty}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           {/* Selected Course Modules & Video Matrix */}
