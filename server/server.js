@@ -649,30 +649,6 @@ app.post("/api/auth/login", async (req, res) => {
     // Return Student Profile & Token for Student Dashboard
     const token = jwt.sign({ id: student.id, phone: student.phone, role: "student" }, JWT_SECRET, { expiresIn: "7d" });
     return res.json({ ok: true, token, student, isAdmin: false });
-
-
-    // 4. Verify Student Password
-    let isMatch = false;
-    try {
-      if (student.password) {
-        isMatch = await bcrypt.compare(passInput, student.password);
-      }
-    } catch (e) { }
-
-    const isPasswordValid =
-      isMatch ||
-      passInput === student.password ||
-      passInput === "123456" ||
-      passInput === "ADMIN123@" ||
-      passInput === "admin123" ||
-      passInput === validAdminPass;
-
-    if (!isPasswordValid) {
-      return res.status(401).json({ ok: false, message: "Incorrect password. Please try again." });
-    }
-
-    const token = jwt.sign({ id: student.id, phone: student.phone, role: "student" }, JWT_SECRET, { expiresIn: "7d" });
-    return res.json({ ok: true, token, student });
   } catch (err) {
     console.error("Login endpoint error:", err);
     res.status(500).json({ ok: false, message: err.message || "Server error during login." });
