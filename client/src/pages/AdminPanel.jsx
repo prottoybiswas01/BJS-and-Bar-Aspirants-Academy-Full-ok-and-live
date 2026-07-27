@@ -121,6 +121,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   // Admin Modular Tab Navigation State
   const [adminTab, setAdminTab] = useState('settings'); // 'settings' | 'students' | 'mentors' | 'courses' | 'payments' | 'mcq' | 'merit'
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Messaging State
   const [popupTitle, setPopupTitle] = useState('');
@@ -1530,21 +1531,32 @@ return (
       )}
 
       {/* LEFT EXECUTIVE NAVIGATION SIDEBAR */}
-      <aside className="w-full lg:w-72 glass-card rounded-3xl p-5 border border-slate-800 shrink-0 space-y-6 flex flex-col justify-between self-start sticky top-20 z-30 bg-[#0b1325]/95 backdrop-blur-xl shadow-2xl">
-        <div className="space-y-6">
-          {/* Brand Profile Header */}
-          <div className="flex items-center gap-3 border-b border-slate-800/80 pb-4">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-black text-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
-              PN
+      <aside className="w-full lg:w-72 glass-card rounded-3xl p-4 sm:p-5 border border-slate-800 shrink-0 space-y-4 lg:space-y-6 flex flex-col justify-between self-start relative lg:sticky lg:top-24 z-20 bg-[#0b1325]/95 backdrop-blur-xl shadow-2xl">
+        <div className="space-y-4 lg:space-y-6">
+          {/* Brand Profile Header & Mobile Toggle */}
+          <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-black text-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
+                PN
+              </div>
+              <div>
+                <h3 className="font-extrabold text-white text-sm">আইন পাঠশালা বিডি</h3>
+                <p className="text-[11px] text-amber-400 font-mono font-bold">Admin Control Panel</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-extrabold text-white text-sm">আইন পাঠশালা বিডি</h3>
-              <p className="text-[11px] text-amber-400 font-mono font-bold">Admin Control Panel</p>
-            </div>
+
+            {/* Mobile Expand / Collapse Menu Toggle */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="lg:hidden px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-amber-400 text-xs font-bold flex items-center gap-1.5 hover:bg-slate-800 transition-all cursor-pointer"
+            >
+              <span>{isMobileMenuOpen ? '📂 অপশনস গুটান' : '📋 অপশনস টগল ▾'}</span>
+            </button>
           </div>
 
           {/* Navigation Group: MANAGEMENT */}
-          <div className="space-y-1.5">
+          <div className={`space-y-1.5 ${isMobileMenuOpen ? 'block' : 'hidden lg:block'}`}>
             <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase block px-3">
               MANAGEMENT
             </span>
@@ -1552,7 +1564,7 @@ return (
             {/* 1. Site Settings & Banner */}
             <button
               type="button"
-              onClick={() => setAdminTab('settings')}
+              onClick={() => { setAdminTab('settings'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'settings'
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
@@ -1571,7 +1583,7 @@ return (
             {/* 2. Student Control */}
             <button
               type="button"
-              onClick={() => setAdminTab('students')}
+              onClick={() => { setAdminTab('students'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'students'
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
@@ -1590,7 +1602,7 @@ return (
             {/* 3. Mentor & Faculty Control */}
             <button
               type="button"
-              onClick={() => setAdminTab('mentors')}
+              onClick={() => { setAdminTab('mentors'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'mentors'
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
@@ -1609,7 +1621,7 @@ return (
             {/* 4. Course Launch Manager */}
             <button
               type="button"
-              onClick={() => setAdminTab('courses')}
+              onClick={() => { setAdminTab('courses'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'courses'
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
@@ -1628,7 +1640,7 @@ return (
             {/* 5. Payment & Receipts */}
             <button
               type="button"
-              onClick={() => setAdminTab('payments')}
+              onClick={() => { setAdminTab('payments'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'payments'
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
@@ -1647,7 +1659,7 @@ return (
             {/* 6. MCQ Exam Engine */}
             <button
               type="button"
-              onClick={() => setAdminTab('mcq')}
+              onClick={() => { setAdminTab('mcq'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'mcq'
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
@@ -1666,7 +1678,7 @@ return (
             {/* 7. Merit List & PDF Generator */}
             <button
               type="button"
-              onClick={() => setAdminTab('merit')}
+              onClick={() => { setAdminTab('merit'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'merit'
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
