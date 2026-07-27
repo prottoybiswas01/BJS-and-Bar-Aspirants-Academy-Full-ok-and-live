@@ -77,15 +77,26 @@ export const AuthProvider = ({ children }) => {
 
       if (res.data && res.data.ok) {
         const newToken = res.data.token;
-        const userData = res.data.isAdmin ? res.data.user : res.data.student;
+        const userData = res.data.isAdmin
+          ? res.data.user
+          : res.data.isMentor
+          ? (res.data.mentor || res.data.user || res.data.student)
+          : res.data.student;
+
         if (res.data.isAdmin) userData.isAdmin = true;
+        if (res.data.isMentor) userData.isMentor = true;
 
         setToken(newToken);
         setUser(userData);
 
         localStorage.setItem('bjs_token', newToken);
         localStorage.setItem('bjs_user', JSON.stringify(userData));
-        return { ok: true, user: userData };
+        return {
+          ok: true,
+          user: userData,
+          isAdmin: !!res.data.isAdmin,
+          isMentor: !!res.data.isMentor
+        };
       }
       return { ok: false, message: res.data?.message || 'লগইন তথ্য সঠিক নয়।' };
     } catch (err) {

@@ -35,7 +35,13 @@ export default function Login({ setActivePage }) {
     setLoading(false);
 
     if (result.ok) {
-      setActivePage('dashboard');
+      if (result.isAdmin || result.user?.isAdmin) {
+        setActivePage('admin');
+      } else if (result.isMentor || result.user?.isMentor) {
+        setActivePage('mentor-dashboard');
+      } else {
+        setActivePage('dashboard');
+      }
     } else {
       setError(result.message);
     }
