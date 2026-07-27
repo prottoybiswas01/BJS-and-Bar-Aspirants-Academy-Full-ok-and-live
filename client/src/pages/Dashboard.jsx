@@ -220,30 +220,52 @@ export default function Dashboard({ openVideoModal }) {
     return acc;
   }, {});
 
-  // Evaluate Student Approval & Course Access Rules (Resilient & Instant Unlock)
+  // Evaluate Student Approval & Course Access Rules (Strict Course-Level Enrollment Check)
   const isApproved = Boolean(
     user?.loginApproval === 'Approved' ||
     user?.status === 'Active' ||
     user?.status === 'Approved' ||
-    user?.approved === true ||
-    (user?.allowedCourseIds && user?.allowedCourseIds.length > 0) ||
-    (user?.enrolledCourseIds && user?.enrolledCourseIds.length > 0)
+    user?.approved === true
   );
 
-  const isCourseAllowed = Boolean(
-    !selectedCourse ||
-    !user?.allowedCourseIds ||
-    user?.allowedCourseIds.length === 0 ||
-    user?.allowedCourseIds.includes('all') ||
-    (user?.allowedCourseIds || []).some(id => String(id) === String(selectedCourse?.id) || String(id) === String(selectedCourse?._id) || String(id) === String(selectedCourse?.oldId)) ||
-    (user?.enrolledCourseIds || []).some(id => String(id) === String(selectedCourse?.id) || String(id) === String(selectedCourse?._id) || String(id) === String(selectedCourse?.oldId)) ||
-    (user?.batch && selectedCourse?.title && selectedCourse.title.toLowerCase().includes(String(user.batch).toLowerCase())) ||
+  const isUnlimited = Boolean(
     user?.unlimitedAccess === true ||
-    isApproved
+    (user?.allowedCourseIds && user?.allowedCourseIds.includes('all'))
   );
 
+  const checkCourseEnrolled = (c) => {
+    if (!c) return false;
+    if (isUnlimited) return true;
+
+    const allowed = user?.allowedCourseIds || [];
+    const enrolled = user?.enrolledCourseIds || [];
+
+    const isMatch = (idList) => (idList || []).some(id =>
+      String(id) === String(c.id) ||
+      String(id) === String(c._id) ||
+      (c.oldId && String(id) === String(c.oldId)) ||
+      (c.shortTitle && String(id).toLowerCase() === String(c.shortTitle).toLowerCase()) ||
+      (c.title && String(id).toLowerCase() === String(c.title).toLowerCase())
+    );
+
+    if (isMatch(allowed) || isMatch(enrolled)) return true;
+
+    // Batch matching if allowed/enrolled are not explicitly set
+    if (user?.batch) {
+      const b = String(user.batch).toLowerCase().trim();
+      const t = String(c.title || '').toLowerCase().trim();
+      const st = String(c.shortTitle || '').toLowerCase().trim();
+      const cid = String(c.id || '').toLowerCase().trim();
+      if (b === t || b === st || b === cid || (b && t && (b.includes(t) || t.includes(b)))) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const isCourseAllowed = checkCourseEnrolled(selectedCourse);
   const isEnrolled = isApproved && isCourseAllowed;
-  const isUnlimited = isApproved;
   const completedCount = user?.completedLessonIds?.length || 0;
   const progressPercent = lessons.length > 0 ? Math.round((completedCount / lessons.length) * 100) : 0;
 
@@ -394,7 +416,7 @@ export default function Dashboard({ openVideoModal }) {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fadeIn">
                 {courses.map((c) => {
                   const active = selectedCourse?.id === c.id;
-                  const enrolled = user?.allowedCourseIds?.includes(c.id) || user?.enrolledCourseIds?.includes(c.id);
+                  const enrolled = checkCourseEnrolled(c);
 
                   return (
                     <button
