@@ -439,12 +439,14 @@ app.post("/api/auth/register", async (req, res) => {
     // ALSO save to Mongo if connected!
     if (isMongoConnected) {
       try {
-        await Promise.all([
-          Registration.create(newReg),
-          Student.create(newStudent)
-        ]);
+        await Registration.create(newReg);
       } catch (err) {
-        console.warn("Mongo creation notice on register:", err.message);
+        console.warn("Mongo Registration creation notice on register:", err.message);
+      }
+      try {
+        await Student.create(newStudent);
+      } catch (err) {
+        console.warn("Mongo Student creation notice on register:", err.message);
       }
     }
 
@@ -2919,23 +2921,115 @@ app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], as
   return res.json({ ok: true, mentors: fallback, source: "memory", dbNotice });
 });
 
-// GET All Students (Admin Control Panel)
+// GET All Students & Pending Registrations (Admin Control Panel)
 app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
   let dbNotice = null;
   try {
     await ensureDbConnected();
-    const mongoStudents = await Student.find().sort({ createdAt: -1 }).lean();
-    if (mongoStudents && mongoStudents.length > 0) {
-      memoryDb.students = mongoStudents;
-      return res.json({ ok: true, students: mongoStudents, source: "mongodb" });
+    let mongoStudents = [];
+    let mongoRegs = [];
+
+    if (isMongoConnected) {
+      try {
+        mongoStudents = await Student.find().sort({ createdAt: -1 }).lean();
+      } catch (e) {
+        console.error("Mongo student fetch notice:", e.message);
+      }
+      try {
+        mongoRegs = await Registration.find().sort({ createdAt: -1 }).lean();
+      } catch (e) {
+        console.error("Mongo reg fetch notice:", e.message);
+      }
     }
+
+    const studentMap = new Map();
+
+    const getKey = (item) => {
+      if (!item) return "";
+      return (item.phone || item.email || item.regId || item.id || item._id || "").toString().toLowerCase();
+    };
+
+    // 1. Add MongoDB Students
+    (mongoStudents || []).forEach((s) => {
+      if (!s) return;
+      const key = getKey(s);
+      if (key) {
+        studentMap.set(key, s);
+      }
+    });
+
+    // 2. Merge MongoDB Registrations (synthesizing Student doc for pending registrations)
+    (mongoRegs || []).forEach((r) => {
+      if (!r) return;
+      const key = getKey(r);
+      if (key && !studentMap.has(key)) {
+        const synthesizedStudent = {
+          id: r.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
+          regId: r.regId,
+          name: r.name,
+          phone: r.phone,
+          email: r.email,
+          university: r.university || "",
+          batch: r.batch || "Regular Batch",
+          session: r.session || "Standard Session",
+          password: r.password,
+          status: r.status === "Approved" ? "Active" : (r.status || "Pending"),
+          loginApproval: r.status === "Approved" ? "Approved" : (r.status || "Pending"),
+          allowedCourseIds: [],
+          createdAt: r.createdAt || new Date()
+        };
+        studentMap.set(key, synthesizedStudent);
+
+        // Auto-sync missing Student document to MongoDB
+        if (isMongoConnected) {
+          Student.create(synthesizedStudent).catch((err) => console.warn("Auto-sync student notice:", err.message));
+        }
+      }
+    });
+
+    // 3. Merge Memory DB Students
+    (memoryDb.students || []).forEach((s) => {
+      if (!s) return;
+      const key = getKey(s);
+      if (key && !studentMap.has(key)) {
+        studentMap.set(key, s);
+      }
+    });
+
+    // 4. Merge Memory DB Registrations
+    (memoryDb.registrations || []).forEach((r) => {
+      if (!r) return;
+      const key = getKey(r);
+      if (key && !studentMap.has(key)) {
+        const synthesizedStudent = {
+          id: r.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
+          regId: r.regId,
+          name: r.name,
+          phone: r.phone,
+          email: r.email,
+          university: r.university || "",
+          batch: r.batch || "Regular Batch",
+          session: r.session || "Standard Session",
+          password: r.password,
+          status: r.status === "Approved" ? "Active" : (r.status || "Pending"),
+          loginApproval: r.status === "Approved" ? "Approved" : (r.status || "Pending"),
+          allowedCourseIds: [],
+          createdAt: r.createdAt || new Date()
+        };
+        studentMap.set(key, synthesizedStudent);
+      }
+    });
+
+    const combinedStudents = Array.from(studentMap.values());
+    memoryDb.students = combinedStudents;
+
+    return res.json({ ok: true, students: combinedStudents, source: isMongoConnected ? "mongodb" : "memory" });
   } catch (err) {
     dbNotice = err.message;
     console.error("Students fetch notice:", err.message);
+    const fallbackStudents = memoryDb.students || [];
+    return res.json({ ok: true, students: fallbackStudents, source: "memory", dbNotice });
   }
-
-  const fallbackStudents = memoryDb.students || [];
-  return res.json({ ok: true, students: fallbackStudents, source: "memory", dbNotice });
 });
 
 // GET Overview Stats (Admin Dashboard)
@@ -4084,6 +4178,25 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
 
     if (isMongoConnected) {
       let student = await Student.findOne({ $or: [{ id: studentId }, { regId: studentId }] });
+      let reg = await Registration.findOne({ $or: [{ regId: studentId }, { phone: studentId }, { email: studentId }] });
+
+      if (!student && reg) {
+        student = new Student({
+          id: reg.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
+          regId: reg.regId,
+          name: reg.name,
+          phone: reg.phone,
+          email: reg.email,
+          university: reg.university || "",
+          batch: reg.batch || batch || "Regular Batch",
+          session: reg.session || "Standard Session",
+          password: reg.password,
+          status: "Active",
+          loginApproval: "Approved",
+          allowedCourseIds: courseIdsToAssign
+        });
+      }
+
       if (student) {
         student.status = "Active";
         student.loginApproval = "Approved";
@@ -4092,7 +4205,6 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
         }
         updatedStudent = await student.save();
       }
-      let reg = await Registration.findOne({ $or: [{ regId: studentId }, { phone: student?.phone }, { email: student?.email }] });
       if (reg) {
         reg.status = "Approved";
         await reg.save();

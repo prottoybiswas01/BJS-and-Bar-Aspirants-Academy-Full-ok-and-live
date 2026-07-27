@@ -23,7 +23,7 @@ const studentSchema = new mongoose.Schema({
   session: { type: String, default: "Weekend Intensive" },
   password: { type: String, required: true }, // Hashed bcrypt password
   isTemporaryPassword: { type: Boolean, default: false },
-  status: { type: String, enum: ["Active", "Inactive", "Blocked"], default: "Active" },
+  status: { type: String, enum: ["Active", "Inactive", "Blocked", "Pending"], default: "Active" },
   loginApproval: { type: String, enum: ["Approved", "Pending", "Preview", "Rejected"], default: "Approved" },
   portalAccessMode: { type: String, default: "Full Access" },
   enrolledCourseIds: [{ type: String }],
