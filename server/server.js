@@ -744,53 +744,81 @@ const smtpFallbackTransporter = nodemailer.createTransport({
   }
 });
 
-// High-Performance Multi-Channel Target Email Dispatcher (Gmail SMTP + Resend SDK Fallback)
-async function sendResendEmail({ from, to, subject, html }) {
+// Verified Domain Sender Address (Resend Verified Domain: bjs.kodl.uk)
+const OFFICIAL_RESEND_SENDER = "BJS & Bar Academy <noreply@bjs.kodl.uk>";
+
+// Enterprise Native Resend API Dispatcher (Using Verified Custom Domain bjs.kodl.uk)
+async function sendResendEmail({ from, to, subject, html, attachments }) {
   if (!to) {
     console.warn(`⚠️ Invalid target email for dispatch: ${to}`);
     return { ok: false, message: "Invalid target email" };
   }
 
-  const primaryOwnerEmail = "bjsacademy38@gmail.com";
-  const resendSender = "onboarding@resend.dev";
-  const recipientStr = Array.isArray(to) ? to.join(",") : String(to).trim();
+  const sender = (from && from.includes("bjs.kodl.uk")) ? from : OFFICIAL_RESEND_SENDER;
+  const recipientArray = Array.isArray(to) ? to : [String(to).trim()];
 
-  // 1. Direct Delivery to Target Recipient via Gmail SMTP (Ultra-Reliable, Direct to Student)
+  // 1. Primary Dispatch via Official Resend SDK (Using Verified Domain bjs.kodl.uk)
+  try {
+    const payload = {
+      from: sender,
+      to: recipientArray,
+      subject: subject || "Notification from BJS & Bar Academy",
+      html: html || "<p>Notification from BJS & Bar Academy</p>"
+    };
+
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      payload.attachments = attachments;
+    }
+
+    const response = await resend.emails.send(payload);
+
+    if (response && (response.id || response.data?.id)) {
+      const emailId = response.id || response.data?.id;
+      console.log(`✉️ [Resend API Success] Delivered to ${recipientArray.join(', ')} via ${sender} (ID: ${emailId})`);
+      return { ok: true, data: response.data || response, id: emailId };
+    } else if (response && response.error) {
+      console.warn(`⚠️ [Resend API Notice]: ${response.error.message || JSON.stringify(response.error)}`);
+    }
+  } catch (resendErr) {
+    console.warn(`⚠️ [Resend API Exception, Attempting SMTP Fallback]: ${resendErr.message}`);
+  }
+
+  // 2. High-Grade Fallback Dispatcher via SMTP
   try {
     const mailOptions = {
       from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
-      to: recipientStr,
+      to: recipientArray.join(','),
       subject: subject || "Notification from BJS & Bar Academy",
       html: html || ""
     };
     const smtpInfo = await smtpFallbackTransporter.sendMail(mailOptions);
-    console.log(`✉️ [Gmail SMTP Delivery Success] Delivered to ${recipientStr} (MsgId: ${smtpInfo.messageId})`);
+    console.log(`✉️ [SMTP Fallback Success] Delivered to ${recipientArray.join(', ')} (MsgId: ${smtpInfo.messageId})`);
     return { ok: true, data: smtpInfo };
   } catch (smtpErr) {
-    console.warn(`⚠️ [Gmail SMTP Notice, Attempting Resend SDK]: ${smtpErr.message}`);
+    console.error(`❌ [Email Dispatch Failed]: ${smtpErr.message}`);
   }
 
-  // 2. Fallback Delivery via Resend SDK
+  return { ok: false, message: "Email dispatch failed on Resend API and fallback." };
+}
+
+// Resend Batch Email Dispatcher (As requested by user)
+async function sendResendBatchEmails(batchItems) {
+  if (!Array.isArray(batchItems) || batchItems.length === 0) return { ok: false, message: "No batch items" };
   try {
-    const response = await resend.emails.send({
-      from: resendSender,
-      to: [recipientStr.includes("@") ? recipientStr : primaryOwnerEmail],
-      subject: subject || "Notification from BJS & Bar Academy",
-      html: html || ""
-    });
+    const formattedBatch = batchItems.map(item => ({
+      from: item.from || OFFICIAL_RESEND_SENDER,
+      to: Array.isArray(item.to) ? item.to : [item.to],
+      subject: item.subject || "Notification from BJS & Bar Academy",
+      html: item.html || ""
+    }));
 
-    if (response && (response.id || response.data?.id)) {
-      const emailId = response.id || response.data?.id;
-      console.log(`✉️ [Resend SDK Success] Delivered to ${recipientStr} (ID: ${emailId})`);
-      return { ok: true, data: response.data || response };
-    } else if (response && response.error) {
-      console.warn(`⚠️ [Resend SDK Notice]: ${response.error.message || JSON.stringify(response.error)}`);
-    }
-  } catch (resendErr) {
-    console.warn(`⚠️ [Resend SDK Exception]: ${resendErr.message}`);
+    const response = await resend.batch.send(formattedBatch);
+    console.log(`✉️ [Resend Batch API Success] Dispatched ${formattedBatch.length} email(s) via Resend Batch!`);
+    return { ok: true, data: response };
+  } catch (err) {
+    console.warn("⚠️ [Resend Batch Exception]:", err.message);
+    return { ok: false, message: err.message };
   }
-
-  return { ok: false, message: "Email dispatch failed on both SMTP and Resend" };
 }
 
 async function sendOtpEmail(targetEmail, otp, studentName) {
