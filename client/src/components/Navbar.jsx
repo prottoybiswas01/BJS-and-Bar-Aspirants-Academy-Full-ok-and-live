@@ -29,19 +29,19 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
 
           {/* Navigation Links */}
           <div className="hidden md:flex items-center space-x-2">
-            {user && !user.isAdmin && !user.isMentor && activePage !== 'admin' && activePage !== 'admin-login' && (
+            {user && (user.isAdmin || user.role === 'admin') && (
               <button
-                onClick={() => setActivePage('dashboard')}
-                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                  activePage === 'dashboard'
-                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
+                onClick={() => setActivePage('admin')}
+                className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
+                  activePage === 'admin'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'text-amber-400 hover:text-white hover:bg-slate-800/50'
                 }`}
               >
-                Student Dashboard
+                🛡️ Admin Panel
               </button>
             )}
-            {user && user.isMentor && (
+            {user && (user.isMentor || user.role === 'mentor') && (
               <button
                 onClick={() => setActivePage('mentor-dashboard')}
                 className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
@@ -51,6 +51,18 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
                 }`}
               >
                 👨‍🏫 Mentor Dashboard
+              </button>
+            )}
+            {user && !user.isAdmin && !user.isMentor && user.role !== 'admin' && user.role !== 'mentor' && (
+              <button
+                onClick={() => setActivePage('dashboard')}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                  activePage === 'dashboard'
+                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
+                }`}
+              >
+                🎓 Student Dashboard
               </button>
             )}
           </div>

@@ -90,26 +90,44 @@ export default function Home({ setActivePage, openMentorProfile }) {
           </p>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4 pt-2 w-full max-w-md sm:max-w-none mx-auto">
-            <button
-              onClick={() => setActivePage('register')}
-              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/25 transition-all active:scale-95"
-            >
-              📝 এখনই ভর্তি হোন (Register Batch)
-            </button>
             {user ? (
-              <button
-                onClick={() => setActivePage('dashboard')}
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-sm transition-all"
-              >
-                🎓 আপনার স্টুডেন্ট ড্যাশবোর্ড
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    if (user.isAdmin || user.role === 'admin') setActivePage('admin');
+                    else if (user.isMentor || user.role === 'mentor') setActivePage('mentor-dashboard');
+                    else setActivePage('dashboard');
+                  }}
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/25 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  {(user.isAdmin || user.role === 'admin')
+                    ? '🛡️ আপনার এডমিন ড্যাশবোর্ড (Admin Panel)'
+                    : (user.isMentor || user.role === 'mentor')
+                    ? '👨‍🏫 আপনার মেন্টর ড্যাশবোর্ড (Mentor Dashboard)'
+                    : '🎓 আপনার স্টুডেন্ট ড্যাশবোর্ড (Student Dashboard)'}
+                </button>
+                <a
+                  href="#courses"
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-sm transition-all text-center"
+                >
+                  📚 কোর্সসমূহ দেখুন (View Courses)
+                </a>
+              </>
             ) : (
-              <button
-                onClick={() => setActivePage('login')}
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-sm transition-all"
-              >
-                🔑 স্টুডেন্ট লগইন (Login)
-              </button>
+              <>
+                <button
+                  onClick={() => setActivePage('register')}
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/25 transition-all active:scale-95"
+                >
+                  📝 এখনই ভর্তি হোন (Register Batch)
+                </button>
+                <button
+                  onClick={() => setActivePage('login')}
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-sm transition-all"
+                >
+                  🔑 স্টুডেন্ট লগইন (Login)
+                </button>
+              </>
             )}
           </div>
 
