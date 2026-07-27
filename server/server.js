@@ -722,6 +722,360 @@ async function sendOtpEmail(targetEmail, otp, studentName) {
   }
 }
 
+// -------------------------------------------------------------
+// OTP & PASSWORD RESET ENDPOINTS
+// -------------------------------------------------------------
+
+// Helper to mask email for user privacy feedback
+function maskEmailAddress(email) {
+  if (!email || typeof email !== 'string' || !email.includes('@')) return email || '';
+  const parts = email.split('@');
+  const user = parts[0];
+  const domain = parts[1];
+  if (user.length <= 2) return `${user.charAt(0)}***@${domain}`;
+  return `${user.charAt(0)}***${user.charAt(user.length - 1)}@${domain}`;
+}
+
+// Helper to locate user account by identifier (email, phone, student ID, reg ID)
+async function findUserAccountByIdentifier(identifier) {
+  if (!identifier) return null;
+  const rawQuery = String(identifier).trim();
+  const cleanQueryLower = rawQuery.toLowerCase();
+  const queryDigits = rawQuery.replace(/\D/g, "");
+  const last10 = queryDigits.length >= 10 ? queryDigits.slice(-10) : null;
+  const queryEmailPrefix = rawQuery.split('@')[0].toLowerCase();
+
+  let user = null;
+
+  // 1. Search MongoDB Student
+  if (isMongoConnected) {
+    try {
+      const mongoOr = [
+        { phone: rawQuery },
+        { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
+        { id: rawQuery },
+        { id: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
+      ];
+      if (queryEmailPrefix && queryEmailPrefix.length >= 5) {
+        mongoOr.push({ email: new RegExp(queryEmailPrefix.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&'), "i") });
+      }
+      if (last10) {
+        mongoOr.push({ phone: new RegExp(last10 + "$") });
+      }
+      user = await Student.findOne({ $or: mongoOr });
+    } catch (e) { }
+  }
+
+  // 2. Search Memory DB Student
+  if (!user) {
+    user = memoryDb.students.find((s) => {
+      if (!s) return false;
+      const sPhone = String(s.phone || "").trim();
+      const sEmail = String(s.email || "").trim().toLowerCase();
+      const sId = String(s.id || "").trim().toLowerCase();
+      if (sEmail === cleanQueryLower || sId === cleanQueryLower || sPhone === rawQuery) return true;
+      if (queryEmailPrefix && queryEmailPrefix.length >= 5 && sEmail.includes(queryEmailPrefix)) return true;
+      if (last10 && sPhone.replace(/\D/g, "").endsWith(last10)) return true;
+      return false;
+    });
+  }
+
+  // 3. Search MongoDB Registration
+  if (!user && isMongoConnected) {
+    try {
+      const regOr = [
+        { phone: rawQuery },
+        { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
+        { regId: rawQuery }
+      ];
+      if (last10) regOr.push({ phone: new RegExp(last10 + "$") });
+      user = await Registration.findOne({ $or: regOr });
+    } catch (e) { }
+  }
+
+  // 4. Search Memory DB Registration
+  if (!user) {
+    user = memoryDb.registrations.find((r) => {
+      if (!r) return false;
+      const rPhone = String(r.phone || "").trim();
+      const rEmail = String(r.email || "").trim().toLowerCase();
+      const rId = String(r.regId || "").trim().toLowerCase();
+      if (rEmail === cleanQueryLower || rId === cleanQueryLower || rPhone === rawQuery) return true;
+      if (last10 && rPhone.replace(/\D/g, "").endsWith(last10)) return true;
+      return false;
+    });
+  }
+
+  // 5. Search MongoDB / Memory DB Mentor
+  if (!user && isMongoConnected) {
+    try {
+      user = await Mentor.findOne({ $or: [{ email: cleanQueryLower }, { phone: rawQuery }] });
+    } catch (e) { }
+  }
+  if (!user) {
+    user = memoryDb.mentors.find(m => m && (String(m.email).toLowerCase() === cleanQueryLower || String(m.phone) === rawQuery));
+  }
+
+  return user;
+}
+
+// 1. FORGOT PASSWORD - REQUEST OTP
+const handleForgotPasswordReq = async (req, res) => {
+  try {
+    const { emailOrPhone } = req.body;
+    if (!emailOrPhone || !String(emailOrPhone).trim()) {
+      return res.status(400).json({ ok: false, message: "অনুগ্রহ করে আপনার নিবন্ধিত ইমেইল বা মোবাইল নম্বর লিখুন।" });
+    }
+
+    const rawInput = String(emailOrPhone).trim();
+    const isEmailInput = rawInput.includes("@");
+
+    // Search account in DB
+    const userAccount = await findUserAccountByIdentifier(rawInput);
+
+    let targetEmail = isEmailInput ? rawInput : (userAccount?.email || null);
+    let studentName = userAccount?.name || "শিক্ষার্থী";
+
+    if (!userAccount && !isEmailInput) {
+      return res.status(404).json({
+        ok: false,
+        message: "এই মোবাইল নম্বরে কোনো নিবন্ধিত অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে আপনার সঠিক মোবাইল নম্বর বা নিবন্ধিত ইমেইল ব্যবহার করুন।"
+      });
+    }
+
+    if (!targetEmail) {
+      if (isEmailInput) {
+        targetEmail = rawInput;
+      } else {
+        return res.status(404).json({
+          ok: false,
+          message: "এই মোবাইল নম্বরের সাথে কোন নিবন্ধিত ইমেইল পাওয়া যায়নি। অনুগ্রহ করে নিবন্ধিত ইমেইল লিখুন।"
+        });
+      }
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    const key = rawInput.toLowerCase();
+    const emailKey = targetEmail.toLowerCase();
+
+    otpStore.set(key, { otp, email: targetEmail, studentName, expiresAt });
+    if (emailKey !== key) {
+      otpStore.set(emailKey, { otp, email: targetEmail, studentName, expiresAt });
+    }
+
+    console.log(`🔐 Password Reset OTP generated for ${targetEmail} (${rawInput}): [ ${otp} ]`);
+
+    // Dispatch OTP Email
+    const emailSent = await sendOtpEmail(targetEmail, otp, studentName);
+
+    const masked = maskEmailAddress(targetEmail);
+    return res.json({
+      ok: true,
+      email: targetEmail,
+      message: emailSent
+        ? `✓ আপনার নিবন্ধিত ইমেইলে (${masked}) ৬-ডিজিটের OTP পাঠানো হয়েছে।`
+        : `✓ OTP কোড তৈরি করা হয়েছে। নিবন্ধিত ইমেইল (${masked}) চেক করুন।`
+    });
+  } catch (err) {
+    console.error("Forgot password OTP error:", err);
+    res.status(500).json({ ok: false, message: "OTP পাঠাতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।" });
+  }
+};
+
+app.post("/api/auth/forgot-password", handleForgotPasswordReq);
+app.post("/auth/forgot-password", handleForgotPasswordReq);
+
+
+// 2. VERIFY OTP
+const handleVerifyOtpReq = async (req, res) => {
+  try {
+    const { emailOrPhone, otp } = req.body;
+    if (!emailOrPhone || !otp) {
+      return res.status(400).json({ ok: false, message: "ইমেইল/ফোন এবং ৬-ডিজিটের OTP প্রদান করুন।" });
+    }
+
+    const key = String(emailOrPhone).trim().toLowerCase();
+    const cleanOtp = String(otp).trim();
+
+    let storedData = otpStore.get(key);
+
+    // Also check if lookup was stored under targetEmail
+    if (!storedData) {
+      const userAccount = await findUserAccountByIdentifier(emailOrPhone);
+      if (userAccount && userAccount.email) {
+        storedData = otpStore.get(userAccount.email.toLowerCase());
+      }
+    }
+
+    if (!storedData) {
+      return res.status(400).json({ ok: false, message: "OTP পাওয়া যায়নি বা মেয়াদ উত্তীর্ণ হয়েছে। আবার চেষ্টা করুন।" });
+    }
+
+    if (Date.now() > storedData.expiresAt) {
+      otpStore.delete(key);
+      if (storedData.email) otpStore.delete(storedData.email.toLowerCase());
+      return res.status(400).json({ ok: false, message: "OTP এর মেয়াদ শেষ হয়ে গেছে (১০ মিনিট)। পুনরায় OTP কোড নিন।" });
+    }
+
+    if (storedData.otp !== cleanOtp) {
+      return res.status(400).json({ ok: false, message: "ভুল OTP কোড! অনুগ্রহ করে সঠিক ৬-ডিজিটের কোড লিখুন।" });
+    }
+
+    // OTP Verified successfully! Create password reset token
+    const resetToken = "RST-" + Date.now() + "-" + Math.random().toString(36).substring(2, 10);
+    storedData.resetToken = resetToken;
+    storedData.verified = true;
+    storedData.tokenExpiresAt = Date.now() + 15 * 60 * 1000;
+
+    otpStore.set(key, storedData);
+    if (storedData.email) {
+      otpStore.set(storedData.email.toLowerCase(), storedData);
+    }
+    otpStore.set(resetToken, storedData);
+
+    return res.json({
+      ok: true,
+      resetToken,
+      message: "✓ OTP সফলভাবে যাচাই হয়েছে! এখন নতুন পাসওয়ার্ড সেট করুন।"
+    });
+  } catch (err) {
+    console.error("Verify OTP error:", err);
+    res.status(500).json({ ok: false, message: "OTP যাঁচাই করতে সমস্যা হয়েছে।" });
+  }
+};
+
+app.post("/api/auth/verify-otp", handleVerifyOtpReq);
+app.post("/auth/verify-otp", handleVerifyOtpReq);
+
+
+// 3. RESET PASSWORD
+const handleResetPasswordReq = async (req, res) => {
+  try {
+    const { emailOrPhone, resetToken, newPassword, confirmPassword } = req.body;
+
+    if (!newPassword || !confirmPassword) {
+      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড এবং কনফার্ম পাসওয়ার্ড লিখুন।" });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড এবং কনফার্ম পাসওয়ার্ড মিলছে না!" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে।" });
+    }
+
+    const key = String(emailOrPhone || "").trim().toLowerCase();
+    const storedData = (resetToken ? otpStore.get(resetToken) : null) || otpStore.get(key);
+
+    if (!storedData || !storedData.verified || (resetToken && storedData.resetToken && storedData.resetToken !== resetToken)) {
+      return res.status(400).json({ ok: false, message: "অবৈধ বা মেয়াদোত্তীর্ণ সিকিউরিটি সেশন। পুনরায় OTP নিন।" });
+    }
+
+    if (storedData.tokenExpiresAt && Date.now() > storedData.tokenExpiresAt) {
+      return res.status(400).json({ ok: false, message: "পাসওয়ার্ড রিসেট সেশনের মেয়াদ শেষ। আবার চেষ্টা করুন।" });
+    }
+
+    const lookupQuery = storedData.email || emailOrPhone;
+    const rawQuery = String(lookupQuery).trim();
+    const queryDigits = rawQuery.replace(/\D/g, "");
+    const last10 = queryDigits.length >= 10 ? queryDigits.slice(-10) : null;
+    const cleanQueryLower = rawQuery.toLowerCase();
+
+    // Update MongoDB Student
+    if (isMongoConnected) {
+      try {
+        const mongoOr = [
+          { phone: rawQuery },
+          { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
+          { id: rawQuery }
+        ];
+        if (last10) mongoOr.push({ phone: new RegExp(last10 + "$") });
+        const std = await Student.findOne({ $or: mongoOr });
+        if (std) {
+          std.password = newPassword;
+          await std.save();
+        }
+      } catch (e) { }
+
+      // Update Mongo Registration
+      try {
+        const regOr = [
+          { phone: rawQuery },
+          { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
+          { regId: rawQuery }
+        ];
+        if (last10) regOr.push({ phone: new RegExp(last10 + "$") });
+        const reg = await Registration.findOne({ $or: regOr });
+        if (reg) {
+          reg.password = newPassword;
+          await reg.save();
+        }
+      } catch (e) { }
+
+      // Update Mongo Mentor
+      try {
+        const mtr = await Mentor.findOne({ $or: [{ email: cleanQueryLower }, { phone: rawQuery }] });
+        if (mtr) {
+          mtr.password = newPassword;
+          await mtr.save();
+        }
+      } catch (e) { }
+    }
+
+    // Update Memory DB Students
+    memoryDb.students.forEach((s) => {
+      if (!s) return;
+      const sPhone = String(s.phone || "").trim();
+      const sEmail = String(s.email || "").trim().toLowerCase();
+      const sId = String(s.id || "").trim().toLowerCase();
+      if (sEmail === cleanQueryLower || sId === cleanQueryLower || sPhone === rawQuery || (last10 && sPhone.replace(/\D/g, "").endsWith(last10))) {
+        s.password = newPassword;
+      }
+    });
+
+    // Update Memory DB Registrations
+    memoryDb.registrations.forEach((r) => {
+      if (!r) return;
+      const rPhone = String(r.phone || "").trim();
+      const rEmail = String(r.email || "").trim().toLowerCase();
+      const rId = String(r.regId || "").trim().toLowerCase();
+      if (rEmail === cleanQueryLower || rId === cleanQueryLower || rPhone === rawQuery || (last10 && rPhone.replace(/\D/g, "").endsWith(last10))) {
+        r.password = newPassword;
+      }
+    });
+
+    // Update Admin Password if matching Admin
+    if (cleanQueryLower === "admin" || cleanQueryLower === "prttoy" || cleanQueryLower === "prottoy" || cleanQueryLower === "01800077663" || cleanQueryLower === "bjsacademy38@gmail.com") {
+      memoryDb.siteSettings.adminPassword = newPassword;
+      if (isMongoConnected) {
+        try {
+          await SiteSetting.findOneAndUpdate({ id: "default_settings" }, { adminPassword: newPassword }, { upsert: true });
+        } catch (e) { }
+      }
+    }
+
+    // Clean up OTP Store
+    otpStore.delete(key);
+    if (resetToken) otpStore.delete(resetToken);
+    if (storedData.email) otpStore.delete(storedData.email.toLowerCase());
+
+    return res.json({
+      ok: true,
+      message: "✓ পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে! একাউন্টে প্রবেশ করা হচ্ছে..."
+    });
+  } catch (err) {
+    console.error("Reset password error:", err);
+    res.status(500).json({ ok: false, message: "পাসওয়ার্ড আপডেট করতে সমস্যা হয়েছে।" });
+  }
+};
+
+app.post("/api/auth/reset-password", handleResetPasswordReq);
+app.post("/auth/reset-password", handleResetPasswordReq);
+
 // Automatic Registration Confirmation Email
 async function sendRegistrationConfirmEmail(targetEmail, studentData) {
   const mailOptions = {
