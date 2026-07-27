@@ -698,15 +698,11 @@ async function sendResendEmail({ from, to, subject, html }) {
   let resendSuccess = false;
   let resendData = null;
 
-  // 1. Resend SDK Dispatch (Uses onboarding@resend.dev to bjsacademy38@gmail.com to record in Resend Dashboard)
+  // 1. Resend SDK Dispatch (Always sends to primaryOwnerEmail to guarantee 200 OK & record in Resend Dashboard)
   try {
-    const resendTo = recipientList.includes(primaryOwnerEmail)
-      ? recipientList
-      : [primaryOwnerEmail];
-
     const response = await resend.emails.send({
       from: resendSender,
-      to: resendTo,
+      to: [primaryOwnerEmail],
       subject: subject || "Notification from BJS & Bar Academy",
       html: html || ""
     });
@@ -715,7 +711,7 @@ async function sendResendEmail({ from, to, subject, html }) {
       console.warn(`⚠️ [Resend SDK Notice]: ${response.error.message || JSON.stringify(response.error)}`);
     } else if (response && (response.id || response.data?.id)) {
       const emailId = response.id || response.data?.id;
-      console.log(`✉️ [Resend SDK Success] Logged to Resend Dashboard & Delivered to ${resendTo.join(", ")} (ID: ${emailId})`);
+      console.log(`✉️ [Resend SDK Success] Logged to Resend Dashboard (ID: ${emailId})`);
       resendSuccess = true;
       resendData = response.data || response;
     }
@@ -752,24 +748,20 @@ async function sendResendEmail({ from, to, subject, html }) {
     }
   }
 
-  // 3. Deliver to actual recipient via Gmail SMTP if target recipient is different from primaryOwnerEmail
+  // 3. Direct Inbox Delivery to Target Student / Recipient Email via Gmail SMTP
   let smtpSuccess = false;
-  if (!recipientList.includes(primaryOwnerEmail) || !resendSuccess) {
-    try {
-      const mailOptions = {
-        from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
-        to: recipientList.join(","),
-        subject: subject || "Notification from BJS & Bar Academy",
-        html: html || ""
-      };
-      const smtpInfo = await smtpFallbackTransporter.sendMail(mailOptions);
-      console.log(`✉️ [Gmail SMTP Delivery] Delivered to ${recipientList.join(",")} (MsgId: ${smtpInfo.messageId})`);
-      smtpSuccess = true;
-    } catch (smtpErr) {
-      console.warn(`⚠️ [Gmail SMTP Delivery Notice]: ${smtpErr.message}`);
-    }
-  } else {
+  try {
+    const mailOptions = {
+      from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
+      to: recipientList.join(","),
+      subject: subject || "Notification from BJS & Bar Academy",
+      html: html || ""
+    };
+    const smtpInfo = await smtpFallbackTransporter.sendMail(mailOptions);
+    console.log(`✉️ [Gmail SMTP Delivery] Delivered to ${recipientList.join(",")} (MsgId: ${smtpInfo.messageId})`);
     smtpSuccess = true;
+  } catch (smtpErr) {
+    console.warn(`⚠️ [Gmail SMTP Delivery Notice]: ${smtpErr.message}`);
   }
 
   return {
