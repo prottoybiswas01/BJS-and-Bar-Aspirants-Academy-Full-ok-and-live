@@ -17,7 +17,9 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "re_9KkFjpyF_T6PiCWhQ3NpuoJbRoV4inScx";
+const resend = new Resend(RESEND_API_KEY);
 let PDFDocument = null;
 try {
   PDFDocument = require("pdfkit");
@@ -669,17 +671,55 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// Mail Transporter for OTP Email Dispatch (Pooled High-Performance SMTP)
-const mailTransporter = nodemailer.createTransport({
-  service: "gmail",
-  pool: true,
-  maxConnections: 5,
-  maxMessages: 100,
-  auth: {
-    user: process.env.EMAIL_USER || "bjsacademy38@gmail.com",
-    pass: process.env.EMAIL_PASS || "kahnoeuqlfxichef"
+// High-Performance Resend Email Dispatcher (SDK + REST API Fallback)
+async function sendResendEmail({ from, to, subject, html }) {
+  if (!to || (typeof to === "string" && !to.includes("@"))) {
+    console.warn(`⚠️ Invalid target email for Resend dispatch: ${to}`);
+    return { ok: false, message: "Invalid target email" };
   }
-});
+
+  const sender = from || "BJS & Bar Academy <onboarding@resend.dev>";
+  const recipient = Array.isArray(to) ? to : [to];
+
+  try {
+    const data = await resend.emails.send({
+      from: sender,
+      to: recipient,
+      subject: subject || "Notification from BJS & Bar Academy",
+      html: html || ""
+    });
+    console.log(`✉️ [Resend SDK] Email dispatched successfully to ${to} (ID: ${data?.id || data?.data?.id})`);
+    return { ok: true, data };
+  } catch (err) {
+    console.warn(`⚠️ [Resend SDK Notice]: ${err.message}. Triggering Resend REST API fallback...`);
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${RESEND_API_KEY}`
+        },
+        body: JSON.stringify({
+          from: sender,
+          to: recipient,
+          subject: subject || "Notification from BJS & Bar Academy",
+          html: html || ""
+        })
+      });
+      const resData = await response.json();
+      if (response.ok) {
+        console.log(`✉️ [Resend API] Email sent to ${to} (ID: ${resData.id})`);
+        return { ok: true, data: resData };
+      } else {
+        console.warn(`⚠️ [Resend API Notice]:`, resData);
+        return { ok: false, error: resData };
+      }
+    } catch (fetchErr) {
+      console.warn(`⚠️ [Resend Fetch Fallback Notice]:`, fetchErr.message);
+      return { ok: false, error: fetchErr };
+    }
+  }
+}
 
 async function sendOtpEmail(targetEmail, otp, studentName) {
   if (!targetEmail || !targetEmail.includes("@")) {
@@ -687,39 +727,34 @@ async function sendOtpEmail(targetEmail, otp, studentName) {
     return false;
   }
 
-  const mailOptions = {
-    from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
-    to: targetEmail,
-    subject: `🔐 BJS & Bar Academy - Password Reset Verification OTP: ${otp}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 500px; margin: auto; border: 1px solid #334155;">
-        <div style="text-align: center; margin-bottom: 18px;">
-          <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
-          <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Judiciary & Advocacy Excellence Portal</p>
-        </div>
-        <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #1e293b; text-align: center;">
-          <p style="font-size: 14px; color: #cbd5e1; margin-bottom: 10px;">প্রিয় <strong>${studentName || 'শিক্ষার্থী'}</strong>,</p>
-          <p style="font-size: 13px; color: #94a3b8; line-height: 1.5;">আপনার একাউন্টের পাসওয়ার্ড পরিবর্তনের জন্য নিচে ৬-ডিজিটের ভেরিফিকেশন OTP প্রদান করা হলো:</p>
-          <div style="font-size: 32px; font-weight: bold; color: #10b981; letter-spacing: 6px; padding: 12px; background: #020617; border-radius: 8px; margin: 15px 0; border: 1px dashed #10b981;">
-            ${otp}
-          </div>
-          <p style="font-size: 11px; color: #f59e0b; margin: 0;">⚠️ এই OTP কোডটি আগামী ১০ মিনিটের জন্য কার্যকর থাকবে। নিরাপত্তা রক্ষার্থে কারো সাথে শেয়ার করবেন না।</p>
-        </div>
-        <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
-          © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
-        </p>
+  const subject = `🔐 BJS & Bar Academy - Password Reset Verification OTP: ${otp}`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 500px; margin: auto; border: 1px solid #334155;">
+      <div style="text-align: center; margin-bottom: 18px;">
+        <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Judiciary & Advocacy Excellence Portal</p>
       </div>
-    `
-  };
+      <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #1e293b; text-align: center;">
+        <p style="font-size: 14px; color: #cbd5e1; margin-bottom: 10px;">প্রিয় <strong>${studentName || 'শিক্ষার্থী'}</strong>,</p>
+        <p style="font-size: 13px; color: #94a3b8; line-height: 1.5;">আপনার একাউন্টের পাসওয়ার্ড পরিবর্তনের জন্য নিচে ৬-ডিজিটের ভেরিফিকেশন OTP প্রদান করা হলো:</p>
+        <div style="font-size: 32px; font-weight: bold; color: #10b981; letter-spacing: 6px; padding: 12px; background: #020617; border-radius: 8px; margin: 15px 0; border: 1px dashed #10b981;">
+          ${otp}
+        </div>
+        <p style="font-size: 11px; color: #f59e0b; margin: 0;">⚠️ এই OTP কোডটি আগামী ১০ মিনিটের জন্য কার্যকর থাকবে। নিরাপত্তা রক্ষার্থে কারো সাথে শেয়ার করবেন না।</p>
+      </div>
+      <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+        © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+      </p>
+    </div>
+  `;
 
-  try {
-    const info = await mailTransporter.sendMail(mailOptions);
-    console.log(`✉️ OTP Email dispatched successfully to ${targetEmail} (MessageId: ${info.messageId})`);
-    return true;
-  } catch (err) {
-    console.warn(`⚠️ Nodemailer notice: ${err.message}`);
-    return false;
-  }
+  const res = await sendResendEmail({
+    from: "BJS & Bar Academy <onboarding@resend.dev>",
+    to: targetEmail,
+    subject,
+    html
+  });
+  return res.ok;
 }
 
 // -------------------------------------------------------------
@@ -1078,59 +1113,54 @@ app.post("/auth/reset-password", handleResetPasswordReq);
 
 // Automatic Registration Confirmation Email
 async function sendRegistrationConfirmEmail(targetEmail, studentData) {
-  const mailOptions = {
-    from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
-    to: targetEmail,
-    subject: `📋 BJS & Bar Academy - Registration Confirmation (${studentData.id || studentData.regId || 'STU-REF'})`,
-    html: `
-      <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 550px; margin: auto; border: 1px solid #334155;">
-        <div style="text-align: center; margin-bottom: 20px;">
-          <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
-          <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Judiciary & Advocacy Excellence Portal</p>
-        </div>
-        
-        <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #1e293b;">
-          <h3 style="color: #10b981; margin-top: 0;">✓ Registration Submitted Successfully!</h3>
-          <p style="font-size: 13px; color: #cbd5e1; line-height: 1.6;">
-            Dear <strong>${studentData.name || 'Student'}</strong>,<br/>
-            Thank you for registering at BJS & Bar Aspirants Academy. Your registration details have been received and recorded in our academic database.
-          </p>
-
-          <div style="background: #020617; padding: 15px; border-radius: 8px; border: 1px solid #334155; margin: 15px 0; font-size: 12px; color: #cbd5e1;">
-            <p style="margin: 4px 0;">🆔 <strong>Student Reference ID:</strong> <span style="color: #f59e0b; font-family: monospace;">${studentData.id || studentData.regId || 'N/A'}</span></p>
-            <p style="margin: 4px 0;">👤 <strong>Full Name:</strong> ${studentData.name}</p>
-            <p style="margin: 4px 0;">📧 <strong>Email Address:</strong> ${studentData.email}</p>
-            <p style="margin: 4px 0;">📞 <strong>Mobile Number:</strong> ${studentData.phone}</p>
-            <p style="margin: 4px 0;">🎓 <strong>Selected Batch:</strong> ${studentData.batch}</p>
-            <p style="margin: 4px 0;">📌 <strong>Session:</strong> ${studentData.session || 'Standard Session'}</p>
-          </div>
-
-          <p style="font-size: 12px; color: #94a3b8;">
-            Our academic administration is reviewing your details. Once activated, you can log in to your Student Portal to access all video lectures and study materials.
-          </p>
-
-          <div style="text-align: center; margin-top: 20px;">
-            <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
-              🔑 Go to Student Portal Login
-            </a>
-          </div>
-        </div>
-
-        <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
-          © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
-        </p>
+  const subject = `📋 BJS & Bar Academy - Registration Confirmation (${studentData.id || studentData.regId || 'STU-REF'})`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 550px; margin: auto; border: 1px solid #334155;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Judiciary & Advocacy Excellence Portal</p>
       </div>
-    `
-  };
+      
+      <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #1e293b;">
+        <h3 style="color: #10b981; margin-top: 0;">✓ Registration Submitted Successfully!</h3>
+        <p style="font-size: 13px; color: #cbd5e1; line-height: 1.6;">
+          Dear <strong>${studentData.name || 'Student'}</strong>,<br/>
+          Thank you for registering at BJS & Bar Aspirants Academy. Your registration details have been received and recorded in our academic database.
+        </p>
 
-  try {
-    await mailTransporter.sendMail(mailOptions);
-    console.log(`✉️ Registration Email sent to ${targetEmail}`);
-    return true;
-  } catch (err) {
-    console.warn(`⚠️ Registration Email notice: ${err.message}`);
-    return false;
-  }
+        <div style="background: #020617; padding: 15px; border-radius: 8px; border: 1px solid #334155; margin: 15px 0; font-size: 12px; color: #cbd5e1;">
+          <p style="margin: 4px 0;">🆔 <strong>Student Reference ID:</strong> <span style="color: #f59e0b; font-family: monospace;">${studentData.id || studentData.regId || 'N/A'}</span></p>
+          <p style="margin: 4px 0;">👤 <strong>Full Name:</strong> ${studentData.name}</p>
+          <p style="margin: 4px 0;">📧 <strong>Email Address:</strong> ${studentData.email}</p>
+          <p style="margin: 4px 0;">📞 <strong>Mobile Number:</strong> ${studentData.phone}</p>
+          <p style="margin: 4px 0;">🎓 <strong>Selected Batch:</strong> ${studentData.batch}</p>
+          <p style="margin: 4px 0;">📌 <strong>Session:</strong> ${studentData.session || 'Standard Session'}</p>
+        </div>
+
+        <p style="font-size: 12px; color: #94a3b8;">
+          Our academic administration is reviewing your details. Once activated, you can log in to your Student Portal to access all video lectures and study materials.
+        </p>
+
+        <div style="text-align: center; margin-top: 20px;">
+          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
+            🔑 Go to Student Portal Login
+          </a>
+        </div>
+      </div>
+
+      <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+        © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+      </p>
+    </div>
+  `;
+
+  const res = await sendResendEmail({
+    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    to: targetEmail,
+    subject,
+    html
+  });
+  return res.ok;
 }
 
 // Professional Course Enrollment & Approval Email
@@ -1140,124 +1170,114 @@ async function sendCourseEnrollmentEmail(targetEmail, studentData, courseTitle, 
     coursesDisplay = allCourseTitles.map(t => `📚 ${t}`).join("<br/>");
   }
 
-  const mailOptions = {
-    from: '"BJS & Bar Academy Academic Board" <bjsacademy38@gmail.com>',
-    to: targetEmail,
-    subject: `🎉 Congratulations! Course Access Activated - BJS & Bar Academy`,
-    html: `
-      <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 550px; margin: auto; border: 1px solid #334155;">
-        <div style="text-align: center; margin-bottom: 20px;">
-          <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
-          <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Official Course Access Notification</p>
-        </div>
-        
-        <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b;">
-          <div style="text-align: center; margin-bottom: 15px;">
-            <span style="font-size: 36px;">🎓</span>
-            <h3 style="color: #10b981; margin: 8px 0 0 0;">Congratulations, ${studentData.name || 'Aspirant'}!</h3>
-            <p style="color: #cbd5e1; font-size: 13px; margin-top: 4px;">Your Official Course Access Has Been Successfully Activated!</p>
-          </div>
-
-          <p style="font-size: 13px; color: #94a3b8; line-height: 1.6;">
-            We are pleased to inform you that the Academic Committee of <strong>BJS & Bar Aspirants Academy</strong> has granted you official access to your enrolled course(s).
-          </p>
-
-          <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #10b981; margin: 18px 0;">
-            <p style="margin: 0 0 8px 0; font-size: 11px; color: #10b981; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Enrolled Active Course Module(s)</p>
-            <div style="margin: 0; font-size: 15px; font-weight: bold; color: #ffffff; line-height: 1.6;">
-              ${coursesDisplay}
-            </div>
-            
-            <hr style="border: 0; border-top: 1px solid #1e293b; margin: 12px 0;" />
-
-            <div style="font-size: 12px; color: #cbd5e1; line-height: 1.6;">
-              <p style="margin: 3px 0;">🆔 <strong>Student ID:</strong> <span style="color: #f59e0b; font-family: monospace;">${studentData.id || 'STU-ACTIVE'}</span></p>
-              <p style="margin: 3px 0;">🔐 <strong>Access Status:</strong> <span style="color: #10b981; font-weight: bold;">Activated & Approved</span></p>
-              <p style="margin: 3px 0;">📹 <strong>Features Included:</strong> Full HD Lectures, PDF Handouts & Anti-Leak Watermark Guard</p>
-            </div>
-          </div>
-
-          <div style="text-align: center; margin-top: 25px; margin-bottom: 10px;">
-            <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #10b981; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 14px 28px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);">
-              🚀 Access Student Portal Now
-            </a>
-          </div>
-
-          <p style="font-size: 11px; color: #64748b; text-align: center; margin-top: 15px;">
-            For security reasons, your video portal is protected by dynamic anti-screen recording watermarks.
-          </p>
+  const subject = `🎉 Congratulations! Course Access Activated - BJS & Bar Academy`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 550px; margin: auto; border: 1px solid #334155;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Official Course Access Notification</p>
+      </div>
+      
+      <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b;">
+        <div style="text-align: center; margin-bottom: 15px;">
+          <span style="font-size: 36px;">🎓</span>
+          <h3 style="color: #10b981; margin: 8px 0 0 0;">Congratulations, ${studentData.name || 'Aspirant'}!</h3>
+          <p style="color: #cbd5e1; font-size: 13px; margin-top: 4px;">Your Official Course Access Has Been Successfully Activated!</p>
         </div>
 
-        <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
-          © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+        <p style="font-size: 13px; color: #94a3b8; line-height: 1.6;">
+          We are pleased to inform you that the Academic Committee of <strong>BJS & Bar Aspirants Academy</strong> has granted you official access to your enrolled course(s).
+        </p>
+
+        <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #10b981; margin: 18px 0;">
+          <p style="margin: 0 0 8px 0; font-size: 11px; color: #10b981; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Enrolled Active Course Module(s)</p>
+          <div style="margin: 0; font-size: 15px; font-weight: bold; color: #ffffff; line-height: 1.6;">
+            ${coursesDisplay}
+          </div>
+          
+          <hr style="border: 0; border-top: 1px solid #1e293b; margin: 12px 0;" />
+
+          <div style="font-size: 12px; color: #cbd5e1; line-height: 1.6;">
+            <p style="margin: 3px 0;">🆔 <strong>Student ID:</strong> <span style="color: #f59e0b; font-family: monospace;">${studentData.id || 'STU-ACTIVE'}</span></p>
+            <p style="margin: 3px 0;">🔐 <strong>Access Status:</strong> <span style="color: #10b981; font-weight: bold;">Activated & Approved</span></p>
+            <p style="margin: 3px 0;">📹 <strong>Features Included:</strong> Full HD Lectures, PDF Handouts & Anti-Leak Watermark Guard</p>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 25px; margin-bottom: 10px;">
+          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #10b981; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 14px 28px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);">
+            🚀 Access Student Portal Now
+          </a>
+        </div>
+
+        <p style="font-size: 11px; color: #64748b; text-align: center; margin-top: 15px;">
+          For security reasons, your video portal is protected by dynamic anti-screen recording watermarks.
         </p>
       </div>
-    `
-  };
 
-  try {
-    await mailTransporter.sendMail(mailOptions);
-    console.log(`✉️ Course Enrollment Email sent to ${targetEmail}`);
-    return true;
-  } catch (err) {
-    console.warn(`⚠️ Course Enrollment Email notice: ${err.message}`);
-    return false;
-  }
+      <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+        © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+      </p>
+    </div>
+  `;
+
+  const res = await sendResendEmail({
+    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    to: targetEmail,
+    subject,
+    html
+  });
+  return res.ok;
 }
 
 // Mentor Approval Email Dispatcher
 async function sendMentorApprovalEmail(targetEmail, mentorData) {
-  const mailOptions = {
-    from: '"BJS & Bar Academy Board" <bjsacademy38@gmail.com>',
-    to: targetEmail,
-    subject: `👨‍🏫 Official Mentor Role Approved - BJS & Bar Academy`,
-    html: `
-      <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 550px; margin: auto; border: 1px solid #334155;">
-        <div style="text-align: center; margin-bottom: 20px;">
-          <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
-          <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Mentor Portal Authorization Notice</p>
-        </div>
-        
-        <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b;">
-          <div style="text-align: center; margin-bottom: 15px;">
-            <span style="font-size: 36px;">👨‍🏫</span>
-            <h3 style="color: #10b981; margin: 8px 0 0 0;">Welcome, Mentor ${mentorData.name}!</h3>
-            <p style="color: #cbd5e1; font-size: 13px; margin-top: 4px;">Your Mentor Access Has Been Approved by Super Admin!</p>
-          </div>
-
-          <p style="font-size: 13px; color: #94a3b8; line-height: 1.6;">
-            We are honored to confirm your official appointment as a Mentor at <strong>BJS & Bar Aspirants Academy</strong>. You now have full access to your Mentor Dashboard.
-          </p>
-
-          <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #10b981; margin: 18px 0; font-size: 12px; color: #cbd5e1;">
-            <p style="margin: 4px 0;">🆔 <strong>Mentor ID:</strong> <span style="color: #f59e0b; font-family: monospace;">${mentorData.id}</span></p>
-            <p style="margin: 4px 0;">👤 <strong>Full Name:</strong> ${mentorData.name}</p>
-            <p style="margin: 4px 0;">📧 <strong>Login Email:</strong> ${mentorData.email}</p>
-            <p style="margin: 4px 0;">⭐ <strong>Status:</strong> Active & Approved</p>
-          </div>
-
-          <div style="text-align: center; margin-top: 25px; margin-bottom: 10px;">
-            <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app/mentor" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 14px 28px; border-radius: 12px; display: inline-block;">
-              🔑 Go to Mentor Portal Login
-            </a>
-          </div>
-        </div>
-
-        <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
-          © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
-        </p>
+  const subject = `👨‍🏫 Official Mentor Role Approved - BJS & Bar Academy`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 550px; margin: auto; border: 1px solid #334155;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Mentor Portal Authorization Notice</p>
       </div>
-    `
-  };
+      
+      <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b;">
+        <div style="text-align: center; margin-bottom: 15px;">
+          <span style="font-size: 36px;">👨‍🏫</span>
+          <h3 style="color: #10b981; margin: 8px 0 0 0;">Welcome, Mentor ${mentorData.name}!</h3>
+          <p style="color: #cbd5e1; font-size: 13px; margin-top: 4px;">Your Mentor Access Has Been Approved by Super Admin!</p>
+        </div>
 
-  try {
-    await mailTransporter.sendMail(mailOptions);
-    console.log(`✉️ Mentor Approval Email sent to ${targetEmail}`);
-    return true;
-  } catch (err) {
-    console.warn(`⚠️ Mentor Approval Email notice: ${err.message}`);
-    return false;
-  }
+        <p style="font-size: 13px; color: #94a3b8; line-height: 1.6;">
+          We are honored to confirm your official appointment as a Mentor at <strong>BJS & Bar Aspirants Academy</strong>. You now have full access to your Mentor Dashboard.
+        </p>
+
+        <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #10b981; margin: 18px 0; font-size: 12px; color: #cbd5e1;">
+          <p style="margin: 4px 0;">🆔 <strong>Mentor ID:</strong> <span style="color: #f59e0b; font-family: monospace;">${mentorData.id}</span></p>
+          <p style="margin: 4px 0;">👤 <strong>Full Name:</strong> ${mentorData.name}</p>
+          <p style="margin: 4px 0;">📧 <strong>Login Email:</strong> ${mentorData.email}</p>
+          <p style="margin: 4px 0;">⭐ <strong>Status:</strong> Active & Approved</p>
+        </div>
+
+        <div style="text-align: center; margin-top: 25px; margin-bottom: 10px;">
+          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app/mentor" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 14px 28px; border-radius: 12px; display: inline-block;">
+            🔑 Go to Mentor Portal Login
+          </a>
+        </div>
+      </div>
+
+      <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+        © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+      </p>
+    </div>
+  `;
+
+  const res = await sendResendEmail({
+    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    to: targetEmail,
+    subject,
+    html
+  });
+  return res.ok;
 }
 
 
@@ -2561,8 +2581,8 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
     // 4. Automated Instant Result Email
     if (candidateEmail && candidateEmail.includes("@")) {
       try {
-        const mailOptions = {
-          from: `"BJS & Bar Academy" <${process.env.SMTP_USER || "bjsacademy38@gmail.com"}>`,
+        sendResendEmail({
+          from: "BJS & Bar Academy <onboarding@resend.dev>",
           to: candidateEmail,
           subject: `⚖️ BJS & Bar Academy - MCQ Result: ${exam.title}`,
           html: `
@@ -2579,11 +2599,7 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
               <p style="color: #94a3b8; font-size: 12px;">© 2026 BJS & Bar Aspirants Academy. Judiciary & Advocacy Excellence Portal.</p>
             </div>
           `
-        };
-
-        if (transporter) {
-          transporter.sendMail(mailOptions).catch(() => {});
-        }
+        }).catch(() => {});
       } catch (mErr) {}
     }
 
