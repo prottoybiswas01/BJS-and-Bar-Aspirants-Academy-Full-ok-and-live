@@ -1380,7 +1380,92 @@ async function sendMentorApprovalEmail(targetEmail, mentorData) {
   return res.ok;
 }
 
-// 1. Official Money Receipt Email Dispatcher
+// PDF Receipt Generator Function with Red Crimson Official Seal Stamp
+function generateReceiptPdfBuffer(receiptData) {
+  return new Promise((resolve, reject) => {
+    try {
+      if (!PDFDocument) return resolve(null);
+
+      const doc = initBengaliPdfDoc();
+      const chunks = [];
+
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', err => reject(err));
+
+      const dateStr = new Date(receiptData.paymentTime || Date.now()).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+      const amountStr = Number(receiptData.amount || 0).toLocaleString("en-US");
+
+      const hasBengaliFont = fs.existsSync(regularFontPath) && fs.existsSync(boldFontPath);
+      const fontBold = hasBengaliFont ? "Bengali-Bold" : "Helvetica-Bold";
+      const fontRegular = hasBengaliFont ? "Bengali-Regular" : "Helvetica";
+
+      // 1. Top Header Banner
+      doc.rect(36, 36, 523, 75).fill('#0b1325');
+      doc.fillColor('#f59e0b').fontSize(16).font(fontBold).text("BJS & BAR ASPIRANTS ACADEMY", 50, 48);
+      doc.fillColor('#ffffff').fontSize(10).font(fontRegular).text("Official Payment Money Receipt & Fee Voucher", 50, 70);
+      doc.fillColor('#94a3b8').fontSize(8).font(fontRegular).text("Judiciary & Advocacy Excellence Portal | Helpline: 01800077663", 50, 85);
+
+      // 2. Receipt Reference Bar
+      doc.rect(36, 120, 523, 30).fill('#0f172a');
+      doc.fillColor('#10b981').fontSize(10).font(fontBold).text(`RECEIPT NO: ${receiptData.receiptId || 'REC-2026-REF'}`, 50, 128);
+      doc.fillColor('#94a3b8').fontSize(9).font(fontRegular).text(`DATE: ${dateStr}`, 380, 128, { align: 'right', width: 170 });
+
+      // 3. Main Data Card
+      doc.rect(36, 160, 523, 260).strokeColor('#334155').lineWidth(1).stroke();
+
+      let y = 175;
+      const rows = [
+        ["Student Name (শিক্ষার্থীর নাম)", receiptData.studentName || "N/A"],
+        ["Student ID / Reg ID (আইডি)", receiptData.studentId || "STU-2026"],
+        ["Mobile Phone (মোবাইল)", receiptData.studentPhone || "N/A"],
+        ["Email Address (ইমেইল)", receiptData.studentEmail || "N/A"],
+        ["Enrolled Course / Batch (ব্যাচ)", receiptData.batch || "BJS & Bar Masterclass"],
+        ["Payment Method (মেথড)", receiptData.paymentMethod || "bKash"],
+        ["Transaction ID (TrxID)", receiptData.trxId || "N/A"],
+        ["Note / Description (নোট)", receiptData.note || "Course Fee Payment"]
+      ];
+
+      rows.forEach(([label, val]) => {
+        doc.fillColor('#64748b').fontSize(9).font(fontRegular).text(label, 50, y, { width: 190 });
+        doc.fillColor('#0f172a').fontSize(9).font(fontBold).text(String(val), 240, y, { width: 300 });
+        y += 24;
+        doc.moveTo(50, y - 6).lineTo(540, y - 6).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
+      });
+
+      // 4. Highlighted Amount Received Box
+      doc.rect(50, y + 10, 490, 45).fill('#064e3b');
+      doc.fillColor('#a7f3d0').fontSize(9).font(fontBold).text("TOTAL AMOUNT RECEIVED (সর্বমোট প্রাপ্ত অর্থ)", 65, y + 18);
+      doc.fillColor('#ffffff').fontSize(18).font(fontBold).text(`BDT ৳ ${amountStr}`, 65, y + 30);
+
+      // 5. Prominent Red Crimson Official Academic Seal Stamp (Center Right Overlay)
+      const sealCenterX = 450;
+      const sealCenterY = 320;
+      doc.save();
+      // Outer Double Crimson Ring
+      doc.circle(sealCenterX, sealCenterY, 52).lineWidth(2.5).strokeColor('#dc2626').stroke();
+      doc.circle(sealCenterX, sealCenterY, 47).lineWidth(1).strokeColor('#dc2626').stroke();
+      doc.circle(sealCenterX, sealCenterY, 34).lineWidth(1).strokeColor('#dc2626').stroke();
+
+      // Seal Text
+      doc.fillColor('#b91c1c').fontSize(7).font(fontBold);
+      doc.text("OFFICIAL VERIFIED", sealCenterX - 40, sealCenterY - 24, { width: 80, align: 'center' });
+      doc.fillColor('#dc2626').fontSize(14).font(fontBold);
+      doc.text("PAID", sealCenterX - 40, sealCenterY - 8, { width: 80, align: 'center' });
+      doc.fillColor('#b91c1c').fontSize(7).font(fontBold);
+      doc.text("ACADEMY SEAL", sealCenterX - 40, sealCenterY + 10, { width: 80, align: 'center' });
+      doc.restore();
+
+      // 6. Footer Disclaimer & Watermark
+      applyBengaliPdfWatermarkAndFooter(doc, "Official Fee Receipt");
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+// 1. Official Money Receipt Email Dispatcher with Attached Premium Red Seal PDF Voucher
 async function sendMoneyReceiptEmail(targetEmail, receiptData) {
   if (!targetEmail || !targetEmail.includes("@")) return false;
 
@@ -1404,7 +1489,7 @@ async function sendMoneyReceiptEmail(targetEmail, receiptData) {
 
         <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
           প্রিয় <strong>${receiptData.studentName || 'শিক্ষার্থী'}</strong>,<br/>
-          BJS & Bar Aspirants Academy-তে আপনার কোর্স ফি এর অর্থ সফলভাবে পরিশোধ করা হয়েছে। আপনার পরিশোধের অফিসিয়াল রশিদ নিচে দেওয়া হলো:
+          BJS & Bar Aspirants Academy-তে আপনার কোর্স ফি এর অর্থ সফলভাবে পরিশোধ করা হয়েছে। আপনার পরিশোধের অফিশিয়াল মানি রিসিটটি PDF ফাইল আকারে সাথে যুক্ত করে দেওয়া হলো:
         </p>
 
         <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #334155; margin: 18px 0; font-size: 13px; color: #cbd5e1;">
@@ -1444,7 +1529,7 @@ async function sendMoneyReceiptEmail(targetEmail, receiptData) {
         </div>
 
         <div style="text-align: center; margin-top: 20px;">
-          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
+          <a href="https://bjs-bar-academy.com/#dashboard" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
             🚀 স্টুডেন্ট পোর্টালে প্রবেশ করুন
           </a>
         </div>
@@ -1456,11 +1541,23 @@ async function sendMoneyReceiptEmail(targetEmail, receiptData) {
     </div>
   `;
 
+  let pdfBuffer = null;
+  try {
+    pdfBuffer = await generateReceiptPdfBuffer(receiptData);
+  } catch (err) {
+    console.warn("Notice generating PDF receipt buffer:", err.message);
+  }
+
+  const attachments = pdfBuffer ? [{
+    filename: `Money_Receipt_${receiptData.receiptId || 'REC'}.pdf`,
+    content: pdfBuffer
+  }] : [];
+
   const res = await sendResendEmail({
-    from: 'BJS & Bar Academy <onboarding@resend.dev>',
     to: targetEmail,
     subject,
-    html
+    html,
+    attachments
   });
   return res.ok;
 }
