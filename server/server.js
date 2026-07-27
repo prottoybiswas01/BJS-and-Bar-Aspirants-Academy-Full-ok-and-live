@@ -741,7 +741,7 @@ const smtpFallbackTransporter = nodemailer.createTransport({
   }
 });
 
-// High-Performance Single-Target Email Dispatcher (Resend + Gmail SMTP)
+// High-Performance Multi-Channel Target Email Dispatcher (Gmail SMTP + Resend SDK Fallback)
 async function sendResendEmail({ from, to, subject, html }) {
   if (!to) {
     console.warn(`⚠️ Invalid target email for dispatch: ${to}`);
@@ -751,35 +751,8 @@ async function sendResendEmail({ from, to, subject, html }) {
   const primaryOwnerEmail = "bjsacademy38@gmail.com";
   const resendSender = "onboarding@resend.dev";
   const recipientStr = Array.isArray(to) ? to.join(",") : String(to).trim();
-  const recipientList = Array.isArray(to)
-    ? to.map(e => String(e).trim().toLowerCase())
-    : [recipientStr.toLowerCase()];
 
-  const isTargetingOwner = recipientList.includes(primaryOwnerEmail.toLowerCase());
-
-  // 1. If target email IS bjsacademy38@gmail.com, send via Resend SDK to record in Resend Dashboard
-  if (isTargetingOwner) {
-    try {
-      const response = await resend.emails.send({
-        from: resendSender,
-        to: [primaryOwnerEmail],
-        subject: subject || "Notification from BJS & Bar Academy",
-        html: html || ""
-      });
-
-      if (response && (response.id || response.data?.id)) {
-        const emailId = response.id || response.data?.id;
-        console.log(`✉️ [Resend SDK Success] Delivered to ${primaryOwnerEmail} (ID: ${emailId})`);
-        return { ok: true, data: response.data || response };
-      } else if (response && response.error) {
-        console.warn(`⚠️ [Resend SDK Notice]: ${response.error.message || JSON.stringify(response.error)}`);
-      }
-    } catch (err) {
-      console.warn(`⚠️ [Resend SDK Exception]: ${err.message}`);
-    }
-  }
-
-  // 2. Direct Delivery to Target Recipient via Gmail SMTP (Clean, Single Email - No Duplicate Copies)
+  // 1. Direct Delivery to Target Recipient via Gmail SMTP (Ultra-Reliable, Direct to Student)
   try {
     const mailOptions = {
       from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
@@ -788,12 +761,33 @@ async function sendResendEmail({ from, to, subject, html }) {
       html: html || ""
     };
     const smtpInfo = await smtpFallbackTransporter.sendMail(mailOptions);
-    console.log(`✉️ [Gmail SMTP Delivery] Delivered cleanly to ${recipientStr} (MsgId: ${smtpInfo.messageId})`);
+    console.log(`✉️ [Gmail SMTP Delivery Success] Delivered to ${recipientStr} (MsgId: ${smtpInfo.messageId})`);
     return { ok: true, data: smtpInfo };
   } catch (smtpErr) {
-    console.warn(`⚠️ [Gmail SMTP Delivery Notice]: ${smtpErr.message}`);
-    return { ok: false, error: smtpErr };
+    console.warn(`⚠️ [Gmail SMTP Notice, Attempting Resend SDK]: ${smtpErr.message}`);
   }
+
+  // 2. Fallback Delivery via Resend SDK
+  try {
+    const response = await resend.emails.send({
+      from: resendSender,
+      to: [recipientStr.includes("@") ? recipientStr : primaryOwnerEmail],
+      subject: subject || "Notification from BJS & Bar Academy",
+      html: html || ""
+    });
+
+    if (response && (response.id || response.data?.id)) {
+      const emailId = response.id || response.data?.id;
+      console.log(`✉️ [Resend SDK Success] Delivered to ${recipientStr} (ID: ${emailId})`);
+      return { ok: true, data: response.data || response };
+    } else if (response && response.error) {
+      console.warn(`⚠️ [Resend SDK Notice]: ${response.error.message || JSON.stringify(response.error)}`);
+    }
+  } catch (resendErr) {
+    console.warn(`⚠️ [Resend SDK Exception]: ${resendErr.message}`);
+  }
+
+  return { ok: false, message: "Email dispatch failed on both SMTP and Resend" };
 }
 
 async function sendOtpEmail(targetEmail, otp, studentName) {
@@ -1336,6 +1330,292 @@ async function sendMentorApprovalEmail(targetEmail, mentorData) {
         <div style="text-align: center; margin-top: 25px; margin-bottom: 10px;">
           <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app/mentor" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 14px 28px; border-radius: 12px; display: inline-block;">
             🔑 Go to Mentor Portal Login
+          </a>
+        </div>
+      </div>
+
+      <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+        © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+      </p>
+    </div>
+  `;
+
+  const res = await sendResendEmail({
+    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    to: targetEmail,
+    subject,
+    html
+  });
+  return res.ok;
+}
+
+// 1. Official Money Receipt Email Dispatcher
+async function sendMoneyReceiptEmail(targetEmail, receiptData) {
+  if (!targetEmail || !targetEmail.includes("@")) return false;
+
+  const dateStr = new Date(receiptData.paymentTime || Date.now()).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  const amountStr = Number(receiptData.amount || 0).toLocaleString("en-US");
+
+  const subject = `🧾 Official Money Receipt: ${receiptData.receiptId || 'REC-REF'} - BJS & Bar Academy`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 580px; margin: auto; border: 1px solid #334155;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Official Money Receipt & Payment Voucher</p>
+      </div>
+
+      <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b;">
+        <div style="border-bottom: 1px solid #334155; padding-bottom: 12px; margin-bottom: 15px;">
+          <span style="background: #10b981; color: #020617; font-weight: bold; font-size: 11px; padding: 4px 10px; border-radius: 6px;">PAID RECEIPT</span>
+          <h3 style="color: #ffffff; margin: 8px 0 0 0; font-size: 16px;">Receipt #${receiptData.receiptId}</h3>
+          <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 11px;">Issued Date: ${dateStr}</p>
+        </div>
+
+        <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+          প্রিয় <strong>${receiptData.studentName || 'শিক্ষার্থী'}</strong>,<br/>
+          BJS & Bar Aspirants Academy-তে আপনার কোর্স ফি এর অর্থ সফলভাবে পরিশোধ করা হয়েছে। আপনার পরিশোধের অফিসিয়াল রশিদ নিচে দেওয়া হলো:
+        </p>
+
+        <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #334155; margin: 18px 0; font-size: 13px; color: #cbd5e1;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr style="border-bottom: 1px solid #1e293b;">
+              <td style="padding: 8px 0; color: #94a3b8;">শিক্ষার্থীর নাম:</td>
+              <td style="padding: 8px 0; font-weight: bold; color: #ffffff; text-align: right;">${receiptData.studentName || 'N/A'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #1e293b;">
+              <td style="padding: 8px 0; color: #94a3b8;">মোবাইল নম্বর:</td>
+              <td style="padding: 8px 0; color: #ffffff; text-align: right;">${receiptData.studentPhone || 'N/A'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #1e293b;">
+              <td style="padding: 8px 0; color: #94a3b8;">কোর্স / ব্যাচ:</td>
+              <td style="padding: 8px 0; color: #f59e0b; font-weight: bold; text-align: right;">${receiptData.batch || 'Standard Batch'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #1e293b;">
+              <td style="padding: 8px 0; color: #94a3b8;">পেমেন্ট মেথড:</td>
+              <td style="padding: 8px 0; color: #ffffff; text-align: right;">${receiptData.paymentMethod || 'bKash'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #1e293b;">
+              <td style="padding: 8px 0; color: #94a3b8;">ট্রানজেকশন আইডি (TrxID):</td>
+              <td style="padding: 8px 0; font-family: monospace; color: #38bdf8; text-align: right;">${receiptData.trxId || 'N/A'}</td>
+            </tr>
+            ${receiptData.note ? `
+            <tr style="border-bottom: 1px solid #1e293b;">
+              <td style="padding: 8px 0; color: #94a3b8;">বিবরণ / নোট:</td>
+              <td style="padding: 8px 0; color: #cbd5e1; text-align: right;">${receiptData.note}</td>
+            </tr>
+            ` : ''}
+          </table>
+
+          <div style="background: #064e3b; border: 1px solid #10b981; padding: 12px; border-radius: 8px; margin-top: 15px; text-align: center;">
+            <span style="color: #a7f3d0; font-size: 11px; text-transform: uppercase; font-weight: bold;">সর্বমোট প্রাপ্ত অর্থ (Total Received)</span>
+            <div style="color: #ffffff; font-size: 22px; font-weight: bold; margin-top: 2px;">৳ ${amountStr} BDT</div>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 20px;">
+          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
+            🚀 স্টুডেন্ট পোর্টালে প্রবেশ করুন
+          </a>
+        </div>
+      </div>
+
+      <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+        © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+      </p>
+    </div>
+  `;
+
+  const res = await sendResendEmail({
+    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    to: targetEmail,
+    subject,
+    html
+  });
+  return res.ok;
+}
+
+// 2. Course Access Added/Removed/Updated Notification Email Dispatcher
+async function sendCourseAccessUpdateEmail(targetEmail, studentData, actionDetails = {}) {
+  if (!targetEmail || !targetEmail.includes("@")) return false;
+
+  const { addedNames = [], removedNames = [], allCourseTitles = [] } = actionDetails;
+
+  let statusTitle = "📚 আপনার কোর্স এক্সেস আপডেট করা হয়েছে";
+  let statusBadge = "কোর্স এক্সেস আপডেট";
+  let badgeColor = "#38bdf8";
+
+  if (addedNames.length > 0 && removedNames.length === 0) {
+    statusTitle = "🎉 আপনার প্রোফাইলে নতুন কোর্স সংযুক্ত করা হয়েছে!";
+    statusBadge = "কোর্স সংযুক্ত";
+    badgeColor = "#10b981";
+  } else if (removedNames.length > 0 && addedNames.length === 0) {
+    statusTitle = "⚠️ আপনার কোর্স এক্সেস আপডেট করা হয়েছে";
+    statusBadge = "কোর্স আপডেট";
+    badgeColor = "#f59e0b";
+  }
+
+  let changesHtml = "";
+  if (addedNames.length > 0) {
+    changesHtml += `
+      <div style="background: #064e3b; border-left: 4px solid #10b981; padding: 10px 14px; border-radius: 6px; margin-bottom: 10px;">
+        <strong style="color: #a7f3d0; font-size: 12px;">➕ নতুন সংযুক্ত কোর্স:</strong><br/>
+        <span style="color: #ffffff; font-size: 13px; font-weight: bold;">${addedNames.join(", ")}</span>
+      </div>
+    `;
+  }
+  if (removedNames.length > 0) {
+    changesHtml += `
+      <div style="background: #451a03; border-left: 4px solid #f59e0b; padding: 10px 14px; border-radius: 6px; margin-bottom: 10px;">
+        <strong style="color: #fde68a; font-size: 12px;">➖ এক্সেস রিমুভ / পরিমার্জিত কোর্স:</strong><br/>
+        <span style="color: #ffffff; font-size: 13px; font-weight: bold;">${removedNames.join(", ")}</span>
+      </div>
+    `;
+  }
+
+  let activeCoursesHtml = allCourseTitles.length > 0
+    ? allCourseTitles.map(t => `<li style="margin: 4px 0; color: #e2e8f0;">📚 ${t}</li>`).join("")
+    : `<li style="color: #94a3b8;">কোনো সক্রিয় কোর্স নেই</li>`;
+
+  const subject = `📚 Course Access Update - BJS & Bar Academy (${studentData.name || 'Student'})`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 580px; margin: auto; border: 1px solid #334155;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Student Course Access Management</p>
+      </div>
+
+      <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b;">
+        <div style="text-align: center; margin-bottom: 15px;">
+          <span style="background: ${badgeColor}; color: #020617; font-weight: bold; font-size: 11px; padding: 4px 12px; border-radius: 20px; display: inline-block;">${statusBadge}</span>
+          <h3 style="color: #ffffff; margin: 10px 0 0 0; font-size: 17px;">${statusTitle}</h3>
+        </div>
+
+        <p style="font-size: 13px; color: #cbd5e1; line-height: 1.6;">
+          প্রিয় <strong>${studentData.name || 'শিক্ষার্থী'}</strong>,<br/>
+          BJS & Bar Aspirants Academy এডমিন প্যানেল থেকে আপনার স্টুডেন্ট প্রোফাইলের কোর্স এক্সেস আপডেট করা হয়েছে।
+        </p>
+
+        ${changesHtml}
+
+        <div style="background: #020617; padding: 16px; border-radius: 10px; border: 1px solid #334155; margin: 18px 0; font-size: 12px; color: #cbd5e1;">
+          <p style="margin: 0 0 8px 0; font-weight: bold; color: #f59e0b; font-size: 13px;">📌 আপনার বর্তমানে সক্রিয় সকল কোর্সসমূহ:</p>
+          <ul style="padding-left: 20px; margin: 5px 0;">
+            ${activeCoursesHtml}
+          </ul>
+          <hr style="border: 0; border-top: 1px solid #1e293b; margin: 12px 0;" />
+          <p style="margin: 3px 0;">🆔 <strong>স্টুডেন্ট আইডি:</strong> <span style="color: #f59e0b; font-family: monospace;">${studentData.id || 'N/A'}</span></p>
+          <p style="margin: 3px 0;">📞 <strong>নিবন্ধিত ফোন:</strong> ${studentData.phone || 'N/A'}</p>
+          <p style="margin: 3px 0;">🎓 <strong>নিবন্ধিত ব্যাচ:</strong> ${studentData.batch || 'Standard Batch'}</p>
+        </div>
+
+        <div style="text-align: center; margin-top: 22px;">
+          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #10b981; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 13px 26px; border-radius: 12px; display: inline-block;">
+            🚀 পোর্টালে লগইন করে ক্লাস দেখুন
+          </a>
+        </div>
+      </div>
+
+      <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+        © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+      </p>
+    </div>
+  `;
+
+  const res = await sendResendEmail({
+    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    to: targetEmail,
+    subject,
+    html
+  });
+  return res.ok;
+}
+
+// 3. Assignment Grade Result Email Dispatcher
+async function sendAssignmentGradeEmail(targetEmail, submissionData, assignmentTitle) {
+  if (!targetEmail || !targetEmail.includes("@")) return false;
+
+  const marks = submissionData.marksObtained !== null ? submissionData.marksObtained : 0;
+  const feedback = submissionData.feedback || "চমৎকার লেখার প্রচেষ্টা। আরও অনুশীলনের মাধ্যমে মান উন্নত করুন।";
+
+  const subject = `📝 Assignment Result & Marks Published: ${assignmentTitle || 'Assignment'} - BJS & Bar Academy`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 580px; margin: auto; border: 1px solid #334155;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Assignment Evaluation & Feedback Report</p>
+      </div>
+
+      <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b;">
+        <div style="text-align: center; margin-bottom: 15px;">
+          <span style="font-size: 32px;">📝</span>
+          <h3 style="color: #10b981; margin: 8px 0 0 0;">অ্যাসাইনমেন্ট মূল্যায়ন সম্পন্ন হয়েছে!</h3>
+          <p style="color: #cbd5e1; font-size: 13px; margin-top: 4px;">আপনার জমাকৃত লিখিত স্ক্রিপ্ট মেন্টর দ্বারা মূল্যায়ন করা হয়েছে।</p>
+        </div>
+
+        <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+          প্রিয় <strong>${submissionData.studentName || 'শিক্ষার্থী'}</strong>,<br/>
+          আপনার <strong>"${assignmentTitle || 'অ্যাসাইনমেন্ট'}"</strong> এর খাতা মূল্যায়ন প্রক্রিয়া সম্পন্ন হয়েছে। নিচে আপনার ফলাফল প্রদান করা হলো:
+        </p>
+
+        <div style="background: #020617; padding: 18px; border-radius: 10px; border: 1px solid #10b981; margin: 18px 0; text-align: center;">
+          <p style="margin: 0; font-size: 12px; color: #94a3b8; text-transform: uppercase;">প্রাপ্ত মার্কস (Marks Obtained)</p>
+          <div style="font-size: 36px; font-weight: bold; color: #10b981; margin: 6px 0;">
+            ${marks}
+          </div>
+          <p style="margin: 0; font-size: 12px; color: #cbd5e1;">মূল্যায়নকারী: <strong style="color: #f59e0b;">${submissionData.gradedBy || 'Senior Faculty'}</strong></p>
+        </div>
+
+        ${feedback ? `
+        <div style="background: #1e293b; padding: 14px; border-radius: 8px; border-left: 4px solid #38bdf8; margin-bottom: 18px;">
+          <p style="margin: 0 0 4px 0; font-weight: bold; color: #38bdf8; font-size: 12px;">💬 মেন্টরের বিশেষ মূল্যায়ন ও ফিডব্যাক:</p>
+          <p style="margin: 0; color: #e2e8f0; font-size: 13px; line-height: 1.5;">"${feedback}"</p>
+        </div>
+        ` : ''}
+
+        <div style="text-align: center; margin-top: 20px;">
+          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
+            🔎 পোর্টালে বিস্তারিত মূল্যায়িত খাতা দেখুন
+          </a>
+        </div>
+      </div>
+
+      <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+        © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+      </p>
+    </div>
+  `;
+
+  const res = await sendResendEmail({
+    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    to: targetEmail,
+    subject,
+    html
+  });
+  return res.ok;
+}
+
+// 4. Admin Custom Message Email Dispatcher
+async function sendAdminCustomMessageEmail(targetEmail, studentName, subjectText, bodyText) {
+  if (!targetEmail || !targetEmail.includes("@")) return false;
+
+  const subject = subjectText || "⚖️ Important Notice - BJS & Bar Academy";
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 580px; margin: auto; border: 1px solid #334155;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Official Academic Notice</p>
+      </div>
+
+      <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b;">
+        <p style="font-size: 14px; color: #cbd5e1; margin-top: 0;">প্রিয় <strong>${studentName || 'শিক্ষার্থী'}</strong>,</p>
+
+        <div style="font-size: 13px; color: #e2e8f0; line-height: 1.7; background: #020617; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin: 15px 0;">
+          ${(bodyText || '').replace(/\n/g, '<br/>')}
+        </div>
+
+        <div style="text-align: center; margin-top: 22px;">
+          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
+            🔑 পোর্টালে প্রবেশ করুন
           </a>
         </div>
       </div>
@@ -2894,6 +3174,29 @@ app.post("/api/mentor/grade-submission", async (req, res) => {
       updatedSub = memoryDb.submissions[idx];
     }
 
+    // Automatically send assignment grade email to student
+    if (updatedSub) {
+      let targetEmail = updatedSub.studentEmail;
+      if (!targetEmail) {
+        let st = (memoryDb.students || []).find(s => s.id === updatedSub.studentId);
+        if (!st && isMongoConnected) {
+          st = await Student.findOne({ id: updatedSub.studentId }).catch(() => null);
+        }
+        if (st) targetEmail = st.email;
+      }
+
+      let asnTitle = updatedSub.assignmentTitle || "";
+      if (!asnTitle) {
+        let asn = (memoryDb.assignments || []).find(a => a.id === updatedSub.assignmentId);
+        if (asn) asnTitle = asn.title;
+      }
+
+      if (targetEmail) {
+        sendAssignmentGradeEmail(targetEmail, updatedSub, asnTitle)
+          .catch(err => console.warn("Notice sending assignment grade email:", err.message));
+      }
+    }
+
     return res.json({
       ok: true,
       message: `খাতা মূল্যায়ন সফল হয়েছে! প্রাপ্ত নম্বর: ${marksObtained}`,
@@ -3322,10 +3625,19 @@ app.post("/api/admin/students/save", async (req, res) => {
       body.id = String(body.id).trim();
     }
 
+    let oldAllowed = [];
+    const existingSt = (memoryDb.students || []).find(s => s.id === body.id);
+    if (existingSt) {
+      oldAllowed = existingSt.allowedCourseIds || existingSt.enrolledCourseIds || [];
+    }
+
     let savedStudent = body;
     if (isMongoConnected) {
       let student = await Student.findOne({ id: body.id });
       if (student) {
+        if (!oldAllowed.length) {
+          oldAllowed = student.allowedCourseIds || student.enrolledCourseIds || [];
+        }
         if (!body.password || !String(body.password).trim()) {
           delete body.password;
         } else if (!body.password.startsWith("$2a$") && !body.password.startsWith("$2b$")) {
@@ -3353,22 +3665,41 @@ app.post("/api/admin/students/save", async (req, res) => {
       memoryDb.students.unshift({ ...savedStudent });
     }
 
-    // Dispatch professional course enrollment email to student with ALL enrolled course titles
+    // Dispatch professional course enrollment / update email to student
     if (savedStudent && savedStudent.email) {
-      let allCourseTitles = [];
-      const allowed = savedStudent.allowedCourseIds || savedStudent.enrolledCourseIds || [];
-      if (allowed.length > 0) {
-        allCourseTitles = allowed.map(id => {
-          const found = (memoryDb.courses || []).find(c => c.id === id);
-          return found ? found.title : id;
-        });
+      const newAllowed = savedStudent.allowedCourseIds || savedStudent.enrolledCourseIds || [];
+      const addedIds = newAllowed.filter(id => !oldAllowed.includes(id));
+      const removedIds = oldAllowed.filter(id => !newAllowed.includes(id));
+
+      let allCourseTitles = newAllowed.map(id => {
+        const found = (memoryDb.courses || []).find(c => c.id === id || c._id === id);
+        return found ? (found.title || id) : id;
+      });
+
+      let addedNames = addedIds.map(id => {
+        const found = (memoryDb.courses || []).find(c => c.id === id || c._id === id);
+        return found ? (found.title || id) : id;
+      });
+
+      let removedNames = removedIds.map(id => {
+        const found = (memoryDb.courses || []).find(c => c.id === id || c._id === id);
+        return found ? (found.title || id) : id;
+      });
+
+      if (addedNames.length > 0 || removedNames.length > 0) {
+        sendCourseAccessUpdateEmail(savedStudent.email, savedStudent, {
+          addedNames,
+          removedNames,
+          allCourseTitles
+        }).catch(err => console.warn("Notice sending course access email:", err.message));
+      } else {
+        sendCourseEnrollmentEmail(
+          savedStudent.email,
+          savedStudent,
+          savedStudent.batch || "BJS & Bar Council Masterclass",
+          allCourseTitles
+        ).catch(err => console.warn("Notice sending enrollment email:", err.message));
       }
-      sendCourseEnrollmentEmail(
-        savedStudent.email,
-        savedStudent,
-        savedStudent.batch || "BJS & Bar Council Masterclass",
-        allCourseTitles
-      );
     }
 
     return res.json({ ok: true, message: `Student profile for "${savedStudent.name || savedStudent.id}" saved successfully!`, student: savedStudent });
@@ -3411,7 +3742,26 @@ app.post("/api/admin/students/message", async (req, res) => {
       return res.json({ ok: true, message: `Popup notice sent to ${studentIds.length} student(s)!` });
     }
 
-    return res.json({ ok: true, message: `Email message sent to ${studentIds.length} student(s)!` });
+    // Email dispatch loop for selected students
+    let sentCount = 0;
+    let allStus = memoryDb.students || [];
+    if (isMongoConnected) {
+      try {
+        const dbStus = await Student.find({ id: { $in: studentIds } }).lean();
+        if (dbStus && dbStus.length > 0) allStus = dbStus;
+      } catch (e) {}
+    }
+
+    const targetStudents = allStus.filter(s => studentIds.includes(s.id));
+    for (const st of targetStudents) {
+      if (st.email && st.email.includes("@")) {
+        sendAdminCustomMessageEmail(st.email, st.name, subject || title, body)
+          .catch(e => console.warn("Email notice error:", e.message));
+        sentCount++;
+      }
+    }
+
+    return res.json({ ok: true, message: `Email message dispatched to ${sentCount} student(s)!` });
   } catch (e) {
     return res.status(500).json({ ok: false, message: "Error sending message to students." });
   }
