@@ -684,73 +684,98 @@ const smtpFallbackTransporter = nodemailer.createTransport({
   }
 });
 
-// High-Performance Resend Email Dispatcher (SDK + REST API + SMTP Fallback)
+// High-Performance Resend Email Dispatcher (SDK + REST API + Dual Delivery Engine)
 async function sendResendEmail({ from, to, subject, html }) {
-  if (!to || (typeof to === "string" && !to.includes("@"))) {
+  if (!to) {
     console.warn(`⚠️ Invalid target email for dispatch: ${to}`);
     return { ok: false, message: "Invalid target email" };
   }
 
-  const sender = from || "BJS & Bar Academy <onboarding@resend.dev>";
-  const recipient = Array.isArray(to) ? to : [to];
+  const primaryOwnerEmail = "bjsacademy38@gmail.com";
+  const resendSender = "onboarding@resend.dev";
+  const recipientList = Array.isArray(to) ? to : [to];
 
-  // 1. Attempt Resend SDK
+  let resendSuccess = false;
+  let resendData = null;
+
+  // 1. Resend SDK Dispatch (Uses onboarding@resend.dev to bjsacademy38@gmail.com to record in Resend Dashboard)
   try {
-    const data = await resend.emails.send({
-      from: sender,
-      to: recipient,
+    const resendTo = recipientList.includes(primaryOwnerEmail)
+      ? recipientList
+      : [primaryOwnerEmail];
+
+    const response = await resend.emails.send({
+      from: resendSender,
+      to: resendTo,
       subject: subject || "Notification from BJS & Bar Academy",
       html: html || ""
     });
-    if (data && (data.id || data.data?.id)) {
-      console.log(`✉️ [Resend SDK] Email dispatched successfully to ${to} (ID: ${data?.id || data?.data?.id})`);
-      return { ok: true, data };
+
+    if (response && response.error) {
+      console.warn(`⚠️ [Resend SDK Notice]: ${response.error.message || JSON.stringify(response.error)}`);
+    } else if (response && (response.id || response.data?.id)) {
+      const emailId = response.id || response.data?.id;
+      console.log(`✉️ [Resend SDK Success] Logged to Resend Dashboard & Delivered to ${resendTo.join(", ")} (ID: ${emailId})`);
+      resendSuccess = true;
+      resendData = response.data || response;
     }
   } catch (err) {
-    console.warn(`⚠️ [Resend SDK Notice]: ${err.message}. Trying Resend REST API...`);
+    console.warn(`⚠️ [Resend SDK Exception]: ${err.message}`);
   }
 
-  // 2. Attempt Resend REST API
-  try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${RESEND_API_KEY}`
-      },
-      body: JSON.stringify({
-        from: sender,
-        to: recipient,
+  // 2. Resend REST API Fallback if SDK had an issue
+  if (!resendSuccess) {
+    try {
+      const apiResponse = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${RESEND_API_KEY}`
+        },
+        body: JSON.stringify({
+          from: resendSender,
+          to: [primaryOwnerEmail],
+          subject: subject || "Notification from BJS & Bar Academy",
+          html: html || ""
+        })
+      });
+      const resData = await apiResponse.json();
+      if (apiResponse.ok && resData.id) {
+        console.log(`✉️ [Resend REST API Success] Logged to Resend Dashboard (ID: ${resData.id})`);
+        resendSuccess = true;
+        resendData = resData;
+      } else {
+        console.warn(`⚠️ [Resend REST API Notice - ${apiResponse.status}]:`, resData.message || resData);
+      }
+    } catch (fetchErr) {
+      console.warn(`⚠️ [Resend Fetch Exception]:`, fetchErr.message);
+    }
+  }
+
+  // 3. Deliver to actual recipient via Gmail SMTP if target recipient is different from primaryOwnerEmail
+  let smtpSuccess = false;
+  if (!recipientList.includes(primaryOwnerEmail) || !resendSuccess) {
+    try {
+      const mailOptions = {
+        from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
+        to: recipientList.join(","),
         subject: subject || "Notification from BJS & Bar Academy",
         html: html || ""
-      })
-    });
-    const resData = await response.json();
-    if (response.ok && resData.id) {
-      console.log(`✉️ [Resend API] Email sent to ${to} (ID: ${resData.id})`);
-      return { ok: true, data: resData };
-    } else {
-      console.warn(`⚠️ [Resend API Notice - ${response.status}]:`, resData.message || resData);
+      };
+      const smtpInfo = await smtpFallbackTransporter.sendMail(mailOptions);
+      console.log(`✉️ [Gmail SMTP Delivery] Delivered to ${recipientList.join(",")} (MsgId: ${smtpInfo.messageId})`);
+      smtpSuccess = true;
+    } catch (smtpErr) {
+      console.warn(`⚠️ [Gmail SMTP Delivery Notice]: ${smtpErr.message}`);
     }
-  } catch (fetchErr) {
-    console.warn(`⚠️ [Resend Fetch Notice]:`, fetchErr.message);
+  } else {
+    smtpSuccess = true;
   }
 
-  // 3. Fallback to Gmail SMTP Transporter (Bypasses Resend 403 unverified testing domain restriction for student emails)
-  try {
-    const mailOptions = {
-      from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
-      to: Array.isArray(to) ? to.join(",") : to,
-      subject: subject || "Notification from BJS & Bar Academy",
-      html: html || ""
-    };
-    const smtpInfo = await smtpFallbackTransporter.sendMail(mailOptions);
-    console.log(`✉️ [Gmail SMTP Fallback] Email delivered successfully to ${to} (MsgId: ${smtpInfo.messageId})`);
-    return { ok: true, data: smtpInfo };
-  } catch (smtpErr) {
-    console.warn(`⚠️ [Gmail SMTP Fallback Notice]: ${smtpErr.message}`);
-    return { ok: false, error: smtpErr };
-  }
+  return {
+    ok: resendSuccess || smtpSuccess,
+    data: resendData
+  };
 }
 
 async function sendOtpEmail(targetEmail, otp, studentName) {
