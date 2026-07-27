@@ -220,15 +220,30 @@ export default function Dashboard({ openVideoModal }) {
     return acc;
   }, {});
 
-  // Evaluate Student Approval & Course Rules
-  const isApproved = user?.loginApproval === 'Approved' || user?.status === 'Active' || user?.status === 'Approved';
-  const courseRule = user?.courseRules?.find((r) => r.courseId === selectedCourse?.id) || {
-    unlimitedAccess: isApproved,
-    enrollmentStatus: isApproved ? 'Active' : 'Pending'
-  };
+  // Evaluate Student Approval & Course Access Rules (Resilient & Instant Unlock)
+  const isApproved = Boolean(
+    user?.loginApproval === 'Approved' ||
+    user?.status === 'Active' ||
+    user?.status === 'Approved' ||
+    user?.approved === true ||
+    (user?.allowedCourseIds && user?.allowedCourseIds.length > 0) ||
+    (user?.enrolledCourseIds && user?.enrolledCourseIds.length > 0)
+  );
 
-  const isEnrolled = isApproved && selectedCourse && (user?.allowedCourseIds?.includes(selectedCourse.id) || user?.enrolledCourseIds?.includes(selectedCourse.id));
-  const isUnlimited = isApproved && (courseRule.unlimitedAccess || isEnrolled);
+  const isCourseAllowed = Boolean(
+    !selectedCourse ||
+    !user?.allowedCourseIds ||
+    user?.allowedCourseIds.length === 0 ||
+    user?.allowedCourseIds.includes('all') ||
+    (user?.allowedCourseIds || []).some(id => String(id) === String(selectedCourse?.id) || String(id) === String(selectedCourse?._id) || String(id) === String(selectedCourse?.oldId)) ||
+    (user?.enrolledCourseIds || []).some(id => String(id) === String(selectedCourse?.id) || String(id) === String(selectedCourse?._id) || String(id) === String(selectedCourse?.oldId)) ||
+    (user?.batch && selectedCourse?.title && selectedCourse.title.toLowerCase().includes(String(user.batch).toLowerCase())) ||
+    user?.unlimitedAccess === true ||
+    isApproved
+  );
+
+  const isEnrolled = isApproved && isCourseAllowed;
+  const isUnlimited = isApproved;
   const completedCount = user?.completedLessonIds?.length || 0;
   const progressPercent = lessons.length > 0 ? Math.round((completedCount / lessons.length) * 100) : 0;
 
