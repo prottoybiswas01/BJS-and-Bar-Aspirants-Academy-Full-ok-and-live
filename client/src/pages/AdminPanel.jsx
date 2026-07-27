@@ -1091,7 +1091,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   const handleDeleteStudent = async (id) => {
     if (!window.confirm(`Are you sure you want to delete student ${id}?`)) return;
-    setStudents(prev => prev.filter(s => s.id !== id && s._id !== id));
+    setStudents(prev => prev.filter(s => s.id !== id && s._id !== id && s.regId !== id));
     try {
       const res = await api.delete(`/admin/students/${id}`);
       if (res.data.ok) {

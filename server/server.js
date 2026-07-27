@@ -4252,10 +4252,89 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
 app.delete("/api/admin/students/:id", async (req, res) => {
   try {
     await ensureDbConnected();
-    if (isMongoConnected) await Student.deleteOne({ id: req.params.id });
-  } catch (e) { }
-  memoryDb.students = memoryDb.students.filter((s) => s.id !== req.params.id);
-  res.json({ ok: true, message: "Student deleted successfully!" });
+    const studentId = req.params.id;
+
+    // Find student or registration info first to identify regId, phone, email
+    let targetStudent = null;
+    if (isMongoConnected) {
+      targetStudent = await Student.findOne({
+        $or: [
+          { id: studentId },
+          { regId: studentId },
+          ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])
+        ]
+      }).lean();
+
+      if (!targetStudent) {
+        targetStudent = await Registration.findOne({
+          $or: [
+            { regId: studentId },
+            { phone: studentId },
+            { email: studentId },
+            ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])
+          ]
+        }).lean();
+      }
+    }
+
+    if (!targetStudent) {
+      targetStudent = (memoryDb.students || []).find(
+        (s) => s && (s.id === studentId || s.regId === studentId || String(s._id) === studentId)
+      ) || (memoryDb.registrations || []).find(
+        (r) => r && (r.regId === studentId || String(r._id) === studentId)
+      );
+    }
+
+    const regId = targetStudent?.regId || studentId;
+    const phone = targetStudent?.phone;
+    const email = targetStudent?.email;
+
+    const studentOr = [
+      { id: studentId },
+      { regId: studentId },
+      ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])
+    ];
+    const regOr = [
+      { regId: studentId },
+      { regId: regId },
+      ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])
+    ];
+
+    if (phone) {
+      studentOr.push({ phone });
+      regOr.push({ phone });
+    }
+    if (email) {
+      studentOr.push({ email });
+      regOr.push({ email });
+    }
+
+    if (isMongoConnected) {
+      await Student.deleteMany({ $or: studentOr });
+      await Registration.deleteMany({ $or: regOr });
+    }
+
+    memoryDb.students = (memoryDb.students || []).filter((s) => {
+      if (!s) return false;
+      if (s.id === studentId || s.regId === studentId || String(s._id) === studentId) return false;
+      if (phone && s.phone === phone) return false;
+      if (email && s.email === email) return false;
+      return true;
+    });
+
+    memoryDb.registrations = (memoryDb.registrations || []).filter((r) => {
+      if (!r) return false;
+      if (r.regId === studentId || r.regId === regId || String(r._id) === studentId) return false;
+      if (phone && r.phone === phone) return false;
+      if (email && r.email === email) return false;
+      return true;
+    });
+
+    return res.json({ ok: true, message: "Student deleted successfully!" });
+  } catch (err) {
+    console.error("Delete student error:", err);
+    return res.status(500).json({ ok: false, message: "Error deleting student." });
+  }
 });
 
 app.post("/api/admin/students/message", async (req, res) => {

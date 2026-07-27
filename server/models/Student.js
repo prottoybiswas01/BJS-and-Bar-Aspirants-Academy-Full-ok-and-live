@@ -21,7 +21,7 @@ const studentSchema = new mongoose.Schema({
   university: { type: String, default: "" }, // University / Law Institution Name
   batch: { type: String, default: "Judiciary 2026" },
   session: { type: String, default: "Weekend Intensive" },
-  password: { type: String, required: true }, // Hashed bcrypt password
+  password: { type: String, required: true }, // Hashed bcrypt p
   isTemporaryPassword: { type: Boolean, default: false },
   status: { type: String, enum: ["Active", "Inactive", "Blocked", "Pending"], default: "Active" },
   loginApproval: { type: String, enum: ["Approved", "Pending", "Preview", "Rejected"], default: "Approved" },
