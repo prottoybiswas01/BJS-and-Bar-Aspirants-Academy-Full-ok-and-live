@@ -1380,7 +1380,7 @@ async function sendMentorApprovalEmail(targetEmail, mentorData) {
   return res.ok;
 }
 
-// PDF Receipt Generator Function with Red Crimson Official Seal Stamp
+// PDF Receipt Generator Function - Executive Diplomatic & Academic High-Class Voucher Design
 function generateReceiptPdfBuffer(receiptData) {
   return new Promise((resolve, reject) => {
     try {
@@ -1394,70 +1394,131 @@ function generateReceiptPdfBuffer(receiptData) {
       doc.on('error', err => reject(err));
 
       const dateStr = new Date(receiptData.paymentTime || Date.now()).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
-      const amountStr = Number(receiptData.amount || 0).toLocaleString("en-US");
+      const amountNum = Number(receiptData.amount || 0);
+      const amountStr = amountNum.toLocaleString("en-US");
 
       const hasBengaliFont = fs.existsSync(regularFontPath) && fs.existsSync(boldFontPath);
       const fontBold = hasBengaliFont ? "Bengali-Bold" : "Helvetica-Bold";
       const fontRegular = hasBengaliFont ? "Bengali-Regular" : "Helvetica";
 
-      // 1. Top Header Banner
-      doc.rect(36, 36, 523, 75).fill('#0b1325');
-      doc.fillColor('#f59e0b').fontSize(16).font(fontBold).text("BJS & BAR ASPIRANTS ACADEMY", 50, 48);
-      doc.fillColor('#ffffff').fontSize(10).font(fontRegular).text("Official Payment Money Receipt & Fee Voucher", 50, 70);
-      doc.fillColor('#94a3b8').fontSize(8).font(fontRegular).text("Judiciary & Advocacy Excellence Portal | Helpline: 01800077663", 50, 85);
+      // 1. Dual Outer Diplomatic Borders
+      doc.rect(20, 20, 555, 802).strokeColor('#d97706').lineWidth(2.5).stroke(); // Gold Accent Border
+      doc.rect(25, 25, 545, 792).strokeColor('#1e293b').lineWidth(0.75).stroke(); // Dark Frame
 
-      // 2. Receipt Reference Bar
-      doc.rect(36, 120, 523, 30).fill('#0f172a');
-      doc.fillColor('#10b981').fontSize(10).font(fontBold).text(`RECEIPT NO: ${receiptData.receiptId || 'REC-2026-REF'}`, 50, 128);
-      doc.fillColor('#94a3b8').fontSize(9).font(fontRegular).text(`DATE: ${dateStr}`, 380, 128, { align: 'right', width: 170 });
+      // 2. Elegant Background Soft Paper Tint
+      doc.rect(30, 30, 535, 782).fill('#fafafa');
 
-      // 3. Main Data Card
-      doc.rect(36, 160, 523, 260).strokeColor('#334155').lineWidth(1).stroke();
-
-      let y = 175;
-      const rows = [
-        ["Student Name (শিক্ষার্থীর নাম)", receiptData.studentName || "N/A"],
-        ["Student ID / Reg ID (আইডি)", receiptData.studentId || "STU-2026"],
-        ["Mobile Phone (মোবাইল)", receiptData.studentPhone || "N/A"],
-        ["Email Address (ইমেইল)", receiptData.studentEmail || "N/A"],
-        ["Enrolled Course / Batch (ব্যাচ)", receiptData.batch || "BJS & Bar Masterclass"],
-        ["Payment Method (মেথড)", receiptData.paymentMethod || "bKash"],
-        ["Transaction ID (TrxID)", receiptData.trxId || "N/A"],
-        ["Note / Description (নোট)", receiptData.note || "Course Fee Payment"]
-      ];
-
-      rows.forEach(([label, val]) => {
-        doc.fillColor('#64748b').fontSize(9).font(fontRegular).text(label, 50, y, { width: 190 });
-        doc.fillColor('#0f172a').fontSize(9).font(fontBold).text(String(val), 240, y, { width: 300 });
-        y += 24;
-        doc.moveTo(50, y - 6).lineTo(540, y - 6).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
-      });
-
-      // 4. Highlighted Amount Received Box
-      doc.rect(50, y + 10, 490, 45).fill('#064e3b');
-      doc.fillColor('#a7f3d0').fontSize(9).font(fontBold).text("TOTAL AMOUNT RECEIVED (সর্বমোট প্রাপ্ত অর্থ)", 65, y + 18);
-      doc.fillColor('#ffffff').fontSize(18).font(fontBold).text(`BDT ৳ ${amountStr}`, 65, y + 30);
-
-      // 5. Prominent Red Crimson Official Academic Seal Stamp (Center Right Overlay)
-      const sealCenterX = 450;
-      const sealCenterY = 320;
+      // 3. Diagonal Faint Background Watermark (Center Page)
       doc.save();
-      // Outer Double Crimson Ring
-      doc.circle(sealCenterX, sealCenterY, 52).lineWidth(2.5).strokeColor('#dc2626').stroke();
-      doc.circle(sealCenterX, sealCenterY, 47).lineWidth(1).strokeColor('#dc2626').stroke();
-      doc.circle(sealCenterX, sealCenterY, 34).lineWidth(1).strokeColor('#dc2626').stroke();
-
-      // Seal Text
-      doc.fillColor('#b91c1c').fontSize(7).font(fontBold);
-      doc.text("OFFICIAL VERIFIED", sealCenterX - 40, sealCenterY - 24, { width: 80, align: 'center' });
-      doc.fillColor('#dc2626').fontSize(14).font(fontBold);
-      doc.text("PAID", sealCenterX - 40, sealCenterY - 8, { width: 80, align: 'center' });
-      doc.fillColor('#b91c1c').fontSize(7).font(fontBold);
-      doc.text("ACADEMY SEAL", sealCenterX - 40, sealCenterY + 10, { width: 80, align: 'center' });
+      doc.rotate(-30, { origin: [297, 420] });
+      doc.fillColor('#cbd5e1').opacity(0.25).fontSize(26).font(fontBold);
+      doc.text("BJS & BAR ASPIRANTS ACADEMY", 60, 410, { width: 480, align: 'center' });
+      doc.fontSize(13).font(fontRegular);
+      doc.text("OFFICIAL PAYMENT RECEIPT & FEE VOUCHER", 60, 445, { width: 480, align: 'center' });
       doc.restore();
 
-      // 6. Footer Disclaimer & Watermark
-      applyBengaliPdfWatermarkAndFooter(doc, "Official Fee Receipt");
+      // 4. Header Banner (Deep Navy + Gold Accent Left Stripe)
+      doc.rect(40, 40, 515, 85).fill('#0f172a');
+      doc.rect(40, 40, 8, 85).fill('#f59e0b'); // Gold Left Accent Stripe
+
+      doc.fillColor('#f59e0b').fontSize(18).font(fontBold).text("BJS & BAR ASPIRANTS ACADEMY", 62, 54);
+      doc.fillColor('#ffffff').fontSize(10).font(fontRegular).text("Official Payment Money Receipt & Student Fee Voucher", 62, 78);
+      doc.fillColor('#94a3b8').fontSize(8).font(fontRegular).text("Judiciary & Advocacy Excellence Portal | Web: bjs-bar-academy.com | Helpline: 01800077663", 62, 94);
+
+      // 5. Voucher Meta Bar
+      doc.rect(40, 133, 515, 34).fill('#1e293b');
+      doc.rect(48, 140, 100, 20).fill('#064e3b'); // Emerald Green Badge
+      doc.fillColor('#a7f3d0').fontSize(8).font(fontBold).text("VERIFIED & PAID", 48, 145, { width: 100, align: 'center' });
+
+      doc.fillColor('#ffffff').fontSize(10).font(fontBold).text(`RECEIPT NO: ${receiptData.receiptId || 'REC-2026-REF'}`, 160, 144);
+      doc.fillColor('#cbd5e1').fontSize(8.5).font(fontRegular).text(`DATE: ${dateStr}`, 370, 144, { align: 'right', width: 170 });
+
+      // 6. Structured Executive Two-Column Data Table
+      const tableTop = 178;
+      const tableWidth = 515;
+      const rowHeight = 28;
+
+      const rows = [
+        ["STUDENT NAME", receiptData.studentName || "N/A"],
+        ["STUDENT / REGISTRATION ID", receiptData.studentId || "STU-2026"],
+        ["CONTACT PHONE NUMBER", receiptData.studentPhone || "N/A"],
+        ["STUDENT EMAIL ADDRESS", receiptData.studentEmail || "N/A"],
+        ["ENROLLED COURSE / BATCH", receiptData.batch || "BJS & Bar Masterclass Batch"],
+        ["PAYMENT METHOD", receiptData.paymentMethod || "bKash Official"],
+        ["TRANSACTION REFERENCE (TrxID)", receiptData.trxId || "N/A"],
+        ["PAYMENT PURPOSE / NOTE", receiptData.note || "Academic Course Fee Payment"]
+      ];
+
+      doc.rect(40, tableTop, tableWidth, rows.length * rowHeight).strokeColor('#cbd5e1').lineWidth(0.75).stroke();
+
+      rows.forEach(([label, val], idx) => {
+        const currentY = tableTop + (idx * rowHeight);
+        const isEven = idx % 2 === 0;
+
+        // Row background
+        if (isEven) {
+          doc.rect(40, currentY, tableWidth, rowHeight).fill('#f8fafc');
+        } else {
+          doc.rect(40, currentY, tableWidth, rowHeight).fill('#ffffff');
+        }
+
+        // Row bottom border
+        doc.moveTo(40, currentY + rowHeight).lineTo(40 + tableWidth, currentY + rowHeight).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
+
+        // Label Column
+        doc.fillColor('#475569').fontSize(8.5).font(fontBold).text(label, 52, currentY + 9, { width: 190 });
+
+        // Divider vertical line
+        doc.moveTo(240, currentY).lineTo(240, currentY + rowHeight).strokeColor('#cbd5e1').lineWidth(0.5).stroke();
+
+        // Value Column
+        doc.fillColor('#0f172a').fontSize(9.5).font(fontBold).text(String(val), 252, currentY + 8, { width: 290 });
+      });
+
+      // 7. Grand Total Amount Received Box (Bottom Left)
+      const summaryTop = tableTop + (rows.length * rowHeight) + 20;
+
+      doc.rect(40, summaryTop, 290, 70).fill('#064e3b');
+      doc.rect(40, summaryTop, 6, 70).fill('#10b981'); // Emerald left accent stripe
+
+      doc.fillColor('#a7f3d0').fontSize(9).font(fontBold).text("TOTAL AMOUNT RECEIVED (সর্বমোট প্রাপ্ত অর্থ)", 56, summaryTop + 14);
+      doc.fillColor('#ffffff').fontSize(22).font(fontBold).text(`BDT ৳ ${amountStr}`, 56, summaryTop + 32);
+
+      // 8. Official Red Crimson Seal Stamp (Bottom Right - Dedicated Uncluttered Space)
+      const sealCenterX = 450;
+      const sealCenterY = summaryTop + 35;
+
+      doc.save();
+      // Outer Double Crimson Circle
+      doc.circle(sealCenterX, sealCenterY, 48).lineWidth(2.5).strokeColor('#dc2626').stroke();
+      doc.circle(sealCenterX, sealCenterY, 43).lineWidth(1).strokeColor('#dc2626').stroke();
+      doc.circle(sealCenterX, sealCenterY, 30).lineWidth(0.75).strokeColor('#dc2626').stroke();
+
+      // Top Arc Text
+      doc.fillColor('#b91c1c').fontSize(6.5).font(fontBold);
+      doc.text("★ BJS & BAR ACADEMY ★", sealCenterX - 45, sealCenterY - 26, { width: 90, align: 'center' });
+
+      // Middle Bold PAID Banner
+      doc.rect(sealCenterX - 36, sealCenterY - 10, 72, 20).fill('#dc2626');
+      doc.fillColor('#ffffff').fontSize(13).font(fontBold);
+      doc.text("PAID", sealCenterX - 36, sealCenterY - 7, { width: 72, align: 'center' });
+
+      // Bottom Arc Text
+      doc.fillColor('#b91c1c').fontSize(6.5).font(fontBold);
+      doc.text("OFFICIAL VERIFIED SEAL", sealCenterX - 45, sealCenterY + 14, { width: 90, align: 'center' });
+      doc.restore();
+
+      // 9. Authorized Signatory Line (Below Summary Box)
+      const footerTop = summaryTop + 90;
+
+      doc.moveTo(40, footerTop).lineTo(220, footerTop).strokeColor('#94a3b8').lineWidth(1).stroke();
+      doc.fillColor('#475569').fontSize(8.5).font(fontBold).text("Authorized Signatory", 40, footerTop + 5);
+      doc.fillColor('#94a3b8').fontSize(7.5).font(fontRegular).text("Academic Accounts & Verification Dept.", 40, footerTop + 16);
+
+      // 10. Document Footnote & Security Disclaimer
+      doc.rect(40, footerTop + 38, 515, 30).fill('#f1f5f9');
+      doc.fillColor('#64748b').fontSize(7.5).font(fontRegular).text("This is an electronically generated official fee receipt issued by BJS & Bar Aspirants Academy. Valid without physical signature when verified with official receipt number.", 50, footerTop + 44, { width: 495, align: 'center' });
+
       doc.end();
     } catch (err) {
       reject(err);
