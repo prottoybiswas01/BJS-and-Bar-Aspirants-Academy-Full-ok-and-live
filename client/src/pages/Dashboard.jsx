@@ -546,11 +546,23 @@ export default function Dashboard({ openVideoModal }) {
                                   </button>
 
                                   <button
-                                    onClick={() => openVideoModal(l)}
+                                    onClick={() => {
+                                      if (canWatch) {
+                                        openVideoModal(l);
+                                      } else if (!hasVideo) {
+                                        showToast('🔴 ভিডিও এখনো আপলোড করা হয়নি (Video Pending)।', 'error');
+                                      } else if (!isApproved) {
+                                        showToast('🔒 আপনার অ্যাকাউন্টটি এডমিন এপ্রুভালের জন্য অপেক্ষমাণ রয়েছে (Awaiting Admin Approval)। এডমিন এপ্রুভালের পর ভিডিও ক্লাস দেখতে পারবেন।', 'error');
+                                      } else if (!isEnrolled) {
+                                        showToast('🔒 এই ভিডিও ক্লাসটি লকড্। ক্লাসটি দেখতে কোর্সে অনুমোদন ও ভর্তি প্রয়োজন।', 'error');
+                                      } else {
+                                        showToast('🔒 এই ভিডিও ক্লাসটি বর্তমানে লক করা রয়েছে।', 'error');
+                                      }
+                                    }}
                                     className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-md transition-all cursor-pointer ${
                                       canWatch
                                         ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-400 hover:to-teal-400 hover:scale-105'
-                                        : 'bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700'
+                                        : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/80 hover:bg-slate-800'
                                     }`}
                                   >
                                     {canWatch ? (isOrientation ? '▶️ অরিয়েন্টেশন ফ্রি প্লে' : '▶️ প্লে ভিডিও') : '🔒 প্রিভিউ / তথ্য'}
