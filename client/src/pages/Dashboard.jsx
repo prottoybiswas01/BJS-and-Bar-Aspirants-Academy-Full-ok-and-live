@@ -195,7 +195,10 @@ export default function Dashboard({ openVideoModal }) {
 
   // Helper to extract lesson number from title/chapter/module/id for serial ascending order (#1, #2 ... #15)
   const getLessonNum = (l) => {
-    const str = (l.title || '') + ' ' + (l.chapter || '') + ' ' + (l.module || '') + ' ' + (l.id || '');
+    const str = ((l.title || '') + ' ' + (l.chapter || '') + ' ' + (l.module || '') + ' ' + (l.id || '')).toLowerCase();
+    if (str.includes('orientation') || str.includes('অরিয়েন্টেশন') || str.includes('ইনট্রোডিউসিং') || str.includes('গাইডলাইন')) {
+      return -1; // Orientation ALWAYS #1 at the top of the lesson list!
+    }
     const match = str.match(/(?:class|lecture|lesson|\#|ক্লাস|পাঠ)[-_\s]*(\d+)/i) || str.match(/(\d+)/);
     return match ? parseInt(match[1], 10) : 999999;
   };
@@ -390,13 +393,17 @@ export default function Dashboard({ openVideoModal }) {
                     >
                       <div className="flex justify-between items-start mb-2">
                         <span className="text-xs font-bold font-mono text-amber-400">{c.shortTitle || c.title}</span>
-                        {enrolled ? (
+                        {!isApproved ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                            ⏳ Pending Approval
+                          </span>
+                        ) : enrolled ? (
                           <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-                            Enrolled
+                            ✓ Enrolled
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">
-                            Not Enrolled
+                            🔒 Not Enrolled
                           </span>
                         )}
                       </div>
