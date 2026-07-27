@@ -106,24 +106,39 @@ export default function Register({ setActivePage }) {
 
         {successReg ? (
           <div className="p-6 bg-emerald-950/80 border border-emerald-500/40 rounded-2xl text-center space-y-4 animate-fadeIn">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 text-2xl flex items-center justify-center mx-auto text-center font-bold">
-              ✓
+            <div className="w-14 h-14 rounded-full bg-amber-500/20 text-amber-400 text-3xl flex items-center justify-center mx-auto text-center font-bold border border-amber-500/30">
+              ⏳
             </div>
-            <h3 className="text-lg font-bold text-white">রেজিস্ট্রেশন সফল হয়েছে!</h3>
-            <p className="text-xs text-slate-300">
-              আপনার আবেদনের নম্বর (Registration ID):
-            </p>
-            <div className="p-3 bg-slate-950 rounded-xl font-mono text-xl font-black text-amber-300 tracking-wider border border-amber-500/30">
-              {successReg.regId}
+            <h3 className="text-xl font-black text-white">রেজিস্ট্রেশন আবেদন সফল হয়েছে!</h3>
+            
+            <div className="p-4 bg-slate-950 rounded-xl space-y-2 border border-slate-800 text-left text-xs">
+              <div className="flex justify-between items-center border-b border-slate-800/80 pb-2">
+                <span className="text-slate-400">রেজিস্ট্রেশন নম্বর (Reg ID):</span>
+                <span className="font-mono font-black text-amber-300 text-sm">{successReg.regId || 'REG-2026-REF'}</span>
+              </div>
+              {successReg.student?.id && (
+                <div className="flex justify-between items-center border-b border-slate-800/80 pb-2">
+                  <span className="text-slate-400">স্টুডেন্ট আইডি (Student ID):</span>
+                  <span className="font-mono font-bold text-slate-200">{successReg.student.id}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center pt-1">
+                <span className="text-slate-400">বর্তমান স্ট্যাটাস (Status):</span>
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30 text-[11px]">
+                  ⏳ পেন্ডিং (এডমিন এপ্রুভালের জন্য অপেক্ষমাণ)
+                </span>
+              </div>
             </div>
-            <p className="text-[11px] text-slate-400">
-              অ্যাডমিন আপনার রেজিস্ট্রেশন ভেরিফাই করার পর আপনার একাউন্ট সক্রিয় হবে।
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              📩 আপনার নিবন্ধিত ইমেইলে (<strong>{formData.email}</strong>) নিশ্চিতকরণ ইমেইল পাঠানো হয়েছে। এডমিন আপনার তথ্য যাঁচাই ও এপ্রুভ করার পর আপনি সকল ভিডিও ক্লাসের এক্সেস পাবেন।
             </p>
+
             <button
               onClick={() => setActivePage('login')}
-              className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition-all"
+              className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition-all shadow-lg shadow-amber-500/20"
             >
-              লগইন পেজে যান (Go to Login)
+              🔑 লগইন পেজে যান (Go to Login Page)
             </button>
           </div>
         ) : (

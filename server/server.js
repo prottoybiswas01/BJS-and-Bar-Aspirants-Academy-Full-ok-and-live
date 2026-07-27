@@ -412,12 +412,13 @@ app.post("/api/auth/register", async (req, res) => {
       batch,
       session: session || "Standard Session",
       password: hashedPassword,
-      status: "Approved",
+      status: "Pending",
       createdAt: new Date()
     };
 
     const newStudent = {
       id: studentId,
+      regId,
       name,
       phone: cleanPhone,
       email: cleanEmail,
@@ -425,8 +426,8 @@ app.post("/api/auth/register", async (req, res) => {
       batch,
       session: session || "Standard Session",
       password: hashedPassword,
-      status: "Active",
-      loginApproval: "Approved",
+      status: "Pending",
+      loginApproval: "Pending",
       allowedCourseIds: [],
       createdAt: new Date()
     };
@@ -454,7 +455,7 @@ app.post("/api/auth/register", async (req, res) => {
 
     res.json({
       ok: true,
-      message: "Registration successful! You can now log in immediately.",
+      message: "নিবন্ধন আবেদন সফল হয়েছে! আপনার একাউন্টটি বর্তমানে এডমিন এপ্রুভালের জন্য অপেক্ষমাণ রয়েছে।",
       regId,
       registration: newReg,
       student: newStudent
@@ -2362,12 +2363,14 @@ app.get(["/api/admin/courses", "/api/courses", "/admin/courses", "/courses"], as
   return res.json({ ok: true, courses: fallback, source: "memory", dbNotice });
 });
 
-// SAVE / CREATE / UPDATE Course
+// SAVE / CREATE / UPDATE Course (Robust Match by _id, oldId, or id)
 app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) => {
   try {
     await ensureDbConnected();
     const body = req.body;
-    const courseId = body.id || ("course-" + Date.now());
+    const oldId = body.oldId || body.id;
+    const courseId = body.id || oldId || ("course-" + Date.now());
+
     const courseData = {
       id: courseId,
       title: body.title || "New Legal Course",
@@ -2386,7 +2389,17 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
 
     let saved = courseData;
     if (isMongoConnected) {
-      let existing = await Course.findOne({ id: courseId });
+      let existing = null;
+      if (body._id && mongoose.Types.ObjectId.isValid(body._id)) {
+        existing = await Course.findById(body._id);
+      }
+      if (!existing && oldId) {
+        existing = await Course.findOne({ id: oldId });
+      }
+      if (!existing && courseId) {
+        existing = await Course.findOne({ id: courseId });
+      }
+
       if (existing) {
         Object.assign(existing, courseData);
         saved = await existing.save();
@@ -2396,11 +2409,27 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
       if (saved && saved.toObject) saved = saved.toObject();
     }
 
-    const idx = (memoryDb.courses || []).findIndex(c => c.id === courseId);
+    // Match in memoryDb by _id, oldId, or id
+    const idx = (memoryDb.courses || []).findIndex(c => 
+      (body._id && String(c._id) === String(body._id)) ||
+      (oldId && c.id === oldId) ||
+      (courseId && c.id === courseId)
+    );
+
     if (idx > -1) {
       memoryDb.courses[idx] = { ...memoryDb.courses[idx], ...courseData };
     } else {
       (memoryDb.courses = memoryDb.courses || []).unshift(courseData);
+    }
+
+    // If courseId changed, update lessons referencing oldId
+    if (oldId && oldId !== courseId) {
+      if (isMongoConnected) {
+        await Lesson.updateMany({ courseId: oldId }, { $set: { courseId: courseId } }).catch(() => {});
+      }
+      (memoryDb.lessons || []).forEach(l => {
+        if (l.courseId === oldId) l.courseId = courseId;
+      });
     }
 
     return res.json({ ok: true, message: `কোর্স "${saved.title}" সফলভাবে সেভ করা হয়েছে!`, course: saved });
@@ -3706,6 +3735,82 @@ app.post("/api/admin/students/save", async (req, res) => {
   } catch (e) {
     console.error("Error saving student:", e);
     return res.status(500).json({ ok: false, message: e.message || "Error saving student profile." });
+  }
+});
+
+// Admin Student Approval & Course Activation Endpoint
+app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { studentId, allowedCourseIds, batch } = req.body;
+    if (!studentId) {
+      return res.status(400).json({ ok: false, message: "studentId is required." });
+    }
+
+    let updatedStudent = null;
+
+    // Find course IDs to assign if allowedCourseIds is empty
+    let courseIdsToAssign = Array.isArray(allowedCourseIds) ? allowedCourseIds : [];
+    if (courseIdsToAssign.length === 0 && batch) {
+      const matchedCourse = (memoryDb.courses || []).find(c => c.title === batch || c.id === batch || c.shortTitle === batch);
+      if (matchedCourse) courseIdsToAssign = [matchedCourse.id];
+    }
+    if (courseIdsToAssign.length === 0 && (memoryDb.courses || []).length > 0) {
+      courseIdsToAssign = [(memoryDb.courses[0].id)];
+    }
+
+    if (isMongoConnected) {
+      let student = await Student.findOne({ $or: [{ id: studentId }, { regId: studentId }] });
+      if (student) {
+        student.status = "Active";
+        student.loginApproval = "Approved";
+        if (courseIdsToAssign.length > 0) {
+          student.allowedCourseIds = Array.from(new Set([...(student.allowedCourseIds || []), ...courseIdsToAssign]));
+        }
+        updatedStudent = await student.save();
+      }
+      let reg = await Registration.findOne({ $or: [{ regId: studentId }, { phone: student?.phone }, { email: student?.email }] });
+      if (reg) {
+        reg.status = "Approved";
+        await reg.save();
+      }
+    }
+
+    const st = (memoryDb.students || []).find(s => s.id === studentId || s.regId === studentId);
+    if (st) {
+      st.status = "Active";
+      st.loginApproval = "Approved";
+      if (courseIdsToAssign.length > 0) {
+        st.allowedCourseIds = Array.from(new Set([...(st.allowedCourseIds || []), ...courseIdsToAssign]));
+      }
+      updatedStudent = st;
+    }
+
+    const regInMem = (memoryDb.registrations || []).find(r => r.regId === studentId || r.phone === st?.phone || r.email === st?.email);
+    if (regInMem) regInMem.status = "Approved";
+
+    if (updatedStudent && updatedStudent.email) {
+      let allCourseTitles = (updatedStudent.allowedCourseIds || []).map(id => {
+        const found = (memoryDb.courses || []).find(c => c.id === id || c._id === id);
+        return found ? found.title : id;
+      });
+
+      sendCourseEnrollmentEmail(
+        updatedStudent.email,
+        updatedStudent,
+        updatedStudent.batch || "BJS & Bar Council Masterclass",
+        allCourseTitles
+      ).catch(err => console.warn("Approval email notice:", err.message));
+    }
+
+    return res.json({
+      ok: true,
+      message: `শিক্ষার্থী "${updatedStudent?.name || studentId}" এর আবেদন এপ্রুভ ও সক্রিয় করা হয়েছে!`,
+      student: updatedStudent
+    });
+  } catch (err) {
+    console.error("Approve student error:", err);
+    return res.status(500).json({ ok: false, message: "Error approving student account." });
   }
 });
 

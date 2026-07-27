@@ -796,19 +796,6 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
-  const handleUpdateStudentApproval = async (student, newApproval) => {
-    try {
-      const updated = { ...student, loginApproval: newApproval };
-      const res = await api.post('/admin/students/save', updated);
-      if (res.data.ok) {
-        setMsg({ type: 'success', text: `${student.name} authorization set to ${newApproval}!` });
-        loadAllAdminData();
-      }
-    } catch (err) {
-      setMsg({ type: 'error', text: 'Failed to update approval status.' });
-    }
-  };
-
   const handleUpdateStudentStatus = async (student, newStatus) => {
     try {
       const updated = { ...student, status: newStatus };
@@ -819,6 +806,32 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       }
     } catch (err) {
       setMsg({ type: 'error', text: 'Failed to update status.' });
+    }
+  };
+
+  const handleUpdateStudentApproval = async (student, newApproval) => {
+    try {
+      if (newApproval === 'Approved') {
+        const res = await api.post('/admin/students/approve', {
+          studentId: student.id || student.regId,
+          batch: student.batch
+        });
+        if (res.data.ok) {
+          setMsg({ type: 'success', text: `🎉 ${student.name} এর আবেদন এপ্রুভ করা হয়েছে এবং নোটিফিকেশন ইমেইল পাঠানো হয়েছে!` });
+          loadAllAdminData();
+        } else {
+          setMsg({ type: 'error', text: res.data.message || 'Failed to approve student.' });
+        }
+      } else {
+        const updated = { ...student, loginApproval: newApproval, status: newApproval === 'Pending' ? 'Pending' : student.status };
+        const res = await api.post('/admin/students/save', updated);
+        if (res.data.ok) {
+          setMsg({ type: 'success', text: `${student.name} approval set to ${newApproval}!` });
+          loadAllAdminData();
+        }
+      }
+    } catch (err) {
+      setMsg({ type: 'error', text: 'Failed to update student approval status.' });
     }
   };
 
@@ -2276,6 +2289,16 @@ return (
                     </span>
                   </td>
                   <td className="p-3 text-right space-x-1.5">
+                    {(s.loginApproval === 'Pending' || s.status === 'Pending') && (
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateStudentApproval(s, 'Approved')}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] transition-all shadow-md cursor-pointer animate-pulse"
+                        title="Approve Student Account & Grant Course Access"
+                      >
+                        ✅ Approve & Activate
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleOpenSetTempPasswordModal(s)}

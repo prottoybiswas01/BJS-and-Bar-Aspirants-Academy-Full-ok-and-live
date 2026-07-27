@@ -217,19 +217,32 @@ export default function Dashboard({ openVideoModal }) {
     return acc;
   }, {});
 
-  // Evaluate Student Course Rule for Selected Course
+  // Evaluate Student Approval & Course Rules
+  const isApproved = user?.loginApproval === 'Approved' || user?.status === 'Active' || user?.status === 'Approved';
   const courseRule = user?.courseRules?.find((r) => r.courseId === selectedCourse?.id) || {
-    unlimitedAccess: true, // Default open for enrolled courses
-    enrollmentStatus: 'Active'
+    unlimitedAccess: isApproved,
+    enrollmentStatus: isApproved ? 'Active' : 'Pending'
   };
 
-  const isEnrolled = selectedCourse && (user?.allowedCourseIds?.includes(selectedCourse.id) || user?.enrolledCourseIds?.includes(selectedCourse.id));
-  const isUnlimited = courseRule.unlimitedAccess || isEnrolled;
+  const isEnrolled = isApproved && selectedCourse && (user?.allowedCourseIds?.includes(selectedCourse.id) || user?.enrolledCourseIds?.includes(selectedCourse.id));
+  const isUnlimited = isApproved && (courseRule.unlimitedAccess || isEnrolled);
   const completedCount = user?.completedLessonIds?.length || 0;
   const progressPercent = lessons.length > 0 ? Math.round((completedCount / lessons.length) * 100) : 0;
 
   return (
     <div className="space-y-8 pb-16 animate-fadeIn">
+      {/* Pending Admin Approval Warning Banner */}
+      {!isApproved && (
+        <div className="p-5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs sm:text-sm space-y-2 shadow-xl animate-fadeIn">
+          <div className="flex items-center gap-2 text-amber-300 font-extrabold text-sm">
+            <span className="text-xl">⏳</span>
+            <span>আপনার অ্যাকাউন্টটি বর্তমানে এডমিন এপ্রুভালের জন্য অপেক্ষমাণ রয়েছে (Awaiting Admin Approval)</span>
+          </div>
+          <p className="text-slate-300 leading-relaxed">
+            আপনার রেজিস্ট্রেশন সফলভাবে গৃহীত হয়েছে। এডমিন আপনার আবেদন যাঁচাই করে এপ্রুভ ও কোর্স অ্যাক্সেস প্রদান করার পর ভিডিও ক্লাসগুলো দেখতে পারবেন। হেল্পলাইন: <strong>01800077663</strong>
+          </p>
+        </div>
+      )}
       {/* Floating Glassmorphic Toast Notification */}
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 animate-bounceIn max-w-md w-full px-4">
@@ -466,6 +479,9 @@ export default function Dashboard({ openVideoModal }) {
                               cardClass = 'bg-emerald-950/30 border-emerald-500/50 text-emerald-100 hover:border-emerald-400 shadow-md';
                               badgeText = '🎁 Free Orientation Unlocked';
                               badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold';
+                            } else if (!isApproved) {
+                              badgeText = '🔒 Awaiting Admin Approval';
+                              badgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/30 font-bold';
                             } else if (!isEnrolled) {
                               badgeText = '🔒 Course Locked';
                             } else if (hasVideo) {
