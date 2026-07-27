@@ -1153,6 +1153,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   const handleEditCourse = (c) => {
     setCourseForm({
+      _id: c._id,
+      oldId: c.id,
       id: c.id,
       title: c.title,
       shortTitle: c.shortTitle || c.title,
@@ -1177,6 +1179,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   const handleClearCourseForm = () => {
     setCourseForm({
+      _id: undefined,
+      oldId: undefined,
       id: '',
       title: '',
       shortTitle: '',
@@ -1205,7 +1209,11 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       if (res.data.ok) {
         const savedCourse = res.data.course || { ...courseForm, id: courseForm.id || `course-${Date.now()}` };
         setCourses(prevCourses => {
-          const idx = prevCourses.findIndex(c => c.id === savedCourse.id);
+          const idx = prevCourses.findIndex(c =>
+            (courseForm._id && (c._id === courseForm._id || String(c._id) === String(courseForm._id))) ||
+            (courseForm.oldId && c.id === courseForm.oldId) ||
+            (savedCourse.id && c.id === savedCourse.id)
+          );
           if (idx > -1) {
             const updated = [...prevCourses];
             updated[idx] = { ...updated[idx], ...savedCourse };

@@ -1636,6 +1636,133 @@ async function sendAdminCustomMessageEmail(targetEmail, studentName, subjectText
   return res.ok;
 }
 
+// 6. Automated New Video Lecture Upload Email Dispatcher for Enrolled Students
+async function notifyStudentsNewLesson(courseId, lessonData) {
+  try {
+    if (!courseId) return;
+
+    // Find course title
+    const targetCourse = (memoryDb.courses || []).find(c => c.id === courseId || String(c._id) === String(courseId));
+    const courseTitle = targetCourse ? (targetCourse.title || targetCourse.shortTitle || courseId) : courseId;
+
+    // Find enrolled/allowed active students
+    let enrolledStudents = [];
+    if (isMongoConnected) {
+      enrolledStudents = await Student.find({
+        status: { $ne: "Blocked" },
+        $or: [
+          { allowedCourseIds: courseId },
+          { enrolledCourseIds: courseId }
+        ]
+      }).lean();
+    }
+
+    if (!enrolledStudents || enrolledStudents.length === 0) {
+      enrolledStudents = (memoryDb.students || []).filter(s =>
+        s.status !== 'Blocked' &&
+        ((s.allowedCourseIds && s.allowedCourseIds.includes(courseId)) ||
+         (s.enrolledCourseIds && s.enrolledCourseIds.includes(courseId)))
+      );
+    }
+
+    // Fallback: If no student explicit array, notify active students in matched batch or all active students
+    if ((!enrolledStudents || enrolledStudents.length === 0) && targetCourse) {
+      enrolledStudents = (memoryDb.students || []).filter(s =>
+        s.status !== 'Blocked' && (s.batch === targetCourse.title || s.batch === targetCourse.id || s.batch === targetCourse.shortTitle)
+      );
+    }
+
+    if (!enrolledStudents || enrolledStudents.length === 0) {
+      enrolledStudents = (memoryDb.students || []).filter(s => s.status !== 'Blocked');
+    }
+
+    if (!enrolledStudents || enrolledStudents.length === 0) {
+      console.log(`[Video Notify] No enrolled active students found for course: ${courseId}`);
+      return;
+    }
+
+    console.log(`[Video Notify] Dispatching new video upload notification to ${enrolledStudents.length} student(s) for course "${courseTitle}"...`);
+
+    // Dispatch emails to each student asynchronously
+    for (const student of enrolledStudents) {
+      if (!student.email || !student.email.includes('@')) continue;
+
+      const subject = `🎥 [নতুন ভিডিও ক্লাস নোটিশ] ${courseTitle}: ${lessonData.title} আপলোড সম্পন্ন!`;
+      const htmlContent = `
+        <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #0b1325; color: #f8fafc; border-radius: 16px; overflow: hidden; border: 1px solid #1e293b; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
+          <!-- Header Banner -->
+          <div style="background: linear-gradient(135deg, #d97706 0%, #b45309 100%); padding: 24px; text-align: center; color: #0f172a;">
+            <div style="font-size: 34px; margin-bottom: 4px;">🎬</div>
+            <h1 style="margin: 0; font-size: 20px; font-weight: 900; letter-spacing: 0.5px; color: #0f172a;">
+              BJS & BAR ASPIRANTS ACADEMY
+            </h1>
+            <p style="margin: 4px 0 0 0; font-size: 12px; font-weight: 700; opacity: 0.9;">
+              নতুন লেকচার ভিডিও আপলোড ইমেইল নোটিফিকেশন
+            </p>
+          </div>
+
+          <!-- Body Content -->
+          <div style="padding: 24px; line-height: 1.6;">
+            <p style="font-size: 15px; font-weight: 700; color: #f59e0b; margin-top: 0;">
+              প্রিয় ${student.name || 'শিক্ষার্থী'},
+            </p>
+            <p style="font-size: 13px; color: #cbd5e1; margin-bottom: 20px;">
+              আপনার কোর্স <strong>"${courseTitle}"</strong>-এ একটি নতুন লেকচার ভিডিও সফলভাবে আপলোড ও প্রকাশ করা হয়েছে। আপনার বিজিএস ও বার কাউন্সিল প্রস্তুতির প্রতিটি টপিক সহজভাবে আয়ত্ত করতে এখনই নতুন ক্লাসটি দেখে নিন!
+            </p>
+
+            <!-- Video Details Box -->
+            <div style="background-color: #1e293b; border-radius: 12px; padding: 18px; border-left: 4px solid #f59e0b; margin-bottom: 24px;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <tr>
+                  <td style="padding: 6px 0; color: #94a3b8; font-weight: 600; width: 120px;">📚 কোর্স:</td>
+                  <td style="padding: 6px 0; color: #fbbf24; font-weight: 700;">${courseTitle}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">📹 লেকচার নাম:</td>
+                  <td style="padding: 6px 0; color: #ffffff; font-weight: 800;">${lessonData.title}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">📖 অধ্যায় / মডিউল:</td>
+                  <td style="padding: 6px 0; color: #cbd5e1;">${lessonData.chapter || lessonData.module || 'সাধারণ বিষয়সূচি'}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">⏱️ ভিডিও সময়কাল:</td>
+                  <td style="padding: 6px 0; color: #34d399; font-weight: 700;">${lessonData.duration || '56min'}</td>
+                </tr>
+              </table>
+            </div>
+
+            <!-- Call to Action Button -->
+            <div style="text-align: center; margin: 28px 0;">
+              <a href="https://bjs-bar-academy.com/#dashboard" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #0f172a; text-decoration: none; padding: 14px 28px; font-size: 14px; font-weight: 900; border-radius: 10px; display: inline-block; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);">
+                ▶️ ভিডিও লেকচারটি দেখতে ক্লিক করুন (Watch Video)
+              </a>
+            </div>
+
+            <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 20px; font-style: italic;">
+              প্রতিটি ক্লাস নিয়মিত দেখলে পরীক্ষায় সর্বোচ্চ নম্বর নিশ্চিত হবে। কোনো সমস্যা হলে একাডেমির হেল্পলাইনে যোগাযোগ করুন।
+            </p>
+          </div>
+
+          <!-- Footer -->
+          <div style="background-color: #020617; padding: 16px 24px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #1e293b;">
+            <p style="margin: 0 0 4px 0; font-weight: 700; color: #94a3b8;">BJS & Bar Aspirants Academy</p>
+            <p style="margin: 0;">অফিসিয়াল হেল্পলাইন: 01800077663 | bjsacademy38@gmail.com</p>
+          </div>
+        </div>
+      `;
+
+      sendResendEmail({
+        to: student.email,
+        subject,
+        html: htmlContent
+      }).catch(err => console.warn(`[Video Notify] Email error for ${student.email}:`, err.message));
+    }
+  } catch (err) {
+    console.error("[Video Notify] Exception:", err);
+  }
+}
+
 
 
 // -------------------------------------------------------------
@@ -2545,9 +2672,14 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       (memoryDb.lessons = memoryDb.lessons || []).unshift(lessonData);
     }
 
+    // Trigger automated email notification to enrolled batch students in background
+    notifyStudentsNewLesson(saved.courseId, saved).catch(err => {
+      console.warn("Notice sending new lesson upload email:", err.message);
+    });
+
     return res.json({
       ok: true,
-      message: `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে!`,
+      message: `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং শিক্ষার্থীদের নোটিফিকেশন ইমেইল পাঠানো হয়েছে!`,
       lesson: saved
     });
   } catch (err) {
