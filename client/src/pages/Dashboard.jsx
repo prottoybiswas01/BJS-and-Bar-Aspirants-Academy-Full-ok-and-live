@@ -237,8 +237,11 @@ export default function Dashboard({ openVideoModal }) {
     if (!c) return false;
     if (isUnlimited) return true;
 
-    const allowed = user?.allowedCourseIds || [];
-    const enrolled = user?.enrolledCourseIds || [];
+    const rawAllowed = user?.allowedCourseIds || [];
+    const rawEnrolled = user?.enrolledCourseIds || [];
+
+    const allowed = rawAllowed.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
+    const enrolled = rawEnrolled.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
 
     const isMatch = (idList) => (idList || []).some(id =>
       String(id) === String(c.id) ||
@@ -250,13 +253,13 @@ export default function Dashboard({ openVideoModal }) {
 
     if (isMatch(allowed) || isMatch(enrolled)) return true;
 
-    // Batch matching if allowed/enrolled are not explicitly set
+    // Batch matching if allowed/enrolled are not explicitly set or empty
     if (user?.batch) {
       const b = String(user.batch).toLowerCase().trim();
       const t = String(c.title || '').toLowerCase().trim();
       const st = String(c.shortTitle || '').toLowerCase().trim();
       const cid = String(c.id || '').toLowerCase().trim();
-      if (b === t || b === st || b === cid || (b && t && (b.includes(t) || t.includes(b)))) {
+      if (b === t || b === st || b === cid || (b && t && (b.includes(t) || t.includes(b) || t.includes('constitution') && b.includes('সংবিধান')))) {
         return true;
       }
     }
@@ -337,13 +340,13 @@ export default function Dashboard({ openVideoModal }) {
             <div className="flex flex-wrap items-center gap-1.5 pt-1">
               <span className="text-xs text-slate-400 font-bold">আপনার এনরোলকৃত কোর্সসমূহ:</span>
               {courses
-                .filter(c => (user?.allowedCourseIds || user?.enrolledCourseIds || []).includes(c.id))
+                .filter(c => checkCourseEnrolled(c))
                 .map(c => (
                   <span key={c.id} className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
                     📚 {c.shortTitle || c.title}
                   </span>
                 ))}
-              {(!user?.allowedCourseIds || user?.allowedCourseIds.length === 0) && (
+              {courses.filter(c => checkCourseEnrolled(c)).length === 0 && (
                 <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
                   📚 {user?.batch || 'BJS & Bar Masterclass'}
                 </span>

@@ -1490,12 +1490,13 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   const getStudentEnrolledCourseTitles = (s) => {
     if (!s) return [];
-    const allowed = s.allowedCourseIds || s.enrolledCourseIds || [];
+    const rawAllowed = s.allowedCourseIds || s.enrolledCourseIds || [];
+    const allowed = rawAllowed.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
     if (allowed.length === 0) {
       return [s.batch || 'Masterclass'];
     }
     const titles = allowed.map(id => {
-      const found = courses.find(c => c.id === id);
+      const found = courses.find(c => c.id === id || c._id === id || c.title === id || c.shortTitle === id);
       return found ? (found.shortTitle || found.title) : id;
     });
     return Array.from(new Set(titles));
@@ -2293,7 +2294,7 @@ return (
                   </td>
                   <td className="p-3">
                     <span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/30 font-bold text-[10px] font-mono">
-                      {(s.allowedCourseIds || s.enrolledCourseIds || []).length || 1} Active Course(s)
+                      {getStudentEnrolledCourseTitles(s).length} Active Course(s)
                     </span>
                   </td>
                   <td className="p-3 text-right space-x-1.5">

@@ -1213,6 +1213,54 @@ const handleResetPasswordReq = async (req, res) => {
 app.post("/api/auth/reset-password", handleResetPasswordReq);
 app.post("/auth/reset-password", handleResetPasswordReq);
 
+// Professional Auth Approval Email
+async function sendAuthApprovalEmail(targetEmail, studentData) {
+  const subject = `🎉 Welcome to BJS & Bar Aspirants Academy - Account Created`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 550px; margin: auto; border: 1px solid #334155;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Official Student Account Registration</p>
+      </div>
+
+      <div style="background-color: #0f172a; padding: 22px; border-radius: 12px; border: 1px solid #1e293b;">
+        <h3 style="color: #10b981; margin-top: 0;">Welcome, ${studentData.name || 'Aspirant'}!</h3>
+        <p style="font-size: 13px; color: #cbd5e1; line-height: 1.6;">
+          Your registration request for <strong>${studentData.batch || 'BJS & Bar Aspirants Program'}</strong> has been received successfully.
+        </p>
+        
+        <div style="background: #020617; padding: 15px; border-radius: 10px; border: 1px solid #334155; margin: 15px 0;">
+          <p style="margin: 4px 0; font-size: 12px;">🆔 <strong>Registration ID:</strong> <span style="color: #f59e0b; font-family: monospace;">${studentData.id || 'REG-2026'}</span></p>
+          <p style="margin: 4px 0; font-size: 12px;">📱 <strong>Phone Number:</strong> ${studentData.phone || 'N/A'}</p>
+          <p style="margin: 4px 0; font-size: 12px;">📧 <strong>Email Address:</strong> ${studentData.email || 'N/A'}</p>
+        </div>
+
+        <p style="font-size: 12px; color: #94a3b8;">
+          Our academic administration is reviewing your details. Once activated, you can log in to your Student Portal to access all video lectures and study materials.
+        </p>
+
+        <div style="text-align: center; margin-top: 20px;">
+          <a href="${getAppBaseUrl()}" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
+            🔑 Go to Student Portal Login
+          </a>
+        </div>
+      </div>
+
+      <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
+        © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
+      </p>
+    </div>
+  `;
+
+  const res = await sendResendEmail({
+    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    to: targetEmail,
+    subject,
+    html
+  });
+  return res.ok;
+}
+
 // Automatic Registration Confirmation Email
 async function sendRegistrationConfirmEmail(targetEmail, studentData) {
   const subject = `📋 BJS & Bar Academy - Registration Confirmation (${studentData.id || studentData.regId || 'STU-REF'})`;
@@ -1307,7 +1355,7 @@ async function sendCourseEnrollmentEmail(targetEmail, studentData, courseTitle, 
         </div>
 
         <div style="text-align: center; margin-top: 25px; margin-bottom: 10px;">
-          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #10b981; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 14px 28px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);">
+          <a href="${getAppBaseUrl()}" style="background-color: #10b981; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 14px 28px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);">
             🚀 Access Student Portal Now
           </a>
         </div>
@@ -1361,7 +1409,7 @@ async function sendMentorApprovalEmail(targetEmail, mentorData) {
         </div>
 
         <div style="text-align: center; margin-top: 25px; margin-bottom: 10px;">
-          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app/mentor" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 14px 28px; border-radius: 12px; display: inline-block;">
+          <a href="${getAppBaseUrl()}/mentor" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 14px 28px; border-radius: 12px; display: inline-block;">
             🔑 Go to Mentor Portal Login
           </a>
         </div>
@@ -1700,7 +1748,7 @@ async function sendCourseAccessUpdateEmail(targetEmail, studentData, actionDetai
         </div>
 
         <div style="text-align: center; margin-top: 22px;">
-          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #10b981; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 13px 26px; border-radius: 12px; display: inline-block;">
+          <a href="${getAppBaseUrl()}" style="background-color: #10b981; color: #020617; text-decoration: none; font-weight: bold; font-size: 14px; padding: 13px 26px; border-radius: 12px; display: inline-block;">
             🚀 পোর্টালে লগইন করে ক্লাস দেখুন
           </a>
         </div>
@@ -1764,7 +1812,7 @@ async function sendAssignmentGradeEmail(targetEmail, submissionData, assignmentT
         ` : ''}
 
         <div style="text-align: center; margin-top: 20px;">
-          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
+          <a href="${getAppBaseUrl()}" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
             🔎 পোর্টালে বিস্তারিত মূল্যায়িত খাতা দেখুন
           </a>
         </div>
@@ -1805,7 +1853,7 @@ async function sendAdminCustomMessageEmail(targetEmail, studentName, subjectText
         </div>
 
         <div style="text-align: center; margin-top: 22px;">
-          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
+          <a href="${getAppBaseUrl()}" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
             🔑 পোর্টালে প্রবেশ করুন
           </a>
         </div>
@@ -2739,15 +2787,37 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
       (memoryDb.courses = memoryDb.courses || []).unshift(courseData);
     }
 
-    // If courseId changed, update lessons referencing oldId
+    // If courseId changed, update lessons & students referencing oldId
     if (oldId && oldId !== courseId) {
       if (isMongoConnected) {
         await Lesson.updateMany({ courseId: oldId }, { $set: { courseId: courseId } }).catch(() => {});
+        await Student.updateMany({ allowedCourseIds: oldId }, { $set: { "allowedCourseIds.$": courseId } }).catch(() => {});
+        await Student.updateMany({ enrolledCourseIds: oldId }, { $set: { "enrolledCourseIds.$": courseId } }).catch(() => {});
       }
       (memoryDb.lessons || []).forEach(l => {
         if (l.courseId === oldId) l.courseId = courseId;
       });
+      (memoryDb.students || []).forEach(s => {
+        if (s.allowedCourseIds && s.allowedCourseIds.includes(oldId)) {
+          s.allowedCourseIds = s.allowedCourseIds.map(id => id === oldId ? courseId : id);
+        }
+        if (s.enrolledCourseIds && s.enrolledCourseIds.includes(oldId)) {
+          s.enrolledCourseIds = s.enrolledCourseIds.map(id => id === oldId ? courseId : id);
+        }
+      });
     }
+
+    // Always clean up dangling placeholder course IDs (like '-------') from all students
+    if (isMongoConnected) {
+      await Student.updateMany(
+        {},
+        { $pull: { allowedCourseIds: { $in: ["-------", "----", "---", "", null] }, enrolledCourseIds: { $in: ["-------", "----", "---", "", null] } } }
+      ).catch(() => {});
+    }
+    (memoryDb.students || []).forEach(s => {
+      if (s.allowedCourseIds) s.allowedCourseIds = s.allowedCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
+      if (s.enrolledCourseIds) s.enrolledCourseIds = s.enrolledCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
+    });
 
     return res.json({ ok: true, message: `কোর্স "${saved.title}" সফলভাবে সেভ করা হয়েছে!`, course: saved });
   } catch (err) {
@@ -3020,7 +3090,17 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
       }
     });
 
-    const combinedStudents = Array.from(studentMap.values());
+    const combinedStudents = Array.from(studentMap.values()).map(s => {
+      if (s) {
+        if (Array.isArray(s.allowedCourseIds)) {
+          s.allowedCourseIds = s.allowedCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
+        }
+        if (Array.isArray(s.enrolledCourseIds)) {
+          s.enrolledCourseIds = s.enrolledCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
+        }
+      }
+      return s;
+    });
     memoryDb.students = combinedStudents;
 
     return res.json({ ok: true, students: combinedStudents, source: isMongoConnected ? "mongodb" : "memory" });
