@@ -1,6 +1,9 @@
 const fs = require("fs");
 const path = require("path");
 
+// Load environment variables immediately before any other module initialization
+require("dotenv").config({ path: path.join(__dirname, ".env") });
+
 // -------------------------------------------------------------
 // GLOBAL SERVERLESS PROCESS & EXCEPTION RESILIENCE GUARDS
 // -------------------------------------------------------------
@@ -19,15 +22,19 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
 const { Resend } = require("resend");
-const RESEND_API_KEY = process.env.RESEND_API_KEY || "re_GbdxFZAG_EjZWSW8k4JwjEJbk3wj63sSQ";
-const resend = new Resend(RESEND_API_KEY);
+
+// Dynamic Resend Client Factory (Guarantees active API Key from process.env)
+function getResendClient() {
+  const apiKey = (process.env.RESEND_API_KEY || "re_GbdxFZAG_EjZWSW8k4JwjEJbk3wj63sSQ").trim();
+  return new Resend(apiKey);
+}
+
 let PDFDocument = null;
 try {
   PDFDocument = require("pdfkit");
 } catch (e) {
   console.warn("⚠️ PDFKit serverless load notice:", e.message);
 }
-require("dotenv").config({ path: __dirname + "/.env" });
 
 const app = express();
 app.use(cors());
@@ -909,6 +916,7 @@ async function sendResendEmail({ from, to, subject, html, attachments }) {
     return { ok: false, message: "Invalid target email" };
   }
 
+  const resendClient = getResendClient();
   const sender = (from && from.includes("bjs.kodl.uk")) ? from : OFFICIAL_RESEND_SENDER;
   const recipientArray = Array.isArray(to) ? to : [String(to).trim()];
 
@@ -925,7 +933,7 @@ async function sendResendEmail({ from, to, subject, html, attachments }) {
       payload.attachments = attachments;
     }
 
-    const response = await resend.emails.send(payload);
+    const response = await resendClient.emails.send(payload);
 
     if (response && (response.id || response.data?.id)) {
       const emailId = response.id || response.data?.id;
@@ -933,6 +941,9 @@ async function sendResendEmail({ from, to, subject, html, attachments }) {
       return { ok: true, data: response.data || response, id: emailId };
     } else if (response && response.error) {
       console.warn(`⚠️ [Resend API Notice]: ${response.error.message || JSON.stringify(response.error)}`);
+    } else if (response) {
+      console.log(`✉️ [Resend API Delivered]: ${JSON.stringify(response)}`);
+      return { ok: true, data: response };
     }
   } catch (resendErr) {
     console.warn(`⚠️ [Resend API Exception, Attempting SMTP Fallback]: ${resendErr.message}`);
@@ -941,7 +952,7 @@ async function sendResendEmail({ from, to, subject, html, attachments }) {
   // 2. High-Grade Fallback Dispatcher via SMTP
   try {
     const mailOptions = {
-      from: '"BJS & Bar Academy Official" <noreply@bjs.kodl.uk>',
+      from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
       to: recipientArray.join(','),
       subject: subject || "Notification from BJS & Bar Academy",
       html: html || ""
@@ -960,6 +971,7 @@ async function sendResendEmail({ from, to, subject, html, attachments }) {
 async function sendResendBatchEmails(batchItems) {
   if (!Array.isArray(batchItems) || batchItems.length === 0) return { ok: false, message: "No batch items" };
   try {
+    const resendClient = getResendClient();
     const formattedBatch = batchItems.map(item => ({
       from: item.from || OFFICIAL_RESEND_SENDER,
       to: Array.isArray(item.to) ? item.to : [item.to],
@@ -967,7 +979,7 @@ async function sendResendBatchEmails(batchItems) {
       html: item.html || ""
     }));
 
-    const response = await resend.batch.send(formattedBatch);
+    const response = await resendClient.batch.send(formattedBatch);
     console.log(`✉️ [Resend Batch API Success] Dispatched ${formattedBatch.length} email(s) via Resend Batch!`);
     return { ok: true, data: response };
   } catch (err) {
@@ -975,6 +987,39 @@ async function sendResendBatchEmails(batchItems) {
     return { ok: false, message: err.message };
   }
 }
+
+// Resend Verification & Diagnostic Test Endpoint
+app.post("/api/admin/test-resend", async (req, res) => {
+  try {
+    const { targetEmail } = req.body;
+    const emailToUse = targetEmail || "bjsacademy38@gmail.com";
+    const resendClient = getResendClient();
+
+    const response = await resendClient.emails.send({
+      from: OFFICIAL_RESEND_SENDER,
+      to: [emailToUse],
+      subject: "🧪 Resend Verification Test - BJS & Bar Academy",
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; background: #0f172a; color: #ffffff; border-radius: 12px;">
+          <h2 style="color: #f59e0b;">⚖️ BJS & Bar Aspirants Academy</h2>
+          <p>This is a live test email verifying that Resend API is operational with domain <strong>bjs.kodl.uk</strong>!</p>
+          <p style="color: #10b981;">Timestamp: ${new Date().toISOString()}</p>
+        </div>
+      `
+    });
+
+    console.log("🧪 [Test Resend Direct Response]:", response);
+    return res.json({
+      ok: !response.error,
+      resendResponse: response,
+      senderUsed: OFFICIAL_RESEND_SENDER,
+      apiKeyUsedMasked: (process.env.RESEND_API_KEY || "re_GbdxFZAG_EjZWSW8k4JwjEJbk3wj63sSQ").substring(0, 7) + "..."
+    });
+  } catch (err) {
+    console.error("🧪 [Test Resend Exception]:", err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 async function sendOtpEmail(targetEmail, otp, studentName) {
   if (!targetEmail || !targetEmail.includes("@")) {
