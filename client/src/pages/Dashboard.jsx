@@ -228,6 +228,8 @@ export default function Dashboard({ openVideoModal }) {
     return dateA - dateB;
   });
 
+  const firstLessonId = sortedLessons[0]?.id;
+
   // Group lessons by Chapter (অধ্যায়) if available, otherwise by Module
   const groupedLessons = sortedLessons.reduce((acc, l) => {
     const groupKey = l.chapter && l.chapter.trim() !== '' ? l.chapter : (l.module || 'সাধারণ বিষয়সূচি (General Module)');
@@ -552,17 +554,19 @@ export default function Dashboard({ openVideoModal }) {
                               (l.chapter || '').toLowerCase().includes('orientation') ||
                               (l.chapter || '').includes('অরিয়েন্টেশন')
                             );
+                            const isFirstClass = (l.id === firstLessonId);
+                            const isFreePublicPreview = isOrientation || isFirstClass;
                             const isCompleted = user?.completedLessonIds?.includes(l.id);
                             const hasVideo = Boolean(l.youtubeId || l.youtubeUrl);
-                            const canWatch = (isEnrolled || isOrientation) && hasVideo;
+                            const canWatch = (isEnrolled || isFreePublicPreview) && hasVideo;
 
                             let cardClass = 'bg-rose-950/20 border-rose-500/30 text-rose-200';
                             let badgeText = '🔴 Video Pending';
                             let badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
 
-                            if (isOrientation && hasVideo) {
+                            if (isFreePublicPreview && hasVideo) {
                               cardClass = 'bg-emerald-950/30 border-emerald-500/50 text-emerald-100 hover:border-emerald-400 shadow-md';
-                              badgeText = '🎁 Free Orientation Unlocked';
+                              badgeText = isOrientation ? '🎁 Free Orientation Unlocked' : '🎁 Free 1st Class Unlocked';
                               badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold';
                             } else if (!isApproved) {
                               badgeText = '🔒 Awaiting Admin Approval';

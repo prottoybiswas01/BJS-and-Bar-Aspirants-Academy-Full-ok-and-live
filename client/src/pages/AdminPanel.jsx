@@ -3536,13 +3536,37 @@ return (
                         ID: {c.id} | Students: {studentCount}
                       </span>
 
-                      <button
-                        type="button"
-                        onClick={() => openLessonManager(c)}
-                        className="px-3 py-1 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/30 font-bold text-[11px] transition-all flex items-center gap-1"
-                      >
-                        <span>📹</span> Upload & Manage Videos
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const shareUrl = `${window.location.origin}/#demo-video-${c.id}`;
+                            try {
+                              navigator.clipboard.writeText(shareUrl);
+                            } catch (e) {
+                              const el = document.createElement('textarea');
+                              el.value = shareUrl;
+                              document.body.appendChild(el);
+                              el.select();
+                              document.execCommand('copy');
+                              document.body.removeChild(el);
+                            }
+                            showToast(`🔗 Free Demo Video Link for "${c.title}" copied! Share anywhere.`, 'success');
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 font-bold text-[11px] transition-all flex items-center gap-1 cursor-pointer"
+                          title="Copy Direct Public Demo Video Link"
+                        >
+                          <span>🔗</span> Demo Link
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openLessonManager(c)}
+                          className="px-3 py-1 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 font-bold text-[11px] transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>📹</span> Manage Videos
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );

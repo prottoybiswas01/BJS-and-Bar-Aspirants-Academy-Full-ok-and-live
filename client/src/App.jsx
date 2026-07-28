@@ -93,6 +93,27 @@ function MainApp() {
           }
         }).catch(() => {});
       }
+
+      if (hash.startsWith('#demo-video-') || hash.startsWith('#demo-course-')) {
+        const targetId = window.location.hash.replace('#demo-video-', '').replace('#demo-course-', '');
+        if (targetId) {
+          api.get(`/lessons?courseId=${targetId}`).then(res => {
+            if (res.data && res.data.ok && Array.isArray(res.data.lessons) && res.data.lessons.length > 0) {
+              const lessons = res.data.lessons;
+              const firstDemo = lessons.find(l => 
+                (l.title || '').toLowerCase().includes('orientation') ||
+                (l.title || '').includes('অরিয়েন্টেশন')
+              ) || lessons[0];
+
+              if (firstDemo) {
+                setTimeout(() => {
+                  setVideoModal({ isOpen: true, lesson: firstDemo });
+                }, 600);
+              }
+            }
+          }).catch(() => {});
+        }
+      }
     };
     handleUrlChange();
     window.addEventListener('popstate', handleUrlChange);
@@ -137,7 +158,7 @@ function MainApp() {
         activePage === 'admin' ? 'max-w-[1750px]' : 'max-w-7xl'
       }`}>
         {activePage === 'home' && (
-          <Home setActivePage={setActivePage} openMentorProfile={openMentorProfile} />
+          <Home setActivePage={setActivePage} openMentorProfile={openMentorProfile} openVideoModal={openVideoModal} />
         )}
         {activePage === 'mcq-exam' && (
           <McqExamPlayer examId={mcqExamId} onBack={() => setActivePage('home')} />

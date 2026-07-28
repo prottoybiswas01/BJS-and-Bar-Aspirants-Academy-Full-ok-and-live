@@ -2,13 +2,36 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-export default function Home({ setActivePage, openMentorProfile }) {
+export default function Home({ setActivePage, openMentorProfile, openVideoModal }) {
   const { user } = useAuth();
   const [courses, setCourses] = useState([]);
   const [mentors, setMentors] = useState([]);
   const [isMentorsModalOpen, setIsMentorsModalOpen] = useState(false);
   const [enrollModalCourse, setEnrollModalCourse] = useState(null);
+  const [courseDetailsModal, setCourseDetailsModal] = useState({ isOpen: false, course: null, lessons: [], loading: false });
+  const [toastMsg, setToastMsg] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const showToast = (msg) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
+
+  const handleCopyDemoLink = (e, courseId) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    const shareUrl = `${window.location.origin}/#demo-video-${courseId}`;
+    try {
+      navigator.clipboard.writeText(shareUrl);
+    } catch (err) {
+      const el = document.createElement('textarea');
+      el.value = shareUrl;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    }
+    showToast("🔗 ১ম ক্লাসের ফ্রী ডেমো লিংক কপি হয়েছে! শেয়ার করতে পারবেন।");
+  };
   const [stats, setStats] = useState({
     studentsCount: 0,
     mentorsCount: 0
@@ -19,6 +42,21 @@ export default function Home({ setActivePage, openMentorProfile }) {
     heroTitle: 'বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য',
     heroSubtitle: 'বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।'
   });
+
+  const handleOpenCourseDetails = async (c) => {
+    setCourseDetailsModal({ isOpen: true, course: c, lessons: [], loading: true });
+    try {
+      const res = await api.get(`/lessons?courseId=${c.id}`);
+      if (res.data && res.data.ok) {
+        setCourseDetailsModal({ isOpen: true, course: c, lessons: res.data.lessons || [], loading: false });
+      } else {
+        setCourseDetailsModal({ isOpen: true, course: c, lessons: [], loading: false });
+      }
+    } catch (err) {
+      console.error("Error loading course lessons:", err);
+      setCourseDetailsModal({ isOpen: true, course: c, lessons: [], loading: false });
+    }
+  };
 
   useEffect(() => {
     api.get('/courses')
@@ -68,6 +106,15 @@ export default function Home({ setActivePage, openMentorProfile }) {
 
   return (
     <div className="space-y-16 pb-16 animate-fadeIn">
+      {/* Toast Notification */}
+      {toastMsg && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999] animate-bounceIn max-w-md w-full px-4">
+          <div className="p-4 rounded-2xl bg-cyan-950/95 border border-cyan-400 text-cyan-200 text-xs font-bold shadow-2xl flex items-center justify-between gap-3 backdrop-blur-xl">
+            <span>{toastMsg}</span>
+            <button onClick={() => setToastMsg(null)} className="text-slate-400 hover:text-white font-bold">✕</button>
+          </div>
+        </div>
+      )}
       {/* Hero Section */}
       <section className="relative overflow-hidden pt-12 pb-20 border-b border-slate-800/80 bg-gradient-to-b from-slate-950 via-[#0b1325] to-[#0d172a]">
         <div className="absolute top-0 right-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
@@ -217,18 +264,36 @@ export default function Home({ setActivePage, openMentorProfile }) {
                   </div>
                 </div>
 
-                <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] text-slate-400">কোর্স ফি</p>
-                    <p className="text-xl font-black text-amber-400 font-mono">৳ {c.price} <span className="text-xs font-normal text-slate-400">BDT</span></p>
+                <div className="mt-6 pt-4 border-t border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] text-slate-400">কোর্স ফি</p>
+                      <p className="text-xl font-black text-amber-400 font-mono">৳ {c.price} <span className="text-xs font-normal text-slate-400">BDT</span></p>
+                    </div>
+
+                    <button
+                      onClick={() => setEnrollModalCourse(c)}
+                      className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-extrabold shadow-md transition-all hover:scale-105"
+                    >
+                      ভর্তি হোন (Enroll)
+                    </button>
                   </div>
 
-                  <button
-                    onClick={() => setEnrollModalCourse(c)}
-                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-extrabold shadow-md transition-all hover:scale-105"
-                  >
-                    ভর্তি হোন (Enroll)
-                  </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleOpenCourseDetails(c)}
+                      className="w-full py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700/80 text-amber-300 hover:text-white text-[11px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-sm cursor-pointer"
+                    >
+                      <span>📋 সিলেবাস ও ১টি ফ্রী ভিডিও</span>
+                    </button>
+                    <button
+                      onClick={(e) => handleCopyDemoLink(e, c.id)}
+                      className="w-full py-2 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 text-cyan-300 hover:text-white text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 shadow-sm cursor-pointer"
+                      title="ফ্রী ডেমো ভিডিও এর ডিরেক্ট শেয়ারেবল লিংক কপি করুন"
+                    >
+                      <span>🔗 ডেমো লিংক কপি</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -435,6 +500,153 @@ export default function Home({ setActivePage, openMentorProfile }) {
                 className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700 shadow-md"
               >
                 বন্ধ করুন (Close)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Course Details & Public Syllabus Video Preview Modal */}
+      {courseDetailsModal.isOpen && courseDetailsModal.course && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-5 animate-fadeIn overflow-y-auto">
+          <div className="relative w-full max-w-3xl bg-slate-900 border border-slate-700/80 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto text-xs">
+            <button
+              onClick={() => setCourseDetailsModal({ isOpen: false, course: null, lessons: [], loading: false })}
+              className="absolute top-5 right-5 w-8 h-8 rounded-xl bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold text-sm border border-slate-700 cursor-pointer"
+            >
+              ✕
+            </button>
+
+            {/* Header Metadata */}
+            <div className="space-y-2 border-b border-slate-800 pb-4 pr-8">
+              <span className="px-3 py-1 bg-amber-500/20 text-amber-300 text-[11px] font-bold rounded-lg border border-amber-500/30 inline-block font-mono">
+                {courseDetailsModal.course.category || 'Law Course'}
+              </span>
+              <h2 className="text-xl sm:text-2xl font-black text-white">{courseDetailsModal.course.title}</h2>
+              <p className="text-xs text-slate-300 leading-relaxed">{courseDetailsModal.course.description}</p>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3 text-xs text-slate-300 font-medium">
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[10px]">ফ্যাকাল্টি শিক্ষক</span>
+                  <span className="font-bold text-amber-400">{courseDetailsModal.course.faculty}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[10px]">ক্লাস সিডিউল</span>
+                  <span className="font-bold text-emerald-400 font-mono">{courseDetailsModal.course.schedule}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 col-span-2 sm:col-span-1">
+                  <span className="text-slate-500 block text-[10px]">কোর্স ফি</span>
+                  <span className="font-extrabold text-amber-300 text-sm font-mono">৳ {courseDetailsModal.course.price} BDT</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Course Modules & Lesson List */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h3 className="text-sm font-black text-white flex items-center gap-2">
+                  <span>📚 কোর্স পাঠ্যক্রম ও ভিডিও ক্লাস তালিকা (Syllabus)</span>
+                </h3>
+                <span className="text-[10px] font-bold font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/30">
+                  🎁 ১ম ভিডিওটি সবার জন্য ১00% ফ্রী আনলকড্
+                </span>
+              </div>
+
+              {courseDetailsModal.loading ? (
+                <div className="text-center py-10 text-amber-400 font-mono animate-pulse">
+                  ক্লাস তালিকা লোড হচ্ছে...
+                </div>
+              ) : courseDetailsModal.lessons.length === 0 ? (
+                <div className="text-center py-8 bg-slate-950 rounded-2xl border border-slate-800 text-slate-400">
+                  এই কোর্সের ভিডিও ক্লাসগুলো শীঘ্রই আপলোড করা হবে।
+                </div>
+              ) : (
+                <div className="space-y-2.5 max-h-[450px] overflow-y-auto pr-1">
+                  {courseDetailsModal.lessons.map((l, index) => {
+                    const isOrientation = (
+                      (l.title || '').toLowerCase().includes('orientation') ||
+                      (l.title || '').includes('অরিয়েন্টেশন')
+                    );
+                    const isFirstVideo = (index === 0);
+                    const isFreeDemo = isOrientation || isFirstVideo;
+                    const hasVideo = Boolean(l.youtubeId || l.youtubeUrl);
+
+                    return (
+                      <div
+                        key={l.id || index}
+                        className={`p-3.5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                          isFreeDemo
+                            ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-100'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-300'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold border ${
+                              isFreeDemo
+                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-mono'
+                                : 'bg-slate-800 text-slate-400 border-slate-700 font-mono'
+                            }`}>
+                              {isOrientation ? '🎁 Orientation Class (Free Demo)' : isFirstVideo ? '🎁 Class #1 (Free Demo Unlocked)' : `🔒 Class #${index + 1} (Locked)`}
+                            </span>
+                            {l.duration && <span className="font-mono text-[10px] text-slate-400">⏱️ {l.duration}</span>}
+                          </div>
+                          <h4 className="font-bold text-white text-sm">{l.title}</h4>
+                          {l.description && <p className="text-xs text-slate-400">{l.description}</p>}
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {isFreeDemo && hasVideo ? (
+                            <>
+                              <button
+                                onClick={() => {
+                                  if (openVideoModal) openVideoModal(l);
+                                }}
+                                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-extrabold text-xs shadow-md hover:from-emerald-400 hover:to-teal-400 transition-all hover:scale-105 cursor-pointer"
+                              >
+                                ▶️ ফ্রী ডেমো প্লে করুন
+                              </button>
+                              <button
+                                onClick={(e) => handleCopyDemoLink(e, courseDetailsModal.course.id)}
+                                className="px-3 py-1.5 rounded-xl bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                                title="এই ১টি ফ্রী ডেমো ক্লাসের ডিরেক্ট শেয়ারেবল লিংক কপি করুন"
+                              >
+                                <span>🔗 ডেমো লিংক কপি</span>
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setCourseDetailsModal({ isOpen: false, course: null, lessons: [], loading: false });
+                                setEnrollModalCourse(courseDetailsModal.course);
+                              }}
+                              className="px-3.5 py-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white border border-slate-700 text-xs font-bold transition-all cursor-pointer"
+                            >
+                              🔒 লকড (ভর্তি আবশ্যক)
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Action Footer */}
+            <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <p className="text-slate-400 text-xs">
+                সকল ক্লাস আনলক করতে ও পরীক্ষায় অংশগ্রহণ করতে এখনই ভর্তি সম্পূর্ণ করুন।
+              </p>
+              <button
+                onClick={() => {
+                  const c = courseDetailsModal.course;
+                  setCourseDetailsModal({ isOpen: false, course: null, lessons: [], loading: false });
+                  setEnrollModalCourse(c);
+                }}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg transition-all cursor-pointer"
+              >
+                📝 এই কোর্সে ভর্তি হোন (Enroll Now)
               </button>
             </div>
           </div>
