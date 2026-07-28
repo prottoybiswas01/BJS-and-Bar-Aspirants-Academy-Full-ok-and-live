@@ -209,19 +209,36 @@ async function syncMemoryDbFromMongo() {
 
 let cachedConn = null;
 
+// Mongoose Connection Resilience Guards for Serverless (Vercel) Environment
+mongoose.connection.on("disconnected", () => {
+  isMongoConnected = false;
+  cachedConn = null;
+});
+
+mongoose.connection.on("error", (err) => {
+  isMongoConnected = false;
+  cachedConn = null;
+  console.warn("⚠️ Mongoose Connection Error Notice:", err.message || err);
+});
+
 async function ensureDbConnected() {
   if (mongoose.connection && mongoose.connection.readyState === 1) {
     isMongoConnected = true;
     return mongoose.connection;
   }
 
+  // Reset cached connection if connection state is disconnected (0) or disconnecting (3)
+  if (!mongoose.connection || mongoose.connection.readyState === 0 || mongoose.connection.readyState === 3) {
+    cachedConn = null;
+  }
+
   if (mongoose.connection && mongoose.connection.readyState === 2) {
     let retries = 0;
-    while (mongoose.connection.readyState === 2 && retries < 30) {
+    while (mongoose.connection && mongoose.connection.readyState === 2 && retries < 20) {
       await new Promise(r => setTimeout(r, 100));
       retries++;
     }
-    if (mongoose.connection.readyState === 1) {
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
       isMongoConnected = true;
       return mongoose.connection;
     }
@@ -229,12 +246,15 @@ async function ensureDbConnected() {
 
   try {
     const mongoUri = process.env.MONGODB_URI || MONGODB_URI;
-    if (!cachedConn || mongoose.connection.readyState === 0 || mongoose.connection.readyState === 3) {
+    if (!cachedConn) {
       cachedConn = mongoose.connect(mongoUri, {
-        serverSelectionTimeoutMS: 10000,
-        connectTimeoutMS: 15000,
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 8000,
         maxPoolSize: 10,
         socketTimeoutMS: 45000,
+        family: 4, // Force IPv4 to prevent IPv6 TLS handshake timeouts on Vercel
+        retryWrites: true,
+        w: "majority"
       });
     }
     await cachedConn;
@@ -244,8 +264,8 @@ async function ensureDbConnected() {
   } catch (err) {
     cachedConn = null;
     isMongoConnected = false;
-    console.error("⚠️ MongoDB Atlas Connection Error:", err.message);
-    throw err;
+    console.warn("⚠️ MongoDB Atlas Connection Notice (Fail-Safe Active):", err.message || err);
+    return null;
   }
 }
 
