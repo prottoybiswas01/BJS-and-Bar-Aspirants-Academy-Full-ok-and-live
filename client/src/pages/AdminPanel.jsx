@@ -767,8 +767,9 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
 
     try {
+      const targetId = mergeMentorModal.targetMentor.id || mergeMentorModal.targetMentor._id;
       const res = await api.post('/admin/mentors/merge', {
-        targetMentorId: mergeMentorModal.targetMentor.id,
+        targetMentorId: targetId,
         sourceMentorId: mergeMentorModal.sourceMentorId
       });
 
@@ -780,7 +781,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         showToast(res.data.message || 'মার্জ করতে সমস্যা হয়েছে।', 'error');
       }
     } catch (err) {
-      showToast('মেন্টর একাউন্ট মার্জ করতে সমস্যা হয়েছে।', 'error');
+      showToast(err.response?.data?.message || 'মেন্টর একাউন্ট মার্জ করতে সমস্যা হয়েছে।', 'error');
     }
   };
 

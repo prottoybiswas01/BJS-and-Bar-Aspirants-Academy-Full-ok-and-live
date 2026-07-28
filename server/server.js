@@ -3299,39 +3299,82 @@ app.post(["/api/admin/mentors/merge", "/admin/mentors/merge"], async (req, res) 
       return res.status(400).json({ ok: false, message: "Both targetMentorId and sourceMentorId are required." });
     }
 
-    let targetMentor = null;
-    let sourceMentor = null;
+    if (String(targetMentorId) === String(sourceMentorId)) {
+      return res.status(400).json({ ok: false, message: "একই মেন্টর প্রফাইল নিজের সাথে মার্জ করা সম্ভব নয়।" });
+    }
+
+    // Helper to find mentor in Mongo
+    const findMongoMentor = async (idOrObjectId) => {
+      if (!idOrObjectId || !isMongoConnected) return null;
+      try {
+        return await Mentor.findOne({
+          $or: [
+            { id: String(idOrObjectId) },
+            ...(mongoose.Types.ObjectId.isValid(idOrObjectId) ? [{ _id: idOrObjectId }] : [])
+          ]
+        });
+      } catch (e) {
+        return null;
+      }
+    };
+
+    let mongoTarget = await findMongoMentor(targetMentorId);
+    let mongoSource = await findMongoMentor(sourceMentorId);
+
+    // Also check memoryDb
+    const targetMemIdx = (memoryDb.mentors || []).findIndex(
+      m => m && (String(m.id) === String(targetMentorId) || String(m._id) === String(targetMentorId))
+    );
+    const sourceMemIdx = (memoryDb.mentors || []).findIndex(
+      m => m && (String(m.id) === String(sourceMentorId) || String(m._id) === String(sourceMentorId))
+    );
+
+    const memTarget = targetMemIdx > -1 ? memoryDb.mentors[targetMemIdx] : null;
+    const memSource = sourceMemIdx > -1 ? memoryDb.mentors[sourceMemIdx] : null;
+
+    if (!mongoTarget && !memTarget) {
+      return res.status(404).json({ ok: false, message: "টার্গেট মেন্টর প্রফাইলটি খুঁজে পাওয়া যায়নি।" });
+    }
+
+    if (!mongoSource && !memSource) {
+      return res.status(404).json({ ok: false, message: "সোর্স মেন্টর প্রফাইলটি খুঁজে পাওয়া যায়নি।" });
+    }
+
+    const srcCourses = (mongoSource?.assignedCourseIds || memSource?.assignedCourseIds || []);
+    const tgtCourses = (mongoTarget?.assignedCourseIds || memTarget?.assignedCourseIds || []);
+    const mergedCourses = Array.from(new Set([...tgtCourses, ...srcCourses]));
+
+    const mergedData = {
+      assignedCourseIds: mergedCourses,
+      email: mongoTarget?.email || memTarget?.email || mongoSource?.email || memSource?.email || "",
+      phone: mongoTarget?.phone || memTarget?.phone || mongoSource?.phone || memSource?.phone || "",
+      password: mongoTarget?.password || memTarget?.password || mongoSource?.password || memSource?.password || "123456",
+      loginApproval: (mongoTarget?.loginApproval === "Approved" || memTarget?.loginApproval === "Approved" || mongoSource?.loginApproval === "Approved" || memSource?.loginApproval === "Approved") ? "Approved" : "Pending",
+      photoUrl: mongoTarget?.photoUrl || memTarget?.photoUrl || mongoSource?.photoUrl || memSource?.photoUrl || "",
+      designation: (mongoTarget?.designation && mongoTarget.designation !== "সহকারী জজ (BJS)") ? mongoTarget.designation : (mongoSource?.designation || memTarget?.designation || "সহকারী জজ (BJS)"),
+      posting: mongoTarget?.posting || memTarget?.posting || mongoSource?.posting || memSource?.posting || "ঢাকা",
+      expertise: mongoTarget?.expertise || memTarget?.expertise || mongoSource?.expertise || memSource?.expertise || "দেওয়ানী ও ফৌজদারী আইন",
+      bio: mongoTarget?.bio || memTarget?.bio || mongoSource?.bio || memSource?.bio || ""
+    };
 
     if (isMongoConnected) {
-      targetMentor = await Mentor.findOne({
-        $or: [{ id: targetMentorId }, ...(mongoose.Types.ObjectId.isValid(targetMentorId) ? [{ _id: targetMentorId }] : [])]
-      });
-      sourceMentor = await Mentor.findOne({
-        $or: [{ id: sourceMentorId }, ...(mongoose.Types.ObjectId.isValid(sourceMentorId) ? [{ _id: sourceMentorId }] : [])]
-      });
-
-      if (targetMentor && sourceMentor) {
-        const mergedCourses = Array.from(new Set([...(targetMentor.assignedCourseIds || []), ...(sourceMentor.assignedCourseIds || [])]));
-        targetMentor.assignedCourseIds = mergedCourses;
-        if (!targetMentor.email && sourceMentor.email) targetMentor.email = sourceMentor.email;
-        if (!targetMentor.phone && sourceMentor.phone) targetMentor.phone = sourceMentor.phone;
-        await targetMentor.save();
-
-        await Mentor.deleteOne({ _id: sourceMentor._id });
-        await Assignment.updateMany({ mentorId: sourceMentorId }, { $set: { mentorId: targetMentorId } });
+      if (mongoTarget) {
+        Object.assign(mongoTarget, mergedData);
+        await mongoTarget.save();
       }
+      if (mongoSource) {
+        await Mentor.deleteOne({ _id: mongoSource._id });
+      }
+      const sourceIds = [sourceMentorId, mongoSource?.id, mongoSource?._id].filter(Boolean);
+      await Assignment.updateMany({ mentorId: { $in: sourceIds } }, { $set: { mentorId: mongoTarget?.id || targetMentorId } });
     }
 
-    const targetIdx = (memoryDb.mentors || []).findIndex(m => m.id === targetMentorId || m._id === targetMentorId);
-    const sourceIdx = (memoryDb.mentors || []).findIndex(m => m.id === sourceMentorId || m._id === sourceMentorId);
-
-    if (targetIdx > -1) {
-      const srcCourses = sourceIdx > -1 ? (memoryDb.mentors[sourceIdx].assignedCourseIds || []) : [];
-      const tgtCourses = memoryDb.mentors[targetIdx].assignedCourseIds || [];
-      memoryDb.mentors[targetIdx].assignedCourseIds = Array.from(new Set([...tgtCourses, ...srcCourses]));
+    // Update memory DB
+    if (targetMemIdx > -1) {
+      memoryDb.mentors[targetMemIdx] = { ...memoryDb.mentors[targetMemIdx], ...mergedData };
     }
-    if (sourceIdx > -1) {
-      memoryDb.mentors.splice(sourceIdx, 1);
+    if (sourceMemIdx > -1) {
+      memoryDb.mentors.splice(sourceMemIdx, 1);
     }
 
     return res.json({ ok: true, message: "মেন্টর একাউন্ট সফলভাবে সংযুক্ত/মার্জ হয়েছে!" });
