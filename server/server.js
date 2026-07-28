@@ -225,7 +225,6 @@ mongoose.connection.on("disconnected", () => {
 mongoose.connection.on("error", (err) => {
   isMongoConnected = false;
   cachedConn = null;
-  console.warn("⚠️ Mongoose Connection Error Notice:", err.message || err);
 });
 
 async function ensureDbConnected() {
@@ -241,7 +240,7 @@ async function ensureDbConnected() {
 
   if (mongoose.connection && mongoose.connection.readyState === 2) {
     let retries = 0;
-    while (mongoose.connection && mongoose.connection.readyState === 2 && retries < 20) {
+    while (mongoose.connection && mongoose.connection.readyState === 2 && retries < 15) {
       await new Promise(r => setTimeout(r, 100));
       retries++;
     }
@@ -255,11 +254,12 @@ async function ensureDbConnected() {
     const mongoUri = process.env.MONGODB_URI || MONGODB_URI;
     if (!cachedConn) {
       cachedConn = mongoose.connect(mongoUri, {
-        serverSelectionTimeoutMS: 5000,
-        connectTimeoutMS: 8000,
-        maxPoolSize: 10,
-        socketTimeoutMS: 45000,
+        serverSelectionTimeoutMS: 3000,
+        connectTimeoutMS: 4000,
+        maxPoolSize: 3,
+        socketTimeoutMS: 30000,
         family: 4, // Force IPv4 to prevent IPv6 TLS handshake timeouts on Vercel
+        bufferCommands: false, // Instant fail-safe to memoryDb without waiting on cold starts
         retryWrites: true,
         w: "majority"
       });
@@ -271,7 +271,6 @@ async function ensureDbConnected() {
   } catch (err) {
     cachedConn = null;
     isMongoConnected = false;
-    console.warn("⚠️ MongoDB Atlas Connection Notice (Fail-Safe Active):", err.message || err);
     return null;
   }
 }
@@ -2929,7 +2928,6 @@ app.get(["/api/admin/courses", "/api/courses", "/admin/courses", "/courses"], as
     return res.json({ ok: true, courses: coursesList || [], source: "mongodb" });
   } catch (err) {
     dbNotice = err.message;
-    console.error("Courses fetch notice:", err.message);
   }
 
   const fallback = memoryDb.courses || [];
@@ -3192,7 +3190,6 @@ app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], as
     return res.json({ ok: true, mentors: mentorsList || [], source: "mongodb" });
   } catch (err) {
     dbNotice = err.message;
-    console.error("Mentors fetch notice:", err.message);
   }
 
   const fallback = memoryDb.mentors || [];
@@ -3461,14 +3458,10 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
     if (isMongoConnected) {
       try {
         mongoStudents = await Student.find().sort({ createdAt: -1 }).lean();
-      } catch (e) {
-        console.error("Mongo student fetch notice:", e.message);
-      }
+      } catch (e) {}
       try {
         mongoRegs = await Registration.find().sort({ createdAt: -1 }).lean();
-      } catch (e) {
-        console.error("Mongo reg fetch notice:", e.message);
-      }
+      } catch (e) {}
     }
 
     const studentMap = new Map();
@@ -3569,7 +3562,6 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
     return res.json({ ok: true, students: combinedStudents, source: isMongoConnected ? "mongodb" : "memory" });
   } catch (err) {
     dbNotice = err.message;
-    console.error("Students fetch notice:", err.message);
     const fallbackStudents = memoryDb.students || [];
     return res.json({ ok: true, students: fallbackStudents, source: "memory", dbNotice });
   }
@@ -3596,9 +3588,7 @@ app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
         if (mtrs > 0) mentorsCount = mtrs;
         if (crss > 0) coursesCount = crss;
         if (mcqs > 0) examsCount = mcqs;
-      } catch (dbErr) {
-        console.warn("Public stats Mongo fetch notice:", dbErr.message);
-      }
+      } catch (dbErr) {}
     }
 
     return res.json({
@@ -3609,7 +3599,6 @@ app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
       examsCount: Math.max(examsCount, 0)
     });
   } catch (err) {
-    console.error("Public stats error:", err);
     return res.json({
       ok: true,
       studentsCount: (memoryDb.students || []).length,
@@ -3641,7 +3630,6 @@ app.get(["/api/admin/overview-stats", "/admin/overview-stats"], async (req, res)
     memoryDb.mcqExams = examsList || [];
   } catch (err) {
     dbNotice = err.message;
-    console.error("Overview stats fetch notice:", err.message);
     studentsList = memoryDb.students || [];
     coursesList = memoryDb.courses || [];
     mentorsList = memoryDb.mentors || [];
