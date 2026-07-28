@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import QuestionFormattedView from '../components/QuestionFormattedView';
 
 export default function Dashboard({ openVideoModal }) {
   const { user, updateUserProfile } = useAuth();
@@ -707,10 +708,7 @@ export default function Dashboard({ openVideoModal }) {
                       </div>
 
                       {asn.description && (
-                        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-200 leading-relaxed">
-                          <strong className="text-amber-400 block mb-1">অ্যাসাইনমেন্ট প্রশ্ন/নির্দেশনা:</strong>
-                          {asn.description}
-                        </div>
+                        <QuestionFormattedView description={asn.description} title="অ্যাসাইনমেন্ট প্রশ্ন/নির্দেশনা:" />
                       )}
 
                       {/* SUBMISSION STATE & FORM */}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import QuestionFormattedView from '../components/QuestionFormattedView';
 
 export default function MentorDashboard() {
   const { user } = useAuth();
@@ -515,13 +516,16 @@ export default function MentorDashboard() {
               </div>
 
               <div>
-                <label className="block text-slate-300 font-medium mb-1">অ্যাসাইনমেন্টের বিবরণ / প্রশ্ন / ইনস্ট্রাকশন</label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-slate-300 font-medium">অ্যাসাইনমেন্টের বিবরণ / প্রশ্ন / ইনস্ট্রাকশন</label>
+                  <span className="text-[10px] text-amber-400 font-mono">💡 ১., ২., ৩. বা ড্রাইভ লিঙ্ক অটো-ফরম্যাট হবে</span>
+                </div>
                 <textarea
                   rows={4}
                   value={asnDescription}
                   onChange={(e) => setAsnDescription(e.target.value)}
-                  placeholder="অ্যাসাইনমেন্টের প্রশ্নাবলী বা বিস্তারিত ইনস্ট্রাকশন লিখুন..."
-                  className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 leading-relaxed"
+                  placeholder="যেমন: ১. আইনের শাসন বলতে কি বোঝায়? ২. মৌলিক অধিকার... অথবা ড্রাইভ লিঙ্ক: https://drive.google.com/..."
+                  className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 leading-relaxed font-sans text-xs"
                 />
               </div>
 
@@ -589,9 +593,7 @@ export default function MentorDashboard() {
                       </div>
 
                       {asn.description && (
-                        <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/60">
-                          {asn.description}
-                        </p>
+                        <QuestionFormattedView description={asn.description} title="প্রশ্নপত্র / অ্যাসাইনমেন্ট বিস্তারিত:" />
                       )}
 
                       <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono pt-1">
