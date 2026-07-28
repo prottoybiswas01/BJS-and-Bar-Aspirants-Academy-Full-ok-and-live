@@ -3756,16 +3756,21 @@ app.get(["/api/site-settings", "/api/admin/site-settings", "/site-settings", "/a
   }
 });
 
-app.get("/api/admin/mcq-exams", async (req, res) => {
+// GET MCQ Exams (Admin & Public Player)
+app.get(["/api/admin/mcq-exams", "/admin/mcq-exams"], async (req, res) => {
+  let dbNotice = null;
   try {
+    await ensureDbConnected();
     if (isMongoConnected) {
       const exams = await McqExam.find().sort({ createdAt: -1 }).lean();
-      return res.json({ ok: true, exams });
+      if (exams && exams.length > 0) memoryDb.mcqExams = exams;
+      return res.json({ ok: true, exams: exams || [], source: "mongodb" });
     }
-    return res.json({ ok: true, exams: memoryDb.mcqExams || [] });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error fetching MCQ exams." });
+    dbNotice = err.message;
+    console.warn("Mongo MCQ Exam fetch notice:", err.message);
   }
+  return res.json({ ok: true, exams: memoryDb.mcqExams || [], source: "memory", dbNotice });
 });
 
 // GET Single MCQ Exam by ID (Public Exam Player)
@@ -3774,7 +3779,9 @@ app.get("/api/mcq-exams/:id", async (req, res) => {
     const { id } = req.params;
     let exam = (memoryDb.mcqExams || []).find(e => e.id === id);
     if (!exam && isMongoConnected) {
-      exam = await McqExam.findOne({ id }).lean();
+      try {
+        exam = await McqExam.findOne({ id }).lean();
+      } catch (e) {}
     }
     if (!exam) {
       return res.status(404).json({ ok: false, message: "এমসিকিউ পরীক্ষা খুঁজে পাওয়া যায়নি।" });
@@ -3790,8 +3797,10 @@ app.delete("/api/admin/mcq-exams/:id", async (req, res) => {
   try {
     const { id } = req.params;
     if (isMongoConnected) {
-      await McqExam.deleteMany({ id });
-      await McqResult.deleteMany({ examId: id });
+      try {
+        await McqExam.deleteMany({ id });
+        await McqResult.deleteMany({ examId: id });
+      } catch (e) {}
     }
     memoryDb.mcqExams = (memoryDb.mcqExams || []).filter(e => e.id !== id);
     memoryDb.mcqResults = (memoryDb.mcqResults || []).filter(r => r.examId !== id);
@@ -3813,7 +3822,9 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
     // 1. Fetch Exam
     let exam = (memoryDb.mcqExams || []).find(e => e.id === examId);
     if (!exam && isMongoConnected) {
-      exam = await McqExam.findOne({ id: examId }).lean();
+      try {
+        exam = await McqExam.findOne({ id: examId }).lean();
+      } catch (e) {}
     }
     if (!exam) {
       return res.status(404).json({ ok: false, message: "এমসিকিউ পরীক্ষা খুঁজে পাওয়া যায়নি।" });
@@ -3824,7 +3835,11 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
     if (limit > 0 && candidatePhone) {
       let pastAttempts = 0;
       if (isMongoConnected) {
-        pastAttempts = await McqResult.countDocuments({ examId, candidatePhone });
+        try {
+          pastAttempts = await McqResult.countDocuments({ examId, candidatePhone });
+        } catch (e) {
+          pastAttempts = (memoryDb.mcqResults || []).filter(r => r.examId === examId && r.candidatePhone === candidatePhone).length;
+        }
       } else {
         pastAttempts = (memoryDb.mcqResults || []).filter(r => r.examId === examId && r.candidatePhone === candidatePhone).length;
       }
@@ -3880,8 +3895,10 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
     let matchedStudentId = "";
     let allStudents = memoryDb.students || [];
     if (isMongoConnected) {
-      const dbStudents = await Student.find().lean();
-      allStudents = dbStudents.length > 0 ? dbStudents : allStudents;
+      try {
+        const dbStudents = await Student.find().lean();
+        allStudents = dbStudents.length > 0 ? dbStudents : allStudents;
+      } catch (e) {}
     }
 
     const cleanPhone = (candidatePhone || "").replace(/\D/g, "");
@@ -3917,8 +3934,10 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
 
     let savedResult = resultData;
     if (isMongoConnected) {
-      savedResult = await McqResult.create(resultData);
-      if (savedResult && savedResult.toObject) savedResult = savedResult.toObject();
+      try {
+        savedResult = await McqResult.create(resultData);
+        if (savedResult && savedResult.toObject) savedResult = savedResult.toObject();
+      } catch (e) {}
     }
     (memoryDb.mcqResults = memoryDb.mcqResults || []).unshift(resultData);
 
@@ -3960,45 +3979,49 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
 });
 
 // GET MCQ Results for Admin / Student Dashboard
-app.get("/api/admin/mcq-results", async (req, res) => {
-  try {
-    const { examId, studentId, courseId, search } = req.query;
-    let query = {};
-    if (examId) query.examId = examId;
-    if (studentId) query.studentId = studentId;
-    if (courseId) query.courseId = courseId;
-    if (search) {
-      query.$or = [
-        { candidateName: { $regex: search, $options: "i" } },
-        { candidatePhone: { $regex: search, $options: "i" } },
-        { candidateEmail: { $regex: search, $options: "i" } },
-        { examTitle: { $regex: search, $options: "i" } }
-      ];
-    }
+app.get(["/api/admin/mcq-results", "/admin/mcq-results"], async (req, res) => {
+  const { examId, studentId, courseId, search } = req.query;
+  let dbNotice = null;
+  let query = {};
+  if (examId) query.examId = examId;
+  if (studentId) query.studentId = studentId;
+  if (courseId) query.courseId = courseId;
+  if (search) {
+    query.$or = [
+      { candidateName: { $regex: search, $options: "i" } },
+      { candidatePhone: { $regex: search, $options: "i" } },
+      { candidateEmail: { $regex: search, $options: "i" } },
+      { examTitle: { $regex: search, $options: "i" } }
+    ];
+  }
 
+  try {
+    await ensureDbConnected();
     if (isMongoConnected) {
       const results = await McqResult.find(query).sort({ submittedAt: -1 }).lean();
-      return res.json({ ok: true, results });
+      if (results && results.length > 0) memoryDb.mcqResults = results;
+      return res.json({ ok: true, results: results || [], source: "mongodb" });
     }
-
-    let list = memoryDb.mcqResults || [];
-    if (examId) list = list.filter(r => r.examId === examId);
-    if (studentId) list = list.filter(r => r.studentId === studentId);
-    if (courseId) list = list.filter(r => r.courseId === courseId);
-    if (search) {
-      const s = search.toLowerCase();
-      list = list.filter(r =>
-        (r.candidateName || '').toLowerCase().includes(s) ||
-        (r.candidatePhone || '').includes(s) ||
-        (r.candidateEmail || '').toLowerCase().includes(s) ||
-        (r.examTitle || '').toLowerCase().includes(s)
-      );
-    }
-
-    return res.json({ ok: true, results: list });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error fetching MCQ results." });
+    dbNotice = err.message;
+    console.warn("Mongo MCQ Results fetch notice:", err.message);
   }
+
+  let list = memoryDb.mcqResults || [];
+  if (examId) list = list.filter(r => r.examId === examId);
+  if (studentId) list = list.filter(r => r.studentId === studentId);
+  if (courseId) list = list.filter(r => r.courseId === courseId);
+  if (search) {
+    const s = search.toLowerCase();
+    list = list.filter(r =>
+      (r.candidateName || '').toLowerCase().includes(s) ||
+      (r.candidatePhone || '').includes(s) ||
+      (r.candidateEmail || '').toLowerCase().includes(s) ||
+      (r.examTitle || '').toLowerCase().includes(s)
+    );
+  }
+
+  return res.json({ ok: true, results: list, source: "memory", dbNotice });
 });
 
 // GENERATE MCQ Result Sheet PDF with Answers & Explanations (PDFKit)
