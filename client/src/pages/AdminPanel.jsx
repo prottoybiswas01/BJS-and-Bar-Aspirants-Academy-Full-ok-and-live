@@ -332,11 +332,17 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   const currentStats = getEnrollmentStats();
 
   useEffect(() => {
-    loadAllAdminData();
+    loadAllAdminData(true);
+
+    const interval = setInterval(() => {
+      loadAllAdminData(false);
+    }, 3500);
+
+    return () => clearInterval(interval);
   }, []);
 
-  const loadAllAdminData = async () => {
-    setLoading(true);
+  const loadAllAdminData = async (isInitial = true) => {
+    if (isInitial) setLoading(true);
     try {
       const results = await Promise.allSettled([
         api.get('/admin/overview-stats'),
@@ -358,7 +364,9 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       setCourses(Array.isArray(loadedCourses) ? loadedCourses : []);
 
       if (results[3].status === 'fulfilled' && results[3].value.data?.ok) setMailSettings(results[3].value.data.settings);
-      if (results[4].status === 'fulfilled' && results[4].value.data?.ok && results[4].value.data.settings) setSiteSettingsForm(results[4].value.data.settings);
+      if (isInitial && results[4].status === 'fulfilled' && results[4].value.data?.ok && results[4].value.data.settings) {
+        setSiteSettingsForm(results[4].value.data.settings);
+      }
       if (results[5].status === 'fulfilled' && results[5].value.data?.ok) setMentors(results[5].value.data.mentors || []);
       if (results[6].status === 'fulfilled' && results[6].value.data?.ok) setReceipts(results[6].value.data.receipts || []);
       if (results[7].status === 'fulfilled' && results[7].value.data?.ok) setAdminAssignments(results[7].value.data.assignments || []);
@@ -367,7 +375,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     } catch (err) {
       console.log('Error loading admin data:', err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 

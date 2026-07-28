@@ -27,11 +27,20 @@ export default function Dashboard({ openVideoModal }) {
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(true);
     if (user?.id) {
       fetchAssignments();
     }
-  }, [user]);
+
+    const interval = setInterval(() => {
+      fetchData(false);
+      if (user?.id) {
+        fetchAssignments();
+      }
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [user?.id]);
 
   const fetchAssignments = async () => {
     try {
@@ -137,8 +146,8 @@ export default function Dashboard({ openVideoModal }) {
     }
   };
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (isInitial = true) => {
+    if (isInitial) setLoading(true);
     try {
       const courseRes = await api.get('/courses');
       if (courseRes.data.ok) {
@@ -147,18 +156,25 @@ export default function Dashboard({ openVideoModal }) {
         );
         setCourses(activeCourses);
         if (activeCourses.length > 0) {
-          // Prioritize the student's enrolled course first
-          const enrolled = activeCourses.find(c => 
-            (user?.allowedCourseIds || user?.enrolledCourseIds || []).includes(c.id)
-          ) || activeCourses[0];
-          setSelectedCourse(enrolled);
-          fetchLessons(enrolled.id);
+          setSelectedCourse(prev => {
+            if (!prev) {
+              const enrolled = activeCourses.find(c => 
+                (user?.allowedCourseIds || user?.enrolledCourseIds || []).includes(c.id)
+              ) || activeCourses[0];
+              fetchLessons(enrolled.id);
+              return enrolled;
+            } else {
+              const matched = activeCourses.find(c => c.id === prev.id) || prev;
+              fetchLessons(matched.id);
+              return matched;
+            }
+          });
         }
       }
     } catch (err) {
       console.log('Dashboard error:', err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 

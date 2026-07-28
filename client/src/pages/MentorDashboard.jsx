@@ -111,11 +111,17 @@ export default function MentorDashboard() {
   };
 
   useEffect(() => {
-    loadData();
+    loadData(true);
+
+    const interval = setInterval(() => {
+      loadData(false);
+    }, 3500);
+
+    return () => clearInterval(interval);
   }, [user]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isInitial = true) => {
+    if (isInitial) setLoading(true);
     try {
       const [resStud, resCrs, resAsn, resSub] = await Promise.all([
         api.get('/mentor/students', { params: { mentorId: user?.id } }),
@@ -131,7 +137,7 @@ export default function MentorDashboard() {
     } catch (err) {
       console.error("Mentor dashboard load error:", err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 
