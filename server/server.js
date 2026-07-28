@@ -3059,38 +3059,40 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
       }
     });
 
-    // 3. Merge Memory DB Students
-    (memoryDb.students || []).forEach((s) => {
-      if (!s) return;
-      const key = getKey(s);
-      if (key && !studentMap.has(key)) {
-        studentMap.set(key, s);
-      }
-    });
+    // 3. Merge Memory DB Students (Only if Mongo is NOT connected)
+    if (!isMongoConnected) {
+      (memoryDb.students || []).forEach((s) => {
+        if (!s) return;
+        const key = getKey(s);
+        if (key && !studentMap.has(key)) {
+          studentMap.set(key, s);
+        }
+      });
 
-    // 4. Merge Memory DB Registrations
-    (memoryDb.registrations || []).forEach((r) => {
-      if (!r) return;
-      const key = getKey(r);
-      if (key && !studentMap.has(key)) {
-        const synthesizedStudent = {
-          id: r.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
-          regId: r.regId,
-          name: r.name,
-          phone: r.phone,
-          email: r.email,
-          university: r.university || "",
-          batch: r.batch || "Regular Batch",
-          session: r.session || "Standard Session",
-          password: r.password,
-          status: r.status === "Approved" ? "Active" : (r.status || "Pending"),
-          loginApproval: r.status === "Approved" ? "Approved" : (r.status || "Pending"),
-          allowedCourseIds: [],
-          createdAt: r.createdAt || new Date()
-        };
-        studentMap.set(key, synthesizedStudent);
-      }
-    });
+      // 4. Merge Memory DB Registrations
+      (memoryDb.registrations || []).forEach((r) => {
+        if (!r) return;
+        const key = getKey(r);
+        if (key && !studentMap.has(key)) {
+          const synthesizedStudent = {
+            id: r.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
+            regId: r.regId,
+            name: r.name,
+            phone: r.phone,
+            email: r.email,
+            university: r.university || "",
+            batch: r.batch || "Regular Batch",
+            session: r.session || "Standard Session",
+            password: r.password,
+            status: r.status === "Approved" ? "Active" : (r.status || "Pending"),
+            loginApproval: r.status === "Approved" ? "Approved" : (r.status || "Pending"),
+            allowedCourseIds: [],
+            createdAt: r.createdAt || new Date()
+          };
+          studentMap.set(key, synthesizedStudent);
+        }
+      });
+    }
 
     const combinedStudents = Array.from(studentMap.values()).map(s => {
       if (s) {
@@ -3131,7 +3133,7 @@ app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
           Course.countDocuments({ status: { $ne: "Inactive" } }),
           McqExam.countDocuments()
         ]);
-        if (stus > 0) studentsCount = stus;
+        studentsCount = stus;
         if (mtrs > 0) mentorsCount = mtrs;
         if (crss > 0) coursesCount = crss;
         if (mcqs > 0) examsCount = mcqs;
@@ -3142,19 +3144,19 @@ app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
 
     return res.json({
       ok: true,
-      studentsCount: Math.max(studentsCount, (memoryDb.students || []).length),
-      mentorsCount: Math.max(mentorsCount, (memoryDb.mentors || []).length),
-      coursesCount: Math.max(coursesCount, 4),
-      examsCount: Math.max(examsCount, 1)
+      studentsCount: Number(studentsCount) || 0,
+      mentorsCount: Number(mentorsCount) || 0,
+      coursesCount: Math.max(coursesCount, 0),
+      examsCount: Math.max(examsCount, 0)
     });
   } catch (err) {
     console.error("Public stats error:", err);
     return res.json({
       ok: true,
-      studentsCount: (memoryDb.students || []).length || 3,
-      mentorsCount: (memoryDb.mentors || []).length || 3,
-      coursesCount: 4,
-      examsCount: 1
+      studentsCount: (memoryDb.students || []).length,
+      mentorsCount: (memoryDb.mentors || []).length,
+      coursesCount: 0,
+      examsCount: 0
     });
   }
 });
@@ -3174,10 +3176,10 @@ app.get(["/api/admin/overview-stats", "/admin/overview-stats"], async (req, res)
       Mentor.find().lean(),
       McqExam.find().lean()
     ]);
-    if (studentsList.length > 0) memoryDb.students = studentsList;
-    if (coursesList.length > 0) memoryDb.courses = coursesList;
-    if (mentorsList.length > 0) memoryDb.mentors = mentorsList;
-    if (examsList.length > 0) memoryDb.mcqExams = examsList;
+    memoryDb.students = studentsList || [];
+    memoryDb.courses = coursesList || [];
+    memoryDb.mentors = mentorsList || [];
+    memoryDb.mcqExams = examsList || [];
   } catch (err) {
     dbNotice = err.message;
     console.error("Overview stats fetch notice:", err.message);

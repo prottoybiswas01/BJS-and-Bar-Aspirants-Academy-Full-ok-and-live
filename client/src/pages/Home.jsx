@@ -135,7 +135,7 @@ export default function Home({ setActivePage, openMentorProfile }) {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 border-t border-slate-800/80 max-w-3xl mx-auto">
             <div>
               <p className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">
-                {stats.studentsCount > 0 ? `${stats.studentsCount}+` : '3+'}
+                {stats.studentsCount > 0 ? `${stats.studentsCount}+` : '0'}
               </p>
               <p className="text-xs text-slate-400 font-medium">নিবন্ধিত শিক্ষার্থী</p>
             </div>
