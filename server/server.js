@@ -2991,6 +2991,211 @@ app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], as
   return res.json({ ok: true, mentors: fallback, source: "memory", dbNotice });
 });
 
+// SAVE Mentor Profile (Admin Control Panel)
+app.post(["/api/admin/mentors/save", "/admin/mentors/save"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const body = req.body || {};
+    if (!body.name) {
+      return res.status(400).json({ ok: false, message: "Mentor name is required." });
+    }
+
+    const mentorId = body.id || body._id || (`MTR-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`);
+    
+    const mentorData = {
+      id: mentorId,
+      name: body.name,
+      email: body.email || "",
+      password: body.password || "123456",
+      loginApproval: body.loginApproval || "Approved",
+      assignedCourseIds: Array.isArray(body.assignedCourseIds) ? body.assignedCourseIds : [],
+      photoUrl: body.photoUrl || "",
+      designation: body.designation || "সহকারী জজ (BJS)",
+      posting: body.posting || "ঢাকা",
+      expertise: body.expertise || "দেওয়ানী ও ফৌজদারী আইন",
+      phone: body.phone || "",
+      showPhone: Boolean(body.showPhone),
+      status: body.status || "Active",
+      bio: body.bio || "",
+      studentsMentored: body.studentsMentored || "1,500+ Aspirants",
+      judgesProduced: body.judgesProduced || "45+ Assistant Judges",
+      experienceYears: body.experienceYears || "10+ Years",
+      ratingScore: body.ratingScore || "4.9 / 5.0"
+    };
+
+    let saved = mentorData;
+    if (isMongoConnected) {
+      let existing = await Mentor.findOne({
+        $or: [{ id: mentorId }, ...(mongoose.Types.ObjectId.isValid(mentorId) ? [{ _id: mentorId }] : [])]
+      });
+      if (existing) {
+        Object.assign(existing, mentorData);
+        saved = await existing.save();
+      } else {
+        saved = await Mentor.create(mentorData);
+      }
+      if (saved && saved.toObject) saved = saved.toObject();
+    }
+
+    // Sync memory DB
+    const idx = (memoryDb.mentors || []).findIndex(m => m.id === mentorId || m._id === mentorId);
+    if (idx > -1) {
+      memoryDb.mentors[idx] = { ...memoryDb.mentors[idx], ...saved };
+    } else {
+      (memoryDb.mentors = memoryDb.mentors || []).unshift(saved);
+    }
+
+    return res.json({
+      ok: true,
+      message: `✓ Mentor "${saved.name}" saved successfully!`,
+      mentor: saved
+    });
+  } catch (err) {
+    console.error("Save mentor error:", err);
+    return res.status(500).json({ ok: false, message: "Error saving mentor profile: " + err.message });
+  }
+});
+
+// ASSIGN Courses to Mentor (Admin Control Panel)
+app.post(["/api/admin/mentors/assign-courses", "/admin/mentors/assign-courses"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { mentorId, assignedCourseIds } = req.body || {};
+    if (!mentorId) {
+      return res.status(400).json({ ok: false, message: "mentorId is required." });
+    }
+
+    const courseIds = Array.isArray(assignedCourseIds) ? assignedCourseIds : [];
+
+    let updatedMentor = null;
+
+    if (isMongoConnected) {
+      let mentor = await Mentor.findOne({
+        $or: [{ id: mentorId }, ...(mongoose.Types.ObjectId.isValid(mentorId) ? [{ _id: mentorId }] : [])]
+      });
+      if (mentor) {
+        mentor.assignedCourseIds = courseIds;
+        updatedMentor = await mentor.save();
+        if (updatedMentor && updatedMentor.toObject) updatedMentor = updatedMentor.toObject();
+      }
+    }
+
+    const idx = (memoryDb.mentors || []).findIndex(m => m.id === mentorId || m._id === mentorId);
+    if (idx > -1) {
+      memoryDb.mentors[idx].assignedCourseIds = courseIds;
+      if (!updatedMentor) updatedMentor = memoryDb.mentors[idx];
+    }
+
+    return res.json({
+      ok: true,
+      message: "মেন্টর কোর্স নির্ধারণ করা হয়েছে!",
+      mentor: updatedMentor
+    });
+  } catch (err) {
+    console.error("Assign mentor courses error:", err);
+    return res.status(500).json({ ok: false, message: "মেন্টর কোর্স নির্ধারণে সমস্যা হয়েছে: " + err.message });
+  }
+});
+
+// DELETE Mentor (Admin Control Panel)
+app.delete(["/api/admin/mentors/:id", "/admin/mentors/:id"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { id } = req.params;
+    if (isMongoConnected) {
+      await Mentor.deleteOne({
+        $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])]
+      });
+    }
+    memoryDb.mentors = (memoryDb.mentors || []).filter(m => m.id !== id && m._id !== id);
+    return res.json({ ok: true, message: "✓ Mentor deleted successfully!" });
+  } catch (err) {
+    console.error("Delete mentor error:", err);
+    return res.status(500).json({ ok: false, message: "Error deleting mentor: " + err.message });
+  }
+});
+
+// APPROVE / REJECT Mentor (Admin Control Panel)
+app.post(["/api/admin/mentors/approve", "/admin/mentors/approve"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { mentorId, action } = req.body || {};
+    if (!mentorId) {
+      return res.status(400).json({ ok: false, message: "mentorId is required." });
+    }
+
+    const newApproval = action || "Approved";
+
+    if (isMongoConnected) {
+      await Mentor.updateOne(
+        { $or: [{ id: mentorId }, ...(mongoose.Types.ObjectId.isValid(mentorId) ? [{ _id: mentorId }] : [])] },
+        { $set: { loginApproval: newApproval } }
+      );
+    }
+
+    const idx = (memoryDb.mentors || []).findIndex(m => m.id === mentorId || m._id === mentorId);
+    if (idx > -1) {
+      memoryDb.mentors[idx].loginApproval = newApproval;
+    }
+
+    return res.json({ ok: true, message: `মেন্টর অনুমোদন (${newApproval}) সফল হয়েছে!` });
+  } catch (err) {
+    console.error("Approve mentor error:", err);
+    return res.status(500).json({ ok: false, message: "মেন্টর অনুমোদন প্রক্রিয়ায় ত্রুটি: " + err.message });
+  }
+});
+
+// MERGE Mentors (Admin Control Panel)
+app.post(["/api/admin/mentors/merge", "/admin/mentors/merge"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { targetMentorId, sourceMentorId } = req.body || {};
+    if (!targetMentorId || !sourceMentorId) {
+      return res.status(400).json({ ok: false, message: "Both targetMentorId and sourceMentorId are required." });
+    }
+
+    let targetMentor = null;
+    let sourceMentor = null;
+
+    if (isMongoConnected) {
+      targetMentor = await Mentor.findOne({
+        $or: [{ id: targetMentorId }, ...(mongoose.Types.ObjectId.isValid(targetMentorId) ? [{ _id: targetMentorId }] : [])]
+      });
+      sourceMentor = await Mentor.findOne({
+        $or: [{ id: sourceMentorId }, ...(mongoose.Types.ObjectId.isValid(sourceMentorId) ? [{ _id: sourceMentorId }] : [])]
+      });
+
+      if (targetMentor && sourceMentor) {
+        const mergedCourses = Array.from(new Set([...(targetMentor.assignedCourseIds || []), ...(sourceMentor.assignedCourseIds || [])]));
+        targetMentor.assignedCourseIds = mergedCourses;
+        if (!targetMentor.email && sourceMentor.email) targetMentor.email = sourceMentor.email;
+        if (!targetMentor.phone && sourceMentor.phone) targetMentor.phone = sourceMentor.phone;
+        await targetMentor.save();
+
+        await Mentor.deleteOne({ _id: sourceMentor._id });
+        await Assignment.updateMany({ mentorId: sourceMentorId }, { $set: { mentorId: targetMentorId } });
+      }
+    }
+
+    const targetIdx = (memoryDb.mentors || []).findIndex(m => m.id === targetMentorId || m._id === targetMentorId);
+    const sourceIdx = (memoryDb.mentors || []).findIndex(m => m.id === sourceMentorId || m._id === sourceMentorId);
+
+    if (targetIdx > -1) {
+      const srcCourses = sourceIdx > -1 ? (memoryDb.mentors[sourceIdx].assignedCourseIds || []) : [];
+      const tgtCourses = memoryDb.mentors[targetIdx].assignedCourseIds || [];
+      memoryDb.mentors[targetIdx].assignedCourseIds = Array.from(new Set([...tgtCourses, ...srcCourses]));
+    }
+    if (sourceIdx > -1) {
+      memoryDb.mentors.splice(sourceIdx, 1);
+    }
+
+    return res.json({ ok: true, message: "মেন্টর একাউন্ট সফলভাবে সংযুক্ত/মার্জ হয়েছে!" });
+  } catch (err) {
+    console.error("Merge mentors error:", err);
+    return res.status(500).json({ ok: false, message: "মেন্টর একাউন্ট মার্জ করতে সমস্যা হয়েছে: " + err.message });
+  }
+});
+
 // GET All Students & Pending Registrations (Admin Control Panel)
 app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
   let dbNotice = null;
