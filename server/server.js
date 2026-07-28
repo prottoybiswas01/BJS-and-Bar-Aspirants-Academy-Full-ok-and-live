@@ -19,7 +19,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
 const { Resend } = require("resend");
-const RESEND_API_KEY = process.env.RESEND_API_KEY || "re_9KkFjpyF_T6PiCWhQ3NpuoJbRoV4inScx";
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "re_GbdxFZAG_EjZWSW8k4JwjEJbk3wj63sSQ";
 const resend = new Resend(RESEND_API_KEY);
 let PDFDocument = null;
 try {
