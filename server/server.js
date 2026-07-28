@@ -941,7 +941,7 @@ async function sendResendEmail({ from, to, subject, html, attachments }) {
   // 2. High-Grade Fallback Dispatcher via SMTP
   try {
     const mailOptions = {
-      from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
+      from: '"BJS & Bar Academy Official" <noreply@bjs.kodl.uk>',
       to: recipientArray.join(','),
       subject: subject || "Notification from BJS & Bar Academy",
       html: html || ""
@@ -1004,7 +1004,7 @@ async function sendOtpEmail(targetEmail, otp, studentName) {
   `;
 
   const res = await sendResendEmail({
-    from: "BJS & Bar Academy <onboarding@resend.dev>",
+    from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
     html
@@ -1418,7 +1418,7 @@ async function sendAuthApprovalEmail(targetEmail, studentData) {
   `;
 
   const res = await sendResendEmail({
-    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
     html
@@ -1470,7 +1470,7 @@ async function sendRegistrationConfirmEmail(targetEmail, studentData) {
   `;
 
   const res = await sendResendEmail({
-    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
     html
@@ -1537,7 +1537,7 @@ async function sendCourseEnrollmentEmail(targetEmail, studentData, courseTitle, 
   `;
 
   const res = await sendResendEmail({
-    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
     html
@@ -1587,7 +1587,7 @@ async function sendMentorApprovalEmail(targetEmail, mentorData) {
   `;
 
   const res = await sendResendEmail({
-    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
     html
@@ -1830,6 +1830,7 @@ async function sendMoneyReceiptEmail(targetEmail, receiptData) {
   }] : [];
 
   const res = await sendResendEmail({
+    from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
     html,
@@ -1926,7 +1927,7 @@ async function sendCourseAccessUpdateEmail(targetEmail, studentData, actionDetai
   `;
 
   const res = await sendResendEmail({
-    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
     html
@@ -1990,7 +1991,7 @@ async function sendAssignmentGradeEmail(targetEmail, submissionData, assignmentT
   `;
 
   const res = await sendResendEmail({
-    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
     html
@@ -2031,7 +2032,7 @@ async function sendAdminCustomMessageEmail(targetEmail, studentName, subjectText
   `;
 
   const res = await sendResendEmail({
-    from: 'BJS & Bar Academy <onboarding@resend.dev>',
+    from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
     html
@@ -3880,7 +3881,7 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
     if (candidateEmail && candidateEmail.includes("@")) {
       try {
         sendResendEmail({
-          from: "BJS & Bar Academy <onboarding@resend.dev>",
+          from: OFFICIAL_RESEND_SENDER,
           to: candidateEmail,
           subject: `⚖️ BJS & Bar Academy - MCQ Result: ${exam.title}`,
           html: `
