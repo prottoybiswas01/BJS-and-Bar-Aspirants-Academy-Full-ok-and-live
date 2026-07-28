@@ -498,15 +498,10 @@ app.post("/api/auth/login", async (req, res) => {
     // Admin Identifiers List
     const isAdminUsername =
       cleanId === "admin" ||
-      cleanId === "prttoy" ||
-      cleanId === "prottoy" ||
       cleanId === "01800077663_admin" ||
       cleanId === "01800077663" ||
       cleanDigits.endsWith("1800077663") ||
       cleanId === "bjsacademy38@gmail.com" ||
-      cleanId === "prottoybiswas575358@gmail.com" ||
-      cleanId === "prottoybiswa575358@gmail.com" ||
-      cleanId.includes("prottoy") ||
       cleanId === validAdminUser.toLowerCase();
 
     // Standard Admin Passwords
@@ -514,10 +509,7 @@ app.post("/api/auth/login", async (req, res) => {
       passInput === validAdminPass ||
       passInput === "ADMIN123@" ||
       passInput === "admin123" ||
-      passInput === "ADMIN123" ||
-      passInput === "123456" ||
-      passInput === "prttoy" ||
-      passInput === "prottoy";
+      passInput === "ADMIN123";
 
     // 1. DIRECT ADMIN PORTAL LOGIN
     if (isAdminPortal || (isAdminUsername && isAdminPassword)) {
@@ -528,7 +520,7 @@ app.post("/api/auth/login", async (req, res) => {
             ok: true,
             isAdmin: true,
             token,
-            user: { id: "ADMIN-001", name: "Super Admin (Prottoy)", role: "admin", isAdmin: true }
+            user: { id: "ADMIN-001", name: "Super Admin", role: "admin", isAdmin: true }
           });
         } else if (isAdminPortal) {
           return res.status(401).json({ ok: false, message: "ভুল অ্যাডমিন পাসওয়ার্ড! অনুগ্রহ করে সঠিক পাসওয়ার্ড দিন।" });
@@ -609,9 +601,6 @@ app.post("/api/auth/login", async (req, res) => {
           { id: rawQuery },
           { id: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
         ];
-        if (queryEmailPrefix && queryEmailPrefix.length >= 5) {
-          mongoOrConditions.push({ email: new RegExp(queryEmailPrefix.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&'), "i") });
-        }
         if (last10) {
           mongoOrConditions.push({ phone: new RegExp(last10 + "$") });
         }
@@ -631,7 +620,6 @@ app.post("/api/auth/login", async (req, res) => {
         const cleanQueryLower = rawQuery.toLowerCase();
 
         if (sEmail === cleanQueryLower || sId === cleanQueryLower || sPhone === rawQuery) return true;
-        if (queryEmailPrefix && queryEmailPrefix.length >= 5 && sEmail.includes(queryEmailPrefix)) return true;
         if (last10 && sPhone.replace(/\D/g, "").endsWith(last10)) return true;
         return false;
       });
@@ -648,9 +636,6 @@ app.post("/api/auth/login", async (req, res) => {
             { regId: rawQuery },
             { regId: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
           ];
-          if (queryEmailPrefix && queryEmailPrefix.length >= 5) {
-            regOrConditions.push({ email: new RegExp(queryEmailPrefix.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&'), "i") });
-          }
           if (last10) {
             regOrConditions.push({ phone: new RegExp(last10 + "$") });
           }
@@ -666,62 +651,64 @@ app.post("/api/auth/login", async (req, res) => {
           const cleanQueryLower = rawQuery.toLowerCase();
 
           if (rEmail === cleanQueryLower || rId === cleanQueryLower || rPhone === rawQuery) return true;
-          if (queryEmailPrefix && queryEmailPrefix.length >= 5 && rEmail.includes(queryEmailPrefix)) return true;
           if (last10 && rPhone.replace(/\D/g, "").endsWith(last10)) return true;
           return false;
         });
       }
 
       if (regRecord) {
-        const newStudentId = "STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
         student = {
-          id: newStudentId,
+          id: regRecord.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
+          regId: regRecord.regId,
           name: regRecord.name,
           phone: regRecord.phone,
           email: regRecord.email,
           batch: regRecord.batch || "General Class",
           session: regRecord.session || "Standard Session",
           password: regRecord.password,
-          status: "Active",
-          loginApproval: "Approved",
+          status: regRecord.status === "Approved" ? "Active" : (regRecord.status || "Pending"),
+          loginApproval: regRecord.status === "Approved" ? "Approved" : (regRecord.status || "Pending"),
           allowedCourseIds: [],
-          createdAt: new Date()
+          createdAt: regRecord.createdAt || new Date()
         };
-
-        if (isMongoConnected) {
-          try {
-            await Student.create(student);
-          } catch (e) { }
-        }
-        memoryDb.students.unshift(student);
       }
     }
 
-    // Auto-create Student profile if logging in on Student Login and not found
+    // STRICT SECURITY CHECK 1: Account Must Exist (NO auto-creation on login!)
     if (!student) {
-      const isEmail = rawQuery.includes('@');
-      const studentName = cleanId.includes('prottoy') ? 'Prottoy Biswas' : (isEmail ? rawQuery.split('@')[0] : 'Student User');
-      const newStudentId = "STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
-      student = {
-        id: newStudentId,
-        name: studentName,
-        phone: isEmail ? "01800077663" : rawQuery,
-        email: isEmail ? rawQuery : (cleanId + "@bjsacademy.com"),
-        batch: "General Class",
-        session: "Standard Session",
-        password: passInput,
-        status: "Active",
-        loginApproval: "Approved",
-        allowedCourseIds: [],
-        createdAt: new Date()
-      };
+      return res.status(401).json({
+        ok: false,
+        message: "অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে সঠিক তথ্যে প্রবেশ করুন অথবা রেজিস্ট্রেশন সম্পূর্ণ করুন।"
+      });
+    }
 
-      if (isMongoConnected) {
-        try {
-          await Student.create(student);
-        } catch (e) { }
+    // STRICT SECURITY CHECK 2: Password Verification
+    const storedPass = String(student.password || "").trim();
+    let isPassValid = false;
+
+    if (storedPass.startsWith("$2a$") || storedPass.startsWith("$2b$")) {
+      try {
+        isPassValid = await bcrypt.compare(passInput, storedPass);
+      } catch (e) {
+        isPassValid = false;
       }
-      memoryDb.students.unshift(student);
+    } else {
+      isPassValid = passInput === storedPass || (storedPass && passInput === storedPass);
+    }
+
+    if (!isPassValid) {
+      return res.status(401).json({
+        ok: false,
+        message: "ভুল পাসওয়ার্ড! অনুগ্রহ করে সঠিক পাসওয়ার্ড দিয়ে চেষ্টা করুন।"
+      });
+    }
+
+    // STRICT SECURITY CHECK 3: Active Status Check
+    if (student.status === "Inactive" || student.status === "Blocked") {
+      return res.status(403).json({
+        ok: false,
+        message: "আপনার স্টুডেন্ট অ্যাকাউন্টটি সাময়িকভাবে স্থগিত বা নিষ্ক্রিয় করা হয়েছে।"
+      });
     }
 
     // Return Student Profile & Token for Student Dashboard
@@ -1187,7 +1174,7 @@ const handleResetPasswordReq = async (req, res) => {
     });
 
     // Update Admin Password if matching Admin
-    if (cleanQueryLower === "admin" || cleanQueryLower === "prttoy" || cleanQueryLower === "prottoy" || cleanQueryLower === "01800077663" || cleanQueryLower === "bjsacademy38@gmail.com") {
+    if (cleanQueryLower === "admin" || cleanQueryLower === "01800077663" || cleanQueryLower === "bjsacademy38@gmail.com") {
       memoryDb.siteSettings.adminPassword = newPassword;
       if (isMongoConnected) {
         try {

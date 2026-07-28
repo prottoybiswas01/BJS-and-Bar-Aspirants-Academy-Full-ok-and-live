@@ -1721,11 +1721,11 @@ return (
         {/* Sidebar Bottom Footer */}
         <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shadow-md">
-              P
+            <div className="w-8 h-8 rounded-full bg-amber-500 text-slate-950 font-bold flex items-center justify-center text-xs shadow-md">
+              A
             </div>
             <div>
-              <p className="text-xs font-bold text-white leading-none">Prottoy</p>
+              <p className="text-xs font-bold text-white leading-none">Admin</p>
               <p className="text-[10px] text-slate-400 font-mono">Administrator</p>
             </div>
           </div>
@@ -1749,7 +1749,7 @@ return (
               <span>Welcome Dashboard</span>
             </h1>
             <p className="text-xs text-slate-400 mt-0.5">
-              Hello, Prottoy 👋 Welcome to BJS & Bar Aspirants Academy Executive Control Panel
+              Hello, Executive Admin 👋 Welcome to BJS & Bar Aspirants Academy Control Panel
             </p>
           </div>
 
@@ -3633,7 +3633,7 @@ return (
                 type="text"
                 value={receiptSearchQuery}
                 onChange={(e) => setReceiptSearchQuery(e.target.value)}
-                placeholder="উদাহরণ: Prottoy, 01800077663 বা STU-2026-..."
+                placeholder="উদাহরণ: 01800077663, Student Name বা STU-2026-..."
                 className="w-full rounded-xl bg-slate-950 border border-slate-700 px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-medium"
               />
             </div>

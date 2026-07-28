@@ -112,41 +112,10 @@ export const AuthProvider = ({ children }) => {
       return { ok: false, message: res.data?.message || 'লগইন তথ্য সঠিক নয়।' };
     } catch (err) {
       console.error('Login Error:', err);
-
-      const cleanId = String(identifier || '').trim().toLowerCase();
-      const savedPass = localStorage.getItem('bjs_admin_custom_pass') || 'ADMIN123@';
-      const savedUname = (localStorage.getItem('bjs_admin_custom_uname') || 'prttoy').toLowerCase();
-
-      // Explicit Admin Login Fallback
-      if (
-        isAdminPortal &&
-        (cleanId === savedUname || cleanId === 'prttoy' || cleanId === 'admin' || cleanId === '01800077663_admin') &&
-        (password === savedPass || password === 'ADMIN123@' || password === 'admin123')
-      ) {
-        const adminUserData = { id: 'ADMIN-001', name: 'Super Admin (Prottoy)', role: 'admin', isAdmin: true };
-        setToken('admin_token_active');
-        setUser(adminUserData);
-        localStorage.setItem('bjs_token', 'admin_token_active');
-        localStorage.setItem('bjs_user', JSON.stringify(adminUserData));
-        return { ok: true, user: adminUserData };
-      }
-
-      // Student Login Fallback
-      const isEmail = identifier.includes('@');
-      const studentUserData = {
-        id: 'STU-' + Date.now(),
-        name: isEmail ? identifier.split('@')[0] : 'Student User',
-        phone: isEmail ? '01800077663' : identifier,
-        email: isEmail ? identifier : (cleanId + '@bjsacademy.com'),
-        batch: 'General Class',
-        role: 'student',
-        isAdmin: false
+      return {
+        ok: false,
+        message: err.response?.data?.message || 'লগইন করতে সমস্যা হয়েছে। অনুগ্রহ করে আপনার তথ্য যাঁচাই করুন।'
       };
-      setToken('student_token_active');
-      setUser(studentUserData);
-      localStorage.setItem('bjs_token', 'student_token_active');
-      localStorage.setItem('bjs_user', JSON.stringify(studentUserData));
-      return { ok: true, user: studentUserData };
     }
   };
 

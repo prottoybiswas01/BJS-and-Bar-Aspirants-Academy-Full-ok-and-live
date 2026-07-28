@@ -133,7 +133,7 @@ export default function VideoPlayerModal({ videoId, title, student, onClose }) {
           <div className="pointer-events-none absolute top-3 left-3 z-40">
             <div className="bg-slate-950/70 backdrop-blur-sm border border-slate-800/80 px-2.5 py-1 rounded-lg text-slate-300/80 text-[10px] font-mono font-bold flex items-center gap-1.5 shadow-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-              <span>{student?.name || 'Prottoy'}</span>
+              <span>{student?.name || 'Student'}</span>
               <span className="text-amber-400/90 font-mono text-[9px]">({student?.id || 'STU-2026'})</span>
             </div>
           </div>
