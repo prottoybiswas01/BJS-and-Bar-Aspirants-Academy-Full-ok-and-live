@@ -352,19 +352,20 @@ app.get("/api/auth/verify-session", async (req, res) => {
       }
       return res.json({ ok: true, status: mentor.status });
     } else {
-      let student = (memoryDb.students || []).find(s => s.id === id || s._id === id);
+      let student = (memoryDb.students || []).find(s => s && (s.id === id || String(s._id) === id || s.regId === id));
       if (!student && isMongoConnected) {
         student = await Student.findOne({
           $or: [
             { id: id },
+            { regId: id },
             ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])
           ]
-        });
+        }).lean();
       }
       if (!student || student.status === "Inactive") {
         return res.status(401).json({ ok: false, deleted: true, message: "একাউন্টটি স্থায়ীভাবে অপসারিত করা হয়েছে।" });
       }
-      return res.json({ ok: true, status: student.status });
+      return res.json({ ok: true, status: student.status, student });
     }
   } catch (e) {
     return res.json({ ok: true });
@@ -1213,6 +1214,18 @@ const handleResetPasswordReq = async (req, res) => {
 app.post("/api/auth/reset-password", handleResetPasswordReq);
 app.post("/auth/reset-password", handleResetPasswordReq);
 
+// Base App URL Resolution Helper
+function getAppBaseUrl(req) {
+  if (process.env.APP_URL && process.env.APP_URL.trim() !== '') {
+    return process.env.APP_URL.trim();
+  }
+  if (req && req.headers && req.headers.host) {
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    return `${proto}://${req.headers.host}`;
+  }
+  return 'https://bjs-bar-academy.com';
+}
+
 // Professional Auth Approval Email
 async function sendAuthApprovalEmail(targetEmail, studentData) {
   const subject = `🎉 Welcome to BJS & Bar Aspirants Academy - Account Created`;
@@ -1292,7 +1305,7 @@ async function sendRegistrationConfirmEmail(targetEmail, studentData) {
         </p>
 
         <div style="text-align: center; margin-top: 20px;">
-          <a href="https://bjs-and-bar-aspirants-academy-full.vercel.app" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
+          <a href="${getAppBaseUrl()}" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
             🔑 Go to Student Portal Login
           </a>
         </div>
@@ -3016,10 +3029,17 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
 
     const getKey = (item) => {
       if (!item) return "";
-      return (item.phone || item.email || item.regId || item.id || item._id || "").toString().toLowerCase();
+      const phoneDigits = item.phone ? String(item.phone).replace(/\D/g, "").slice(-10) : "";
+      if (phoneDigits) return "phone_" + phoneDigits;
+      const email = item.email ? String(item.email).trim().toLowerCase() : "";
+      if (email) return "email_" + email;
+      const regId = item.regId ? String(item.regId).trim().toLowerCase() : "";
+      if (regId) return "reg_" + regId;
+      const id = item.id || item._id ? String(item.id || item._id).trim().toLowerCase() : "";
+      return id ? "id_" + id : "";
     };
 
-    // 1. Add MongoDB Students
+    // 1. Add MongoDB Students (Primary Authority)
     (mongoStudents || []).forEach((s) => {
       if (!s) return;
       const key = getKey(s);
@@ -3028,7 +3048,7 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
       }
     });
 
-    // 2. Merge MongoDB Registrations (synthesizing Student doc for pending registrations)
+    // 2. Merge MongoDB Registrations (Only for pending registrations that do not have a Student doc yet)
     (mongoRegs || []).forEach((r) => {
       if (!r) return;
       const key = getKey(r);
@@ -3049,11 +3069,6 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
           createdAt: r.createdAt || new Date()
         };
         studentMap.set(key, synthesizedStudent);
-
-        // Auto-sync missing Student document to MongoDB
-        if (isMongoConnected) {
-          Student.create(synthesizedStudent).catch((err) => console.warn("Auto-sync student notice:", err.message));
-        }
       }
     });
 
@@ -4366,51 +4381,73 @@ app.delete("/api/admin/students/:id", async (req, res) => {
     }
 
     const regId = targetStudent?.regId || studentId;
-    const phone = targetStudent?.phone;
-    const email = targetStudent?.email;
+    const phone = targetStudent?.phone || "";
+    const email = targetStudent?.email || "";
 
-    const studentOr = [
-      { id: studentId },
-      { regId: studentId },
-      ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])
-    ];
-    const regOr = [
-      { regId: studentId },
-      { regId: regId },
-      ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])
-    ];
+    const phoneDigits = phone ? String(phone).replace(/\D/g, "").slice(-10) : "";
+    const emailLower = email ? String(email).trim().toLowerCase() : "";
 
-    if (phone) {
-      studentOr.push({ phone });
-      regOr.push({ phone });
-    }
-    if (email) {
-      studentOr.push({ email });
-      regOr.push({ email });
-    }
+    const phoneRegex = phoneDigits ? new RegExp(phoneDigits + "$") : null;
+    const emailRegex = emailLower ? new RegExp("^" + emailLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i") : null;
+
+    const buildConditions = (extraIdKey) => {
+      const conds = [
+        { id: studentId },
+        { regId: studentId },
+        ...(extraIdKey ? [{ [extraIdKey]: studentId }] : []),
+        ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])
+      ];
+      if (regId) {
+        conds.push({ regId });
+        if (extraIdKey) conds.push({ [extraIdKey]: regId });
+      }
+      if (phoneRegex) conds.push({ phone: phoneRegex });
+      if (emailRegex) {
+        conds.push({ email: emailRegex });
+        conds.push({ studentEmail: emailRegex });
+      }
+      return conds;
+    };
 
     if (isMongoConnected) {
-      await Student.deleteMany({ $or: studentOr });
-      await Registration.deleteMany({ $or: regOr });
+      await Promise.all([
+        Student.deleteMany({ $or: buildConditions() }).catch(() => {}),
+        Registration.deleteMany({ $or: buildConditions() }).catch(() => {}),
+        Receipt.deleteMany({ $or: buildConditions("studentId") }).catch(() => {}),
+        Submission.deleteMany({ $or: buildConditions("studentId") }).catch(() => {}),
+        Device.deleteMany({ $or: buildConditions("studentId") }).catch(() => {}),
+        McqResult.deleteMany({ $or: buildConditions("studentId") }).catch(() => {})
+      ]);
     }
 
-    memoryDb.students = (memoryDb.students || []).filter((s) => {
-      if (!s) return false;
-      if (s.id === studentId || s.regId === studentId || String(s._id) === studentId) return false;
-      if (phone && s.phone === phone) return false;
-      if (email && s.email === email) return false;
-      return true;
-    });
+    const isMatch = (item, extraIdKey) => {
+      if (!item) return false;
+      const iId = item.id ? String(item.id) : "";
+      const iRegId = item.regId ? String(item.regId) : "";
+      const iExtraId = extraIdKey && item[extraIdKey] ? String(item[extraIdKey]) : "";
+      const iMongoId = item._id ? String(item._id) : "";
 
-    memoryDb.registrations = (memoryDb.registrations || []).filter((r) => {
-      if (!r) return false;
-      if (r.regId === studentId || r.regId === regId || String(r._id) === studentId) return false;
-      if (phone && r.phone === phone) return false;
-      if (email && r.email === email) return false;
-      return true;
-    });
+      if (iId === studentId || iRegId === studentId || iExtraId === studentId || iMongoId === studentId) return true;
+      if (regId && (iId === regId || iRegId === regId || iExtraId === regId || iMongoId === regId)) return true;
 
-    return res.json({ ok: true, message: "Student deleted successfully!" });
+      if (phoneDigits && item.phone) {
+        const itemDigits = String(item.phone).replace(/\D/g, "").slice(-10);
+        if (itemDigits && itemDigits === phoneDigits) return true;
+      }
+      if (emailLower) {
+        const itemEmail = (item.email || item.studentEmail || "").trim().toLowerCase();
+        if (itemEmail && itemEmail === emailLower) return true;
+      }
+      return false;
+    };
+
+    memoryDb.students = (memoryDb.students || []).filter(s => !isMatch(s));
+    memoryDb.registrations = (memoryDb.registrations || []).filter(r => !isMatch(r));
+    memoryDb.submissions = (memoryDb.submissions || []).filter(sub => !isMatch(sub, "studentId"));
+    memoryDb.receipts = (memoryDb.receipts || []).filter(rec => !isMatch(rec, "studentId"));
+    memoryDb.devices = (memoryDb.devices || []).filter(d => !isMatch(d, "studentId"));
+
+    return res.json({ ok: true, message: "Student and all associated records permanently deleted!" });
   } catch (err) {
     console.error("Delete student error:", err);
     return res.status(500).json({ ok: false, message: "Error deleting student." });

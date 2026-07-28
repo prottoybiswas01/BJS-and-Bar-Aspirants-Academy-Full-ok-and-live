@@ -220,12 +220,14 @@ export default function Dashboard({ openVideoModal }) {
     return acc;
   }, {});
 
-  // Evaluate Student Approval & Course Access Rules (Strict Course-Level Enrollment Check)
+  // Evaluate Student Approval & Course Access Rules (Flexible Course-Level Enrollment Check)
   const isApproved = Boolean(
     user?.loginApproval === 'Approved' ||
     user?.status === 'Active' ||
     user?.status === 'Approved' ||
-    user?.approved === true
+    user?.approved === true ||
+    (user?.allowedCourseIds && user.allowedCourseIds.length > 0) ||
+    (user?.enrolledCourseIds && user.enrolledCourseIds.length > 0)
   );
 
   const isUnlimited = Boolean(
@@ -243,13 +245,25 @@ export default function Dashboard({ openVideoModal }) {
     const allowed = rawAllowed.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
     const enrolled = rawEnrolled.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
 
-    const isMatch = (idList) => (idList || []).some(id =>
-      String(id) === String(c.id) ||
-      String(id) === String(c._id) ||
-      (c.oldId && String(id) === String(c.oldId)) ||
-      (c.shortTitle && String(id).toLowerCase() === String(c.shortTitle).toLowerCase()) ||
-      (c.title && String(id).toLowerCase() === String(c.title).toLowerCase())
-    );
+    const isMatch = (idList) => (idList || []).some(id => {
+      const sId = String(id).toLowerCase().trim();
+      const cId = String(c.id || '').toLowerCase().trim();
+      const cMongoId = String(c._id || '').toLowerCase().trim();
+      const cOldId = String(c.oldId || '').toLowerCase().trim();
+      const cTitle = String(c.title || '').toLowerCase().trim();
+      const cShort = String(c.shortTitle || '').toLowerCase().trim();
+      const cCat = String(c.category || '').toLowerCase().trim();
+
+      return (
+        sId === cId ||
+        sId === cMongoId ||
+        (cOldId && sId === cOldId) ||
+        (cShort && sId === cShort) ||
+        (cTitle && sId === cTitle) ||
+        (cCat && sId === cCat) ||
+        (cTitle && (cTitle.includes(sId) || sId.includes(cTitle)))
+      );
+    });
 
     if (isMatch(allowed) || isMatch(enrolled)) return true;
 
@@ -259,9 +273,17 @@ export default function Dashboard({ openVideoModal }) {
       const t = String(c.title || '').toLowerCase().trim();
       const st = String(c.shortTitle || '').toLowerCase().trim();
       const cid = String(c.id || '').toLowerCase().trim();
-      if (b === t || b === st || b === cid || (b && t && (b.includes(t) || t.includes(b) || t.includes('constitution') && b.includes('সংবিধান')))) {
+      if (
+        b === t || b === st || b === cid ||
+        (b && t && (b.includes(t) || t.includes(b) || (t.includes('constitution') && b.includes('সংবিধান')) || (t.includes('civil') && b.includes('দেওয়ানী')) || (t.includes('criminal') && b.includes('ফৌজদারী'))))
+      ) {
         return true;
       }
+    }
+
+    // Fallback: If no explicit course rules configured, grant default course access
+    if (allowed.length === 0 && enrolled.length === 0 && !user?.batch) {
+      return true;
     }
 
     return false;

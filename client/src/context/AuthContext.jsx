@@ -30,15 +30,15 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, [token]);
 
-  // Real-Time Account Deletion/Deactivation Monitor (Auto Logouts deleted accounts in < 4s)
+  // Real-Time Account Deletion/Deactivation & Access Sync Monitor (Auto Logouts deleted accounts, syncs granted courses in < 4s)
   useEffect(() => {
-    if (!user || user.isAdmin || !user.id) return;
+    if (!user || user.isAdmin || (!user.id && !user.regId)) return;
 
     const checkSessionStatus = async () => {
       try {
         const res = await api.get('/auth/verify-session', {
           params: {
-            id: user.id,
+            id: user.id || user.regId,
             isMentor: !!user.isMentor,
             isAdmin: !!user.isAdmin
           }
@@ -46,6 +46,17 @@ export const AuthProvider = ({ children }) => {
         if (res.data && res.data.deleted) {
           logout();
           window.location.href = '/';
+          return;
+        }
+
+        if (res.data && res.data.ok && res.data.student && !user.isMentor && !user.isAdmin) {
+          const freshStudent = res.data.student;
+          setUser((prev) => {
+            if (!prev) return freshStudent;
+            const updated = { ...prev, ...freshStudent };
+            localStorage.setItem('bjs_user', JSON.stringify(updated));
+            return updated;
+          });
         }
       } catch (err) {
         if (err.response && (err.response.status === 401 || err.response.data?.deleted)) {
