@@ -11,18 +11,33 @@ const firebaseConfig = {
   measurementId: "G-ZV5H7B046M"
 };
 
-// Initialize Firebase safely (prevent re-initialization)
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: "select_account" });
+let app = null;
+let auth = null;
+let googleProvider = null;
+
+try {
+  app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  googleProvider = new GoogleAuthProvider();
+  googleProvider.setCustomParameters({ prompt: "select_account" });
+} catch (err) {
+  console.warn("Firebase Auth initialization notice:", err);
+}
 
 export const signInWithGooglePopup = async () => {
-  if (!firebaseConfig.apiKey) {
-    throw new Error("VITE_FIREBASE_API_KEY পাওয়া যায়নি। দয়া করে Firebase Console থেকে API Key যোগ করুন।");
+  if (!auth || !googleProvider) {
+    try {
+      if (!app) app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      googleProvider = new GoogleAuthProvider();
+      googleProvider.setCustomParameters({ prompt: "select_account" });
+    } catch (e) {
+      throw new Error("Firebase Auth শুরু করা সম্ভব হয়নি। অনুগ্রহ করে ব্রাউজার রিফ্রেশ করে আবার চেষ্টা করুন।");
+    }
   }
   const result = await signInWithPopup(auth, googleProvider);
   return result.user;
 };
 
 export { app, auth, googleProvider };
+

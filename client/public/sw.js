@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bjs-academy-v1';
+const CACHE_NAME = 'bjs-academy-v2';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
