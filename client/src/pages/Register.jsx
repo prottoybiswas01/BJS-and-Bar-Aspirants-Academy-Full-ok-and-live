@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { signInWithGooglePopup } from '../services/firebase';
+import GoogleCompleteProfileModal from '../components/GoogleCompleteProfileModal';
 import api from '../services/api';
 
 export default function Register({ setActivePage }) {
+  const { googleLogin } = useAuth();
   const [courses, setCourses] = useState([]);
   const [formData, setFormData] = useState({
     name: '',
@@ -15,6 +19,8 @@ export default function Register({ setActivePage }) {
   });
 
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleModal, setGoogleModal] = useState({ isOpen: false, googleData: null, firebaseUser: null });
   const [error, setError] = useState(null);
   const [successReg, setSuccessReg] = useState(null);
 
@@ -91,6 +97,52 @@ export default function Register({ setActivePage }) {
     }
   };
 
+  const handleGoogleSignUp = async () => {
+    try {
+      setGoogleLoading(true);
+      setError(null);
+      const firebaseUser = await signInWithGooglePopup();
+      if (!firebaseUser || !firebaseUser.email) {
+        throw new Error('Google একাউন্ট থেকে ইমেইল পাওয়া যায়নি।');
+      }
+
+      const result = await googleLogin(firebaseUser);
+      setGoogleLoading(false);
+
+      if (result.ok) {
+        if (result.isNewUser) {
+          // Open modal to select University and Course
+          setGoogleModal({
+            isOpen: true,
+            googleData: result.googleData,
+            firebaseUser
+          });
+          return;
+        }
+
+        // Existing student logging in
+        setActivePage('dashboard');
+      } else {
+        setError(result.message);
+      }
+    } catch (err) {
+      setGoogleLoading(false);
+      console.error('Google Sign-Up Error:', err);
+      setError(err.message || 'Google সাইন-আপ সম্পন্ন করা যায়নি।');
+    }
+  };
+
+  const handleCompleteGoogleProfile = async ({ university, courseId, phone }) => {
+    if (!googleModal.firebaseUser) return;
+    const result = await googleLogin(googleModal.firebaseUser, { university, courseId, phone });
+    if (result.ok && !result.isNewUser) {
+      setGoogleModal({ isOpen: false, googleData: null, firebaseUser: null });
+      setActivePage('dashboard');
+    } else {
+      throw new Error(result.message || 'রেজিস্ট্রেশন সম্পন্ন করা সম্ভব হয়নি।');
+    }
+  };
+
   return (
     <div className="max-w-xl w-full mx-auto py-6 sm:py-12 px-3 sm:px-4 animate-fadeIn">
       <div className="glass-card rounded-2xl p-5 sm:p-8 border border-slate-800 shadow-2xl space-y-5">
@@ -103,6 +155,34 @@ export default function Register({ setActivePage }) {
             BJS & Bar Academy প্ল্যাটফর্মে ভর্তির জন্য আপনার সঠিক তথ্য প্রদান করুন
           </p>
         </div>
+
+        {/* Google 1-Click Fast Sign Up Button */}
+        {!successReg && (
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={handleGoogleSignUp}
+              disabled={googleLoading}
+              className="w-full py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs border border-slate-700 flex items-center justify-center gap-3 transition-all duration-200 shadow-md hover:border-amber-500/40 cursor-pointer active:scale-98 disabled:opacity-50"
+            >
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.3 9 5 12 5z" />
+                <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z" />
+                <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12.3 0 15s.7 5.3 1.9 7.7l3.7-2.9z" />
+                <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.3-6.4-5.2L1.9 16c1.8 3.7 5.6 6.3 10.1 6.3z" />
+              </svg>
+              <span>{googleLoading ? 'Google একাউন্ট যাচাই করা হচ্ছে...' : 'Google দিয়ে সরাসরি সাইন-আপ করুন (১-ক্লিক)'}</span>
+            </button>
+
+            <div className="relative flex items-center justify-center">
+              <div className="border-t border-slate-800 w-full" />
+              <span className="bg-[#0b1325] px-3 text-[11px] font-mono text-slate-500 uppercase tracking-wider shrink-0">
+                অথবা বিস্তারিত ফর্ম পূরণ করুন
+              </span>
+              <div className="border-t border-slate-800 w-full" />
+            </div>
+          </div>
+        )}
 
         {successReg ? (
           <div className="p-6 bg-emerald-950/80 border border-emerald-500/40 rounded-2xl text-center space-y-4 animate-fadeIn">
@@ -274,6 +354,15 @@ export default function Register({ setActivePage }) {
           </form>
         )}
       </div>
+
+      {/* Google Sign-up Profile Details Modal (University & Course) */}
+      <GoogleCompleteProfileModal
+        isOpen={googleModal.isOpen}
+        googleData={googleModal.googleData}
+        onClose={() => setGoogleModal({ isOpen: false, googleData: null, firebaseUser: null })}
+        onComplete={handleCompleteGoogleProfile}
+      />
     </div>
   );
 }
+

@@ -142,7 +142,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const googleLogin = async (firebaseUser) => {
+  const googleLogin = async (firebaseUser, extraPayload = {}) => {
     const deviceId = getDeviceId();
     const platform = navigator.platform || 'Web Browser';
     const browser = navigator.userAgent || 'Standard Browser';
@@ -155,10 +155,25 @@ export const AuthProvider = ({ children }) => {
         firebaseUid: firebaseUser.uid,
         deviceId,
         platform,
-        browser
+        browser,
+        ...extraPayload
       });
 
       if (res.data && res.data.ok) {
+        if (res.data.isNewUser) {
+          return {
+            ok: true,
+            isNewUser: true,
+            googleData: {
+              email: res.data.email || firebaseUser.email,
+              name: res.data.name || firebaseUser.displayName || 'Google Student',
+              photoUrl: res.data.photoUrl || firebaseUser.photoURL || '',
+              firebaseUid: res.data.firebaseUid || firebaseUser.uid || ''
+            },
+            message: res.data.message
+          };
+        }
+
         const newToken = res.data.token;
         const userData = res.data.isAdmin
           ? res.data.user
@@ -176,6 +191,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('bjs_user', JSON.stringify(userData));
         return {
           ok: true,
+          isNewUser: false,
           user: userData,
           isAdmin: !!res.data.isAdmin,
           isMentor: !!res.data.isMentor

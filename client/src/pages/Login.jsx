@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { signInWithGooglePopup } from '../services/firebase';
+import GoogleCompleteProfileModal from '../components/GoogleCompleteProfileModal';
 import api from '../services/api';
 
 export default function Login({ setActivePage }) {
@@ -20,6 +21,7 @@ export default function Login({ setActivePage }) {
 
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleModal, setGoogleModal] = useState({ isOpen: false, googleData: null, firebaseUser: null });
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
 
@@ -61,6 +63,16 @@ export default function Login({ setActivePage }) {
       setGoogleLoading(false);
 
       if (result.ok) {
+        if (result.isNewUser) {
+          // Open Modal to complete profile with university & course selection
+          setGoogleModal({
+            isOpen: true,
+            googleData: result.googleData,
+            firebaseUser
+          });
+          return;
+        }
+
         if (result.isAdmin || result.user?.isAdmin) {
           setActivePage('admin');
         } else if (result.isMentor || result.user?.isMentor) {
@@ -75,6 +87,17 @@ export default function Login({ setActivePage }) {
       setGoogleLoading(false);
       console.error('Google Sign-In Error:', err);
       setError(err.message || 'Google সাইন-ইন সম্পন্ন করা যায়নি।');
+    }
+  };
+
+  const handleCompleteGoogleProfile = async ({ university, courseId, phone }) => {
+    if (!googleModal.firebaseUser) return;
+    const result = await googleLogin(googleModal.firebaseUser, { university, courseId, phone });
+    if (result.ok && !result.isNewUser) {
+      setGoogleModal({ isOpen: false, googleData: null, firebaseUser: null });
+      setActivePage('dashboard');
+    } else {
+      throw new Error(result.message || 'রেজিস্ট্রেশন সম্পন্ন করা সম্ভব হয়নি।');
     }
   };
 
@@ -456,6 +479,15 @@ export default function Login({ setActivePage }) {
           </>
         )}
       </div>
+
+      {/* Google Sign-up / Login Extra Details Modal */}
+      <GoogleCompleteProfileModal
+        isOpen={googleModal.isOpen}
+        googleData={googleModal.googleData}
+        onClose={() => setGoogleModal({ isOpen: false, googleData: null, firebaseUser: null })}
+        onComplete={handleCompleteGoogleProfile}
+      />
     </div>
   );
 }
+

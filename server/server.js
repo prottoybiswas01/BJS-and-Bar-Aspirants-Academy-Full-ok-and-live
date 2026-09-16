@@ -993,20 +993,49 @@ app.post(["/api/auth/google-login", "/auth/google-login"], async (req, res) => {
       student = (memoryDb.students || []).find(s => s && String(s.email || "").trim().toLowerCase() === cleanEmail);
     }
 
-    // If new user via Google, automatically register student
+    const { university, courseId, phone } = req.body || {};
+
+    // If student not found, check if university and courseId were supplied
     if (!student) {
+      if (!university || !courseId) {
+        // Return isNewUser flag so frontend prompts for University & Course
+        return res.json({
+          ok: true,
+          isNewUser: true,
+          email: cleanEmail,
+          name: name || "Google Student",
+          photoUrl: photoUrl || "",
+          firebaseUid: firebaseUid || "",
+          message: "আপনার অ্যাকাউন্ট সম্পন্ন করতে অনুগ্রহ করে বিশ্ববিদ্যালয় ও কাঙ্ক্ষিত কোর্স নির্বাচন করুন।"
+        });
+      }
+
+      // Match target course for batch & session
+      const targetCourse = (memoryDb.courses || []).find(c => c.id === courseId || String(c._id) === String(courseId));
+      const batchName = targetCourse ? (targetCourse.title || targetCourse.shortTitle || courseId) : (courseId || "Judiciary 2026");
+      const sessionName = targetCourse ? (targetCourse.sessionRegText || targetCourse.schedule || "Weekend Intensive") : "Weekend Intensive";
+
       const newId = "STU-" + new Date().getFullYear() + "-" + Math.floor(1000 + Math.random() * 9000);
       const studentObj = {
         id: newId,
         name: name || "Google Student",
-        phone: "01" + Math.floor(100000000 + Math.random() * 900000000),
+        phone: phone ? String(phone).trim() : ("01" + Math.floor(100000000 + Math.random() * 900000000)),
         email: cleanEmail,
+        university: String(university || "").trim(),
+        batch: batchName,
+        session: sessionName,
         password: await bcrypt.hash(firebaseUid || "GOOGLE_PASS_" + Date.now(), 10),
         status: "Active",
         loginApproval: "Approved",
         portalAccessMode: "Full Access",
-        enrolledCourseIds: [],
-        allowedCourseIds: [],
+        enrolledCourseIds: courseId ? [courseId] : [],
+        allowedCourseIds: courseId ? [courseId] : [],
+        courseRules: courseId ? [{
+          courseId: courseId,
+          unlimitedAccess: true,
+          enrollmentStatus: "Active",
+          accessStartDate: new Date().toISOString().split("T")[0]
+        }] : [],
         joinedOn: new Date().toISOString().split("T")[0]
       };
 
@@ -2230,43 +2259,44 @@ async function notifyStudentsNewLesson(courseId, lessonData) {
   try {
     if (!courseId) return;
 
-    // Find course title
+    // Find course title and batch details
     const targetCourse = (memoryDb.courses || []).find(c => c.id === courseId || String(c._id) === String(courseId));
     const courseTitle = targetCourse ? (targetCourse.title || targetCourse.shortTitle || courseId) : courseId;
+    const courseBatch = targetCourse ? (targetCourse.title || targetCourse.shortTitle || "") : "";
 
-    // Find enrolled/allowed active students
+    // Find enrolled/allowed active students STRICTLY for this specific course
     let enrolledStudents = [];
     if (isMongoConnected) {
+      const orConditions = [
+        { allowedCourseIds: courseId },
+        { enrolledCourseIds: courseId },
+        { "courseRules.courseId": courseId }
+      ];
+      if (courseBatch) {
+        orConditions.push({ batch: courseBatch });
+      }
+
       enrolledStudents = await Student.find({
-        status: { $ne: "Blocked" },
-        $or: [
-          { allowedCourseIds: courseId },
-          { enrolledCourseIds: courseId }
-        ]
+        status: { $in: ["Active", "Pending"] },
+        $or: orConditions
       }).lean();
     }
 
     if (!enrolledStudents || enrolledStudents.length === 0) {
-      enrolledStudents = (memoryDb.students || []).filter(s =>
-        s.status !== 'Blocked' &&
-        ((s.allowedCourseIds && s.allowedCourseIds.includes(courseId)) ||
-         (s.enrolledCourseIds && s.enrolledCourseIds.includes(courseId)))
-      );
+      enrolledStudents = (memoryDb.students || []).filter(s => {
+        if (s.status === 'Blocked' || s.status === 'Inactive') return false;
+        const inAllowed = Array.isArray(s.allowedCourseIds) && s.allowedCourseIds.includes(courseId);
+        const inEnrolled = Array.isArray(s.enrolledCourseIds) && s.enrolledCourseIds.includes(courseId);
+        const inRules = Array.isArray(s.courseRules) && s.courseRules.some(r => r && r.courseId === courseId && r.enrollmentStatus !== 'Suspended');
+        const inBatch = courseBatch && s.batch && s.batch.trim().toLowerCase() === courseBatch.trim().toLowerCase();
+        return inAllowed || inEnrolled || inRules || inBatch;
+      });
     }
 
-    // Fallback: If no student explicit array, notify active students in matched batch or all active students
-    if ((!enrolledStudents || enrolledStudents.length === 0) && targetCourse) {
-      enrolledStudents = (memoryDb.students || []).filter(s =>
-        s.status !== 'Blocked' && (s.batch === targetCourse.title || s.batch === targetCourse.id || s.batch === targetCourse.shortTitle)
-      );
-    }
-
+    // STRICT: Only students enrolled in this course receive notification.
+    // If no students enrolled in this course, do NOT dispatch to anyone else!
     if (!enrolledStudents || enrolledStudents.length === 0) {
-      enrolledStudents = (memoryDb.students || []).filter(s => s.status !== 'Blocked');
-    }
-
-    if (!enrolledStudents || enrolledStudents.length === 0) {
-      console.log(`[Video Notify] No enrolled active students found for course: ${courseId}`);
+      console.log(`[Video Notify] No enrolled students found for course "${courseTitle}" (${courseId}). Notification email will NOT be sent.`);
       return;
     }
 
