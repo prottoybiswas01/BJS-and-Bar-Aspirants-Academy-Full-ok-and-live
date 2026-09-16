@@ -59,49 +59,67 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
   };
 
   useEffect(() => {
-    api.get('/courses')
+    let isMounted = true;
+    api.get('/home-data')
       .then((res) => {
-        if (res.data.ok && Array.isArray(res.data.courses)) {
-          const activeOnly = res.data.courses.filter(c => c.status !== 'Inactive' && c.status !== 'Hidden');
+        if (!isMounted || !res.data || !res.data.ok) return;
+        const data = res.data;
+        if (Array.isArray(data.courses)) {
+          const activeOnly = data.courses.filter(c => c.status !== 'Inactive' && c.status !== 'Hidden');
           setCourses(activeOnly);
-        } else {
-          setCourses([]);
         }
-      })
-      .catch((err) => {
-        console.log('Courses error:', err);
-        setCourses([]);
-      })
-      .finally(() => setLoading(false));
-
-    api.get('/mentors')
-      .then((res) => {
-        if (res.data.ok) setMentors(res.data.mentors || []);
-      })
-      .catch((err) => console.log('Mentors fetch error:', err));
-
-    api.get('/public-stats')
-      .then((res) => {
-        if (res.data.ok) {
+        if (Array.isArray(data.mentors)) {
+          setMentors(data.mentors);
+        }
+        if (data.stats) {
           setStats({
-            studentsCount: res.data.studentsCount || 0,
-            mentorsCount: res.data.mentorsCount || 0
+            studentsCount: data.stats.studentsCount || 0,
+            mentorsCount: data.stats.mentorsCount || 0
           });
         }
-      })
-      .catch((err) => console.log('Public stats error:', err));
-
-    api.get('/site-settings')
-      .then((res) => {
-        if (res.data.ok && res.data.settings) {
+        if (data.settings) {
           setSiteSettings(prev => ({
-            badgeText: res.data.settings.badgeText || prev.badgeText,
-            heroTitle: res.data.settings.heroTitle || prev.heroTitle,
-            heroSubtitle: res.data.settings.heroSubtitle || prev.heroSubtitle
+            badgeText: data.settings.badgeText || prev.badgeText,
+            heroTitle: data.settings.heroTitle || prev.heroTitle,
+            heroSubtitle: data.settings.heroSubtitle || prev.heroSubtitle
           }));
         }
       })
-      .catch((err) => console.log('Site settings error:', err));
+      .catch(() => {
+        // Fallback to separate endpoints if /home-data is not reachable
+        api.get('/courses').then(res => {
+          if (isMounted && res.data?.ok && Array.isArray(res.data.courses)) {
+            setCourses(res.data.courses.filter(c => c.status !== 'Inactive' && c.status !== 'Hidden'));
+          }
+        }).catch(() => {});
+        api.get('/mentors').then(res => {
+          if (isMounted && res.data?.ok) setMentors(res.data.mentors || []);
+        }).catch(() => {});
+        api.get('/public-stats').then(res => {
+          if (isMounted && res.data?.ok) {
+            setStats({
+              studentsCount: res.data.studentsCount || 0,
+              mentorsCount: res.data.mentorsCount || 0
+            });
+          }
+        }).catch(() => {});
+        api.get('/site-settings').then(res => {
+          if (isMounted && res.data?.ok && res.data.settings) {
+            setSiteSettings(prev => ({
+              badgeText: res.data.settings.badgeText || prev.badgeText,
+              heroTitle: res.data.settings.heroTitle || prev.heroTitle,
+              heroSubtitle: res.data.settings.heroSubtitle || prev.heroSubtitle
+            }));
+          }
+        }).catch(() => {});
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (

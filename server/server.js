@@ -16,6 +16,7 @@ process.on("unhandledRejection", (reason, promise) => {
 });
 
 const express = require("express");
+const compression = require("compression");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
@@ -37,6 +38,7 @@ try {
 }
 
 const app = express();
+app.use(compression());
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -184,6 +186,39 @@ const memoryDb = {
 };
 
 
+// -------------------------------------------------------------
+// HIGH-SPEED IN-MEMORY CACHING WITH INSTANT INVALIDATION
+// -------------------------------------------------------------
+const fastCache = {
+  _store: new Map(),
+  get(key) {
+    const item = this._store.get(key);
+    if (!item) return null;
+    if (Date.now() > item.expiresAt) {
+      this._store.delete(key);
+      return null;
+    }
+    return item.data;
+  },
+  set(key, data, ttlSeconds = 60) {
+    this._store.set(key, {
+      data,
+      expiresAt: Date.now() + ttlSeconds * 1000
+    });
+  },
+  del(prefixOrKey) {
+    if (!prefixOrKey) return;
+    for (const key of this._store.keys()) {
+      if (key === prefixOrKey || key.startsWith(prefixOrKey)) {
+        this._store.delete(key);
+      }
+    }
+  },
+  clear() {
+    this._store.clear();
+  }
+};
+
 async function syncMemoryDbFromMongo() {
   if (!isMongoConnected) return;
   try {
@@ -256,7 +291,7 @@ async function ensureDbConnected() {
       cachedConn = mongoose.connect(mongoUri, {
         serverSelectionTimeoutMS: 3000,
         connectTimeoutMS: 4000,
-        maxPoolSize: 3,
+        maxPoolSize: 5,
         socketTimeoutMS: 30000,
         family: 4, // Force IPv4 to prevent IPv6 TLS handshake timeouts on Vercel
         bufferCommands: false, // Instant fail-safe to memoryDb without waiting on cold starts
@@ -266,7 +301,12 @@ async function ensureDbConnected() {
     }
     await cachedConn;
     isMongoConnected = true;
-    syncMemoryDbFromMongo();
+    // Fast non-blocking background sync of siteSettings only
+    if (!memoryDb.siteSettings.heroTitle) {
+      SiteSetting.findOne().lean().then(s => {
+        if (s) memoryDb.siteSettings = { ...memoryDb.siteSettings, ...s };
+      }).catch(() => {});
+    }
     return mongoose.connection;
   } catch (err) {
     cachedConn = null;
@@ -2913,26 +2953,111 @@ app.get(["/api/health", "/health", "/api/db-diagnostic", "/db-diagnostic"], asyn
   });
 });
 
-// GET All Courses (Admin & Student Portal)
+// -------------------------------------------------------------
+// CONSOLIDATED ULTRA-FAST HOMEPAGE ENDPOINT
+// -------------------------------------------------------------
+app.get(["/api/home-data", "/home-data"], async (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
+
+  const cached = fastCache.get("home_data");
+  if (cached) {
+    return res.json({ ok: true, ...cached, source: "fast-cache" });
+  }
+
+  try {
+    let courses = [];
+    let mentors = [];
+    let studentsCount = 0;
+    let mentorsCount = 0;
+    let settings = memoryDb.siteSettings;
+
+    if (isMongoConnected) {
+      const [crsList, mtrList, stusCount, dbSettings] = await Promise.all([
+        Course.find({ status: { $ne: "Inactive" } }).sort({ createdAt: -1 }).lean().catch(() => []),
+        Mentor.find({ status: "Active" }).sort({ createdAt: -1 }).lean().catch(() => []),
+        Student.countDocuments().catch(() => (memoryDb.students || []).length),
+        SiteSetting.findOne().lean().catch(() => null)
+      ]);
+      courses = crsList || [];
+      mentors = mtrList || [];
+      studentsCount = stusCount || (memoryDb.students || []).length;
+      mentorsCount = mentors.length;
+      if (dbSettings) {
+        settings = { ...memoryDb.siteSettings, ...dbSettings };
+        memoryDb.siteSettings = settings;
+      }
+      if (courses.length > 0) memoryDb.courses = courses;
+      if (mentors.length > 0) memoryDb.mentors = mentors;
+    } else {
+      courses = (memoryDb.courses || []).filter(c => c && c.status !== "Inactive");
+      mentors = (memoryDb.mentors || []).filter(m => m && m.status === "Active");
+      studentsCount = (memoryDb.students || []).length;
+      mentorsCount = mentors.length;
+    }
+
+    const payload = {
+      courses,
+      mentors,
+      stats: {
+        studentsCount: Number(studentsCount) || 0,
+        mentorsCount: Number(mentorsCount) || 0,
+        coursesCount: courses.length,
+        examsCount: (memoryDb.mcqExams || []).length
+      },
+      settings
+    };
+
+    fastCache.set("home_data", payload, 60);
+    return res.json({ ok: true, ...payload, source: "mongodb" });
+  } catch (err) {
+    const fallbackPayload = {
+      courses: (memoryDb.courses || []).filter(c => c && c.status !== "Inactive"),
+      mentors: (memoryDb.mentors || []).filter(m => m && m.status === "Active"),
+      stats: {
+        studentsCount: (memoryDb.students || []).length,
+        mentorsCount: (memoryDb.mentors || []).length,
+        coursesCount: (memoryDb.courses || []).length,
+        examsCount: (memoryDb.mcqExams || []).length
+      },
+      settings: memoryDb.siteSettings
+    };
+    return res.json({ ok: true, ...fallbackPayload, source: "memory", notice: err.message });
+  }
+});
+
+// GET All Courses (Admin & Student Portal with Fast Cache)
 app.get(["/api/admin/courses", "/api/courses", "/admin/courses", "/courses"], async (req, res) => {
+  const isPublic = req.path === "/api/courses" || req.path === "/courses";
+  if (isPublic) {
+    res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
+  }
+
+  const cacheKey = isPublic ? "courses_public" : "courses_all";
+  const cached = fastCache.get(cacheKey);
+  if (cached) {
+    return res.json({ ok: true, courses: cached, source: "fast-cache" });
+  }
+
   let dbNotice = null;
   try {
-    await ensureDbConnected();
     const coursesList = await Course.find().sort({ createdAt: -1 }).lean();
     if (coursesList && coursesList.length > 0) memoryDb.courses = coursesList;
 
-    if (req.path === "/api/courses" || req.path === "/courses") {
+    if (isPublic) {
       const activeOnly = (coursesList || []).filter(c => c && c.status !== "Inactive");
+      fastCache.set("courses_public", activeOnly, 60);
       return res.json({ ok: true, courses: activeOnly, source: "mongodb" });
     }
+    fastCache.set("courses_all", coursesList || [], 30);
     return res.json({ ok: true, courses: coursesList || [], source: "mongodb" });
   } catch (err) {
     dbNotice = err.message;
   }
 
   const fallback = memoryDb.courses || [];
-  if (req.path === "/api/courses" || req.path === "/courses") {
-    return res.json({ ok: true, courses: fallback.filter(c => c && c.status !== "Inactive"), source: "memory", dbNotice });
+  if (isPublic) {
+    const activeFallback = fallback.filter(c => c && c.status !== "Inactive");
+    return res.json({ ok: true, courses: activeFallback, source: "memory", dbNotice });
   }
   return res.json({ ok: true, courses: fallback, source: "memory", dbNotice });
 });
@@ -3028,6 +3153,10 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
       if (s.enrolledCourseIds) s.enrolledCourseIds = s.enrolledCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
     });
 
+    // Instant cache invalidation
+    fastCache.del("courses");
+    fastCache.del("home_data");
+
     return res.json({ ok: true, message: `কোর্স "${saved.title}" সফলভাবে সেভ করা হয়েছে!`, course: saved });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "কোর্স সেভ করতে সমস্যা হয়েছে: " + err.message });
@@ -3037,12 +3166,16 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
 // DELETE Course
 app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], async (req, res) => {
   try {
-    await ensureDbConnected();
     const { id } = req.params;
     if (isMongoConnected) {
       await Course.deleteOne({ id });
     }
     memoryDb.courses = (memoryDb.courses || []).filter(c => c.id !== id);
+
+    // Instant cache invalidation
+    fastCache.del("courses");
+    fastCache.del("home_data");
+
     return res.json({ ok: true, message: "কোর্স সফলভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "Error deleting course: " + err.message });
@@ -3053,12 +3186,17 @@ app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], async (req, res) =>
 // LESSONS & VIDEO LECTURE MANAGEMENT ENDPOINTS
 // -------------------------------------------------------------
 
-// GET Lessons (All or filtered by courseId)
+// GET Lessons (All or filtered by courseId with Fast Cache)
 app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], async (req, res) => {
-  try {
-    await ensureDbConnected();
-    const { courseId } = req.query;
+  res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
+  const { courseId } = req.query;
+  const cacheKey = "lessons_" + (courseId ? String(courseId).trim() : "all");
+  const cached = fastCache.get(cacheKey);
+  if (cached) {
+    return res.json({ ok: true, lessons: cached, count: cached.length, source: "fast-cache" });
+  }
 
+  try {
     let query = {};
     if (courseId) {
       query.courseId = courseId;
@@ -3095,6 +3233,7 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
       return dateA - dateB;
     });
 
+    fastCache.set(cacheKey, lessonsList || [], 60);
     return res.json({ ok: true, lessons: lessonsList || [], count: (lessonsList || []).length });
   } catch (err) {
     console.error("Fetch lessons error:", err);
@@ -3149,6 +3288,9 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       console.warn("Notice sending new lesson upload email:", err.message);
     });
 
+    // Instant cache invalidation
+    fastCache.del("lessons");
+
     return res.json({
       ok: true,
       message: `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং শিক্ষার্থীদের নোটিফিকেশন ইমেইল পাঠানো হয়েছে!`,
@@ -3163,38 +3305,54 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
 // DELETE Lesson Video
 app.delete(["/api/admin/lessons/:id", "/api/lessons/:id", "/admin/lessons/:id", "/lessons/:id"], async (req, res) => {
   try {
-    await ensureDbConnected();
     const { id } = req.params;
     if (isMongoConnected) {
       await Lesson.deleteOne({ $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])] });
     }
     memoryDb.lessons = (memoryDb.lessons || []).filter(l => l.id !== id && l._id !== id);
+
+    // Instant cache invalidation
+    fastCache.del("lessons");
+
     return res.json({ ok: true, message: "✓ ভিডিওটি সফলভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "Error deleting lesson: " + err.message });
   }
 });
 
-// GET Mentors Endpoint (Public Homepage & Admin Panel)
+// GET Mentors Endpoint (Public Homepage & Admin Panel with Fast Cache)
 app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], async (req, res) => {
+  const isPublic = req.path.includes("/mentors") && !req.path.includes("admin");
+  if (isPublic) {
+    res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
+  }
+
+  const cacheKey = isPublic ? "mentors_public" : "mentors_all";
+  const cached = fastCache.get(cacheKey);
+  if (cached) {
+    return res.json({ ok: true, mentors: cached, source: "fast-cache" });
+  }
+
   let dbNotice = null;
   try {
-    await ensureDbConnected();
     const mentorsList = await Mentor.find().sort({ createdAt: -1 }).lean();
     if (mentorsList && mentorsList.length > 0) memoryDb.mentors = mentorsList;
 
-    if (req.path.includes("/mentors") && !req.path.includes("admin")) {
+    if (isPublic) {
       const activeOnly = (mentorsList || []).filter(m => m && m.status === "Active");
+      fastCache.set("mentors_public", activeOnly, 60);
       return res.json({ ok: true, mentors: activeOnly, source: "mongodb" });
     }
+    fastCache.set("mentors_all", mentorsList || [], 30);
     return res.json({ ok: true, mentors: mentorsList || [], source: "mongodb" });
   } catch (err) {
     dbNotice = err.message;
   }
 
   const fallback = memoryDb.mentors || [];
-  if (req.path.includes("/mentors") && !req.path.includes("admin")) {
-    return res.json({ ok: true, mentors: fallback.filter(m => m && m.status === "Active"), source: "memory", dbNotice });
+  if (isPublic) {
+    const activeFallback = fallback.filter(m => m && m.status === "Active");
+    return res.json({ ok: true, mentors: activeFallback, source: "memory", dbNotice });
   }
   return res.json({ ok: true, mentors: fallback, source: "memory", dbNotice });
 });
@@ -3253,6 +3411,10 @@ app.post(["/api/admin/mentors/save", "/admin/mentors/save"], async (req, res) =>
       (memoryDb.mentors = memoryDb.mentors || []).unshift(saved);
     }
 
+    // Instant cache invalidation
+    fastCache.del("mentors");
+    fastCache.del("home_data");
+
     return res.json({
       ok: true,
       message: `✓ Mentor "${saved.name}" saved successfully!`,
@@ -3267,7 +3429,6 @@ app.post(["/api/admin/mentors/save", "/admin/mentors/save"], async (req, res) =>
 // ASSIGN Courses to Mentor (Admin Control Panel)
 app.post(["/api/admin/mentors/assign-courses", "/admin/mentors/assign-courses"], async (req, res) => {
   try {
-    await ensureDbConnected();
     const { mentorId, assignedCourseIds } = req.body || {};
     if (!mentorId) {
       return res.status(400).json({ ok: false, message: "mentorId is required." });
@@ -3294,6 +3455,10 @@ app.post(["/api/admin/mentors/assign-courses", "/admin/mentors/assign-courses"],
       if (!updatedMentor) updatedMentor = memoryDb.mentors[idx];
     }
 
+    // Instant cache invalidation
+    fastCache.del("mentors");
+    fastCache.del("home_data");
+
     return res.json({
       ok: true,
       message: "মেন্টর কোর্স নির্ধারণ করা হয়েছে!",
@@ -3308,7 +3473,6 @@ app.post(["/api/admin/mentors/assign-courses", "/admin/mentors/assign-courses"],
 // DELETE Mentor (Admin Control Panel)
 app.delete(["/api/admin/mentors/:id", "/admin/mentors/:id"], async (req, res) => {
   try {
-    await ensureDbConnected();
     const { id } = req.params;
     if (isMongoConnected) {
       await Mentor.deleteOne({
@@ -3316,6 +3480,11 @@ app.delete(["/api/admin/mentors/:id", "/admin/mentors/:id"], async (req, res) =>
       });
     }
     memoryDb.mentors = (memoryDb.mentors || []).filter(m => m.id !== id && m._id !== id);
+
+    // Instant cache invalidation
+    fastCache.del("mentors");
+    fastCache.del("home_data");
+
     return res.json({ ok: true, message: "✓ Mentor deleted successfully!" });
   } catch (err) {
     console.error("Delete mentor error:", err);
@@ -3568,8 +3737,14 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
 });
 
 // GET Overview Stats (Admin Dashboard)
-// GET Public Stats for Homepage Counter (No auth required)
+// GET Public Stats for Homepage Counter (with Fast Cache)
 app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
+  const cached = fastCache.get("public_stats");
+  if (cached) {
+    return res.json({ ok: true, ...cached, source: "fast-cache" });
+  }
+
   try {
     let studentsCount = (memoryDb.students || []).length;
     let mentorsCount = (memoryDb.mentors || []).length;
@@ -3591,12 +3766,18 @@ app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
       } catch (dbErr) {}
     }
 
-    return res.json({
-      ok: true,
+    const payload = {
       studentsCount: Number(studentsCount) || 0,
       mentorsCount: Number(mentorsCount) || 0,
       coursesCount: Math.max(coursesCount, 0),
       examsCount: Math.max(examsCount, 0)
+    };
+
+    fastCache.set("public_stats", payload, 60);
+    return res.json({
+      ok: true,
+      ...payload,
+      source: "mongodb"
     });
   } catch (err) {
     return res.json({
@@ -3728,19 +3909,64 @@ app.get(["/api/admin/mail-settings", "/admin/mail-settings"], async (req, res) =
   }
 });
 
-// Site Settings Endpoint (Public & Admin)
+// Site Settings Endpoint (Public & Admin with Fast Cache)
 app.get(["/api/site-settings", "/api/admin/site-settings", "/site-settings", "/admin/site-settings"], async (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
+  const cached = fastCache.get("site_settings");
+  if (cached) {
+    return res.json({ ok: true, settings: cached, source: "fast-cache" });
+  }
+
   try {
-    await ensureDbConnected();
-    let settings = await SiteSetting.findOne().lean();
+    let settings = null;
+    if (isMongoConnected) {
+      settings = await SiteSetting.findOne().lean();
+    }
     if (!settings) {
       settings = memoryDb.siteSettings;
     } else {
       memoryDb.siteSettings = { ...memoryDb.siteSettings, ...settings };
     }
-    return res.json({ ok: true, settings });
+    fastCache.set("site_settings", memoryDb.siteSettings, 60);
+    return res.json({ ok: true, settings: memoryDb.siteSettings });
   } catch (err) {
     return res.json({ ok: true, settings: memoryDb.siteSettings });
+  }
+});
+
+// SAVE Site Settings (Admin Panel with Instant Cache Invalidation)
+app.post(["/api/admin/site-settings", "/admin/site-settings"], async (req, res) => {
+  try {
+    const { badgeText, heroTitle, heroSubtitle, adminUsername } = req.body || {};
+    const updateData = {};
+    if (badgeText !== undefined) updateData.badgeText = badgeText;
+    if (heroTitle !== undefined) updateData.heroTitle = heroTitle;
+    if (heroSubtitle !== undefined) updateData.heroSubtitle = heroSubtitle;
+    if (adminUsername !== undefined) updateData.adminUsername = adminUsername;
+
+    let saved = null;
+    if (isMongoConnected) {
+      saved = await SiteSetting.findOneAndUpdate(
+        { id: "default_settings" },
+        { $set: updateData },
+        { new: true, upsert: true }
+      ).lean();
+    }
+
+    memoryDb.siteSettings = { ...memoryDb.siteSettings, ...updateData };
+
+    // Instant cache invalidation
+    fastCache.del("site_settings");
+    fastCache.del("home_data");
+
+    return res.json({
+      ok: true,
+      message: "✓ সাইট সেটিংস সফলভাবে আপডেট করা হয়েছে!",
+      settings: saved || memoryDb.siteSettings
+    });
+  } catch (err) {
+    console.error("Save site settings error:", err);
+    return res.status(500).json({ ok: false, message: "Error saving site settings: " + err.message });
   }
 });
 
