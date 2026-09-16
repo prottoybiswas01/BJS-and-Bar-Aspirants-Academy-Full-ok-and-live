@@ -931,6 +931,107 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+// Google 1-Click Authentication (Firebase Google Login)
+app.post(["/api/auth/google-login", "/auth/google-login"], async (req, res) => {
+  try {
+    const { email, name, photoUrl, firebaseUid } = req.body || {};
+    if (!email) {
+      return res.status(400).json({ ok: false, message: "ইমেইল প্রদান করা আবশ্যক।" });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+
+    // 1. Direct Super Admin Match
+    let validAdminUser = memoryDb.siteSettings.adminUsername || "prttoy";
+    if (cleanEmail === "bjsacademy38@gmail.com" || cleanEmail === validAdminUser.toLowerCase()) {
+      const token = jwt.sign({ role: "admin", id: "ADMIN-001" }, JWT_SECRET, { expiresIn: "7d" });
+      return res.json({
+        ok: true,
+        isAdmin: true,
+        token,
+        user: { id: "ADMIN-001", name: name || "Super Admin", role: "admin", isAdmin: true }
+      });
+    }
+
+    // 2. Mentor Match
+    let mentorUser = null;
+    if (isMongoConnected) {
+      try {
+        mentorUser = await Mentor.findOne({ email: new RegExp(`^${cleanEmail}$`, "i") }).lean();
+      } catch (e) {}
+    }
+    if (!mentorUser) {
+      mentorUser = (memoryDb.mentors || []).find(m => m && String(m.email || "").trim().toLowerCase() === cleanEmail);
+    }
+    if (mentorUser) {
+      if (mentorUser.status === "Inactive" || mentorUser.loginApproval === "Rejected") {
+        return res.status(403).json({ ok: false, message: "আপনার মেন্টর প্রোফাইলটি নিষ্ক্রিয় বা স্থগিত রয়েছে।" });
+      }
+      const mObj = mentorUser.toObject ? mentorUser.toObject() : { ...mentorUser };
+      mObj.isMentor = true;
+      mObj.role = "mentor";
+      const token = jwt.sign({ id: mObj.id || mObj._id, isMentor: true, role: "mentor" }, JWT_SECRET, { expiresIn: "7d" });
+      return res.json({
+        ok: true,
+        isMentor: true,
+        isAdmin: false,
+        token,
+        user: mObj,
+        student: mObj,
+        mentor: mObj
+      });
+    }
+
+    // 3. Student Match
+    let student = null;
+    if (isMongoConnected) {
+      try {
+        student = await Student.findOne({ email: new RegExp(`^${cleanEmail}$`, "i") });
+      } catch (e) {}
+    }
+    if (!student) {
+      student = (memoryDb.students || []).find(s => s && String(s.email || "").trim().toLowerCase() === cleanEmail);
+    }
+
+    // If new user via Google, automatically register student
+    if (!student) {
+      const newId = "STU-" + new Date().getFullYear() + "-" + Math.floor(1000 + Math.random() * 9000);
+      const studentObj = {
+        id: newId,
+        name: name || "Google Student",
+        phone: "01" + Math.floor(100000000 + Math.random() * 900000000),
+        email: cleanEmail,
+        password: await bcrypt.hash(firebaseUid || "GOOGLE_PASS_" + Date.now(), 10),
+        status: "Active",
+        loginApproval: "Approved",
+        portalAccessMode: "Full Access",
+        enrolledCourseIds: [],
+        allowedCourseIds: [],
+        joinedOn: new Date().toISOString().split("T")[0]
+      };
+
+      if (isMongoConnected) {
+        student = await Student.create(studentObj);
+        if (student && student.toObject) student = student.toObject();
+      } else {
+        student = studentObj;
+      }
+      (memoryDb.students = memoryDb.students || []).unshift(student);
+    }
+
+    if (student.status === "Inactive" || student.status === "Blocked") {
+      return res.status(403).json({ ok: false, message: "আপনার অ্যাকাউন্টটি স্থগিত বা নিষ্ক্রিয় করা হয়েছে।" });
+    }
+
+    const stuData = student.toObject ? student.toObject() : student;
+    const token = jwt.sign({ id: stuData.id, phone: stuData.phone, role: "student" }, JWT_SECRET, { expiresIn: "7d" });
+    return res.json({ ok: true, token, student: stuData, isAdmin: false });
+  } catch (err) {
+    console.error("Google login error:", err);
+    return res.status(500).json({ ok: false, message: "Google লগইন ব্যর্থ হয়েছে: " + err.message });
+  }
+});
+
 // Nodemailer SMTP Transporter - Direct Production Transporter with 100% Delivery Rate
 const smtpFallbackTransporter = nodemailer.createTransport({
   host: "smtp.gmail.com",

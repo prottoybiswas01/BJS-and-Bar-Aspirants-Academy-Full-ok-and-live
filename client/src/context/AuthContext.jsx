@@ -142,6 +142,55 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const googleLogin = async (firebaseUser) => {
+    const deviceId = getDeviceId();
+    const platform = navigator.platform || 'Web Browser';
+    const browser = navigator.userAgent || 'Standard Browser';
+
+    try {
+      const res = await api.post('/auth/google-login', {
+        email: firebaseUser.email,
+        name: firebaseUser.displayName || 'Google Student',
+        photoUrl: firebaseUser.photoURL || '',
+        firebaseUid: firebaseUser.uid,
+        deviceId,
+        platform,
+        browser
+      });
+
+      if (res.data && res.data.ok) {
+        const newToken = res.data.token;
+        const userData = res.data.isAdmin
+          ? res.data.user
+          : res.data.isMentor
+          ? (res.data.mentor || res.data.user || res.data.student)
+          : res.data.student;
+
+        if (res.data.isAdmin) userData.isAdmin = true;
+        if (res.data.isMentor) userData.isMentor = true;
+
+        setToken(newToken);
+        setUser(userData);
+
+        localStorage.setItem('bjs_token', newToken);
+        localStorage.setItem('bjs_user', JSON.stringify(userData));
+        return {
+          ok: true,
+          user: userData,
+          isAdmin: !!res.data.isAdmin,
+          isMentor: !!res.data.isMentor
+        };
+      }
+      return { ok: false, message: res.data?.message || 'Google লগইন সম্পন্ন করা যায়নি।' };
+    } catch (err) {
+      console.error('Google Login Error:', err);
+      return {
+        ok: false,
+        message: err.response?.data?.message || 'সার্ভার সংযোগে সমস্যা হয়েছে। আবার চেষ্টা করুন।'
+      };
+    }
+  };
+
   const logout = () => {
     setUser(null);
     setToken('');
@@ -156,7 +205,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, mentorLogin, logout, updateUserProfile, getDeviceId }}>
+    <AuthContext.Provider value={{ user, token, loading, login, mentorLogin, googleLogin, logout, updateUserProfile, getDeviceId }}>
       {children}
     </AuthContext.Provider>
   );
