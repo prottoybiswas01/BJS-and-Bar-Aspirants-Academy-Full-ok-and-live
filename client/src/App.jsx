@@ -114,6 +114,61 @@ function MainApp() {
           }).catch(() => {});
         }
       }
+
+      // Handle Direct Video Link from Email Notifications (#watch-video-<id>?courseId=<courseId>)
+      if (hash.startsWith('#watch-video-') || hash.startsWith('#lesson-')) {
+        const raw = window.location.hash.replace('#watch-video-', '').replace('#lesson-', '');
+        const [targetLessonId, query] = raw.split('?');
+        const params = new URLSearchParams(query || '');
+        const targetCourseId = params.get('courseId') || '';
+
+        const storedUser = localStorage.getItem('bjs_user');
+        let currentUser = user;
+        if (!currentUser && storedUser) {
+          try { currentUser = JSON.parse(storedUser); } catch (e) {}
+        }
+
+        // 1. If not logged in -> redirect to login
+        if (!currentUser || (!currentUser.id && !currentUser.regId)) {
+          setActivePage('login');
+          setTimeout(() => {
+            alert('🔐 ভিডিও ক্লাসটি দেখতে অনুগ্রহ করে প্রথমে আপনার স্টুডেন্ট অ্যাকাউন্টে লগইন করুন।');
+          }, 400);
+          return;
+        }
+
+        // 2. Check if student is enrolled in targetCourseId
+        const allowed = currentUser.allowedCourseIds || [];
+        const enrolled = currentUser.enrolledCourseIds || [];
+        const rules = currentUser.courseRules || [];
+        const isEnrolled = currentUser.isAdmin || currentUser.isMentor ||
+          allowed.includes(targetCourseId) ||
+          enrolled.includes(targetCourseId) ||
+          rules.some(r => r && r.courseId === targetCourseId && r.enrollmentStatus !== 'Suspended');
+
+        if (!isEnrolled && targetCourseId) {
+          setActivePage('home');
+          setTimeout(() => {
+            alert('🔒 আপনি এখনো এই কোর্সে এনরোল করেননি। সম্পূর্ণ ভিডিও ক্লাসগুলো পেতে অনুগ্রহ করে কোর্সটিতে পেমেন্ট করে এনরোল সম্পন্ন করুন।');
+            const el = document.getElementById('courses') || document.getElementById('course-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }, 400);
+          return;
+        }
+
+        // 3. Enrolled -> Fetch lesson & open video modal directly
+        api.get(`/lessons?courseId=${targetCourseId || ''}`).then(res => {
+          if (res.data?.ok && Array.isArray(res.data.lessons) && res.data.lessons.length > 0) {
+            const found = res.data.lessons.find(l => l.id === targetLessonId || l._id === targetLessonId) || res.data.lessons[0];
+            if (found) {
+              setActivePage('dashboard');
+              setTimeout(() => {
+                setVideoModal({ isOpen: true, lesson: found });
+              }, 400);
+            }
+          }
+        }).catch(() => {});
+      }
     };
     handleUrlChange();
     window.addEventListener('popstate', handleUrlChange);

@@ -1589,7 +1589,7 @@ function getAppBaseUrl(req) {
     const proto = req.headers['x-forwarded-proto'] || 'https';
     return `${proto}://${req.headers.host}`;
   }
-  return 'https://bjs-bar-academy.com';
+  return 'https://bjs.kodl.uk';
 }
 
 // Professional Auth Approval Email
@@ -1852,7 +1852,7 @@ function generateReceiptPdfBuffer(receiptData) {
 
       doc.fillColor('#f59e0b').fontSize(18).font(fontBold).text("BJS & BAR ASPIRANTS ACADEMY", 62, 54);
       doc.fillColor('#ffffff').fontSize(10).font(fontRegular).text("Official Payment Money Receipt & Student Fee Voucher", 62, 78);
-      doc.fillColor('#94a3b8').fontSize(8).font(fontRegular).text("Judiciary & Advocacy Excellence Portal | Web: bjs-bar-academy.com | Helpline: 01800077663", 62, 94);
+      doc.fillColor('#94a3b8').fontSize(8).font(fontRegular).text("Judiciary & Advocacy Excellence Portal | Web: bjs.kodl.uk | Helpline: 01800077663", 62, 94);
 
       // 5. Voucher Meta Bar
       doc.rect(40, 133, 515, 34).fill('#1e293b');
@@ -2019,7 +2019,7 @@ async function sendMoneyReceiptEmail(targetEmail, receiptData) {
         </div>
 
         <div style="text-align: center; margin-top: 20px;">
-          <a href="https://bjs-bar-academy.com/#dashboard" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
+          <a href="https://bjs.kodl.uk/#dashboard" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
             🚀 স্টুডেন্ট পোর্টালে প্রবেশ করুন
           </a>
         </div>
@@ -2353,7 +2353,7 @@ async function notifyStudentsNewLesson(courseId, lessonData) {
 
             <!-- Call to Action Button -->
             <div style="text-align: center; margin: 28px 0;">
-              <a href="https://bjs-bar-academy.com/#dashboard" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #0f172a; text-decoration: none; padding: 14px 28px; font-size: 14px; font-weight: 900; border-radius: 10px; display: inline-block; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);">
+              <a href="https://bjs.kodl.uk/#watch-video-${lessonData.id || lessonData._id || 'lecture'}?courseId=${encodeURIComponent(courseId)}" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #0f172a; text-decoration: none; padding: 14px 28px; font-size: 14px; font-weight: 900; border-radius: 10px; display: inline-block; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);">
                 ▶️ ভিডিও লেকচারটি দেখতে ক্লিক করুন (Watch Video)
               </a>
             </div>
