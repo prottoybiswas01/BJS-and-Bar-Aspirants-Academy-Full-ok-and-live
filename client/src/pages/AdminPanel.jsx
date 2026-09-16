@@ -186,6 +186,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     sessionRegText: '',
     nextLive: '',
     price: '',
+    schedulePdfUrl: '',
     description: ''
   });
 
@@ -1176,6 +1177,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       price: String(c.price || 1000),
       paymentType: c.paymentType || 'One-time Lifetime Access',
       status: c.status || 'Active',
+      schedulePdfUrl: c.schedulePdfUrl || '',
       description: c.description || ''
     });
 
@@ -1202,6 +1204,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       price: '1000',
       paymentType: 'One-time Lifetime Access',
       status: 'Active',
+      schedulePdfUrl: '',
       description: ''
     });
     showToast('Course Launch Form reset.', 'success');
@@ -3423,6 +3426,22 @@ return (
                   <option value="Active">Active - visible to students</option>
                   <option value="Inactive">Inactive - hidden from students</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-amber-400 mb-1">
+                  📅 ক্লাস শিডিউল PDF / ড্রাইভ লিংক (Class Schedule PDF or Google Drive Link)
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://drive.google.com/... অথবা PDF ফাইলের ডিরেক্ট লিংক"
+                  value={courseForm.schedulePdfUrl || ''}
+                  onChange={(e) => setCourseForm({ ...courseForm, schedulePdfUrl: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-amber-500/40 px-3.5 py-2 text-emerald-400 text-xs font-mono placeholder-slate-600 focus:outline-none focus:border-amber-400"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  💡 এখানে লিংক দিলে হোমপেজ ও কোর্স ডিটেইলসে "ক্লাস শিডিউল ডাউনলোড (PDF)" বাটন প্রদর্শিত হবে। ফাঁকা রাখলে বাটনটি গোপন থাকবে।
+                </p>
               </div>
 
               <div>

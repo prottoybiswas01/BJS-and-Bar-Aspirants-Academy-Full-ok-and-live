@@ -15,6 +15,7 @@ const courseSchema = new mongoose.Schema({
   studentCount: { type: Number, default: 0 },
   weeklyFrequency: { type: String, default: "2 Day" },
   description: { type: String, default: "" },
+  schedulePdfUrl: { type: String, default: "" },
   status: { type: String, enum: ["Active", "Inactive", "Hidden"], default: "Active" },
 }, { timestamps: true });
 

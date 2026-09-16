@@ -3214,6 +3214,7 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
       price: body.price || "1000",
       paymentType: body.paymentType || "One-time Lifetime Access",
       description: body.description || "",
+      schedulePdfUrl: body.schedulePdfUrl || body.classScheduleUrl || body.schedulePdf || "",
       status: body.status || "Active"
     };
 

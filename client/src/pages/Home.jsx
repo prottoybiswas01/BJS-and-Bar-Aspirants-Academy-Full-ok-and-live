@@ -251,7 +251,11 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {courses.map((c) => (
-              <div key={c.id} className="glass-card glass-card-hover rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden">
+              <div
+                key={c.id}
+                onClick={() => handleOpenCourseDetails(c)}
+                className="glass-card glass-card-hover rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden cursor-pointer group hover:border-amber-500/50 transition-all duration-300"
+              >
                 <div className="absolute top-0 right-0 px-3 py-1 bg-amber-500/20 text-amber-300 text-[10px] font-bold rounded-bl-xl border-l border-b border-amber-500/30">
                   {c.category || 'Law Course'}
                 </div>
@@ -290,22 +294,46 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                     </div>
 
                     <button
-                      onClick={() => setEnrollModalCourse(c)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEnrollModalCourse(c);
+                      }}
                       className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-extrabold shadow-md transition-all hover:scale-105"
                     >
                       ভর্তি হোন (Enroll)
                     </button>
                   </div>
 
+                  {c.schedulePdfUrl && (
+                    <a
+                      href={c.schedulePdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download="Class-Schedule.pdf"
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full py-2 rounded-xl bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-500/50 text-emerald-300 hover:text-white text-[11px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm hover:scale-[1.01]"
+                      title="ক্লাস শিডিউল ডাউনলোড করুন"
+                    >
+                      <span>📅</span>
+                      <span>ক্লাস শিডিউল ডাউনলোড (PDF)</span>
+                    </a>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <button
-                      onClick={() => handleOpenCourseDetails(c)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenCourseDetails(c);
+                      }}
                       className="w-full py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700/80 text-amber-300 hover:text-white text-[11px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-sm cursor-pointer"
                     >
                       <span>📋 সিলেবাস ও ১টি ফ্রী ভিডিও</span>
                     </button>
                     <button
-                      onClick={(e) => handleCopyDemoLink(e, c.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCopyDemoLink(e, c.id);
+                      }}
                       className="w-full py-2 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 text-cyan-300 hover:text-white text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 shadow-sm cursor-pointer"
                       title="ফ্রী ডেমো ভিডিও এর ডিরেক্ট শেয়ারেবল লিংক কপি করুন"
                     >
@@ -557,6 +585,22 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                   <span className="font-extrabold text-amber-300 text-sm font-mono">৳ {courseDetailsModal.course.price} BDT</span>
                 </div>
               </div>
+
+              {courseDetailsModal.course.schedulePdfUrl && (
+                <div className="pt-2">
+                  <a
+                    href={courseDetailsModal.course.schedulePdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download="Class-Schedule.pdf"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                  >
+                    <span>📅</span>
+                    <span>ক্লাস শিডিউল ডাউনলোড করুন (Class Schedule PDF)</span>
+                    <span className="text-[10px] bg-slate-950/25 px-1.5 py-0.5 rounded font-mono font-bold">ডাউনলোড</span>
+                  </a>
+                </div>
+              )}
             </div>
 
             {/* Course Modules & Lesson List */}
