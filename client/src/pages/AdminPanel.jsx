@@ -23,14 +23,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     profileUpdateMails: true,
     courseAccessMails: true,
     deviceUpdateMails: true,
-    resendApiKey: '',
   });
-  const [testEmailTarget, setTestEmailTarget] = useState('bjsacademy38@gmail.com');
-  const [testingResend, setTestingResend] = useState(false);
-  const [testResendResult, setTestResendResult] = useState(null);
-  const [showResendKey, setShowResendKey] = useState(false);
-  const [savingMailSettings, setSavingMailSettings] = useState(false);
-  const [showMailSettingsSection, setShowMailSettingsSection] = useState(true);
 
   // Student Portal Live Preview Modal State
   const [previewStudentModal, setPreviewStudentModal] = useState({ isOpen: false, student: null });
@@ -344,7 +337,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
     const interval = setInterval(() => {
       loadAllAdminData(false);
-    }, 3500);
+    }, 30000);
 
     return () => clearInterval(interval);
   }, []);
@@ -366,20 +359,36 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       ]);
 
       if (results[0].status === 'fulfilled' && results[0].value.data?.ok) setStats(results[0].value.data);
-      if (results[1].status === 'fulfilled' && results[1].value.data?.ok) setStudents(results[1].value.data.students || []);
+      if (results[1].status === 'fulfilled' && results[1].value.data?.ok && Array.isArray(results[1].value.data.students)) {
+        setStudents(results[1].value.data.students);
+      }
       
-      const loadedCourses = results[2].status === 'fulfilled' ? (results[2].value.data?.courses || results[2].value.data) : [];
-      setCourses(Array.isArray(loadedCourses) ? loadedCourses : []);
+      if (results[2].status === 'fulfilled') {
+        const loadedCourses = results[2].value.data?.courses || results[2].value.data;
+        if (Array.isArray(loadedCourses) && loadedCourses.length > 0) {
+          setCourses(loadedCourses);
+        }
+      }
 
       if (results[3].status === 'fulfilled' && results[3].value.data?.ok) setMailSettings(results[3].value.data.settings);
       if (isInitial && results[4].status === 'fulfilled' && results[4].value.data?.ok && results[4].value.data.settings) {
         setSiteSettingsForm(results[4].value.data.settings);
       }
-      if (results[5].status === 'fulfilled' && results[5].value.data?.ok) setMentors(results[5].value.data.mentors || []);
-      if (results[6].status === 'fulfilled' && results[6].value.data?.ok) setReceipts(results[6].value.data.receipts || []);
-      if (results[7].status === 'fulfilled' && results[7].value.data?.ok) setAdminAssignments(results[7].value.data.assignments || []);
-      if (results[8].status === 'fulfilled' && results[8].value.data?.ok) setMcqExams(results[8].value.data.exams || []);
-      if (results[9].status === 'fulfilled' && results[9].value.data?.ok) setMcqResults(results[9].value.data.results || []);
+      if (results[5].status === 'fulfilled' && results[5].value.data?.ok && Array.isArray(results[5].value.data.mentors)) {
+        setMentors(results[5].value.data.mentors);
+      }
+      if (results[6].status === 'fulfilled' && results[6].value.data?.ok && Array.isArray(results[6].value.data.receipts)) {
+        setReceipts(results[6].value.data.receipts);
+      }
+      if (results[7].status === 'fulfilled' && results[7].value.data?.ok && Array.isArray(results[7].value.data.assignments)) {
+        setAdminAssignments(results[7].value.data.assignments);
+      }
+      if (results[8].status === 'fulfilled' && results[8].value.data?.ok && Array.isArray(results[8].value.data.exams)) {
+        setMcqExams(results[8].value.data.exams);
+      }
+      if (results[9].status === 'fulfilled' && results[9].value.data?.ok && Array.isArray(results[9].value.data.results)) {
+        setMcqResults(results[9].value.data.results);
+      }
     } catch (err) {
       console.log('Error loading admin data:', err);
     } finally {
@@ -867,53 +876,12 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
-  const handleSaveMailSettings = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
+  const handleSaveMailSettings = async () => {
     try {
-      setSavingMailSettings(true);
       const res = await api.post('/admin/mail-settings', mailSettings);
-      if (res.data.ok) {
-        showToast('✓ ইমেইল সার্ভিস সেটিংস ও Resend API Key সফলভাবে সেভ করা হয়েছে!', 'success');
-        if (res.data.settings) setMailSettings(res.data.settings);
-      } else {
-        showToast(res.data.message || 'সেটিংস সেভ করতে ব্যর্থ হয়েছে।', 'error');
-      }
+      if (res.data.ok) showToast('Mail settings saved successfully!', 'success');
     } catch (err) {
-      showToast(err.response?.data?.message || 'ইমেইল সেটিংস সেভ করতে ব্যর্থ হয়েছে।', 'error');
-    } finally {
-      setSavingMailSettings(false);
-    }
-  };
-
-  const handleTestResendEmail = async () => {
-    try {
-      setTestingResend(true);
-      setTestResendResult(null);
-      const res = await api.post('/admin/test-resend', {
-        targetEmail: testEmailTarget || mailSettings.fallbackEmail || 'bjsacademy38@gmail.com',
-        apiKey: mailSettings.resendApiKey
-      });
-      if (res.data.ok) {
-        setTestResendResult({
-          ok: true,
-          message: res.data.message || 'টেস্ট ইমেইল সফলভাবে পাঠানো হয়েছে!',
-          details: res.data
-        });
-        showToast('✓ টেস্ট ইমেইল সফলভাবে সেন্ড হয়েছে!', 'success');
-      } else {
-        setTestResendResult({
-          ok: false,
-          message: res.data.error || 'Resend টেস্ট ব্যর্থ হয়েছে।',
-          details: res.data
-        });
-        showToast('Resend টেস্ট ব্যর্থ হয়েছে: ' + (res.data.error || ''), 'error');
-      }
-    } catch (err) {
-      const errMsg = err.response?.data?.error || err.message || 'টেস্ট ইমেইল পাঠাতে সমস্যা হয়েছে।';
-      setTestResendResult({ ok: false, message: errMsg });
-      showToast('❌ ' + errMsg, 'error');
-    } finally {
-      setTestingResend(false);
+      showToast('Failed to save mail settings.', 'error');
     }
   };
 
@@ -1556,7 +1524,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     const rawAllowed = s.allowedCourseIds || s.enrolledCourseIds || [];
     const allowed = rawAllowed.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
     if (allowed.length === 0) {
-      return [];
+      return [s.batch || 'Masterclass'];
     }
     const titles = allowed.map(id => {
       const found = courses.find(c => c.id === id || c._id === id || c.title === id || c.shortTitle === id);
@@ -2114,199 +2082,6 @@ return (
               </button>
             </div>
           </form>
-        )}
-      </section>
-
-      {/* Resend API & Email Dispatch Management Suite */}
-      <section className="glass-card rounded-xl p-6 border border-amber-500/30 shadow-xl space-y-5 bg-slate-950/70 transition-all">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800/80 pb-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30 font-bold tracking-wider">RESEND API & NOTIFICATION CONTROL</span>
-              <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30 font-bold">DOMAIN: bjs.kodl.uk</span>
-            </div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-2 mt-1">
-              <span>✉️</span> ইমেইল ডেলিভারি ও Resend API কানেকশন কন্ট্রোল
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              স্টুডেন্ট রেজিস্ট্রেশন, কোর্স এপ্রুভাল ও নোটিশ ইমেইল প্রেরণের জন্য ভেরিফায়েড ডোমেইন (<code className="text-amber-300">noreply@bjs.kodl.uk</code>) এবং Resend API Key পরিচালনা করুন
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowMailSettingsSection(!showMailSettingsSection)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all shadow-md mt-2 sm:mt-0"
-          >
-            <span>{showMailSettingsSection ? '▲ হাইড করুন (Hide)' : '▼ ওপেন করুন (Open Settings)'}</span>
-          </button>
-        </div>
-
-        {showMailSettingsSection && (
-          <div className="space-y-6 pt-1 animate-fadeIn">
-            {/* Live Resend Quick Info Banner */}
-            <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span className="text-xs font-bold text-white">Verified Custom Domain Sender:</span>
-                  <span className="font-mono text-xs text-emerald-400 bg-emerald-950/60 px-2.5 py-0.5 rounded border border-emerald-500/30">BJS &amp; Bar Academy &lt;noreply@bjs.kodl.uk&gt;</span>
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Resend-এ <strong className="text-slate-200">bjs.kodl.uk</strong> ডোমেইন ভেরিফায়েড আছে। প্রোজেক্টে সঠিক API Key বসানো থাকলে সকল ইমেইল সরাসরি এই ডোমেইন থেকে চলে যাবে।
-                </p>
-              </div>
-              <a
-                href="https://resend.com/api-keys"
-                target="_blank"
-                rel="noreferrer"
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center gap-1.5 shrink-0"
-              >
-                <span>🔑 Resend ড্যাশবোর্ডে API Key তৈরি করুন</span>
-                <span>↗</span>
-              </a>
-            </div>
-
-            {/* Resend API Key Input & Save */}
-            <form onSubmit={handleSaveMailSettings} className="space-y-4">
-              <div>
-                <label className="block text-amber-300 font-bold text-xs mb-1.5">
-                  ১. Resend API Key (শুরু হয় <code className="text-emerald-400 font-mono">re_...</code> দিয়ে):
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type={showResendKey ? "text" : "password"}
-                      value={mailSettings.resendApiKey || ''}
-                      onChange={(e) => setMailSettings({ ...mailSettings, resendApiKey: e.target.value })}
-                      placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                      className="w-full rounded-xl bg-slate-900 border border-slate-800 px-4 py-3 text-white font-mono text-xs focus:outline-none focus:border-amber-500 pr-20"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowResendKey(!showResendKey)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-semibold px-2 py-1"
-                    >
-                      {showResendKey ? 'লুকান' : 'দেখুন'}
-                    </button>
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={savingMailSettings}
-                    className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all shrink-0 disabled:opacity-50"
-                  >
-                    {savingMailSettings ? '💾 সেভ হচ্ছে...' : '💾 API Key সেভ করুন'}
-                  </button>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  * নতুন API Key পেস্ট করে সেভ করার সাথে সাথে সার্ভারে এবং .env ফাইলে এটি স্বয়ংক্রিয়ভাবে একটিভ হয়ে যাবে।
-                </p>
-              </div>
-
-              {/* Notification Toggles */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-2">
-                <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-900/60 border border-slate-800 cursor-pointer hover:border-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={mailSettings.enableAllMails !== false}
-                    onChange={(e) => setMailSettings({ ...mailSettings, enableAllMails: e.target.checked })}
-                    className="rounded text-amber-500 focus:ring-0"
-                  />
-                  <span className="text-xs text-slate-200 font-medium">সকল ইমেইল নোটিফিকেশন চালু</span>
-                </label>
-                <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-900/60 border border-slate-800 cursor-pointer hover:border-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={mailSettings.loginMails !== false}
-                    onChange={(e) => setMailSettings({ ...mailSettings, loginMails: e.target.checked })}
-                    className="rounded text-amber-500 focus:ring-0"
-                  />
-                  <span className="text-xs text-slate-200 font-medium">নতুন স্টুডেন্ট রেজিস্ট্রেশন কনফার্মেশন</span>
-                </label>
-                <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-900/60 border border-slate-800 cursor-pointer hover:border-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={mailSettings.courseAccessMails !== false}
-                    onChange={(e) => setMailSettings({ ...mailSettings, courseAccessMails: e.target.checked })}
-                    className="rounded text-amber-500 focus:ring-0"
-                  />
-                  <span className="text-xs text-slate-200 font-medium">কোর্স এক্সেস এপ্রুভাল ইমেইল</span>
-                </label>
-              </div>
-            </form>
-
-            {/* Live Diagnostic Dispatch Tester */}
-            <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800/90 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
-                    <span>🧪</span> Resend লাইভ টেস্ট ডিসপ্যাচার (Live Delivery Diagnostics)
-                  </h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    আপনার দেওয়া API Key দিয়ে এখনই bjs.kodl.uk থেকে একটি লাইভ টেস্ট ইমেইল পাঠিয়ে যাচাই করুন
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="email"
-                  value={testEmailTarget}
-                  onChange={(e) => setTestEmailTarget(e.target.value)}
-                  placeholder="test@example.com"
-                  className="flex-1 rounded-xl bg-slate-950 border border-slate-800 px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleTestResendEmail}
-                  disabled={testingResend}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all shrink-0 flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {testingResend ? (
-                    <>
-                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                      <span>পাঠানো হচ্ছে...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>🚀 টেস্ট ইমেইল পাঠান (Test Send)</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {testResendResult && (
-                <div className={`p-3 rounded-xl border text-xs leading-relaxed animate-fadeIn ${
-                  testResendResult.ok
-                    ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-                    : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
-                }`}>
-                  <div className="font-bold flex items-center gap-1.5 mb-1">
-                    <span>{testResendResult.ok ? '✓ ডেলিভারি সফল (Success):' : '❌ সমস্যা পাওয়া গেছে (Error):'}</span>
-                    <span>{testResendResult.message}</span>
-                  </div>
-                  {testResendResult.details?.resendResponse && (
-                    <pre className="text-[10px] font-mono bg-slate-950/80 p-2 rounded border border-slate-800 text-slate-300 overflow-x-auto mt-2">
-                      {JSON.stringify(testResendResult.details.resendResponse, null, 2)}
-                    </pre>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Instruction Guide Box */}
-            <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 text-xs text-slate-300 space-y-2">
-              <h5 className="font-bold text-amber-400 flex items-center gap-1.5 text-xs">
-                <span>💡</span> Resend ড্যাশবোর্ডে "All API keys"-এ আপনার Key কীভাবে দেখাবে?
-              </h5>
-              <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-300 leading-relaxed">
-                <li>Resend ড্যাশবোর্ডের বাম মেনু থেকে <strong className="text-white">"API keys"</strong>-এ ক্লিক করুন।</li>
-                <li>উপরে ডানদিকের <strong className="text-amber-300">"Create API Key"</strong> বাটনে ক্লিক করুন।</li>
-                <li>Key-এর নাম হিসেবে দিন: <strong className="text-emerald-400">BJS Academy</strong> (এই নামটিই তখন Resend-এর Emails ফিল্টার ড্রপডাউনে শো করবে)।</li>
-                <li>Permission: <span className="text-slate-200">Full access</span>, Domain: <span className="text-slate-200">bjs.kodl.uk</span> নির্বাচন করে Add করুন।</li>
-                <li>জেনারেট হওয়া <code className="text-amber-300 font-mono">re_...</code> কী-টি কপি করে উপরের বক্সে পেস্ট করে সেভ করুন। এরপর টেস্ট করুন—১০০% সাথে সাথে সকল মেইল যাওয়া শুরু হবে!</li>
-              </ol>
-            </div>
-          </div>
         )}
       </section>
 
@@ -4619,12 +4394,8 @@ return (
                 {(() => {
                   const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
                   const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
-                  if (isUnlimited) {
-                    return <p className="font-bold text-purple-300">Full Video Access</p>;
-                  }
-                  if (allowed.length > 0) {
-                    return <p className="font-bold text-emerald-400">{allowed.length} Course(s) Active</p>;
-                  }
+                  if (isUnlimited) return <p className="font-bold text-purple-300">Unlimited Access</p>;
+                  if (allowed.length > 0) return <p className="font-bold text-emerald-400">{allowed.length} Course(s) Active</p>;
                   return <p className="font-bold text-rose-400">Locked (0 Assigned)</p>;
                 })()}
               </div>
@@ -4636,69 +4407,36 @@ return (
 
             {/* Section 1: Enrolled Courses */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-white text-sm flex items-center gap-2">
-                  <span>📚</span> কোর্স অ্যাক্সেস প্রিভিউ (Course Access Preview)
-                </h3>
-                <span className="text-xs font-mono text-slate-400">
-                  {(() => {
+              <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                <span>📚</span> এনরোলকৃত কোর্সসমূহ (Enrolled Courses)
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {courses
+                  .filter(c => {
                     const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
                     const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
-                    return isUnlimited ? 'Unlimited (All Courses)' : `${allowed.length} / ${courses.length} Courses Assigned`;
-                  })()}
-                </span>
-              </div>
-
-              {(() => {
-                const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
-                const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
-                if (!isUnlimited && allowed.length === 0) {
-                  return (
-                    <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2.5">
-                      <span className="text-xl">🔒</span>
-                      <div>
-                        <p className="font-bold text-rose-300">কোনো কোর্স অ্যাসাইন করা হয়নি (0 Course Assigned)</p>
-                        <p className="text-[11px] text-slate-300">এই শিক্ষার্থীর কোনো কোর্স অ্যাক্সেস চালু নেই। শিক্ষার্থীর ড্যাশবোর্ড থেকে সকল কোর্স ও ভিডিও ক্লাস সুরক্ষিতভাবে লক থাকবে যতক্ষণ না এডমিন কোর্স কন্ট্রোল থেকে কোর্স অ্যাসাইন করেন।</p>
-                      </div>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {courses.map(c => {
-                  const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
-                  const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
-                  const isAssigned = isUnlimited || allowed.includes(c.id);
-
-                  return (
-                    <div
-                      key={c.id}
-                      className={`p-3.5 rounded-xl border space-y-1 text-xs transition-all ${
-                        isAssigned
-                          ? 'bg-slate-900/90 border-emerald-500/40 shadow-sm'
-                          : 'bg-slate-950/50 border-slate-800/80 opacity-60'
-                      }`}
-                    >
-                      <p className={`font-extrabold ${isAssigned ? 'text-amber-300' : 'text-slate-400'}`}>{c.title}</p>
+                    return isUnlimited || allowed.includes(c.id);
+                  })
+                  .map(c => (
+                    <div key={c.id} className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1 text-xs">
+                      <p className="font-extrabold text-amber-300">{c.title}</p>
                       <p className="text-slate-400 text-[11px]">ফ্যাকাল্টি: {c.faculty}</p>
                       <p className="text-slate-400 text-[11px]">সিডিউল: <span className="font-mono text-slate-200">{c.schedule}</span></p>
                       <div className="pt-1 flex items-center justify-between text-[10px]">
-                        {isAssigned ? (
-                          <span className="text-emerald-400 font-bold bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/30">
-                            ✓ Access Granted
-                          </span>
-                        ) : (
-                          <span className="text-rose-400 font-bold bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/30">
-                            🔒 Locked (Not Assigned)
-                          </span>
-                        )}
+                        <span className="text-emerald-400 font-bold">✓ Access Granted</span>
                         <span className="text-slate-500 font-mono">৳{c.price} BDT</span>
                       </div>
                     </div>
-                  );
-                })}
+                  ))}
+                {courses.filter(c => {
+                  const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
+                  const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
+                  return isUnlimited || allowed.includes(c.id);
+                }).length === 0 && (
+                  <div className="col-span-1 sm:col-span-2 p-4 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs text-center font-medium">
+                    🔒 কোনো কোর্স অ্যাক্সেস অ্যাসাইন করা হয়নি (Locked - 0 Courses Assigned)
+                  </div>
+                )}
               </div>
             </div>
 
@@ -4716,10 +4454,8 @@ return (
                   স্টুডেন্ট পোর্টালের ভিডিও ডেটা লোড হচ্ছে...
                 </div>
               ) : previewLessons.length === 0 ? (
-                <div className="text-center py-6 text-slate-400 text-xs bg-slate-900/50 rounded-xl border border-slate-800 space-y-1">
-                  <p className="text-xl">🔒</p>
-                  <p className="font-bold text-rose-300">কোনো ভিডিও ক্লাস আনলকড নয় (All Video Classes Locked)</p>
-                  <p className="text-[11px] text-slate-400">এই শিক্ষার্থীর কোনো কোর্স অ্যাসাইন না থাকায় পোর্টাল থেকে সকল ভিডিও ক্লাস সুরক্ষিতভাবে লক রয়েছে।</p>
+                <div className="text-center py-6 text-slate-500 text-xs bg-slate-900/50 rounded-xl">
+                  এই স্টুডেন্টের জন্য কোনো ভিডিও লেকচার পাওয়া যায়নি।
                 </div>
               ) : (
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">

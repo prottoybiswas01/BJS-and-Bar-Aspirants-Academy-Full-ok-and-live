@@ -102,10 +102,15 @@ app.use((req, res, next) => {
 // 3. Sliding Window IP Rate Limiter (Prevents DDoS, Brute-Force & Bot Attacks)
 const rateLimitMap = new Map();
 app.use((req, res, next) => {
+  // Allow admin panel requests to bypass rate limiter
+  if (req.url && (req.url.includes("/admin") || req.url.includes("/site-settings"))) {
+    return next();
+  }
+
   const ip = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "127.0.0.1";
   const now = Date.now();
   const windowMs = 60 * 1000; // 1 Minute Window
-  const maxRequests = 180; // Max 180 requests per minute per IP
+  const maxRequests = 600; // 600 requests per minute per IP
 
   if (!rateLimitMap.has(ip)) {
     rateLimitMap.set(ip, { count: 1, resetTime: now + windowMs });
