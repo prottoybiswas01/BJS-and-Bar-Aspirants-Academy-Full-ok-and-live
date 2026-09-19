@@ -1,3 +1,7 @@
+/**
+ * COPYRIGHT (C) 2026 BJS & BAR ASPIRANTS ACADEMY. ALL RIGHTS RESERVED.
+ * PROPRIETARY CODE - UNAUTHORIZED REPRODUCTION, AI-SCRAPING, OR CLONING PROHIBITED.
+ */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
