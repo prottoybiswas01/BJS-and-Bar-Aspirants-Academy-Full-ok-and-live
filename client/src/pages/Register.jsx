@@ -274,9 +274,6 @@ export default function Register({ setActivePage }) {
                   className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                   required
                 />
-                <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                  <span className="text-emerald-400 font-bold">✓</span> শুধুমাত্র বৈধ ব্যক্তিগত (Gmail, Yahoo, Outlook) বা শিক্ষাপ্রতিষ্ঠানের (.edu/.ac.bd) ইমেইল গ্রহণযোগ্য।
-                </p>
               </div>
             </div>
 
