@@ -23,7 +23,14 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     profileUpdateMails: true,
     courseAccessMails: true,
     deviceUpdateMails: true,
+    resendApiKey: '',
   });
+  const [testEmailTarget, setTestEmailTarget] = useState('bjsacademy38@gmail.com');
+  const [testingResend, setTestingResend] = useState(false);
+  const [testResendResult, setTestResendResult] = useState(null);
+  const [showResendKey, setShowResendKey] = useState(false);
+  const [savingMailSettings, setSavingMailSettings] = useState(false);
+  const [showMailSettingsSection, setShowMailSettingsSection] = useState(true);
 
   // Student Portal Live Preview Modal State
   const [previewStudentModal, setPreviewStudentModal] = useState({ isOpen: false, student: null });
@@ -857,12 +864,53 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
-  const handleSaveMailSettings = async () => {
+  const handleSaveMailSettings = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
     try {
+      setSavingMailSettings(true);
       const res = await api.post('/admin/mail-settings', mailSettings);
-      if (res.data.ok) showToast('Mail settings saved successfully!', 'success');
+      if (res.data.ok) {
+        showToast('✓ ইমেইল সার্ভিস সেটিংস ও Resend API Key সফলভাবে সেভ করা হয়েছে!', 'success');
+        if (res.data.settings) setMailSettings(res.data.settings);
+      } else {
+        showToast(res.data.message || 'সেটিংস সেভ করতে ব্যর্থ হয়েছে।', 'error');
+      }
     } catch (err) {
-      showToast('Failed to save mail settings.', 'error');
+      showToast(err.response?.data?.message || 'ইমেইল সেটিংস সেভ করতে ব্যর্থ হয়েছে।', 'error');
+    } finally {
+      setSavingMailSettings(false);
+    }
+  };
+
+  const handleTestResendEmail = async () => {
+    try {
+      setTestingResend(true);
+      setTestResendResult(null);
+      const res = await api.post('/admin/test-resend', {
+        targetEmail: testEmailTarget || mailSettings.fallbackEmail || 'bjsacademy38@gmail.com',
+        apiKey: mailSettings.resendApiKey
+      });
+      if (res.data.ok) {
+        setTestResendResult({
+          ok: true,
+          message: res.data.message || 'টেস্ট ইমেইল সফলভাবে পাঠানো হয়েছে!',
+          details: res.data
+        });
+        showToast('✓ টেস্ট ইমেইল সফলভাবে সেন্ড হয়েছে!', 'success');
+      } else {
+        setTestResendResult({
+          ok: false,
+          message: res.data.error || 'Resend টেস্ট ব্যর্থ হয়েছে।',
+          details: res.data
+        });
+        showToast('Resend টেস্ট ব্যর্থ হয়েছে: ' + (res.data.error || ''), 'error');
+      }
+    } catch (err) {
+      const errMsg = err.response?.data?.error || err.message || 'টেস্ট ইমেইল পাঠাতে সমস্যা হয়েছে।';
+      setTestResendResult({ ok: false, message: errMsg });
+      showToast('❌ ' + errMsg, 'error');
+    } finally {
+      setTestingResend(false);
     }
   };
 
@@ -2063,6 +2111,199 @@ return (
               </button>
             </div>
           </form>
+        )}
+      </section>
+
+      {/* Resend API & Email Dispatch Management Suite */}
+      <section className="glass-card rounded-xl p-6 border border-amber-500/30 shadow-xl space-y-5 bg-slate-950/70 transition-all">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800/80 pb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30 font-bold tracking-wider">RESEND API & NOTIFICATION CONTROL</span>
+              <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30 font-bold">DOMAIN: bjs.kodl.uk</span>
+            </div>
+            <h2 className="text-lg font-bold text-white flex items-center gap-2 mt-1">
+              <span>✉️</span> ইমেইল ডেলিভারি ও Resend API কানেকশন কন্ট্রোল
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              স্টুডেন্ট রেজিস্ট্রেশন, কোর্স এপ্রুভাল ও নোটিশ ইমেইল প্রেরণের জন্য ভেরিফায়েড ডোমেইন (<code className="text-amber-300">noreply@bjs.kodl.uk</code>) এবং Resend API Key পরিচালনা করুন
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowMailSettingsSection(!showMailSettingsSection)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all shadow-md mt-2 sm:mt-0"
+          >
+            <span>{showMailSettingsSection ? '▲ হাইড করুন (Hide)' : '▼ ওপেন করুন (Open Settings)'}</span>
+          </button>
+        </div>
+
+        {showMailSettingsSection && (
+          <div className="space-y-6 pt-1 animate-fadeIn">
+            {/* Live Resend Quick Info Banner */}
+            <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-xs font-bold text-white">Verified Custom Domain Sender:</span>
+                  <span className="font-mono text-xs text-emerald-400 bg-emerald-950/60 px-2.5 py-0.5 rounded border border-emerald-500/30">BJS &amp; Bar Academy &lt;noreply@bjs.kodl.uk&gt;</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Resend-এ <strong className="text-slate-200">bjs.kodl.uk</strong> ডোমেইন ভেরিফায়েড আছে। প্রোজেক্টে সঠিক API Key বসানো থাকলে সকল ইমেইল সরাসরি এই ডোমেইন থেকে চলে যাবে।
+                </p>
+              </div>
+              <a
+                href="https://resend.com/api-keys"
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center gap-1.5 shrink-0"
+              >
+                <span>🔑 Resend ড্যাশবোর্ডে API Key তৈরি করুন</span>
+                <span>↗</span>
+              </a>
+            </div>
+
+            {/* Resend API Key Input & Save */}
+            <form onSubmit={handleSaveMailSettings} className="space-y-4">
+              <div>
+                <label className="block text-amber-300 font-bold text-xs mb-1.5">
+                  ১. Resend API Key (শুরু হয় <code className="text-emerald-400 font-mono">re_...</code> দিয়ে):
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type={showResendKey ? "text" : "password"}
+                      value={mailSettings.resendApiKey || ''}
+                      onChange={(e) => setMailSettings({ ...mailSettings, resendApiKey: e.target.value })}
+                      placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      className="w-full rounded-xl bg-slate-900 border border-slate-800 px-4 py-3 text-white font-mono text-xs focus:outline-none focus:border-amber-500 pr-20"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowResendKey(!showResendKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-semibold px-2 py-1"
+                    >
+                      {showResendKey ? 'লুকান' : 'দেখুন'}
+                    </button>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={savingMailSettings}
+                    className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all shrink-0 disabled:opacity-50"
+                  >
+                    {savingMailSettings ? '💾 সেভ হচ্ছে...' : '💾 API Key সেভ করুন'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  * নতুন API Key পেস্ট করে সেভ করার সাথে সাথে সার্ভারে এবং .env ফাইলে এটি স্বয়ংক্রিয়ভাবে একটিভ হয়ে যাবে।
+                </p>
+              </div>
+
+              {/* Notification Toggles */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-2">
+                <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-900/60 border border-slate-800 cursor-pointer hover:border-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={mailSettings.enableAllMails !== false}
+                    onChange={(e) => setMailSettings({ ...mailSettings, enableAllMails: e.target.checked })}
+                    className="rounded text-amber-500 focus:ring-0"
+                  />
+                  <span className="text-xs text-slate-200 font-medium">সকল ইমেইল নোটিফিকেশন চালু</span>
+                </label>
+                <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-900/60 border border-slate-800 cursor-pointer hover:border-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={mailSettings.loginMails !== false}
+                    onChange={(e) => setMailSettings({ ...mailSettings, loginMails: e.target.checked })}
+                    className="rounded text-amber-500 focus:ring-0"
+                  />
+                  <span className="text-xs text-slate-200 font-medium">নতুন স্টুডেন্ট রেজিস্ট্রেশন কনফার্মেশন</span>
+                </label>
+                <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-900/60 border border-slate-800 cursor-pointer hover:border-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={mailSettings.courseAccessMails !== false}
+                    onChange={(e) => setMailSettings({ ...mailSettings, courseAccessMails: e.target.checked })}
+                    className="rounded text-amber-500 focus:ring-0"
+                  />
+                  <span className="text-xs text-slate-200 font-medium">কোর্স এক্সেস এপ্রুভাল ইমেইল</span>
+                </label>
+              </div>
+            </form>
+
+            {/* Live Diagnostic Dispatch Tester */}
+            <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800/90 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                    <span>🧪</span> Resend লাইভ টেস্ট ডিসপ্যাচার (Live Delivery Diagnostics)
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    আপনার দেওয়া API Key দিয়ে এখনই bjs.kodl.uk থেকে একটি লাইভ টেস্ট ইমেইল পাঠিয়ে যাচাই করুন
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="email"
+                  value={testEmailTarget}
+                  onChange={(e) => setTestEmailTarget(e.target.value)}
+                  placeholder="test@example.com"
+                  className="flex-1 rounded-xl bg-slate-950 border border-slate-800 px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleTestResendEmail}
+                  disabled={testingResend}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all shrink-0 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {testingResend ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      <span>পাঠানো হচ্ছে...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>🚀 টেস্ট ইমেইল পাঠান (Test Send)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {testResendResult && (
+                <div className={`p-3 rounded-xl border text-xs leading-relaxed animate-fadeIn ${
+                  testResendResult.ok
+                    ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                    : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                }`}>
+                  <div className="font-bold flex items-center gap-1.5 mb-1">
+                    <span>{testResendResult.ok ? '✓ ডেলিভারি সফল (Success):' : '❌ সমস্যা পাওয়া গেছে (Error):'}</span>
+                    <span>{testResendResult.message}</span>
+                  </div>
+                  {testResendResult.details?.resendResponse && (
+                    <pre className="text-[10px] font-mono bg-slate-950/80 p-2 rounded border border-slate-800 text-slate-300 overflow-x-auto mt-2">
+                      {JSON.stringify(testResendResult.details.resendResponse, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Instruction Guide Box */}
+            <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 text-xs text-slate-300 space-y-2">
+              <h5 className="font-bold text-amber-400 flex items-center gap-1.5 text-xs">
+                <span>💡</span> Resend ড্যাশবোর্ডে "All API keys"-এ আপনার Key কীভাবে দেখাবে?
+              </h5>
+              <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-300 leading-relaxed">
+                <li>Resend ড্যাশবোর্ডের বাম মেনু থেকে <strong className="text-white">"API keys"</strong>-এ ক্লিক করুন।</li>
+                <li>উপরে ডানদিকের <strong className="text-amber-300">"Create API Key"</strong> বাটনে ক্লিক করুন।</li>
+                <li>Key-এর নাম হিসেবে দিন: <strong className="text-emerald-400">BJS Academy</strong> (এই নামটিই তখন Resend-এর Emails ফিল্টার ড্রপডাউনে শো করবে)।</li>
+                <li>Permission: <span className="text-slate-200">Full access</span>, Domain: <span className="text-slate-200">bjs.kodl.uk</span> নির্বাচন করে Add করুন।</li>
+                <li>জেনারেট হওয়া <code className="text-amber-300 font-mono">re_...</code> কী-টি কপি করে উপরের বক্সে পেস্ট করে সেভ করুন। এরপর টেস্ট করুন—১০০% সাথে সাথে সকল মেইল যাওয়া শুরু হবে!</li>
+              </ol>
+            </div>
+          </div>
         )}
       </section>
 

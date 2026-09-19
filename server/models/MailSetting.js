@@ -11,6 +11,7 @@ const mailSettingSchema = new mongoose.Schema({
   courseAccessMails: { type: Boolean, default: true },
   deviceUpdateMails: { type: Boolean, default: true },
   paymentReviewMails: { type: Boolean, default: true },
+  resendApiKey: { type: String, default: "" },
 }, { timestamps: true });
 
 module.exports = mongoose.model("MailSetting", mailSettingSchema);

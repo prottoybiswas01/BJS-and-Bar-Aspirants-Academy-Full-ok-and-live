@@ -24,9 +24,14 @@ const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
 const { Resend } = require("resend");
 
-// Dynamic Resend Client Factory (Guarantees active API Key from process.env)
-function getResendClient() {
-  const apiKey = (process.env.RESEND_API_KEY || "re_GbdxFZAG_EjZWSW8k4JwjEJbk3wj63sSQ").trim();
+// Dynamic Resend Client Factory (Guarantees active API Key from memoryDb, process.env, or parameter)
+function getResendClient(overrideKey) {
+  const apiKey = (
+    overrideKey ||
+    memoryDb.mailSettings?.resendApiKey ||
+    process.env.RESEND_API_KEY ||
+    ""
+  ).trim();
   return new Resend(apiKey);
 }
 
@@ -1046,6 +1051,11 @@ app.post(["/api/auth/google-login", "/auth/google-login"], async (req, res) => {
         student = studentObj;
       }
       (memoryDb.students = memoryDb.students || []).unshift(student);
+
+      // Dispatch automatic Registration Confirmation Email for Google Signup
+      if (cleanEmail) {
+        sendRegistrationConfirmEmail(cleanEmail, studentObj).catch(err => console.warn("Google signup confirmation email notice:", err.message));
+      }
     }
 
     if (student.status === "Inactive" || student.status === "Blocked") {
@@ -1160,33 +1170,52 @@ async function sendResendBatchEmails(batchItems) {
 // Resend Verification & Diagnostic Test Endpoint
 app.post("/api/admin/test-resend", async (req, res) => {
   try {
-    const { targetEmail } = req.body;
+    const { targetEmail, apiKey } = req.body;
     const emailToUse = targetEmail || "bjsacademy38@gmail.com";
-    const resendClient = getResendClient();
+    const keyToUse = (apiKey || memoryDb.mailSettings?.resendApiKey || process.env.RESEND_API_KEY || "").trim();
+
+    if (!keyToUse) {
+      return res.status(400).json({ ok: false, error: "কোনো Resend API Key কনফিগার করা নেই। অনুগ্রহ করে একটি API Key দিন।" });
+    }
+
+    const resendClient = getResendClient(keyToUse);
 
     const response = await resendClient.emails.send({
       from: OFFICIAL_RESEND_SENDER,
       to: [emailToUse],
       subject: "🧪 Resend Verification Test - BJS & Bar Academy",
       html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; background: #0f172a; color: #ffffff; border-radius: 12px;">
-          <h2 style="color: #f59e0b;">⚖️ BJS & Bar Aspirants Academy</h2>
-          <p>This is a live test email verifying that Resend API is operational with domain <strong>bjs.kodl.uk</strong>!</p>
-          <p style="color: #10b981;">Timestamp: ${new Date().toISOString()}</p>
+        <div style="font-family: Arial, sans-serif; padding: 25px; background: #0b1325; color: #ffffff; border-radius: 12px; border: 1px solid #334155;">
+          <h2 style="color: #f59e0b; margin-top: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
+          <p style="font-size: 14px; color: #10b981;">✓ অভিনন্দন! Resend API সফলভাবে সক্রিয় হয়েছে।</p>
+          <p style="color: #cbd5e1; font-size: 13px;">আপনার ডোমেইন <strong>bjs.kodl.uk</strong> থেকে ইমেইল আদান-প্রদান ১০০% সক্রিয়।</p>
+          <p style="color: #94a3b8; font-size: 11px; margin-top: 15px;">Timestamp: ${new Date().toLocaleString()}</p>
         </div>
       `
     });
 
     console.log("🧪 [Test Resend Direct Response]:", response);
+
+    if (response && response.error) {
+      return res.status(400).json({
+        ok: false,
+        error: response.error.message || JSON.stringify(response.error),
+        resendResponse: response,
+        senderUsed: OFFICIAL_RESEND_SENDER,
+        apiKeyUsedMasked: keyToUse.substring(0, 7) + "..."
+      });
+    }
+
     return res.json({
-      ok: !response.error,
+      ok: true,
+      message: `সফলভাবে ${emailToUse}-এ টেস্ট ইমেইল প্রেরণ করা হয়েছে!`,
       resendResponse: response,
       senderUsed: OFFICIAL_RESEND_SENDER,
-      apiKeyUsedMasked: (process.env.RESEND_API_KEY || "re_GbdxFZAG_EjZWSW8k4JwjEJbk3wj63sSQ").substring(0, 7) + "..."
+      apiKeyUsedMasked: keyToUse.substring(0, 7) + "..."
     });
   } catch (err) {
     console.error("🧪 [Test Resend Exception]:", err);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: err.message || "Resend test dispatch error." });
   }
 });
 
@@ -4035,9 +4064,11 @@ app.get(["/api/admin/mail-settings", "/admin/mail-settings"], async (req, res) =
     } else {
       memoryDb.mailSettings = { ...memoryDb.mailSettings, ...settings };
     }
-    return res.json({ ok: true, settings });
+    const currentApiKey = memoryDb.mailSettings?.resendApiKey || process.env.RESEND_API_KEY || "";
+    return res.json({ ok: true, settings: { ...memoryDb.mailSettings, resendApiKey: currentApiKey } });
   } catch (err) {
-    return res.json({ ok: true, settings: memoryDb.mailSettings });
+    const currentApiKey = memoryDb.mailSettings?.resendApiKey || process.env.RESEND_API_KEY || "";
+    return res.json({ ok: true, settings: { ...memoryDb.mailSettings, resendApiKey: currentApiKey } });
   }
 });
 
@@ -4922,11 +4953,31 @@ app.post("/api/student/complete-lesson", async (req, res) => {
   }
 });
 
-// Admin Password Change Endpoint
+// Admin Mail Settings Save Endpoint
 app.post("/api/admin/mail-settings", async (req, res) => {
   try {
     await ensureDbConnected();
     const settingsData = req.body;
+
+    if (settingsData && settingsData.resendApiKey !== undefined) {
+      const cleanKey = String(settingsData.resendApiKey || "").trim();
+      process.env.RESEND_API_KEY = cleanKey;
+      try {
+        const envPath = path.join(__dirname, ".env");
+        if (fs.existsSync(envPath)) {
+          let envContent = fs.readFileSync(envPath, "utf8");
+          if (envContent.includes("RESEND_API_KEY=")) {
+            envContent = envContent.replace(/RESEND_API_KEY=.*/, `RESEND_API_KEY=${cleanKey}`);
+          } else {
+            envContent += `\nRESEND_API_KEY=${cleanKey}\n`;
+          }
+          fs.writeFileSync(envPath, envContent, "utf8");
+        }
+      } catch (err) {
+        console.warn("Notice updating .env file with new RESEND_API_KEY:", err.message);
+      }
+    }
+
     if (isMongoConnected) {
       let settings = await MailSetting.findOne();
       if (settings) {
@@ -4939,7 +4990,7 @@ app.post("/api/admin/mail-settings", async (req, res) => {
     memoryDb.mailSettings = { ...memoryDb.mailSettings, ...settingsData };
     res.json({ ok: true, message: "Mail settings saved successfully!", settings: memoryDb.mailSettings });
   } catch (e) {
-    res.status(500).json({ ok: false, message: "Error saving mail settings." });
+    res.status(500).json({ ok: false, message: "Error saving mail settings: " + e.message });
   }
 });
 
