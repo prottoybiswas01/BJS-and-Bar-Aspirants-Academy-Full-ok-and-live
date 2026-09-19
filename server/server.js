@@ -5129,15 +5129,10 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
 
     let updatedStudent = null;
 
-    // Find course IDs to assign if allowedCourseIds is empty
-    let courseIdsToAssign = Array.isArray(allowedCourseIds) ? allowedCourseIds : [];
-    if (courseIdsToAssign.length === 0 && batch) {
-      const matchedCourse = (memoryDb.courses || []).find(c => c.title === batch || c.id === batch || c.shortTitle === batch);
-      if (matchedCourse) courseIdsToAssign = [matchedCourse.id];
-    }
-    if (courseIdsToAssign.length === 0 && (memoryDb.courses || []).length > 0) {
-      courseIdsToAssign = [(memoryDb.courses[0].id)];
-    }
+    // Only assign courses if explicitly passed by admin in allowedCourseIds!
+    // Do NOT auto-assign all or default courses upon mere account approval!
+    const explicitCoursesPassed = Array.isArray(allowedCourseIds);
+    const courseIdsToAssign = explicitCoursesPassed ? allowedCourseIds : null;
 
     if (isMongoConnected) {
       let student = await Student.findOne({ $or: [{ id: studentId }, { regId: studentId }] });
@@ -5156,15 +5151,15 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
           password: reg.password,
           status: "Active",
           loginApproval: "Approved",
-          allowedCourseIds: courseIdsToAssign
+          allowedCourseIds: explicitCoursesPassed ? courseIdsToAssign : []
         });
       }
 
       if (student) {
         student.status = "Active";
         student.loginApproval = "Approved";
-        if (courseIdsToAssign.length > 0) {
-          student.allowedCourseIds = Array.from(new Set([...(student.allowedCourseIds || []), ...courseIdsToAssign]));
+        if (explicitCoursesPassed) {
+          student.allowedCourseIds = courseIdsToAssign;
         }
         updatedStudent = await student.save();
       }
@@ -5178,8 +5173,8 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
     if (st) {
       st.status = "Active";
       st.loginApproval = "Approved";
-      if (courseIdsToAssign.length > 0) {
-        st.allowedCourseIds = Array.from(new Set([...(st.allowedCourseIds || []), ...courseIdsToAssign]));
+      if (explicitCoursesPassed) {
+        st.allowedCourseIds = courseIdsToAssign;
       }
       updatedStudent = st;
     }

@@ -286,25 +286,7 @@ export default function Dashboard({ openVideoModal }) {
 
     if (isMatch(allowed) || isMatch(enrolled)) return true;
 
-    // Batch matching if allowed/enrolled are not explicitly set or empty
-    if (user?.batch) {
-      const b = String(user.batch).toLowerCase().trim();
-      const t = String(c.title || '').toLowerCase().trim();
-      const st = String(c.shortTitle || '').toLowerCase().trim();
-      const cid = String(c.id || '').toLowerCase().trim();
-      if (
-        b === t || b === st || b === cid ||
-        (b && t && (b.includes(t) || t.includes(b) || (t.includes('constitution') && b.includes('সংবিধান')) || (t.includes('civil') && b.includes('দেওয়ানী')) || (t.includes('criminal') && b.includes('ফৌজদারী'))))
-      ) {
-        return true;
-      }
-    }
-
-    // Fallback: If no explicit course rules configured, grant default course access
-    if (allowed.length === 0 && enrolled.length === 0 && !user?.batch) {
-      return true;
-    }
-
+    // Strict Access Control: If this course is not explicitly assigned by admin, it remains LOCKED!
     return false;
   };
 

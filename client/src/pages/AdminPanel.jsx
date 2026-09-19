@@ -800,10 +800,13 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     try {
       const res = await api.get('/lessons');
       if (res.data.ok) {
-        const allowedCourses = student.allowedCourseIds || student.enrolledCourseIds || [];
-        const studentLessons = res.data.lessons.filter(l =>
-          allowedCourses.length === 0 || allowedCourses.includes(l.courseId)
-        );
+        const allowedCourses = (student.allowedCourseIds || student.enrolledCourseIds || []).filter(Boolean);
+        const isUnlimited = student.unlimitedAccess === true || allowedCourses.includes('all');
+        const studentLessons = isUnlimited
+          ? res.data.lessons
+          : allowedCourses.length === 0
+          ? []
+          : res.data.lessons.filter(l => allowedCourses.includes(l.courseId));
         setPreviewLessons(studentLessons);
       }
     } catch (err) {
@@ -1553,7 +1556,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     const rawAllowed = s.allowedCourseIds || s.enrolledCourseIds || [];
     const allowed = rawAllowed.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
     if (allowed.length === 0) {
-      return [s.batch || 'Masterclass'];
+      return [];
     }
     const titles = allowed.map(id => {
       const found = courses.find(c => c.id === id || c._id === id || c.title === id || c.shortTitle === id);
@@ -4613,7 +4616,17 @@ return (
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 uppercase font-bold">ACCESS MODE</span>
-                <p className="font-bold text-purple-300">{previewStudentModal.student.portalAccessMode || 'Full Video Access'}</p>
+                {(() => {
+                  const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
+                  const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
+                  if (isUnlimited) {
+                    return <p className="font-bold text-purple-300">Full Video Access</p>;
+                  }
+                  if (allowed.length > 0) {
+                    return <p className="font-bold text-emerald-400">{allowed.length} Course(s) Active</p>;
+                  }
+                  return <p className="font-bold text-rose-400">Locked (0 Assigned)</p>;
+                })()}
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 uppercase font-bold">DEVICE LIMIT</span>
@@ -4623,26 +4636,69 @@ return (
 
             {/* Section 1: Enrolled Courses */}
             <div className="space-y-3">
-              <h3 className="font-bold text-white text-sm flex items-center gap-2">
-                <span>📚</span> এনরোলকৃত কোর্সসমূহ (Enrolled Courses)
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                  <span>📚</span> কোর্স অ্যাক্সেস প্রিভিউ (Course Access Preview)
+                </h3>
+                <span className="text-xs font-mono text-slate-400">
+                  {(() => {
+                    const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
+                    const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
+                    return isUnlimited ? 'Unlimited (All Courses)' : `${allowed.length} / ${courses.length} Courses Assigned`;
+                  })()}
+                </span>
+              </div>
+
+              {(() => {
+                const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
+                const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
+                if (!isUnlimited && allowed.length === 0) {
+                  return (
+                    <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2.5">
+                      <span className="text-xl">🔒</span>
+                      <div>
+                        <p className="font-bold text-rose-300">কোনো কোর্স অ্যাসাইন করা হয়নি (0 Course Assigned)</p>
+                        <p className="text-[11px] text-slate-300">এই শিক্ষার্থীর কোনো কোর্স অ্যাক্সেস চালু নেই। শিক্ষার্থীর ড্যাশবোর্ড থেকে সকল কোর্স ও ভিডিও ক্লাস সুরক্ষিতভাবে লক থাকবে যতক্ষণ না এডমিন কোর্স কন্ট্রোল থেকে কোর্স অ্যাসাইন করেন।</p>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {courses
-                  .filter(c => {
-                    const allowed = previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || [];
-                    return allowed.length === 0 || allowed.includes(c.id);
-                  })
-                  .map(c => (
-                    <div key={c.id} className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1 text-xs">
-                      <p className="font-extrabold text-amber-300">{c.title}</p>
+                {courses.map(c => {
+                  const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
+                  const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
+                  const isAssigned = isUnlimited || allowed.includes(c.id);
+
+                  return (
+                    <div
+                      key={c.id}
+                      className={`p-3.5 rounded-xl border space-y-1 text-xs transition-all ${
+                        isAssigned
+                          ? 'bg-slate-900/90 border-emerald-500/40 shadow-sm'
+                          : 'bg-slate-950/50 border-slate-800/80 opacity-60'
+                      }`}
+                    >
+                      <p className={`font-extrabold ${isAssigned ? 'text-amber-300' : 'text-slate-400'}`}>{c.title}</p>
                       <p className="text-slate-400 text-[11px]">ফ্যাকাল্টি: {c.faculty}</p>
                       <p className="text-slate-400 text-[11px]">সিডিউল: <span className="font-mono text-slate-200">{c.schedule}</span></p>
                       <div className="pt-1 flex items-center justify-between text-[10px]">
-                        <span className="text-emerald-400 font-bold">✓ Access Granted</span>
+                        {isAssigned ? (
+                          <span className="text-emerald-400 font-bold bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/30">
+                            ✓ Access Granted
+                          </span>
+                        ) : (
+                          <span className="text-rose-400 font-bold bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/30">
+                            🔒 Locked (Not Assigned)
+                          </span>
+                        )}
                         <span className="text-slate-500 font-mono">৳{c.price} BDT</span>
                       </div>
                     </div>
-                  ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -4660,8 +4716,10 @@ return (
                   স্টুডেন্ট পোর্টালের ভিডিও ডেটা লোড হচ্ছে...
                 </div>
               ) : previewLessons.length === 0 ? (
-                <div className="text-center py-6 text-slate-500 text-xs bg-slate-900/50 rounded-xl">
-                  এই স্টুডেন্টের জন্য কোনো ভিডিও লেকচার পাওয়া যায়নি।
+                <div className="text-center py-6 text-slate-400 text-xs bg-slate-900/50 rounded-xl border border-slate-800 space-y-1">
+                  <p className="text-xl">🔒</p>
+                  <p className="font-bold text-rose-300">কোনো ভিডিও ক্লাস আনলকড নয় (All Video Classes Locked)</p>
+                  <p className="text-[11px] text-slate-400">এই শিক্ষার্থীর কোনো কোর্স অ্যাসাইন না থাকায় পোর্টাল থেকে সকল ভিডিও ক্লাস সুরক্ষিতভাবে লক রয়েছে।</p>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
