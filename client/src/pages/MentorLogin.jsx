@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import { validateRealEmail } from '../utils/emailValidator';
+
 
 export default function MentorLogin({ setActivePage }) {
   const { mentorLogin } = useAuth();
@@ -45,6 +47,12 @@ export default function MentorLogin({ setActivePage }) {
 
     if (password.length < 6) {
       setError('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।');
+      return;
+    }
+
+    const emailCheck = validateRealEmail(email);
+    if (!emailCheck.ok) {
+      setError(emailCheck.message);
       return;
     }
 

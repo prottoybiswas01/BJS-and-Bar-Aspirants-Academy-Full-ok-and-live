@@ -448,6 +448,100 @@ app.get("/api/auth/verify-session", async (req, res) => {
   }
 });
 
+// Strict email validation to prevent spam, temporary, burner, and fake emails
+const DISPOSABLE_OR_SPAM_DOMAINS = new Set([
+  "mailinator.com", "tempmail.com", "temp-mail.org", "temp-mail.io", "tempmail.net",
+  "tempmail.ninja", "tempail.com", "10minutemail.com", "10minmail.com", "10minutemail.net",
+  "guerrillamail.com", "guerrillamailblock.com", "guerrillamail.net", "guerrillamail.org",
+  "guerrillamail.biz", "guerrillamail.de", "sharklasers.com", "grr.la", "trashmail.com",
+  "trashmail.net", "trashmail.me", "trashmail.org", "yopmail.com", "yopmail.fr", "yopmail.net",
+  "cool.fr.nf", "jetable.fr.nf", "nospam.ze.tc", "nomail.xl.cx", "mega.zik.dj", "speed.1s.fr",
+  "courriel.fr.nf", "moncourrier.fr.nf", "dispostable.com", "throwawaymail.com",
+  "throwawaymail2.com", "crazymailing.com", "mohmal.com", "burnermail.io", "burner.com",
+  "dropmail.me", "emailfake.com", "fakeinbox.com", "getairmail.com", "inboxkitten.com",
+  "nada.ltd", "nada.email", "generator.email", "crazymail.com", "mytemp.email", "tempinbox.com",
+  "tempr.email", "discard.email", "discardmail.com", "spam4.me", "getnada.com", "maildrop.cc",
+  "mytempmail.com", "tempmailaddress.com", "fakemailgenerator.com", "harakirimail.com",
+  "minutemail.com", "internxt.com", "inboxbear.com", "privatemail.com", "pokemail.net",
+  "spambox.us", "mytempemail.com", "fastmailtemp.com", "tempmailo.com", "emailondck.com",
+  "emailondeck.com", "minuteinbox.com", "zillamail.com", "mailpoof.com", "burner.email",
+  "temporarymail.com", "spamfree24.org", "trash-mail.com", "armyspy.com", "cuvox.de",
+  "dayrep.com", "einrot.com", "fleckens.hu", "gustr.com", "jourrapide.com", "rhyta.com",
+  "superrito.com", "teleworm.us", "disposablemail.com", "inboxclean.com", "trashmail.io",
+  "test.com", "example.com", "example.org", "example.net", "fake.com", "fakemail.com",
+  "nowhere.com", "asdf.com", "xyz.com", "abc.com", "sample.com", "invalid.com", "testmail.com"
+]);
+
+const DISPOSABLE_PATTERNS = [
+  /tempmail/i,
+  /dispos/i,
+  /trash/i,
+  /throwaway/i,
+  /10minute/i,
+  /burner/i,
+  /mailinator/i,
+  /fakemail/i,
+  /fakeinbox/i,
+  /guerrilla/i,
+  /yopmail/i,
+  /dropmail/i,
+  /sharklaser/i,
+  /nada\.ltd/i,
+  /nada\.email/i,
+  /mohmal/i,
+  /temp-mail/i
+];
+
+function validateRealEmail(email) {
+  if (!email || typeof email !== "string") {
+    return { ok: false, message: "অনুগ্রহ করে একটি সঠিক ইমেইল এড্রেস লিখুন।" };
+  }
+  const clean = email.trim().toLowerCase();
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  if (!emailRegex.test(clean)) {
+    return { ok: false, message: "সঠিক ফরম্যাটের ইমেইল প্রদান করুন (যেমন: example@gmail.com বা student@du.ac.bd)।" };
+  }
+  const parts = clean.split("@");
+  if (parts.length !== 2) {
+    return { ok: false, message: "অবৈধ ইমেইল এড্রেস।" };
+  }
+  const [username, domain] = parts;
+  if (username.length < 2) {
+    return { ok: false, message: "ইমেইল ইউজারনেম অত্যন্ত ছোট।" };
+  }
+  if (username.length > 64) {
+    return { ok: false, message: "ইমেইল ইউজারনেম অতিরিক্ত বড়।" };
+  }
+  if (domain.length < 4 || domain.length > 255) {
+    return { ok: false, message: "ইমেইল ডোমেইন অবৈধ।" };
+  }
+  if (DISPOSABLE_OR_SPAM_DOMAINS.has(domain)) {
+    return {
+      ok: false,
+      message: "স্প্যাম, অস্থায়ী বা ফেক ইমেইল গ্রহণযোগ্য নয়। অনুগ্রহ করে আপনার আসল ব্যক্তিগত (Gmail, Yahoo, Outlook) বা শিক্ষাপ্রতিষ্ঠানের (.edu/.ac.bd) ইমেইল ব্যবহার করুন।"
+    };
+  }
+  for (const pat of DISPOSABLE_PATTERNS) {
+    if (pat.test(domain)) {
+      return {
+        ok: false,
+        message: "অস্থায়ী বা স্প্যাম ইমেইল গ্রহণযোগ্য নয়। অনুগ্রহ করে আপনার আসল ব্যক্তিগত বা শিক্ষাপ্রতিষ্ঠানের ইমেইল ব্যবহার করুন।"
+      };
+    }
+  }
+  const domainParts = domain.split(".");
+  const tld = domainParts[domainParts.length - 1];
+  if (!tld || tld.length < 2 || /^\d+$/.test(tld)) {
+    return { ok: false, message: "ইমেইল ডোমেইন বা TLD সঠিক নয়।" };
+  }
+  for (const seg of domainParts) {
+    if (!seg || seg.length === 0 || seg.startsWith("-") || seg.endsWith("-")) {
+      return { ok: false, message: "ইমেইল ডোমেইন ফরম্যাটটি সঠিক নয়।" };
+    }
+  }
+  return { ok: true, cleanEmail: clean };
+}
+
 // 2. Student Registration Request
 app.post("/api/auth/register", async (req, res) => {
   try {
@@ -456,8 +550,13 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(400).json({ ok: false, message: "Please fill all required fields." });
     }
 
+    const emailCheck = validateRealEmail(email);
+    if (!emailCheck.ok) {
+      return res.status(400).json({ ok: false, message: emailCheck.message });
+    }
+
     const cleanPhone = String(phone).trim();
-    const cleanEmail = String(email).trim().toLowerCase();
+    const cleanEmail = emailCheck.cleanEmail;
     const cleanUniversity = String(university || "").trim();
 
     // Check duplicate in memoryDb first
@@ -559,7 +658,12 @@ app.post(["/api/auth/mentor/register", "/auth/mentor/register"], async (req, res
       return res.status(400).json({ ok: false, message: "পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।" });
     }
 
-    const cleanEmail = String(email).trim().toLowerCase();
+    const emailCheck = validateRealEmail(email);
+    if (!emailCheck.ok) {
+      return res.status(400).json({ ok: false, message: emailCheck.message });
+    }
+
+    const cleanEmail = emailCheck.cleanEmail;
     const cleanName = String(name).trim();
     const passInput = String(password).trim();
 

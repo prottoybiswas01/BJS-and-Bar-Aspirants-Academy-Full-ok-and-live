@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { signInWithGooglePopup } from '../services/firebase';
 import GoogleCompleteProfileModal from '../components/GoogleCompleteProfileModal';
 import api from '../services/api';
+import { validateRealEmail } from '../utils/emailValidator';
+
 
 export default function Register({ setActivePage }) {
   const { googleLogin } = useAuth();
@@ -68,6 +70,12 @@ export default function Register({ setActivePage }) {
     e.preventDefault();
     if (formData.password !== formData.confirmPassword) {
       setError('পাসওয়ার্ড দুটি মিলছে না। পুনরায় চেষ্টা করুন।');
+      return;
+    }
+
+    const emailCheck = validateRealEmail(formData.email);
+    if (!emailCheck.ok) {
+      setError(emailCheck.message);
       return;
     }
 
@@ -266,6 +274,9 @@ export default function Register({ setActivePage }) {
                   className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                   required
                 />
+                <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                  <span className="text-emerald-400 font-bold">✓</span> শুধুমাত্র বৈধ ব্যক্তিগত (Gmail, Yahoo, Outlook) বা শিক্ষাপ্রতিষ্ঠানের (.edu/.ac.bd) ইমেইল গ্রহণযোগ্য।
+                </p>
               </div>
             </div>
 
