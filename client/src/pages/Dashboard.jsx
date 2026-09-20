@@ -543,7 +543,6 @@ export default function Dashboard({ openVideoModal }) {
                       )}
                     </div>
                     <h2 className="text-xl font-extrabold text-white">{selectedCourse.title}</h2>
-                    <p className="text-xs text-slate-400 mt-1">{selectedCourse.description}</p>
                   </div>
                 </div>
 

@@ -302,7 +302,7 @@ export default function Register({ setActivePage }) {
                 {courses.length > 0 ? (
                   courses.map((c) => (
                     <option key={c.id || c.title} value={c.title || c.id} className="bg-slate-900 text-white">
-                      {c.title || c.id} {c.category ? `(${c.category})` : ''} {c.price ? `— Tk ${c.price}` : ''}
+                      {c.title || c.id} {c.category ? `(${c.category})` : ''}
                     </option>
                   ))
                 ) : (
