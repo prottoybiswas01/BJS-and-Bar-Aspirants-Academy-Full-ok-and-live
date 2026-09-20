@@ -11,6 +11,7 @@ const registrationSchema = new mongoose.Schema({
   password: { type: String, required: true },
   status: { type: String, enum: ["Pending", "Approved", "Rejected"], default: "Pending" },
   reviewNote: { type: String, default: "" },
+  adminNote: { type: String, default: "" },
 }, { timestamps: true });
 
 module.exports = mongoose.model("Registration", registrationSchema);

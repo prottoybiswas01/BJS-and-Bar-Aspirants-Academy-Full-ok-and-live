@@ -329,6 +329,73 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     note: 'Course Fee Payment'
   });
   const [receiptPreviewModal, setReceiptPreviewModal] = useState({ isOpen: false, receipt: null });
+  const [noteModal, setNoteModal] = useState({ isOpen: false, student: null, noteText: '', loading: false });
+
+  const handleOpenNoteModal = (student) => {
+    setNoteModal({
+      isOpen: true,
+      student,
+      noteText: student?.adminNote || student?.highlight || '',
+      loading: false
+    });
+  };
+
+  const handleSaveStudentNote = async () => {
+    if (!noteModal.student) return;
+    setNoteModal(prev => ({ ...prev, loading: true }));
+    const sId = noteModal.student.id || noteModal.student.regId;
+    const cleanNote = (noteModal.noteText || '').trim();
+    try {
+      const res = await api.post('/admin/students/note', {
+        studentId: sId,
+        adminNote: cleanNote
+      });
+      if (res.data.ok) {
+        showToast(cleanNote ? '✓ স্টুডেন্ট ব্যক্তিগত নোট সফলভাবে সেভ করা হয়েছে!' : '✓ স্টুডেন্ট নোট মুছে ফেলা হয়েছে!', 'success');
+        setStudents(prev => prev.map(s => {
+          if (s.id === sId || s.regId === sId) {
+            return { ...s, adminNote: cleanNote, highlight: cleanNote };
+          }
+          return s;
+        }));
+        setNoteModal({ isOpen: false, student: null, noteText: '', loading: false });
+      } else {
+        showToast(res.data.message || 'নোট সেভ করতে সমস্যা হয়েছে।', 'error');
+        setNoteModal(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      showToast('নোট সেভ করতে সমস্যা হয়েছে।', 'error');
+      setNoteModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleDeleteStudentNote = async (student) => {
+    if (!student) return;
+    if (!window.confirm(`আপনি কি সত্যিই "${student.name}" এর জন্য লেখা ব্যক্তিগত নোটটি মুছে ফেলতে চান?`)) return;
+    const sId = student.id || student.regId;
+    try {
+      const res = await api.post('/admin/students/note', {
+        studentId: sId,
+        adminNote: ''
+      });
+      if (res.data.ok) {
+        showToast('✓ নোট মুছে ফেলা হয়েছে!', 'success');
+        setStudents(prev => prev.map(s => {
+          if (s.id === sId || s.regId === sId) {
+            return { ...s, adminNote: '', highlight: '' };
+          }
+          return s;
+        }));
+        if (noteModal.isOpen && (noteModal.student?.id === sId || noteModal.student?.regId === sId)) {
+          setNoteModal({ isOpen: false, student: null, noteText: '', loading: false });
+        }
+      } else {
+        showToast(res.data.message || 'নোট মুছতে সমস্যা হয়েছে।', 'error');
+      }
+    } catch (err) {
+      showToast('নোট মুছতে সমস্যা হয়েছে।', 'error');
+    }
+  };
 
   const currentStats = getEnrollmentStats();
 
@@ -2351,7 +2418,6 @@ return (
                             ⏳ PENDING APPROVAL
                           </span>
                         )}
-                        {s.highlight && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">{s.highlight}</span>}
                       </div>
                       <p className="font-mono text-[10px] text-amber-300">{s.id}</p>
                       <p className="text-[10px] text-slate-400">{s.email}</p>
@@ -2370,6 +2436,58 @@ return (
                           ))
                         )}
                       </div>
+
+                      {/* Admin Note Card (Private to Admin) */}
+                      {s.adminNote || s.highlight ? (
+                        <div className="mt-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 max-w-[260px] shadow-sm">
+                          <div className="flex items-center justify-between gap-1 mb-1 pb-1 border-b border-amber-500/20">
+                            <span className="font-bold text-amber-400 flex items-center gap-1 text-[10px] uppercase tracking-wider">
+                              📝 এডমিন নোট
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenNoteModal(s);
+                                }}
+                                className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 font-semibold transition"
+                                title="নোট পরিবর্তন বা এডিট করুন"
+                              >
+                                ✏️ এডিট
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteStudentNote(s);
+                                }}
+                                className="px-1.5 py-0.5 rounded text-[10px] bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 font-semibold transition"
+                                title="নোট মুছে ফেলুন"
+                              >
+                                🗑️ ডিলিট
+                              </button>
+                            </div>
+                          </div>
+                          <p className="whitespace-pre-wrap break-words leading-relaxed font-sans text-amber-100/90 select-text">
+                            {s.adminNote || s.highlight}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="mt-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenNoteModal(s);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800/80 hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 border border-slate-700/60 hover:border-amber-500/40 transition"
+                            title="এই স্টুডেন্টের জন্য একটি ব্যক্তিগত এডমিন নোট লিখে রাখুন"
+                          >
+                            <span>+ 📝</span> নোট লিখুন
+                          </button>
+                        </div>
+                      )}
                     </td>
                   <td className="p-3 font-mono text-slate-300">{s.phone}</td>
                   <td className="p-3 text-slate-300 max-w-[150px]">
@@ -4740,6 +4858,135 @@ return (
                   className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
                 >
                   🔗 প্রফাইল মার্জ ও কানেক্ট করুন
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* Admin Private Student Note Modal */}
+      {/* ========================================================================= */}
+      {noteModal.isOpen && noteModal.student && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+          <div className="bg-slate-900 border border-amber-500/40 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="p-4 bg-gradient-to-r from-amber-950/70 via-slate-900 to-slate-900 border-b border-amber-500/30 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 text-lg shadow-inner">
+                  📝
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base flex items-center gap-2">
+                    স্টুডেন্ট ব্যক্তিগত নোট (Admin Only)
+                  </h3>
+                  <p className="text-xs text-amber-300/80 font-mono">
+                    {noteModal.student.name} • {noteModal.student.id}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNoteModal({ isOpen: false, student: null, noteText: '', loading: false })}
+                className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-sm transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4">
+              {/* Privacy Notice Banner */}
+              <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2.5">
+                <span className="text-base leading-none">🔒</span>
+                <div>
+                  <p className="font-bold">১০০% সম্পূর্ণ গোপনীয় ও সুরক্ষিত</p>
+                  <p className="text-[11px] text-emerald-200/80 mt-0.5">
+                    এই নোটটি শুধুমাত্র এডমিন দেখতে, এডিট ও ডিলিট করতে পারবেন। স্টুডেন্ট বা মেন্টররা কখনোই এটি দেখতে পাবেন না এবং এটি সেভ বা ডিলিট করলে <strong>কোনো ইমেইল বা নোটিফিকেশন যাবে না</strong>।
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Template Chips */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+                  কুইক টেমপ্লেট (ক্লিক করে সহজে যুক্ত করুন):
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    '💰 বকেয়া ফি আগামী সপ্তাহে পরিশোধ করবে',
+                    '⭐ স্পেশাল স্কলারশিপ স্টুডেন্ট',
+                    '⚠️ ডিভাইসের সমস্যা রিপোর্ট করেছিল',
+                    '✅ বিশেষ অনুমতিপ্রাপ্ত শিক্ষার্থী'
+                  ].map((phrase, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setNoteModal(prev => ({
+                          ...prev,
+                          noteText: prev.noteText ? `${prev.noteText}\n${phrase}` : phrase
+                        }));
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-amber-500/20 border border-slate-700 hover:border-amber-500/40 text-slate-300 hover:text-amber-200 text-[11px] transition"
+                    >
+                      + {phrase}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Note Textarea */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  নোটের বিবরণ:
+                </label>
+                <textarea
+                  rows={4}
+                  value={noteModal.noteText}
+                  onChange={(e) => setNoteModal(prev => ({ ...prev, noteText: e.target.value }))}
+                  placeholder="যেমন: বকেয়া ফি ২০ তারিখে পরিশোধ করবে, বিশেষ ছাড় প্রদান করা হয়েছে ইত্যাদি..."
+                  className="w-full rounded-xl bg-slate-950 border border-slate-700/80 focus:border-amber-500 p-3 text-sm text-slate-100 placeholder-slate-500 outline-none transition"
+                  autoFocus
+                />
+                <p className="text-[10px] text-slate-500 mt-1 flex justify-between">
+                  <span>স্টুডেন্ট ইমেইল: {noteModal.student.email}</span>
+                  <span>{noteModal.noteText.length} অক্ষর</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-2">
+              <div>
+                {(noteModal.student.adminNote || noteModal.student.highlight) && (
+                  <button
+                    type="button"
+                    disabled={noteModal.loading}
+                    onClick={() => handleDeleteStudentNote(noteModal.student)}
+                    className="px-3 py-2 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-500/40 text-rose-300 hover:text-rose-200 font-bold text-xs transition flex items-center gap-1.5"
+                  >
+                    🗑️ নোট মুছে ফেলুন
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={noteModal.loading}
+                  onClick={() => setNoteModal({ isOpen: false, student: null, noteText: '', loading: false })}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="button"
+                  disabled={noteModal.loading}
+                  onClick={handleSaveStudentNote}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {noteModal.loading ? 'সেভ হচ্ছে...' : '💾 নোট সেভ করুন'}
                 </button>
               </div>
             </div>

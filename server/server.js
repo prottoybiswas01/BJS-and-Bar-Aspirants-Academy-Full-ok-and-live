@@ -5763,6 +5763,69 @@ app.delete("/api/admin/students/:id", async (req, res) => {
   }
 });
 
+// Admin Private Student Note Endpoint (100% internal, NO emails sent)
+app.post(["/api/admin/students/note", "/admin/students/note"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { studentId, adminNote } = req.body;
+    if (!studentId) {
+      return res.status(400).json({ ok: false, message: "studentId is required." });
+    }
+
+    const cleanNote = String(adminNote !== undefined ? adminNote : "").trim();
+
+    let updated = null;
+    if (isMongoConnected) {
+      const orClauses = [
+        { id: studentId },
+        { regId: studentId },
+        { phone: studentId },
+        { email: studentId },
+        ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])
+      ];
+
+      const student = await Student.findOne({ $or: orClauses });
+      if (student) {
+        student.adminNote = cleanNote;
+        student.highlight = cleanNote;
+        updated = await student.save();
+      }
+
+      await Registration.updateMany(
+        { $or: orClauses },
+        { $set: { adminNote: cleanNote, reviewNote: cleanNote } }
+      ).catch(() => {});
+    }
+
+    const memSt = (memoryDb.students || []).find(s => 
+      s.id === studentId || s.regId === studentId || s.phone === studentId || s.email === studentId
+    );
+    if (memSt) {
+      memSt.adminNote = cleanNote;
+      memSt.highlight = cleanNote;
+      if (!updated) updated = memSt;
+    }
+
+    const memReg = (memoryDb.registrations || []).find(r => 
+      r.regId === studentId || r.phone === studentId || r.email === studentId
+    );
+    if (memReg) {
+      memReg.adminNote = cleanNote;
+      memReg.reviewNote = cleanNote;
+    }
+
+    return res.json({
+      ok: true,
+      message: cleanNote ? "নোট সফলভাবে সংরক্ষণ করা হয়েছে!" : "নোট মুছে ফেলা হয়েছে!",
+      adminNote: cleanNote,
+      studentId
+    });
+  } catch (err) {
+    console.error("Save student note error:", err);
+    return res.status(500).json({ ok: false, message: "Error saving student note." });
+  }
+});
+
 app.post("/api/admin/students/message", async (req, res) => {
   try {
     await ensureDbConnected();

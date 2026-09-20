@@ -32,6 +32,7 @@ const studentSchema = new mongoose.Schema({
   courseRules: [courseRuleSchema],
   maxDeviceCount: { type: Number, default: 2 },
   highlight: { type: String, default: "" },
+  adminNote: { type: String, default: "" },
   popupMessage: {
     title: { type: String, default: "" },
     body: { type: String, default: "" },
