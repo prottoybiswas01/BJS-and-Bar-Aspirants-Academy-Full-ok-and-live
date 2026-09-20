@@ -841,22 +841,48 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   const handleUpdateStudentApproval = async (student, newApproval) => {
     try {
       if (newApproval === 'Approved') {
+        let coursesToGrant = Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0 
+          ? student.allowedCourseIds 
+          : (Array.isArray(student.enrolledCourseIds) && student.enrolledCourseIds.length > 0 ? student.enrolledCourseIds : []);
+
+        if (!coursesToGrant.length) {
+          const bStr = String(student.batch || '').trim().toLowerCase();
+          const matched = (courses || []).find(c => {
+            const cId = String(c.id || '').trim().toLowerCase();
+            const cTitle = String(c.title || '').trim().toLowerCase();
+            const cShort = String(c.shortTitle || '').trim().toLowerCase();
+            const cBatch = String(c.batchRegText || '').trim().toLowerCase();
+            return cId === bStr || cTitle === bStr || cShort === bStr || cBatch === bStr ||
+                   (cTitle && cTitle.includes(bStr)) || (bStr && bStr.includes(cShort));
+          });
+          if (matched) {
+            coursesToGrant = [matched.id];
+          } else if (courses.length > 0) {
+            coursesToGrant = [courses[0].id];
+          }
+        }
+
         const res = await api.post('/admin/students/approve', {
           studentId: student.id || student.regId,
-          batch: student.batch
+          batch: student.batch,
+          allowedCourseIds: coursesToGrant
         });
         if (res.data.ok) {
-          setMsg({ type: 'success', text: `🎉 ${student.name} এর আবেদন এপ্রুভ করা হয়েছে এবং নোটিফিকেশন ইমেইল পাঠানো হয়েছে!` });
-          loadAllAdminData();
+          setMsg({ type: 'success', text: `🎉 ${student.name} এর আবেদন এপ্রুভ করা হয়েছে এবং কোর্সের এক্সেস সক্রিয় করা হয়েছে!` });
+          await loadAllAdminData();
         } else {
           setMsg({ type: 'error', text: res.data.message || 'Failed to approve student.' });
         }
       } else {
-        const updated = { ...student, loginApproval: newApproval, status: newApproval === 'Pending' ? 'Pending' : student.status };
+        const updated = { 
+          ...student, 
+          loginApproval: newApproval, 
+          status: newApproval === 'Pending' ? 'Pending' : (newApproval === 'Rejected' ? 'Blocked' : student.status) 
+        };
         const res = await api.post('/admin/students/save', updated);
         if (res.data.ok) {
           setMsg({ type: 'success', text: `${student.name} approval set to ${newApproval}!` });
-          loadAllAdminData();
+          await loadAllAdminData();
         }
       }
     } catch (err) {
@@ -915,9 +941,13 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
 
     try {
-      const res = await api.post('/admin/students/save', studentForm);
+      const payload = {
+        ...studentForm,
+        enrolledCourseIds: studentForm.allowedCourseIds || []
+      };
+      const res = await api.post('/admin/students/save', payload);
       if (res.data.ok) {
-        const savedStudent = res.data.student || { ...studentForm, id: studentForm.id || `STU-${Date.now()}` };
+        const savedStudent = res.data.student || { ...payload, id: payload.id || `STU-${Date.now()}` };
         setStudents(prev => {
           const idx = prev.findIndex(s => s.id === savedStudent.id || (savedStudent._id && s._id === savedStudent._id));
           if (idx > -1) {
@@ -928,7 +958,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           return [savedStudent, ...prev];
         });
         showToast(res.data.message || `✓ Student profile for "${studentForm.name}" saved successfully in MongoDB!`, 'success');
-        loadAllAdminData();
+        await loadAllAdminData();
       } else {
         showToast(res.data.message || 'Error saving student profile.', 'error');
       }
@@ -1099,9 +1129,12 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
 
     try {
+      const allowed = studentForm.allowedCourseIds || [];
       const updatedStudent = {
         ...selectedStudentForRules,
-        allowedCourseIds: studentForm.allowedCourseIds || []
+        ...studentForm,
+        allowedCourseIds: allowed,
+        enrolledCourseIds: allowed
       };
 
       const res = await api.post('/admin/students/save', updatedStudent);
@@ -1109,7 +1142,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       if (res.data.ok) {
         setSelectedStudentForRules(updatedStudent);
         showToast(`✓ Course access granted successfully for "${selectedStudentForRules.name}"!`, 'success');
-        loadAllAdminData();
+        await loadAllAdminData();
       } else {
         showToast(res.data.message || 'Error updating course access.', 'error');
       }
@@ -1519,16 +1552,58 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     win.document.close();
   };
 
+  const resolveStudentBatchName = (s) => {
+    if (!s) return 'Regular Batch';
+    const bStr = String(s.batch || '').trim().toLowerCase();
+    const matched = (courses || []).find(c => {
+      const cId = String(c.id || '').trim().toLowerCase();
+      const cTitle = String(c.title || '').trim().toLowerCase();
+      const cShort = String(c.shortTitle || '').trim().toLowerCase();
+      const cBatch = String(c.batchRegText || '').trim().toLowerCase();
+      return cId === bStr || cTitle === bStr || cShort === bStr || cBatch === bStr ||
+             (cTitle && cTitle.includes(bStr)) || (bStr && bStr.includes(cShort));
+    });
+    if (matched) return matched.title || matched.shortTitle;
+
+    const rawAllowed = (s.allowedCourseIds || s.enrolledCourseIds || []).filter(Boolean);
+    if (rawAllowed.length > 0) {
+      const cFound = (courses || []).find(c => rawAllowed.includes(c.id) || rawAllowed.includes(c._id));
+      if (cFound) return cFound.title || cFound.shortTitle;
+    }
+
+    return s.batch || 'Regular Batch';
+  };
+
   const getStudentEnrolledCourseTitles = (s) => {
     if (!s) return [];
     const rawAllowed = s.allowedCourseIds || s.enrolledCourseIds || [];
     const allowed = rawAllowed.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
     if (allowed.length === 0) {
+      if (s.batch) {
+        const bStr = String(s.batch).trim().toLowerCase();
+        const found = (courses || []).find(c => {
+          const cId = String(c.id || '').trim().toLowerCase();
+          const cTitle = String(c.title || '').trim().toLowerCase();
+          const cShort = String(c.shortTitle || '').trim().toLowerCase();
+          const cBatch = String(c.batchRegText || '').trim().toLowerCase();
+          return cId === bStr || cTitle === bStr || cShort === bStr || cBatch === bStr ||
+                 (cTitle && cTitle.includes(bStr)) || (bStr && bStr.includes(cShort));
+        });
+        if (found) return [found.title || found.shortTitle];
+      }
       return [];
     }
     const titles = allowed.map(id => {
-      const found = courses.find(c => c.id === id || c._id === id || c.title === id || c.shortTitle === id);
-      return found ? (found.shortTitle || found.title) : id;
+      const sId = String(id).trim().toLowerCase();
+      const found = (courses || []).find(c => {
+        const cId = String(c.id || '').trim().toLowerCase();
+        const cMongoId = String(c._id || '').trim().toLowerCase();
+        const cTitle = String(c.title || '').trim().toLowerCase();
+        const cShort = String(c.shortTitle || '').trim().toLowerCase();
+        return cId === sId || cMongoId === sId || cTitle === sId || cShort === sId ||
+               (cTitle && cTitle.includes(sId)) || (sId && sId.includes(cShort));
+      });
+      return found ? (found.title || found.shortTitle) : id;
     });
     return Array.from(new Set(titles));
   };
@@ -2241,9 +2316,11 @@ return (
                     className={`transition-all ${
                       selectedStudentForRules?.id === s.id
                         ? 'bg-amber-950/40 border-l-4 border-amber-500'
-                        : paid
-                        ? 'bg-emerald-950/30 border-l-4 border-emerald-500/70 hover:bg-emerald-900/40'
-                        : 'bg-rose-950/25 border-l-4 border-rose-500/70 hover:bg-rose-900/30'
+                        : s.status === 'Blocked' || s.status === 'Inactive' || s.loginApproval === 'Rejected'
+                        ? 'bg-rose-950/20 border-l-4 border-rose-500/60 hover:bg-rose-900/25'
+                        : s.loginApproval === 'Approved' || s.status === 'Active'
+                        ? 'bg-slate-900/40 border-l-4 border-emerald-500/60 hover:bg-slate-800/50'
+                        : 'bg-amber-950/20 border-l-4 border-amber-500/50 hover:bg-amber-900/25'
                     }`}
                   >
                     <td className="p-3">
@@ -2298,7 +2375,7 @@ return (
                   <td className="p-3 text-slate-300 max-w-[150px]">
                     <div className="flex flex-wrap gap-1">
                       <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-amber-300 font-semibold text-[10px]">
-                        {s.batch || 'Regular Batch'}
+                        {resolveStudentBatchName(s)}
                       </span>
                     </div>
                     <p className="text-[10px] text-slate-500 font-mono mt-1">Session: {s.session || 'Standard'}</p>

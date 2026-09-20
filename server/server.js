@@ -615,6 +615,15 @@ app.post("/api/auth/register", async (req, res) => {
       createdAt: new Date()
     };
 
+    // Auto-detect course matching registered batch
+    let matchedCourseOnReg = (memoryDb.courses || []).find(c => 
+      c.id === batch || c.title === batch || c.shortTitle === batch ||
+      (c.batchRegText && c.batchRegText === batch) ||
+      (c.title && c.title.toLowerCase().includes(String(batch).toLowerCase()))
+    );
+
+    const initialCourseIds = matchedCourseOnReg ? [matchedCourseOnReg.id] : [];
+
     const newStudent = {
       id: studentId,
       regId,
@@ -622,13 +631,13 @@ app.post("/api/auth/register", async (req, res) => {
       phone: cleanPhone,
       email: cleanEmail,
       university: cleanUniversity,
-      batch,
+      batch: matchedCourseOnReg ? (matchedCourseOnReg.title || matchedCourseOnReg.shortTitle || batch) : batch,
       session: session || "Standard Session",
       password: hashedPassword,
       status: "Pending",
       loginApproval: "Pending",
       portalAccessMode: "Pending Approval",
-      enrolledCourseIds: [],
+      enrolledCourseIds: initialCourseIds,
       allowedCourseIds: [],
       courseRules: [],
       createdAt: new Date()
@@ -3378,6 +3387,11 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
     };
 
     let saved = courseData;
+    const oldAliases = new Set();
+    if (oldId) oldAliases.add(oldId);
+    if (courseId) oldAliases.add(courseId);
+    if (body.oldTitle) oldAliases.add(body.oldTitle);
+
     if (isMongoConnected) {
       let existing = null;
       if (body._id && mongoose.Types.ObjectId.isValid(body._id)) {
@@ -3391,6 +3405,10 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
       }
 
       if (existing) {
+        if (existing.id) oldAliases.add(existing.id);
+        if (existing.title) oldAliases.add(existing.title);
+        if (existing.shortTitle) oldAliases.add(existing.shortTitle);
+        if (existing.batchRegText) oldAliases.add(existing.batchRegText);
         Object.assign(existing, courseData);
         saved = await existing.save();
       } else {
@@ -3407,48 +3425,123 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
     );
 
     if (idx > -1) {
+      const prevMem = memoryDb.courses[idx];
+      if (prevMem.id) oldAliases.add(prevMem.id);
+      if (prevMem.title) oldAliases.add(prevMem.title);
+      if (prevMem.shortTitle) oldAliases.add(prevMem.shortTitle);
+      if (prevMem.batchRegText) oldAliases.add(prevMem.batchRegText);
       memoryDb.courses[idx] = { ...memoryDb.courses[idx], ...courseData };
     } else {
       (memoryDb.courses = memoryDb.courses || []).unshift(courseData);
     }
 
-    // If courseId changed, update lessons & students referencing oldId
-    if (oldId && oldId !== courseId) {
-      if (isMongoConnected) {
-        await Lesson.updateMany({ courseId: oldId }, { $set: { courseId: courseId } }).catch(() => {});
-        await Student.updateMany({ allowedCourseIds: oldId }, { $set: { "allowedCourseIds.$": courseId } }).catch(() => {});
-        await Student.updateMany({ enrolledCourseIds: oldId }, { $set: { "enrolledCourseIds.$": courseId } }).catch(() => {});
-      }
-      (memoryDb.lessons || []).forEach(l => {
-        if (l.courseId === oldId) l.courseId = courseId;
-      });
-      (memoryDb.students || []).forEach(s => {
-        if (s.allowedCourseIds && s.allowedCourseIds.includes(oldId)) {
-          s.allowedCourseIds = s.allowedCourseIds.map(id => id === oldId ? courseId : id);
-        }
-        if (s.enrolledCourseIds && s.enrolledCourseIds.includes(oldId)) {
-          s.enrolledCourseIds = s.enrolledCourseIds.map(id => id === oldId ? courseId : id);
-        }
-      });
-    }
+    const oldAliasList = Array.from(oldAliases).filter(Boolean);
+    const newCourseTitle = courseData.title;
+    const newCourseId = courseData.id;
 
-    // Always clean up dangling placeholder course IDs (like '-------') from all students
+    // Synchronize renamed course / changed course ID across all students, registrations, lessons, exams
     if (isMongoConnected) {
+      // 1. Update Lessons
+      await Lesson.updateMany(
+        { courseId: { $in: oldAliasList } },
+        { $set: { courseId: newCourseId } }
+      ).catch(() => {});
+
+      // 2. Update Student Batch
+      await Student.updateMany(
+        { batch: { $in: oldAliasList } },
+        { $set: { batch: newCourseTitle } }
+      ).catch(() => {});
+
+      // 3. Update Registration Batch
+      await Registration.updateMany(
+        { batch: { $in: oldAliasList } },
+        { $set: { batch: newCourseTitle } }
+      ).catch(() => {});
+
+      // 4. Update MCQ Exams
+      await MCQExam.updateMany(
+        { courseId: { $in: oldAliasList } },
+        { $set: { courseId: newCourseId } }
+      ).catch(() => {});
+
+      // 5. Update Student allowedCourseIds & enrolledCourseIds
+      const affectedStudents = await Student.find({
+        $or: [
+          { allowedCourseIds: { $in: oldAliasList } },
+          { enrolledCourseIds: { $in: oldAliasList } },
+          { batch: newCourseTitle }
+        ]
+      });
+
+      for (const st of affectedStudents) {
+        let changed = false;
+        let allowed = Array.isArray(st.allowedCourseIds) ? [...st.allowedCourseIds] : [];
+        let enrolled = Array.isArray(st.enrolledCourseIds) ? [...st.enrolledCourseIds] : [];
+
+        if (allowed.some(a => oldAliasList.includes(a))) {
+          allowed = allowed.map(a => oldAliasList.includes(a) ? newCourseId : a);
+          changed = true;
+        } else if (st.batch === newCourseTitle && (st.loginApproval === 'Approved' || st.status === 'Active') && !allowed.includes(newCourseId)) {
+          allowed.push(newCourseId);
+          changed = true;
+        }
+
+        if (enrolled.some(e => oldAliasList.includes(e))) {
+          enrolled = enrolled.map(e => oldAliasList.includes(e) ? newCourseId : e);
+          changed = true;
+        } else if (st.batch === newCourseTitle && !enrolled.includes(newCourseId)) {
+          enrolled.push(newCourseId);
+          changed = true;
+        }
+
+        if (changed) {
+          st.allowedCourseIds = Array.from(new Set(allowed.filter(Boolean)));
+          st.enrolledCourseIds = Array.from(new Set(enrolled.filter(Boolean)));
+          if (st.batch !== newCourseTitle && oldAliasList.includes(st.batch)) {
+            st.batch = newCourseTitle;
+          }
+          await st.save().catch(() => {});
+        }
+      }
+
+      // Always clean up dangling placeholder course IDs (like '-------')
       await Student.updateMany(
         {},
         { $pull: { allowedCourseIds: { $in: ["-------", "----", "---", "", null] }, enrolledCourseIds: { $in: ["-------", "----", "---", "", null] } } }
       ).catch(() => {});
     }
+
+    // Synchronize memoryDb
+    (memoryDb.lessons || []).forEach(l => {
+      if (oldAliasList.includes(l.courseId)) l.courseId = newCourseId;
+    });
+    (memoryDb.registrations || []).forEach(r => {
+      if (oldAliasList.includes(r.batch)) r.batch = newCourseTitle;
+    });
     (memoryDb.students || []).forEach(s => {
-      if (s.allowedCourseIds) s.allowedCourseIds = s.allowedCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
-      if (s.enrolledCourseIds) s.enrolledCourseIds = s.enrolledCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
+      if (oldAliasList.includes(s.batch)) s.batch = newCourseTitle;
+      if (Array.isArray(s.allowedCourseIds)) {
+        s.allowedCourseIds = Array.from(new Set(s.allowedCourseIds.map(a => oldAliasList.includes(a) ? newCourseId : a).filter(Boolean)));
+        if ((s.loginApproval === 'Approved' || s.status === 'Active') && s.batch === newCourseTitle && !s.allowedCourseIds.includes(newCourseId)) {
+          s.allowedCourseIds.push(newCourseId);
+        }
+      }
+      if (Array.isArray(s.enrolledCourseIds)) {
+        s.enrolledCourseIds = Array.from(new Set(s.enrolledCourseIds.map(e => oldAliasList.includes(e) ? newCourseId : e).filter(Boolean)));
+        if (s.batch === newCourseTitle && !s.enrolledCourseIds.includes(newCourseId)) {
+          s.enrolledCourseIds.push(newCourseId);
+        }
+      }
     });
 
     // Instant cache invalidation
     fastCache.del("courses");
+    fastCache.del("courses_public");
+    fastCache.del("courses_all");
     fastCache.del("home_data");
 
-    return res.json({ ok: true, message: `কোর্স "${saved.title}" সফলভাবে সেভ করা হয়েছে!`, course: saved });
+    return res.json({ ok: true, message: `কোর্স "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং শিক্ষার্থীদের তথ্য আপডেট হয়েছে!`, course: saved });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "কোর্স সেভ করতে সমস্যা হয়েছে: " + err.message });
   }
@@ -4058,11 +4151,35 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
       }
     });
 
+    // Helper to find course by batch/title/id
+    let allCoursesList = memoryDb.courses || [];
+    if (isMongoConnected && allCoursesList.length === 0) {
+      try {
+        allCoursesList = await Course.find().lean();
+      } catch (e) {}
+    }
+
+    const matchCourse = (rawBatch) => {
+      if (!rawBatch) return null;
+      const bStr = String(rawBatch).trim().toLowerCase();
+      return allCoursesList.find(c => {
+        const cId = String(c.id || "").trim().toLowerCase();
+        const cTitle = String(c.title || "").trim().toLowerCase();
+        const cShort = String(c.shortTitle || "").trim().toLowerCase();
+        const cBatch = String(c.batchRegText || "").trim().toLowerCase();
+        return cId === bStr || cTitle === bStr || cShort === bStr || cBatch === bStr ||
+               (cTitle && cTitle.includes(bStr)) || (bStr && bStr.includes(cShort));
+      });
+    };
+
     // 2. Merge MongoDB Registrations (Only for pending registrations that do not have a Student doc yet)
     (mongoRegs || []).forEach((r) => {
       if (!r) return;
       const key = getKey(r);
       if (key && !studentMap.has(key)) {
+        const matchedC = matchCourse(r.batch);
+        const enrolled = matchedC ? [matchedC.id] : [];
+        const allowed = (r.status === "Approved" && matchedC) ? [matchedC.id] : [];
         const synthesizedStudent = {
           id: r.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
           regId: r.regId,
@@ -4070,12 +4187,13 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
           phone: r.phone,
           email: r.email,
           university: r.university || "",
-          batch: r.batch || "Regular Batch",
+          batch: matchedC ? (matchedC.title || matchedC.shortTitle || r.batch) : (r.batch || "Regular Batch"),
           session: r.session || "Standard Session",
           password: r.password,
           status: r.status === "Approved" ? "Active" : (r.status || "Pending"),
           loginApproval: r.status === "Approved" ? "Approved" : (r.status || "Pending"),
-          allowedCourseIds: [],
+          enrolledCourseIds: enrolled,
+          allowedCourseIds: allowed,
           createdAt: r.createdAt || new Date()
         };
         studentMap.set(key, synthesizedStudent);
@@ -4097,6 +4215,9 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
         if (!r) return;
         const key = getKey(r);
         if (key && !studentMap.has(key)) {
+          const matchedC = matchCourse(r.batch);
+          const enrolled = matchedC ? [matchedC.id] : [];
+          const allowed = (r.status === "Approved" && matchedC) ? [matchedC.id] : [];
           const synthesizedStudent = {
             id: r.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
             regId: r.regId,
@@ -4104,12 +4225,13 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
             phone: r.phone,
             email: r.email,
             university: r.university || "",
-            batch: r.batch || "Regular Batch",
+            batch: matchedC ? (matchedC.title || matchedC.shortTitle || r.batch) : (r.batch || "Regular Batch"),
             session: r.session || "Standard Session",
             password: r.password,
             status: r.status === "Approved" ? "Active" : (r.status || "Pending"),
             loginApproval: r.status === "Approved" ? "Approved" : (r.status || "Pending"),
-            allowedCourseIds: [],
+            enrolledCourseIds: enrolled,
+            allowedCourseIds: allowed,
             createdAt: r.createdAt || new Date()
           };
           studentMap.set(key, synthesizedStudent);
@@ -4119,12 +4241,34 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
 
     const combinedStudents = Array.from(studentMap.values()).map(s => {
       if (s) {
-        if (Array.isArray(s.allowedCourseIds)) {
-          s.allowedCourseIds = s.allowedCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
+        let allowed = Array.isArray(s.allowedCourseIds) ? s.allowedCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '') : [];
+        let enrolled = Array.isArray(s.enrolledCourseIds) ? s.enrolledCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '') : [];
+
+        // Match student batch to a live course
+        const matchedC = matchCourse(s.batch);
+        if (matchedC) {
+          s.batch = matchedC.title || matchedC.shortTitle || s.batch;
+          if (!enrolled.includes(matchedC.id)) {
+            enrolled.push(matchedC.id);
+          }
+          // If approved/active and has 0 active courses, auto-assign this course!
+          if ((s.loginApproval === 'Approved' || s.status === 'Active') && allowed.length === 0) {
+            allowed.push(matchedC.id);
+          }
         }
-        if (Array.isArray(s.enrolledCourseIds)) {
-          s.enrolledCourseIds = s.enrolledCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
-        }
+
+        // Map any old titles in allowed/enrolled to canonical course IDs
+        allowed = allowed.map(id => {
+          const cFound = matchCourse(id);
+          return cFound ? cFound.id : id;
+        });
+        enrolled = enrolled.map(id => {
+          const cFound = matchCourse(id);
+          return cFound ? cFound.id : id;
+        });
+
+        s.allowedCourseIds = Array.from(new Set(allowed.filter(Boolean)));
+        s.enrolledCourseIds = Array.from(new Set(enrolled.filter(Boolean)));
       }
       return s;
     });
@@ -5215,15 +5359,44 @@ app.post("/api/admin/students/save", async (req, res) => {
       body.id = String(body.id).trim();
     }
 
+    const cleanPhone = body.phone ? String(body.phone).trim() : "";
+    const cleanEmail = body.email ? String(body.email).trim().toLowerCase() : "";
+    const cleanId = body.id ? String(body.id).trim() : "";
+    const cleanRegId = body.regId ? String(body.regId).trim() : "";
+
     let oldAllowed = [];
-    const existingSt = (memoryDb.students || []).find(s => s.id === body.id);
+    const existingSt = (memoryDb.students || []).find(s => 
+      (cleanId && s.id === cleanId) || 
+      (cleanRegId && s.regId === cleanRegId) || 
+      (cleanPhone && s.phone === cleanPhone) || 
+      (cleanEmail && s.email && s.email.toLowerCase() === cleanEmail)
+    );
     if (existingSt) {
       oldAllowed = existingSt.allowedCourseIds || existingSt.enrolledCourseIds || [];
     }
 
+    // Keep allowed and enrolled course IDs unified
+    if (Array.isArray(body.allowedCourseIds)) {
+      body.allowedCourseIds = Array.from(new Set(body.allowedCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '')));
+      body.enrolledCourseIds = body.allowedCourseIds;
+    }
+
     let savedStudent = body;
     if (isMongoConnected) {
-      let student = await Student.findOne({ id: body.id });
+      const orClauses = [];
+      if (body._id && mongoose.Types.ObjectId.isValid(body._id)) {
+        orClauses.push({ _id: body._id });
+      }
+      if (cleanId) orClauses.push({ id: cleanId });
+      if (cleanRegId) {
+        orClauses.push({ regId: cleanRegId });
+        orClauses.push({ id: cleanRegId });
+      }
+      if (cleanPhone) orClauses.push({ phone: cleanPhone });
+      if (cleanEmail) orClauses.push({ email: cleanEmail });
+
+      let student = orClauses.length > 0 ? await Student.findOne({ $or: orClauses }) : null;
+
       if (student) {
         if (!oldAllowed.length) {
           oldAllowed = student.allowedCourseIds || student.enrolledCourseIds || [];
@@ -5233,66 +5406,97 @@ app.post("/api/admin/students/save", async (req, res) => {
         } else if (!body.password.startsWith("$2a$") && !body.password.startsWith("$2b$")) {
           body.password = await bcrypt.hash(body.password, 10);
         }
-        Object.assign(student, body);
+        const updateData = { ...body };
+        delete updateData._id;
+        Object.assign(student, updateData);
         savedStudent = await student.save();
       } else {
-        if (!body.password || !String(body.password).trim()) {
-          body.password = await bcrypt.hash("123456", 10);
-        } else if (!body.password.startsWith("$2a$") && !body.password.startsWith("$2b$")) {
-          body.password = await bcrypt.hash(body.password, 10);
+        // Double-check if phone or email is already registered before create
+        let existingByPhoneOrEmail = null;
+        if (cleanPhone || cleanEmail) {
+          existingByPhoneOrEmail = await Student.findOne({
+            $or: [
+              ...(cleanPhone ? [{ phone: cleanPhone }] : []),
+              ...(cleanEmail ? [{ email: cleanEmail }] : [])
+            ]
+          });
         }
-        savedStudent = await Student.create(body);
+        if (existingByPhoneOrEmail) {
+          if (!body.password || !String(body.password).trim()) {
+            delete body.password;
+          } else if (!body.password.startsWith("$2a$") && !body.password.startsWith("$2b$")) {
+            body.password = await bcrypt.hash(body.password, 10);
+          }
+          const updateData = { ...body };
+          delete updateData._id;
+          Object.assign(existingByPhoneOrEmail, updateData);
+          savedStudent = await existingByPhoneOrEmail.save();
+        } else {
+          if (!body.password || !String(body.password).trim()) {
+            body.password = await bcrypt.hash("123456", 10);
+          } else if (!body.password.startsWith("$2a$") && !body.password.startsWith("$2b$")) {
+            body.password = await bcrypt.hash(body.password, 10);
+          }
+          const createData = { ...body };
+          delete createData._id;
+          savedStudent = await Student.create(createData);
+        }
       }
       if (savedStudent && savedStudent.toObject) {
         savedStudent = savedStudent.toObject();
       }
+
+      // Update matching registration status/batch
+      await Registration.updateMany(
+        { $or: [{ regId: cleanRegId || cleanId }, { phone: cleanPhone }, { email: cleanEmail }] },
+        { $set: { status: savedStudent.loginApproval === "Approved" ? "Approved" : (savedStudent.status || "Pending"), batch: savedStudent.batch } }
+      ).catch(() => {});
     }
 
-    const idx = memoryDb.students.findIndex((s) => s.id === body.id);
+    const idx = memoryDb.students.findIndex((s) => 
+      s.id === body.id || 
+      (cleanRegId && s.regId === cleanRegId) || 
+      (cleanPhone && s.phone === cleanPhone) || 
+      (cleanEmail && s.email && s.email.toLowerCase() === cleanEmail)
+    );
     if (idx > -1) {
       memoryDb.students[idx] = { ...memoryDb.students[idx], ...savedStudent };
     } else {
       memoryDb.students.unshift({ ...savedStudent });
     }
 
-    // Dispatch professional course enrollment / update email to student
-    if (savedStudent && savedStudent.email) {
+    // Dispatch course update email ONLY when courses were actually added or removed for an approved student
+    if (savedStudent && savedStudent.email && (savedStudent.loginApproval === 'Approved' || savedStudent.status === 'Active')) {
       const newAllowed = savedStudent.allowedCourseIds || savedStudent.enrolledCourseIds || [];
       const addedIds = newAllowed.filter(id => !oldAllowed.includes(id));
       const removedIds = oldAllowed.filter(id => !newAllowed.includes(id));
 
-      let allCourseTitles = newAllowed.map(id => {
-        const found = (memoryDb.courses || []).find(c => c.id === id || c._id === id);
-        return found ? (found.title || id) : id;
-      });
+      if (addedIds.length > 0 || removedIds.length > 0) {
+        let allCourseTitles = newAllowed.map(id => {
+          const found = (memoryDb.courses || []).find(c => c.id === id || c._id === id || c.title === id);
+          return found ? (found.title || id) : id;
+        });
 
-      let addedNames = addedIds.map(id => {
-        const found = (memoryDb.courses || []).find(c => c.id === id || c._id === id);
-        return found ? (found.title || id) : id;
-      });
+        let addedNames = addedIds.map(id => {
+          const found = (memoryDb.courses || []).find(c => c.id === id || c._id === id || c.title === id);
+          return found ? (found.title || id) : id;
+        });
 
-      let removedNames = removedIds.map(id => {
-        const found = (memoryDb.courses || []).find(c => c.id === id || c._id === id);
-        return found ? (found.title || id) : id;
-      });
+        let removedNames = removedIds.map(id => {
+          const found = (memoryDb.courses || []).find(c => c.id === id || c._id === id || c.title === id);
+          return found ? (found.title || id) : id;
+        });
 
-      if (addedNames.length > 0 || removedNames.length > 0) {
         sendCourseAccessUpdateEmail(savedStudent.email, savedStudent, {
           addedNames,
           removedNames,
           allCourseTitles
         }).catch(err => console.warn("Notice sending course access email:", err.message));
-      } else {
-        sendCourseEnrollmentEmail(
-          savedStudent.email,
-          savedStudent,
-          savedStudent.batch || "BJS & Bar Council Masterclass",
-          allCourseTitles
-        ).catch(err => console.warn("Notice sending enrollment email:", err.message));
       }
+      // Repetitive else block removed: No spam emails on routine profile updates!
     }
 
-    return res.json({ ok: true, message: `Student profile for "${savedStudent.name || savedStudent.id}" saved successfully!`, student: savedStudent });
+    return res.json({ ok: true, message: `শিক্ষার্থী "${savedStudent.name || savedStudent.id}" এর তথ্য সফলভাবে সেভ করা হয়েছে!`, student: savedStudent });
   } catch (e) {
     console.error("Error saving student:", e);
     return res.status(500).json({ ok: false, message: e.message || "Error saving student profile." });
@@ -5308,18 +5512,70 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
       return res.status(400).json({ ok: false, message: "studentId is required." });
     }
 
+    let allCourses = memoryDb.courses || [];
+    if (isMongoConnected && allCourses.length === 0) {
+      try {
+        allCourses = await Course.find().lean();
+      } catch (e) {}
+    }
+
+    // Helper to resolve matching course
+    const findCourse = (target) => {
+      if (!target) return null;
+      const bStr = String(target).trim().toLowerCase();
+      return allCourses.find(c => {
+        const cId = String(c.id || "").trim().toLowerCase();
+        const cTitle = String(c.title || "").trim().toLowerCase();
+        const cShort = String(c.shortTitle || "").trim().toLowerCase();
+        const cBatch = String(c.batchRegText || "").trim().toLowerCase();
+        return cId === bStr || cTitle === bStr || cShort === bStr || cBatch === bStr ||
+               (cTitle && cTitle.includes(bStr)) || (bStr && bStr.includes(cShort));
+      });
+    };
+
     let updatedStudent = null;
 
-    // Only assign courses if explicitly passed by admin in allowedCourseIds!
-    // Do NOT auto-assign all or default courses upon mere account approval!
-    const explicitCoursesPassed = Array.isArray(allowedCourseIds);
-    const courseIdsToAssign = explicitCoursesPassed ? allowedCourseIds : null;
-
     if (isMongoConnected) {
-      let student = await Student.findOne({ $or: [{ id: studentId }, { regId: studentId }] });
-      let reg = await Registration.findOne({ $or: [{ regId: studentId }, { phone: studentId }, { email: studentId }] });
+      let student = await Student.findOne({
+        $or: [
+          { id: studentId },
+          { regId: studentId },
+          { phone: studentId },
+          { email: studentId },
+          ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])
+        ]
+      });
+
+      let reg = await Registration.findOne({
+        $or: [
+          { regId: studentId },
+          { phone: studentId },
+          { email: studentId },
+          ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])
+        ]
+      });
+
+      // Determine course IDs to grant:
+      let coursesToAssign = Array.isArray(allowedCourseIds) && allowedCourseIds.length > 0 ? allowedCourseIds : null;
+      if (!coursesToAssign) {
+        if (student && Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0) {
+          coursesToAssign = student.allowedCourseIds;
+        } else if (student && Array.isArray(student.enrolledCourseIds) && student.enrolledCourseIds.length > 0) {
+          coursesToAssign = student.enrolledCourseIds;
+        } else {
+          const matchedC = findCourse(batch || reg?.batch || student?.batch);
+          if (matchedC) {
+            coursesToAssign = [matchedC.id];
+          } else if (allCourses.length > 0) {
+            coursesToAssign = [allCourses[0].id];
+          } else {
+            coursesToAssign = [];
+          }
+        }
+      }
 
       if (!student && reg) {
+        const matchedC = findCourse(reg.batch || batch);
         student = new Student({
           id: reg.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
           regId: reg.regId,
@@ -5327,59 +5583,68 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
           phone: reg.phone,
           email: reg.email,
           university: reg.university || "",
-          batch: reg.batch || batch || "Regular Batch",
+          batch: matchedC ? (matchedC.title || matchedC.shortTitle || reg.batch) : (reg.batch || batch || "Regular Batch"),
           session: reg.session || "Standard Session",
           password: reg.password,
           status: "Active",
           loginApproval: "Approved",
-          allowedCourseIds: explicitCoursesPassed ? courseIdsToAssign : []
+          enrolledCourseIds: coursesToAssign,
+          allowedCourseIds: coursesToAssign
         });
       }
 
       if (student) {
         student.status = "Active";
         student.loginApproval = "Approved";
-        if (explicitCoursesPassed) {
-          student.allowedCourseIds = courseIdsToAssign;
+        student.allowedCourseIds = Array.from(new Set([...(student.allowedCourseIds || []), ...coursesToAssign].filter(Boolean)));
+        student.enrolledCourseIds = Array.from(new Set([...(student.enrolledCourseIds || []), ...coursesToAssign].filter(Boolean)));
+        const matchedC = findCourse(student.batch || batch || reg?.batch);
+        if (matchedC) {
+          student.batch = matchedC.title || matchedC.shortTitle || student.batch;
         }
         updatedStudent = await student.save();
       }
+
       if (reg) {
         reg.status = "Approved";
         await reg.save();
       }
     }
 
-    const st = (memoryDb.students || []).find(s => s.id === studentId || s.regId === studentId);
+    const st = (memoryDb.students || []).find(s => s.id === studentId || s.regId === studentId || s.phone === studentId || s.email === studentId);
     if (st) {
       st.status = "Active";
       st.loginApproval = "Approved";
-      if (explicitCoursesPassed) {
-        st.allowedCourseIds = courseIdsToAssign;
+      let coursesToAssign = Array.isArray(allowedCourseIds) && allowedCourseIds.length > 0 ? allowedCourseIds : null;
+      if (!coursesToAssign) {
+        const matchedC = findCourse(st.batch || batch);
+        coursesToAssign = matchedC ? [matchedC.id] : (allCourses[0] ? [allCourses[0].id] : []);
       }
+      st.allowedCourseIds = Array.from(new Set([...(st.allowedCourseIds || []), ...coursesToAssign].filter(Boolean)));
+      st.enrolledCourseIds = Array.from(new Set([...(st.enrolledCourseIds || []), ...coursesToAssign].filter(Boolean)));
       updatedStudent = st;
     }
 
-    const regInMem = (memoryDb.registrations || []).find(r => r.regId === studentId || r.phone === st?.phone || r.email === st?.email);
+    const regInMem = (memoryDb.registrations || []).find(r => r.regId === studentId || r.phone === studentId || r.email === studentId);
     if (regInMem) regInMem.status = "Approved";
 
     if (updatedStudent && updatedStudent.email) {
       let allCourseTitles = (updatedStudent.allowedCourseIds || []).map(id => {
-        const found = (memoryDb.courses || []).find(c => c.id === id || c._id === id);
+        const found = allCourses.find(c => c.id === id || c._id === id || c.title === id);
         return found ? found.title : id;
       });
 
       sendCourseEnrollmentEmail(
         updatedStudent.email,
         updatedStudent,
-        updatedStudent.batch || "BJS & Bar Council Masterclass",
+        updatedStudent.batch || (allCourseTitles[0] || "BJS & Bar Council Masterclass"),
         allCourseTitles
       ).catch(err => console.warn("Approval email notice:", err.message));
     }
 
     return res.json({
       ok: true,
-      message: `শিক্ষার্থী "${updatedStudent?.name || studentId}" এর আবেদন এপ্রুভ ও সক্রিয় করা হয়েছে!`,
+      message: `শিক্ষার্থী "${updatedStudent?.name || studentId}" এর আবেদন এপ্রুভ ও কোর্সের এক্সেস সক্রিয় করা হয়েছে!`,
       student: updatedStudent
     });
   } catch (err) {
