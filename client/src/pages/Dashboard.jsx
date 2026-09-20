@@ -286,23 +286,23 @@ export default function Dashboard({ openVideoModal }) {
     return acc;
   }, {});
 
-  // Evaluate Student Approval & Course Access Rules (Flexible Course-Level Enrollment Check)
+  // Evaluate Student Approval & Course Access Rules (Strict Course-Level Enrollment Check)
   const isApproved = Boolean(
-    user?.loginApproval === 'Approved' ||
-    user?.status === 'Active' ||
-    user?.status === 'Approved' ||
-    user?.approved === true ||
-    (user?.allowedCourseIds && user.allowedCourseIds.length > 0) ||
-    (user?.enrolledCourseIds && user.enrolledCourseIds.length > 0)
+    user?.loginApproval === 'Approved' &&
+    user?.status !== 'Pending' &&
+    user?.status !== 'Blocked' &&
+    user?.status !== 'Inactive'
   );
 
   const isUnlimited = Boolean(
-    user?.unlimitedAccess === true ||
-    (user?.allowedCourseIds && user?.allowedCourseIds.includes('all'))
+    isApproved && (
+      user?.unlimitedAccess === true ||
+      (user?.allowedCourseIds && user?.allowedCourseIds.includes('all'))
+    )
   );
 
   const checkCourseEnrolled = (c) => {
-    if (!c) return false;
+    if (!c || !isApproved) return false;
     if (isUnlimited) return true;
 
     const rawAllowed = user?.allowedCourseIds || [];
@@ -418,7 +418,7 @@ export default function Dashboard({ openVideoModal }) {
                 ))}
               {courses.filter(c => checkCourseEnrolled(c)).length === 0 && (
                 <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
-                  📚 {user?.batch || 'BJS & Bar Masterclass'}
+                  📚 {isApproved ? (user?.batch || 'BJS & Bar Masterclass') : 'কোনো সক্রিয় কোর্স নেই (পেন্ডিং)'}
                 </span>
               )}
             </div>
@@ -583,25 +583,20 @@ export default function Dashboard({ openVideoModal }) {
                               (l.chapter || '').toLowerCase().includes('orientation') ||
                               (l.chapter || '').includes('অরিয়েন্টেশন')
                             );
-                            const isFirstClass = (l.id === firstLessonId);
-                            const isFreePublicPreview = isOrientation || isFirstClass;
                             const isCompleted = user?.completedLessonIds?.includes(l.id);
                             const hasVideo = Boolean(l.youtubeId || l.youtubeUrl);
-                            const canWatch = (isEnrolled || isFreePublicPreview) && hasVideo;
+                            const canWatch = isEnrolled && hasVideo;
 
                             let cardClass = 'bg-rose-950/20 border-rose-500/30 text-rose-200';
                             let badgeText = '🔴 Video Pending';
                             let badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
 
-                            if (isFreePublicPreview && hasVideo) {
-                              cardClass = 'bg-emerald-950/30 border-emerald-500/50 text-emerald-100 hover:border-emerald-400 shadow-md';
-                              badgeText = isOrientation ? '🎁 Free Orientation Unlocked' : '🎁 Free 1st Class Unlocked';
-                              badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold';
-                            } else if (!isApproved) {
+                            if (!isApproved) {
                               badgeText = '🔒 Awaiting Admin Approval';
                               badgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/30 font-bold';
                             } else if (!isEnrolled) {
                               badgeText = '🔒 Course Locked';
+                              badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30 font-bold';
                             } else if (hasVideo) {
                               cardClass = 'bg-emerald-950/25 border-emerald-500/30 text-emerald-200 hover:border-emerald-400';
                               badgeText = '🟢 Video Unlocked';
@@ -661,7 +656,7 @@ export default function Dashboard({ openVideoModal }) {
                                         : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/80 hover:bg-slate-800'
                                     }`}
                                   >
-                                    {canWatch ? (isOrientation ? '▶️ অরিয়েন্টেশন ফ্রি প্লে' : '▶️ প্লে ভিডিও') : '🔒 প্রিভিউ / তথ্য'}
+                                    {canWatch ? '▶️ প্লে ভিডিও' : '🔒 ক্লাস লকড্'}
                                   </button>
                                 </div>
                               </div>

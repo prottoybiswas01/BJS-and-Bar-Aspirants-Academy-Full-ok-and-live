@@ -976,9 +976,9 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       session: s.session || '2026-04-01',
       password: '',
       maxDeviceCount: s.maxDeviceCount || 2,
-      status: s.status || 'Active',
-      loginApproval: s.loginApproval || 'Approved',
-      portalAccessMode: s.portalAccessMode || 'Full Video Access',
+      status: s.status || 'Pending',
+      loginApproval: s.loginApproval || 'Pending',
+      portalAccessMode: s.portalAccessMode || 'Pending Approval',
       highlight: s.highlight || '',
       allowedCourseIds: allowed
     });
@@ -1524,7 +1524,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     const rawAllowed = s.allowedCourseIds || s.enrolledCourseIds || [];
     const allowed = rawAllowed.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
     if (allowed.length === 0) {
-      return [s.batch || 'Masterclass'];
+      return [];
     }
     const titles = allowed.map(id => {
       const found = courses.find(c => c.id === id || c._id === id || c.title === id || c.shortTitle === id);
@@ -1538,7 +1538,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     const hasReceipt = (receipts || []).some(
       r => r.studentId === s.id || (r.studentEmail && r.studentEmail.toLowerCase() === (s.email || '').toLowerCase()) || (r.studentPhone && r.studentPhone === s.phone)
     );
-    return hasReceipt || s.loginApproval === 'Approved';
+    return hasReceipt || s.paymentStatus === 'Paid';
   };
 
   const filteredMcqResults = (mcqResults || []).filter(r => {
@@ -2257,13 +2257,21 @@ return (
                     <td className="p-3">
                       <div className="flex items-center gap-1.5">
                         <p className="font-bold text-white text-sm">{s.name}</p>
-                        {paid ? (
+                        {paid && s.loginApproval === 'Approved' ? (
                           <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[9px] border border-emerald-500/40">
                             ✓ PAID & APPROVED
                           </span>
+                        ) : paid ? (
+                          <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-bold text-[9px] border border-sky-500/40">
+                            ✓ PAID (PENDING APPROVAL)
+                          </span>
+                        ) : s.loginApproval === 'Approved' ? (
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[9px] border border-emerald-500/40">
+                            ✓ APPROVED
+                          </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold text-[9px] border border-rose-500/40">
-                            ⚠️ PAYMENT PENDING
+                          <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-[9px] border border-amber-500/40">
+                            ⏳ PENDING APPROVAL
                           </span>
                         )}
                         {s.highlight && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">{s.highlight}</span>}
@@ -2273,27 +2281,31 @@ return (
 
                       {/* Multi-Course Enrolled Badges */}
                       <div className="flex flex-wrap gap-1 mt-1 max-w-[220px]">
-                        {getStudentEnrolledCourseTitles(s).map((cTitle, cIdx) => (
-                          <span key={cIdx} className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold text-[9px]">
-                            📚 {cTitle}
+                        {getStudentEnrolledCourseTitles(s).length === 0 ? (
+                          <span className="px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-400 text-[9px] font-mono">
+                            No Course Granted
                           </span>
-                        ))}
+                        ) : (
+                          getStudentEnrolledCourseTitles(s).map((cTitle, cIdx) => (
+                            <span key={cIdx} className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold text-[9px]">
+                              📚 {cTitle}
+                            </span>
+                          ))
+                        )}
                       </div>
                     </td>
                   <td className="p-3 font-mono text-slate-300">{s.phone}</td>
                   <td className="p-3 text-slate-300 max-w-[150px]">
                     <div className="flex flex-wrap gap-1">
-                      {getStudentEnrolledCourseTitles(s).map((cTitle, cIdx) => (
-                        <span key={cIdx} className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200 font-medium text-[10px]">
-                          {cTitle}
-                        </span>
-                      ))}
+                      <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-amber-300 font-semibold text-[10px]">
+                        {s.batch || 'Regular Batch'}
+                      </span>
                     </div>
-                    <p className="text-[10px] text-slate-500 font-mono mt-1">Session: {s.session || '2026-04-01'}</p>
+                    <p className="text-[10px] text-slate-500 font-mono mt-1">Session: {s.session || 'Standard'}</p>
                   </td>
                   <td className="p-3">
                     <select
-                      value={s.loginApproval || 'Approved'}
+                      value={s.loginApproval || 'Pending'}
                       onChange={(e) => handleUpdateStudentApproval(s, e.target.value)}
                       className={`px-2 py-1 rounded text-[10px] font-bold border focus:outline-none cursor-pointer ${
                         s.loginApproval === 'Approved' ? 'bg-emerald-950 text-emerald-300 border-emerald-500/30' :
@@ -2311,14 +2323,16 @@ return (
                   </td>
                   <td className="p-3">
                     <select
-                      value={s.status || 'Active'}
+                      value={s.status || 'Pending'}
                       onChange={(e) => handleUpdateStudentStatus(s, e.target.value)}
                       className={`px-2 py-1 rounded text-[10px] font-bold border focus:outline-none cursor-pointer ${
                         s.status === 'Active' ? 'bg-emerald-950 text-emerald-300 border-emerald-500/30' :
+                        s.status === 'Pending' ? 'bg-amber-950 text-amber-300 border-amber-500/30' :
                         'bg-rose-950 text-rose-300 border-rose-500/30'
                       }`}
                     >
                       <option value="Active">Active</option>
+                      <option value="Pending">Pending ⏳</option>
                       <option value="Blocked">Blocked 🚫</option>
                       <option value="Inactive">Inactive</option>
                     </select>

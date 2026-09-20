@@ -627,7 +627,10 @@ app.post("/api/auth/register", async (req, res) => {
       password: hashedPassword,
       status: "Pending",
       loginApproval: "Pending",
+      portalAccessMode: "Pending Approval",
+      enrolledCourseIds: [],
       allowedCourseIds: [],
+      courseRules: [],
       createdAt: new Date()
     };
 
@@ -1162,17 +1165,12 @@ app.post(["/api/auth/google-login", "/auth/google-login"], async (req, res) => {
         batch: batchName,
         session: sessionName,
         password: await bcrypt.hash(firebaseUid || "GOOGLE_PASS_" + Date.now(), 10),
-        status: "Active",
-        loginApproval: "Approved",
-        portalAccessMode: "Full Access",
-        enrolledCourseIds: courseId ? [courseId] : [],
-        allowedCourseIds: courseId ? [courseId] : [],
-        courseRules: courseId ? [{
-          courseId: courseId,
-          unlimitedAccess: true,
-          enrollmentStatus: "Active",
-          accessStartDate: new Date().toISOString().split("T")[0]
-        }] : [],
+        status: "Pending",
+        loginApproval: "Pending",
+        portalAccessMode: "Pending Approval",
+        enrolledCourseIds: [],
+        allowedCourseIds: [],
+        courseRules: [],
         joinedOn: new Date().toISOString().split("T")[0]
       };
 
