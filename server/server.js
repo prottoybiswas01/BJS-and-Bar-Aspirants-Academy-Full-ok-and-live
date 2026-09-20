@@ -2633,7 +2633,7 @@ function createPdfReceiptBuffer(receiptData) {
       doc.rect(0, 0, doc.page.width, 95).fill("#0b1325");
       doc.fillColor("#ffffff").fontSize(18).font(fontBold).text("BJS & BAR ASPIRANTS ACADEMY", 40, 22);
       doc.fillColor("#f59e0b").fontSize(10).font(fontRegular).text("OFFICIAL MONEY RECEIPT & PAYMENT VOUCHER", 40, 48);
-      doc.fillColor("#94a3b8").fontSize(9).font(fontRegular).text("Farmgate, Dhaka 1215 | Helpline: 01800077663", 40, 65);
+      doc.fillColor("#94a3b8").fontSize(9).font(fontRegular).text(hasBengaliFont ? "অনলাইন কোচিং সেন্টার | Helpline: 01800077663" : "Online Coaching Center | Helpline: 01800077663", 40, 65);
 
       // PAID Stamp
       doc.save();

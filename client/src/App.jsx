@@ -236,7 +236,7 @@ function MainApp() {
         )}
       </main>
 
-      <Footer setActivePage={setActivePage} />
+      <Footer setActivePage={setActivePage} activePage={activePage} />
 
       {/* Video Player Modal */}
       {videoModal.isOpen && (

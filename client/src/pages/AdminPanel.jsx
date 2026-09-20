@@ -4102,7 +4102,7 @@ return (
               </div>
 
               <div className="pt-2 text-center text-[10px] text-slate-500 font-mono border-t border-slate-800">
-                Issued & Verified By: Academic Accounts Department | Farmgate, Dhaka 1215
+                Issued & Verified By: Academic Accounts Department | অনলাইন কোচিং সেন্টার
               </div>
             </div>
 
