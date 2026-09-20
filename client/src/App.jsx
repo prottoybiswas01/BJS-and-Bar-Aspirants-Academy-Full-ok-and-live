@@ -20,44 +20,68 @@ import LessonManagerModal from './components/LessonManagerModal';
 import MentorProfileModal from './components/MentorProfileModal';
 import ForceTempPasswordModal from './components/ForceTempPasswordModal';
 import PwaInstallBanner from './components/PwaInstallBanner';
+import NotFound from './pages/NotFound';
 import api from './services/api';
+
+function resolveRoute(user) {
+  const path = window.location.pathname.toLowerCase().replace(/\/$/, '') || '/';
+  const hash = window.location.hash.toLowerCase().replace(/\/$/, '') || '';
+
+  const storedUser = localStorage.getItem('bjs_user');
+  let isStudentLoggedIn = false;
+  try {
+    if (storedUser) {
+      const u = JSON.parse(storedUser);
+      if (u && (u.id || u.regId) && !u.isAdmin && !u.isMentor) {
+        isStudentLoggedIn = true;
+      }
+    }
+  } catch (e) {}
+
+  if (hash.startsWith('#mcq-exam-') || path.includes('/mcq-exam/')) {
+    return 'mcq-exam';
+  }
+  if (path === '/admin' || hash === '#admin' || hash === '#/admin') {
+    return 'admin';
+  }
+  if (path === '/admin-login' || hash === '#admin-login' || hash === '#/admin-login') {
+    return 'admin-login';
+  }
+  if (path === '/mentor' || path === '/mentor-dashboard' || hash === '#mentor' || hash === '#/mentor' || hash === '#mentor-dashboard') {
+    return user?.isMentor ? 'mentor-dashboard' : 'mentor-login';
+  }
+  if (path === '/mentor-login' || hash === '#mentor-login' || hash === '#/mentor-login') {
+    return 'mentor-login';
+  }
+  if (path === '/login' || hash === '#login' || hash === '#/login') {
+    return 'login';
+  }
+  if (path === '/register' || hash === '#register' || hash === '#/register') {
+    return 'register';
+  }
+  if (path === '/dashboard' || hash === '#dashboard' || hash === '#/dashboard') {
+    return 'dashboard';
+  }
+  if (path === '/' || path === '/home' || hash === '#home' || hash === '#/home' || hash === '') {
+    if (isStudentLoggedIn && (hash === '' || path === '/')) {
+      return 'dashboard';
+    }
+    return 'home';
+  }
+
+  // Anchor actions that belong to home
+  if (hash.startsWith('#mentor-') || hash.startsWith('#demo-') || hash.startsWith('#watch-video-') || hash.startsWith('#lesson-')) {
+    return 'home';
+  }
+
+  // Unrecognized route -> 404
+  return '404';
+}
 
 function MainApp() {
   const { user } = useAuth();
   const [mcqExamId, setMcqExamId] = useState('');
-  const [activePage, setActivePage] = useState(() => {
-    const path = window.location.pathname.toLowerCase();
-    const hash = window.location.hash.toLowerCase();
-
-    const storedUser = localStorage.getItem('bjs_user');
-    let isStudentLoggedIn = false;
-    try {
-      if (storedUser) {
-        const u = JSON.parse(storedUser);
-        if (u && u.id && !u.isAdmin && !u.isMentor) {
-          isStudentLoggedIn = true;
-        }
-      }
-    } catch (e) {}
-
-    if (hash.startsWith('#mcq-exam-') || path.includes('/mcq-exam/')) {
-      const eId = window.location.hash.replace('#mcq-exam-', '') || path.split('/mcq-exam/')[1];
-      return 'mcq-exam';
-    }
-    if (path === '/admin' || path === '/admin/' || path.endsWith('/admin') || hash === '#admin' || hash === '#/admin') {
-      return 'admin';
-    }
-    if (path === '/mentor' || path === '/mentor/' || path.includes('/mentor') || hash === '#mentor' || hash === '#/mentor') {
-      return 'mentor-dashboard';
-    }
-    if (hash === '#home' || path === '/home') {
-      return 'home';
-    }
-    if (hash === '#dashboard' || path === '/dashboard' || isStudentLoggedIn) {
-      return 'dashboard';
-    }
-    return 'home';
-  });
+  const [activePage, setActivePage] = useState(() => resolveRoute(null));
 
   const [mentorModal, setMentorModal] = useState({ isOpen: false, mentor: null });
 
@@ -67,22 +91,14 @@ function MainApp() {
 
   useEffect(() => {
     const handleUrlChange = () => {
-      const path = window.location.pathname.toLowerCase();
-      const hash = window.location.hash.toLowerCase();
-      
-      if (hash.startsWith('#mcq-exam-') || path.includes('/mcq-exam/')) {
+      const route = resolveRoute(user);
+      if (route === 'mcq-exam') {
+        const path = window.location.pathname.toLowerCase();
+        const hash = window.location.hash.toLowerCase();
         const eId = window.location.hash.replace('#mcq-exam-', '') || path.split('/mcq-exam/')[1];
         setMcqExamId(eId);
-        setActivePage('mcq-exam');
-        return;
       }
-
-      if (path === '/admin' || path === '/admin/' || path.endsWith('/admin') || hash === '#admin' || hash === '#/admin') {
-        setActivePage('admin');
-      }
-      if (path === '/mentor' || path === '/mentor/' || path.includes('/mentor') || hash === '#mentor' || hash === '#/mentor') {
-        setActivePage(user?.isMentor ? 'mentor-dashboard' : 'mentor-login');
-      }
+      setActivePage(route);
 
       if (hash.startsWith('#mentor-')) {
         const mId = window.location.hash.substring(8);
@@ -213,26 +229,53 @@ function MainApp() {
         activePage === 'admin' ? 'max-w-[1750px]' : 'max-w-7xl'
       }`}>
         {activePage === 'home' && (
-          <Home setActivePage={setActivePage} openMentorProfile={openMentorProfile} openVideoModal={openVideoModal} />
+          <ErrorBoundary sectionName="হোম পেজ" onNavigateHome={() => setActivePage('home')}>
+            <Home setActivePage={setActivePage} openMentorProfile={openMentorProfile} openVideoModal={openVideoModal} />
+          </ErrorBoundary>
         )}
         {activePage === 'mcq-exam' && (
-          <McqExamPlayer examId={mcqExamId} onBack={() => setActivePage('home')} />
+          <ErrorBoundary sectionName="অনলাইন এমসিকিউ এক্সাম" onNavigateHome={() => setActivePage('home')}>
+            <McqExamPlayer examId={mcqExamId} onBack={() => setActivePage('home')} />
+          </ErrorBoundary>
         )}
-        {activePage === 'login' && <Login setActivePage={setActivePage} />}
-        {activePage === 'register' && <Register setActivePage={setActivePage} />}
+        {activePage === 'login' && (
+          <ErrorBoundary sectionName="স্টুডেন্ট লগইন" onNavigateHome={() => setActivePage('home')}>
+            <Login setActivePage={setActivePage} />
+          </ErrorBoundary>
+        )}
+        {activePage === 'register' && (
+          <ErrorBoundary sectionName="স্টুডেন্ট রেজিস্ট্রেশন" onNavigateHome={() => setActivePage('home')}>
+            <Register setActivePage={setActivePage} />
+          </ErrorBoundary>
+        )}
         {activePage === 'dashboard' && (
-          <Dashboard openVideoModal={openVideoModal} />
+          <ErrorBoundary sectionName="স্টুডেন্ট ড্যাশবোর্ড" onNavigateHome={() => setActivePage('home')}>
+            <Dashboard openVideoModal={openVideoModal} />
+          </ErrorBoundary>
         )}
-        {activePage === 'mentor-login' && <MentorLogin setActivePage={setActivePage} />}
-        {activePage === 'mentor-dashboard' && <MentorDashboard />}
+        {activePage === 'mentor-login' && (
+          <ErrorBoundary sectionName="মেন্টর লগইন" onNavigateHome={() => setActivePage('home')}>
+            <MentorLogin setActivePage={setActivePage} />
+          </ErrorBoundary>
+        )}
+        {activePage === 'mentor-dashboard' && (
+          <ErrorBoundary sectionName="মেন্টর ড্যাশবোর্ড" onNavigateHome={() => setActivePage('home')}>
+            <MentorDashboard />
+          </ErrorBoundary>
+        )}
         {(activePage === 'admin' || activePage === 'admin-login') && (
-          <ErrorBoundary>
-          {user?.isAdmin ? (
-            <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />
-          ) : (
-            <AdminLogin setActivePage={setActivePage} />
-          )}
-        </ErrorBoundary>
+          <ErrorBoundary sectionName="অ্যাডমিন প্যানেল" onNavigateHome={() => setActivePage('home')}>
+            {user?.isAdmin ? (
+              <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />
+            ) : (
+              <AdminLogin setActivePage={setActivePage} />
+            )}
+          </ErrorBoundary>
+        )}
+        {activePage === '404' && (
+          <ErrorBoundary sectionName="404 Page" onNavigateHome={() => setActivePage('home')}>
+            <NotFound setActivePage={setActivePage} />
+          </ErrorBoundary>
         )}
       </main>
 

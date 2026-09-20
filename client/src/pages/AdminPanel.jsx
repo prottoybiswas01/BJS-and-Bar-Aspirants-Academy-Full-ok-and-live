@@ -978,6 +978,40 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
+  const handleToggleMasterEmailService = async () => {
+    const isCurrentlyActive = mailSettings?.enabled !== false && mailSettings?.enableAllMails !== false;
+    const nextState = !isCurrentlyActive;
+
+    if (isCurrentlyActive) {
+      if (!window.confirm("⚠️ আপনি কি সত্যিই সমস্ত আউটগোয়িং ইমেইল সার্ভিস বন্ধ (OFF) করতে চান?\n\nমেইল বন্ধ থাকলে রেজিস্ট্রেশন, কোর্স অ্যাক্টিভেশন, রিসিট বা কোনো ধরনের নোটিফিকেশন মেইল স্টুডেন্টদের কাছে যাবে না।\n\nআপনি যখন পুনরায় অন করবেন তখন থেকে আবার মেইল যাওয়া শুরু হবে।")) {
+        return;
+      }
+    }
+
+    const updatedSettings = {
+      ...mailSettings,
+      enabled: nextState,
+      enableAllMails: nextState
+    };
+    setMailSettings(updatedSettings);
+
+    try {
+      const res = await api.post('/admin/mail-toggle', { enabled: nextState });
+      if (res.data.ok) {
+        showToast(
+          nextState ? '✓ মেইল সার্ভিস সফলভাবে চালু করা হয়েছে! এখন সকল ইমেইল স্বাভাবিকভাবে যাবে।' : '⚠️ মেইল সার্ভিস সাময়িকভাবে সম্পূর্ণ বন্ধ করা হয়েছে! কোনো স্টুডেন্টের কাছে কোনো মেইল যাবে না।',
+          nextState ? 'success' : 'warning'
+        );
+      } else {
+        showToast(res.data.message || 'মেইল সেটিংস আপডেট করতে সমস্যা হয়েছে।', 'error');
+        setMailSettings(mailSettings);
+      }
+    } catch (err) {
+      showToast('মেইল সেটিংস আপডেট করতে সমস্যা হয়েছে।', 'error');
+      setMailSettings(mailSettings);
+    }
+  };
+
   const handleClearAllDemoData = async () => {
     if (!window.confirm("⚠️ WARNING: Are you sure you want to delete ALL demo data (students, courses, lessons, registrations)? This will prepare the system for a 100% fresh Production environment!")) {
       return;
@@ -1926,7 +1960,38 @@ return (
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Master Outgoing Email Toggle Button */}
+            {mailSettings?.enabled !== false && mailSettings?.enableAllMails !== false ? (
+              <button
+                type="button"
+                onClick={handleToggleMasterEmailService}
+                className="px-3.5 py-2 rounded-2xl bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-500/50 text-emerald-300 font-bold text-xs flex items-center gap-2 shadow-sm transition-all cursor-pointer group"
+                title="বর্তমানে সকল আউটগোয়িং ইমেইল সার্ভিস চালু রয়েছে। ক্লিক করলে কোনো স্টুডেন্টের কাছে মেইল যাবে না।"
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="hidden sm:inline">ইমেইল সার্ভিস:</span>
+                <span className="font-extrabold text-emerald-200">চালু (ON)</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 group-hover:bg-rose-500/30 group-hover:text-rose-200 transition">
+                  বন্ধ করুন
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleToggleMasterEmailService}
+                className="px-3.5 py-2 rounded-2xl bg-rose-950 hover:bg-rose-900 border border-rose-500 text-rose-200 font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-950/60 transition-all cursor-pointer animate-pulse"
+                title="বর্তমানে সকল আউটগোয়িং ইমেইল সার্ভিস বন্ধ রয়েছে। ক্লিক করলে পুনরায় স্বাভাবিকভাবে মেইল যাওয়া শুরু হবে।"
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                <span className="hidden sm:inline">ইমেইল সার্ভিস:</span>
+                <span className="font-black text-white">সম্পূর্ণ বন্ধ (OFF)</span>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500 text-slate-950 font-black shadow">
+                  চালু করুন ✓
+                </span>
+              </button>
+            )}
+
             <input
               type="text"
               value={searchQuery}
@@ -2342,7 +2407,30 @@ return (
             <p className="text-xs text-slate-400">Showing {filteredStudents.length} students across {courses.length} courses.</p>
           </div>
 
-          <div className="flex flex-wrap gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {/* Quick Email Status Button inside Student Control */}
+            {mailSettings?.enabled !== false && mailSettings?.enableAllMails !== false ? (
+              <button
+                type="button"
+                onClick={handleToggleMasterEmailService}
+                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-rose-950/60 border border-emerald-500/40 hover:border-rose-500/50 text-emerald-300 hover:text-rose-300 font-bold transition flex items-center gap-1.5 cursor-pointer"
+                title="ইমেইল সার্ভিস চালু রয়েছে। ক্লিক করে বন্ধ করতে পারবেন।"
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span>মেইল চালু</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleToggleMasterEmailService}
+                className="px-3 py-1.5 rounded-xl bg-rose-950 border border-rose-500 text-rose-200 font-black transition flex items-center gap-1.5 cursor-pointer animate-pulse"
+                title="ইমেইল সার্ভিস বন্ধ রয়েছে। ক্লিক করে চালু করতে পারবেন।"
+              >
+                <span className="w-2 h-2 rounded-full bg-rose-400" />
+                <span>মেইল বন্ধ (OFF)</span>
+              </button>
+            )}
+
             <input
               type="text"
               value={searchQuery}
@@ -2358,6 +2446,30 @@ return (
             </button>
           </div>
         </div>
+
+        {/* Master Email Disabled Warning Banner */}
+        {!(mailSettings?.enabled !== false && mailSettings?.enableAllMails !== false) && (
+          <div className="p-3.5 rounded-2xl bg-rose-950/70 border border-rose-500/60 text-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-rose-950/40 animate-fadeIn">
+            <div className="flex items-center gap-2.5">
+              <span className="text-xl">🔇</span>
+              <div>
+                <p className="font-bold text-xs sm:text-sm text-white">
+                  মেইল সার্ভিস বন্ধ (OFF) রয়েছে — কোনো স্টুডেন্টের কাছে কোনো ইমেইল যাবে না
+                </p>
+                <p className="text-[11px] text-rose-300/80 mt-0.5">
+                  অনুমোদন, কোর্স এনরোলমেন্ট, টেম্প পাসওয়ার্ড ইত্যাদির ক্ষেত্রে কোনো প্রকার মেইল পাঠানো হবে না।
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleMasterEmailService}
+              className="px-4 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md transition cursor-pointer self-start sm:self-auto whitespace-nowrap"
+            >
+              ✓ এখন মেইল চালু করুন
+            </button>
+          </div>
+        )}
 
         {/* Student Table */}
         <div className="overflow-x-auto">

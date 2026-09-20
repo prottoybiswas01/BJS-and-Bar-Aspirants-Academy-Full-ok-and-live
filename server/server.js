@@ -265,7 +265,7 @@ async function syncMemoryDbFromMongo() {
       McqExam.find().lean().catch(() => []),
       Assignment.find().lean().catch(() => []),
       SiteSetting.findOne().lean().catch(() => null),
-      MailSetting.findOne({ id: "default_mail_settings" }).lean().catch(() => null)
+      MailSetting.findOne().lean().catch(() => null)
     ]);
     if (stus && stus.length > 0) memoryDb.students = stus;
     if (crss && crss.length > 0) memoryDb.courses = crss;
@@ -1227,11 +1227,27 @@ const smtpFallbackTransporter = nodemailer.createTransport({
 // Verified Domain Sender Address (Resend Verified Domain: bjs.kodl.uk)
 const OFFICIAL_RESEND_SENDER = "BJS & Bar Academy <noreply@bjs.kodl.uk>";
 
+// Master Email System Guard (ON/OFF Controller controlled via Admin Panel)
+function isEmailDispatchEnabled() {
+  if (!memoryDb.mailSettings) return true;
+  if (memoryDb.mailSettings.enabled === false || memoryDb.mailSettings.enableAllMails === false) {
+    return false;
+  }
+  return true;
+}
+
 // Enterprise Native Resend API Dispatcher (Using Verified Custom Domain bjs.kodl.uk)
 async function sendResendEmail({ from, to, subject, html, attachments }) {
   if (!to) {
     console.warn(`⚠️ Invalid target email for dispatch: ${to}`);
     return { ok: false, message: "Invalid target email" };
+  }
+
+  // 0. Master Switch Guard: If Admin toggled Email OFF, completely suppress dispatch
+  if (!isEmailDispatchEnabled()) {
+    const dest = Array.isArray(to) ? to.join(', ') : to;
+    console.log(`🔇 [MASTER EMAIL SWITCH: OFF] Suppressed outgoing email to ${dest} | Subject: "${subject || ''}"`);
+    return { ok: true, skipped: true, message: "Email dispatch suppressed: Master Email Switch is turned OFF by Admin." };
   }
 
   const resendClient = getResendClient();
@@ -1288,6 +1304,13 @@ async function sendResendEmail({ from, to, subject, html, attachments }) {
 // Resend Batch Email Dispatcher (As requested by user)
 async function sendResendBatchEmails(batchItems) {
   if (!Array.isArray(batchItems) || batchItems.length === 0) return { ok: false, message: "No batch items" };
+
+  // 0. Master Switch Guard: If Admin toggled Email OFF, completely suppress batch dispatch
+  if (!isEmailDispatchEnabled()) {
+    console.log(`🔇 [MASTER EMAIL SWITCH: OFF] Suppressed ${batchItems.length} batch email(s) (Master Switch is OFF)`);
+    return { ok: true, skipped: true, message: "Batch email dispatch suppressed: Master Email Switch is turned OFF by Admin." };
+  }
+
   try {
     const resendClient = getResendClient();
     const formattedBatch = batchItems.map(item => ({
@@ -4443,7 +4466,7 @@ app.get(["/api/admin/assignments", "/api/assignments", "/admin/assignments", "/a
 app.get(["/api/admin/mail-settings", "/admin/mail-settings"], async (req, res) => {
   try {
     await ensureDbConnected();
-    let settings = await MailSetting.findOne({ id: "default_mail_settings" }).lean();
+    let settings = await MailSetting.findOne().lean();
     if (!settings) {
       settings = memoryDb.mailSettings || { enabled: true, fallbackEmail: "bjsacademy38@gmail.com", enableAllMails: true };
     } else {
@@ -5316,6 +5339,47 @@ app.post("/api/admin/mail-settings", async (req, res) => {
     res.json({ ok: true, message: "Mail settings saved successfully!", settings: memoryDb.mailSettings });
   } catch (e) {
     res.status(500).json({ ok: false, message: "Error saving mail settings: " + e.message });
+  }
+});
+
+// Admin Master Email Toggle Endpoint (Instant Kill-Switch / Turn ON-OFF)
+app.post(["/api/admin/mail-toggle", "/admin/mail-toggle"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { enabled } = req.body;
+    const isEnabled = enabled !== false;
+
+    if (!memoryDb.mailSettings) {
+      memoryDb.mailSettings = { fallbackEmail: "bjsacademy38@gmail.com" };
+    }
+    memoryDb.mailSettings.enabled = isEnabled;
+    memoryDb.mailSettings.enableAllMails = isEnabled;
+
+    if (isMongoConnected) {
+      let settings = await MailSetting.findOne();
+      if (settings) {
+        settings.enabled = isEnabled;
+        settings.enableAllMails = isEnabled;
+        await settings.save();
+      } else {
+        await MailSetting.create({
+          enabled: isEnabled,
+          enableAllMails: isEnabled,
+          fallbackEmail: "bjsacademy38@gmail.com"
+        });
+      }
+    }
+
+    console.log(`📧 [Master Email Switch Updated]: ${isEnabled ? "ACTIVATED (ON)" : "PAUSED (OFF)"}`);
+    return res.json({
+      ok: true,
+      enabled: isEnabled,
+      message: isEnabled ? "মেইল সার্ভিস সফলভাবে চালু করা হয়েছে!" : "মেইল সার্ভিস সফলভাবে বন্ধ করা হয়েছে! কোনো স্টুডেন্টের কাছে কোনো মেইল যাবে না।",
+      settings: memoryDb.mailSettings
+    });
+  } catch (e) {
+    console.error("Mail toggle error:", e);
+    return res.status(500).json({ ok: false, message: "Error updating mail toggle status: " + e.message });
   }
 });
 
