@@ -1236,18 +1236,76 @@ function isEmailDispatchEnabled() {
   return true;
 }
 
+// Critical Authentication & Onboarding Email Exemptions:
+// Always allowed to be dispatched even when the Master Email Switch is toggled OFF by Admin.
+function isAlwaysAllowedEmail(subject = "", emailType = "") {
+  if (emailType === 'REGISTRATION' || emailType === 'PASSWORD_RESET') return true;
+
+  const s = String(subject || "").toLowerCase();
+
+  // Explicit non-exempt categories (course enrollment, video lecture notice, receipts, assignments, broadcast notices)
+  if (
+    s.includes("course access") ||
+    s.includes("course update") ||
+    s.includes("ভিডিও ক্লাস") ||
+    s.includes("lecture") ||
+    s.includes("receipt") ||
+    s.includes("রিসিট") ||
+    s.includes("assignment") ||
+    s.includes("অ্যাসাইনমেন্ট") ||
+    s.includes("notice") ||
+    s.includes("নোটিশ") ||
+    s.includes("congratulations! course") ||
+    s.includes("active course")
+  ) {
+    return false;
+  }
+
+  // 1. Password Reset / OTP / Forgot Password (ALWAYS ALLOWED)
+  if (
+    s.includes("password reset") ||
+    s.includes("password") ||
+    s.includes("otp") ||
+    s.includes("পাসওয়ার্ড") ||
+    s.includes("ভেরিফিকেশন") ||
+    s.includes("temporary password") ||
+    s.includes("temp password")
+  ) {
+    return true;
+  }
+
+  // 2. Initial Student Account Registration Confirmation (ALWAYS ALLOWED)
+  if (
+    s.includes("registration confirmation") ||
+    s.includes("registration submitted") ||
+    s.includes("account created") ||
+    s.includes("welcome to bjs") ||
+    s.includes("official student account registration")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 // Enterprise Native Resend API Dispatcher (Using Verified Custom Domain bjs.kodl.uk)
-async function sendResendEmail({ from, to, subject, html, attachments }) {
+async function sendResendEmail({ from, to, subject, html, attachments, isExempt, emailType }) {
   if (!to) {
     console.warn(`⚠️ Invalid target email for dispatch: ${to}`);
     return { ok: false, message: "Invalid target email" };
   }
 
-  // 0. Master Switch Guard: If Admin toggled Email OFF, completely suppress dispatch
+  // 0. Master Switch Guard:
+  // If Admin toggled Email OFF, suppress all emails EXCEPT Student Registration & Password Reset!
   if (!isEmailDispatchEnabled()) {
-    const dest = Array.isArray(to) ? to.join(', ') : to;
-    console.log(`🔇 [MASTER EMAIL SWITCH: OFF] Suppressed outgoing email to ${dest} | Subject: "${subject || ''}"`);
-    return { ok: true, skipped: true, message: "Email dispatch suppressed: Master Email Switch is turned OFF by Admin." };
+    const isExemptEmail = isExempt || isAlwaysAllowedEmail(subject, emailType);
+    if (!isExemptEmail) {
+      const dest = Array.isArray(to) ? to.join(', ') : to;
+      console.log(`🔇 [MASTER EMAIL SWITCH: OFF] Suppressed non-exempt email to ${dest} | Subject: "${subject || ''}"`);
+      return { ok: true, skipped: true, message: "Email dispatch suppressed: Master Email Switch is turned OFF by Admin." };
+    } else {
+      console.log(`✅ [ESSENTIAL EMAIL DELIVERED] Master Switch is OFF, but delivering essential student email (Registration/Password Reset): Subject: "${subject || ''}"`);
+    }
   }
 
   const resendClient = getResendClient();
@@ -1412,7 +1470,9 @@ async function sendOtpEmail(targetEmail, otp, studentName) {
     from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
-    html
+    html,
+    isExempt: true,
+    emailType: 'PASSWORD_RESET'
   });
   return res.ok;
 }
@@ -1826,7 +1886,9 @@ async function sendAuthApprovalEmail(targetEmail, studentData) {
     from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
-    html
+    html,
+    isExempt: true,
+    emailType: 'REGISTRATION'
   });
   return res.ok;
 }
@@ -1878,7 +1940,9 @@ async function sendRegistrationConfirmEmail(targetEmail, studentData) {
     from: OFFICIAL_RESEND_SENDER,
     to: targetEmail,
     subject,
-    html
+    html,
+    isExempt: true,
+    emailType: 'REGISTRATION'
   });
   return res.ok;
 }

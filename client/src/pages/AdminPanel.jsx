@@ -983,7 +983,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     const nextState = !isCurrentlyActive;
 
     if (isCurrentlyActive) {
-      if (!window.confirm("⚠️ আপনি কি সত্যিই সমস্ত আউটগোয়িং ইমেইল সার্ভিস বন্ধ (OFF) করতে চান?\n\nমেইল বন্ধ থাকলে রেজিস্ট্রেশন, কোর্স অ্যাক্টিভেশন, রিসিট বা কোনো ধরনের নোটিফিকেশন মেইল স্টুডেন্টদের কাছে যাবে না।\n\nআপনি যখন পুনরায় অন করবেন তখন থেকে আবার মেইল যাওয়া শুরু হবে।")) {
+      if (!window.confirm("⚠️ আপনি কি কোর্স এক্সেস, নতুন ভিডিও ও সাধারণ নোটিফিকেশন মেইল বন্ধ (OFF) করতে চান?\n\nউল্লেখ্য: নতুন স্টুডেন্ট রেজিস্ট্রেশন এবং পাসওয়ার্ড রিসেট (OTP) এর মেইল সবসময় স্বাভাবিকভাবেই চালু থাকবে।")) {
         return;
       }
     }
@@ -999,7 +999,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       const res = await api.post('/admin/mail-toggle', { enabled: nextState });
       if (res.data.ok) {
         showToast(
-          nextState ? '✓ মেইল সার্ভিস সফলভাবে চালু করা হয়েছে! এখন সকল ইমেইল স্বাভাবিকভাবে যাবে।' : '⚠️ মেইল সার্ভিস সাময়িকভাবে সম্পূর্ণ বন্ধ করা হয়েছে! কোনো স্টুডেন্টের কাছে কোনো মেইল যাবে না।',
+          nextState ? '✓ মেইল সার্ভিস সফলভাবে চালু করা হয়েছে! এখন সকল ইমেইল স্বাভাবিকভাবে যাবে।' : '⚠️ সাধারণ মেইল সার্ভিস বন্ধ করা হয়েছে! (নতুন রেজিস্ট্রেশন ও পাসওয়ার্ড রিসেট মেইল সবসময় চালু থাকবে)',
           nextState ? 'success' : 'warning'
         );
       } else {
@@ -2454,10 +2454,10 @@ return (
               <span className="text-xl">🔇</span>
               <div>
                 <p className="font-bold text-xs sm:text-sm text-white">
-                  মেইল সার্ভিস বন্ধ (OFF) রয়েছে — কোনো স্টুডেন্টের কাছে কোনো ইমেইল যাবে না
+                  সাধারণ মেইল সার্ভিস বন্ধ (OFF) রয়েছে — কোর্স এক্সেস, নতুন ভিডিও ও সাধারণ নোটিফিকেশন যাবে না
                 </p>
-                <p className="text-[11px] text-rose-300/80 mt-0.5">
-                  অনুমোদন, কোর্স এনরোলমেন্ট, টেম্প পাসওয়ার্ড ইত্যাদির ক্ষেত্রে কোনো প্রকার মেইল পাঠানো হবে না।
+                <p className="text-[11px] text-emerald-300 font-semibold mt-0.5">
+                  ✓ তবে নতুন স্টুডেন্ট রেজিস্ট্রেশন এবং পাসওয়ার্ড রিসেট (OTP) মেইল স্বাভাবিকভাবেই চালু রয়েছে ও যাবে।
                 </p>
               </div>
             </div>
@@ -2466,7 +2466,7 @@ return (
               onClick={handleToggleMasterEmailService}
               className="px-4 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md transition cursor-pointer self-start sm:self-auto whitespace-nowrap"
             >
-              ✓ এখন মেইল চালু করুন
+              ✓ সকল মেইল চালু করুন
             </button>
           </div>
         )}
