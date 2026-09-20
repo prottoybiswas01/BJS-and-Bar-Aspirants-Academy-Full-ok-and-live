@@ -3645,6 +3645,14 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
     const lessonId = body.id || body._id || (`les-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`);
     const youtubeId = extractYoutubeId(body.youtubeUrl || body.youtubeId || "");
 
+    let orderNum = (body.order !== undefined && body.order !== null && !isNaN(Number(body.order))) ? Number(body.order) : 0;
+    if (!orderNum) {
+      const existingCount = isMongoConnected
+        ? await Lesson.countDocuments({ courseId: body.courseId || "General Class" })
+        : (memoryDb.lessons || []).filter(l => l.courseId === (body.courseId || "General Class")).length;
+      orderNum = existingCount + 1;
+    }
+
     const lessonData = {
       id: lessonId,
       courseId: body.courseId || "General Class",
@@ -3656,7 +3664,7 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       youtubeId: youtubeId,
       releaseDate: body.releaseDate || new Date().toISOString().split("T")[0],
       description: body.description || "",
-      order: (body.order !== undefined && body.order !== null && !isNaN(Number(body.order))) ? Number(body.order) : 0
+      order: orderNum
     };
 
     let saved = lessonData;

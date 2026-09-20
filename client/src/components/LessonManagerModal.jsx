@@ -8,17 +8,41 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
 
   const targetCourseId = course?.id || course?._id || '';
 
-  const [form, setForm] = useState({
-    id: '',
-    module: '',
-    chapter: '',
-    title: '',
-    duration: '56min',
-    youtubeUrl: '',
-    releaseDate: new Date().toISOString().split('T')[0],
-    description: '',
-    order: '',
-  });
+  const getNextSerial = (lessonList) => {
+    if (!Array.isArray(lessonList) || lessonList.length === 0) return 1;
+    let maxOrder = 0;
+    for (const l of lessonList) {
+      if (l.order !== undefined && l.order !== null && !isNaN(Number(l.order)) && Number(l.order) > 0) {
+        maxOrder = Math.max(maxOrder, Number(l.order));
+      }
+    }
+    return Math.max(maxOrder + 1, lessonList.length + 1);
+  };
+
+  const generateTitle = (moduleName, num) => {
+    const mod = (moduleName || course?.title || '').trim();
+    const cleanNum = num || 1;
+    if (mod) return `${mod} ${cleanNum} Class`;
+    return `Class ${cleanNum}`;
+  };
+
+  const getDefaultForm = (lessonList) => {
+    const defaultModule = (course?.title || '').trim() || 'Family Law';
+    const nextNum = getNextSerial(lessonList);
+    return {
+      id: '',
+      module: defaultModule,
+      chapter: '',
+      title: generateTitle(defaultModule, nextNum),
+      duration: '56min',
+      youtubeUrl: '',
+      releaseDate: new Date().toISOString().split('T')[0],
+      description: '',
+      order: String(nextNum),
+    };
+  };
+
+  const [form, setForm] = useState(() => getDefaultForm([]));
 
   useEffect(() => {
     if (course && isOpen) {
@@ -32,7 +56,12 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
     try {
       const res = await api.get(`/lessons?courseId=${targetCourseId}`);
       if (res.data.ok) {
-        setLessons(res.data.lessons || []);
+        const loaded = res.data.lessons || [];
+        setLessons(loaded);
+        setForm(prev => {
+          if (prev.id) return prev; // Preserve form if user is actively editing a lesson
+          return getDefaultForm(loaded);
+        });
       }
     } catch (err) {
       console.log('Error loading lessons:', err);
@@ -43,10 +72,34 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
 
   if (!isOpen || !course) return null;
 
+  const handleModuleChange = (newModule) => {
+    setForm(prev => {
+      const oldAutoTitle = generateTitle(prev.module, prev.order);
+      const isAutoTitle = !prev.title || prev.title === oldAutoTitle;
+      return {
+        ...prev,
+        module: newModule,
+        title: isAutoTitle ? generateTitle(newModule, prev.order) : prev.title,
+      };
+    });
+  };
+
+  const handleOrderChange = (newOrder) => {
+    setForm(prev => {
+      const oldAutoTitle = generateTitle(prev.module, prev.order);
+      const isAutoTitle = !prev.title || prev.title === oldAutoTitle;
+      return {
+        ...prev,
+        order: newOrder,
+        title: isAutoTitle && newOrder ? generateTitle(prev.module, newOrder) : prev.title,
+      };
+    });
+  };
+
   const handleEditLesson = (l) => {
     setForm({
       id: l.id,
-      module: l.module || '',
+      module: l.module || course?.title || '',
       chapter: l.chapter || '',
       title: l.title || '',
       duration: l.duration || '56min',
@@ -94,29 +147,8 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       });
 
       if (res.data.ok) {
-        const savedLesson = res.data.lesson || { ...form, title: finalTitle, courseId: targetCourseId, id: form.id || `les-${Date.now()}` };
-        setLessons(prev => {
-          const idx = prev.findIndex(l => l.id === savedLesson.id || (savedLesson._id && l._id === savedLesson._id));
-          if (idx > -1) {
-            const updated = [...prev];
-            updated[idx] = { ...updated[idx], ...savedLesson };
-            return updated;
-          }
-          return [savedLesson, ...prev];
-        });
-
         setMsg({ type: 'success', text: res.data.message || '✓ Video saved successfully in MongoDB!' });
-        setForm({
-          id: '',
-          module: '',
-          chapter: '',
-          title: '',
-          duration: '56min',
-          youtubeUrl: '',
-          releaseDate: new Date().toISOString().split('T')[0],
-          description: '',
-          order: '',
-        });
+        // Reload fresh lessons and advance form to the next automatic serial
         await loadLessons();
       } else {
         setMsg({ type: 'error', text: res.data.message || 'Error saving video.' });
@@ -162,17 +194,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
               {form.id && (
                 <button
                   type="button"
-                  onClick={() => setForm({
-                    id: '',
-                    module: '',
-                    chapter: '',
-                    title: '',
-                    duration: '56min',
-                    youtubeUrl: '',
-                    releaseDate: new Date().toISOString().split('T')[0],
-                    description: '',
-                    order: '',
-                  })}
+                  onClick={() => setForm(getDefaultForm(lessons))}
                   className="text-[10px] text-amber-400 underline font-normal"
                 >
                   Cancel Edit
@@ -181,19 +203,21 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
             </h4>
 
             <div>
-              <label className="block text-slate-400 mb-1 font-bold">Module Name</label>
+              <label className="block text-slate-400 mb-1 font-bold">
+                Module Name (স্বয়ংক্রিয়)
+              </label>
               <input
                 type="text"
                 value={form.module}
-                onChange={(e) => setForm({ ...form, module: e.target.value })}
-                placeholder="e.g. Module 1 বা বিষয়বস্তু"
+                onChange={(e) => handleModuleChange(e.target.value)}
+                placeholder={course?.title || "e.g. Family Law"}
                 className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-white font-medium"
               />
             </div>
 
             <div>
               <label className="block text-amber-300 font-bold mb-1">
-                অধ্যায় / সেকশন টাইটেল (Chapter Name — Optional)
+                অধ্যায় / সেশন টাইটেল (Chapter / Session — Optional)
               </label>
               <input
                 type="text"
@@ -205,13 +229,15 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1 font-bold">Class / Video Title (Optional — Auto fills if blank)</label>
+              <label className="block text-slate-400 mb-1 font-bold">
+                Class / Video Title (স্বয়ংক্রিয়)
+              </label>
               <input
                 type="text"
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
-                placeholder="e.g. Family Laws 1st Class"
-                className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-white"
+                placeholder={generateTitle(form.module || course?.title, form.order || getNextSerial(lessons))}
+                className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-white font-bold"
               />
             </div>
 
@@ -239,15 +265,15 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                 />
               </div>
               <div>
-                <label className="block text-amber-300 mb-1 font-bold">Class Serial # (ক্রমিক)</label>
+                <label className="block text-amber-300 mb-1 font-bold">Class Serial # (ক্রমিক — অপশনাল)</label>
                 <input
                   type="number"
-                  min="0"
+                  min="1"
                   value={form.order}
-                  onChange={(e) => setForm({ ...form, order: e.target.value })}
-                  placeholder={form.id ? 'যেমন: 1, 2' : `যেমন: ${lessons.length + 1}`}
-                  className="w-full rounded-lg bg-slate-900 border border-amber-500/40 px-3 py-2 text-amber-300 font-mono"
-                  title="ভিডিওর ক্রমিক নম্বর (খালি রাখলে স্বয়ংক্রিয়ভাবে টাইটেল বা আপলোড ক্রম অনুযায়ী সিরিয়াল হবে)"
+                  onChange={(e) => handleOrderChange(e.target.value)}
+                  placeholder={`যেমন: ${getNextSerial(lessons)}`}
+                  className="w-full rounded-lg bg-slate-900 border border-amber-500/40 px-3 py-2 text-amber-300 font-mono font-bold"
+                  title="ভিডিওর ক্রমিক নম্বর (খালি রাখলেও স্বয়ংক্রিয়ভাবে পরবর্তী সিরিয়াল যুক্ত হবে)"
                 />
               </div>
             </div>
