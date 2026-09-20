@@ -1,4 +1,3 @@
-import ErrorBoundary from './components/ErrorBoundary';
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import SecurityGuard from './components/SecurityGuard';
@@ -91,10 +90,11 @@ function MainApp() {
 
   useEffect(() => {
     const handleUrlChange = () => {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+
       const route = resolveRoute(user);
       if (route === 'mcq-exam') {
-        const path = window.location.pathname.toLowerCase();
-        const hash = window.location.hash.toLowerCase();
         const eId = window.location.hash.replace('#mcq-exam-', '') || path.split('/mcq-exam/')[1];
         setMcqExamId(eId);
       }
@@ -229,54 +229,26 @@ function MainApp() {
         activePage === 'admin' ? 'max-w-[1750px]' : 'max-w-7xl'
       }`}>
         {activePage === 'home' && (
-          <ErrorBoundary sectionName="হোম পেজ" onNavigateHome={() => setActivePage('home')}>
-            <Home setActivePage={setActivePage} openMentorProfile={openMentorProfile} openVideoModal={openVideoModal} />
-          </ErrorBoundary>
+          <Home setActivePage={setActivePage} openMentorProfile={openMentorProfile} openVideoModal={openVideoModal} />
         )}
         {activePage === 'mcq-exam' && (
-          <ErrorBoundary sectionName="অনলাইন এমসিকিউ এক্সাম" onNavigateHome={() => setActivePage('home')}>
-            <McqExamPlayer examId={mcqExamId} onBack={() => setActivePage('home')} />
-          </ErrorBoundary>
+          <McqExamPlayer examId={mcqExamId} onBack={() => setActivePage('home')} />
         )}
-        {activePage === 'login' && (
-          <ErrorBoundary sectionName="স্টুডেন্ট লগইন" onNavigateHome={() => setActivePage('home')}>
-            <Login setActivePage={setActivePage} />
-          </ErrorBoundary>
-        )}
-        {activePage === 'register' && (
-          <ErrorBoundary sectionName="স্টুডেন্ট রেজিস্ট্রেশন" onNavigateHome={() => setActivePage('home')}>
-            <Register setActivePage={setActivePage} />
-          </ErrorBoundary>
-        )}
+        {activePage === 'login' && <Login setActivePage={setActivePage} />}
+        {activePage === 'register' && <Register setActivePage={setActivePage} />}
         {activePage === 'dashboard' && (
-          <ErrorBoundary sectionName="স্টুডেন্ট ড্যাশবোর্ড" onNavigateHome={() => setActivePage('home')}>
-            <Dashboard openVideoModal={openVideoModal} />
-          </ErrorBoundary>
+          <Dashboard openVideoModal={openVideoModal} />
         )}
-        {activePage === 'mentor-login' && (
-          <ErrorBoundary sectionName="মেন্টর লগইন" onNavigateHome={() => setActivePage('home')}>
-            <MentorLogin setActivePage={setActivePage} />
-          </ErrorBoundary>
-        )}
-        {activePage === 'mentor-dashboard' && (
-          <ErrorBoundary sectionName="মেন্টর ড্যাশবোর্ড" onNavigateHome={() => setActivePage('home')}>
-            <MentorDashboard />
-          </ErrorBoundary>
-        )}
+        {activePage === 'mentor-login' && <MentorLogin setActivePage={setActivePage} />}
+        {activePage === 'mentor-dashboard' && <MentorDashboard />}
         {(activePage === 'admin' || activePage === 'admin-login') && (
-          <ErrorBoundary sectionName="অ্যাডমিন প্যানেল" onNavigateHome={() => setActivePage('home')}>
-            {user?.isAdmin ? (
-              <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />
-            ) : (
-              <AdminLogin setActivePage={setActivePage} />
-            )}
-          </ErrorBoundary>
+          user?.isAdmin ? (
+            <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />
+          ) : (
+            <AdminLogin setActivePage={setActivePage} />
+          )
         )}
-        {activePage === '404' && (
-          <ErrorBoundary sectionName="404 Page" onNavigateHome={() => setActivePage('home')}>
-            <NotFound setActivePage={setActivePage} />
-          </ErrorBoundary>
-        )}
+        {activePage === '404' && <NotFound setActivePage={setActivePage} />}
       </main>
 
       <Footer setActivePage={setActivePage} activePage={activePage} />
@@ -334,12 +306,10 @@ function MainApp() {
 
 export default function App() {
   return (
-    <ErrorBoundary>
     <SecurityGuard>
       <AuthProvider>
         <MainApp />
       </AuthProvider>
     </SecurityGuard>
-    </ErrorBoundary>
   );
 }
