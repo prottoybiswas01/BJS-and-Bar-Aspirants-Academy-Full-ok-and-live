@@ -10,13 +10,14 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
 
   const [form, setForm] = useState({
     id: '',
-    module: 'Fast Class',
+    module: '',
     chapter: '',
     title: '',
     duration: '56min',
     youtubeUrl: '',
     releaseDate: new Date().toISOString().split('T')[0],
     description: '',
+    order: '',
   });
 
   useEffect(() => {
@@ -45,13 +46,14 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
   const handleEditLesson = (l) => {
     setForm({
       id: l.id,
-      module: l.module || 'Fast Class',
+      module: l.module || '',
       chapter: l.chapter || '',
       title: l.title || '',
       duration: l.duration || '56min',
       youtubeUrl: l.youtubeUrl || (l.youtubeId ? `https://youtu.be/${l.youtubeId}` : ''),
       releaseDate: l.releaseDate || new Date().toISOString().split('T')[0],
       description: l.description || '',
+      order: l.order !== undefined && l.order !== null && l.order > 0 ? String(l.order) : '',
     });
     setMsg(null);
   };
@@ -86,6 +88,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
     try {
       const res = await api.post('/admin/lessons/save', {
         ...form,
+        order: form.order !== '' && !isNaN(Number(form.order)) ? Number(form.order) : 0,
         title: finalTitle,
         courseId: targetCourseId,
       });
@@ -105,13 +108,14 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
         setMsg({ type: 'success', text: res.data.message || '✓ Video saved successfully in MongoDB!' });
         setForm({
           id: '',
-          module: form.module || 'Fast Class',
+          module: '',
           chapter: '',
           title: '',
           duration: '56min',
           youtubeUrl: '',
           releaseDate: new Date().toISOString().split('T')[0],
           description: '',
+          order: '',
         });
         await loadLessons();
       } else {
@@ -160,13 +164,14 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                   type="button"
                   onClick={() => setForm({
                     id: '',
-                    module: 'Fast Class',
+                    module: '',
                     chapter: '',
                     title: '',
                     duration: '56min',
                     youtubeUrl: '',
                     releaseDate: new Date().toISOString().split('T')[0],
                     description: '',
+                    order: '',
                   })}
                   className="text-[10px] text-amber-400 underline font-normal"
                 >
@@ -181,9 +186,8 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                 type="text"
                 value={form.module}
                 onChange={(e) => setForm({ ...form, module: e.target.value })}
-                placeholder="e.g. Fast Class"
+                placeholder="e.g. Module 1 বা বিষয়বস্তু"
                 className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-white font-medium"
-                required
               />
             </div>
 
@@ -206,7 +210,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                 type="text"
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
-                placeholder="e.g. English Class"
+                placeholder="e.g. Family Laws 1st Class"
                 className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-white"
               />
             </div>
@@ -235,14 +239,27 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                 />
               </div>
               <div>
-                <label className="block text-slate-400 mb-1 font-bold">Release Date</label>
+                <label className="block text-amber-300 mb-1 font-bold">Class Serial # (ক্রমিক)</label>
                 <input
-                  type="date"
-                  value={form.releaseDate}
-                  onChange={(e) => setForm({ ...form, releaseDate: e.target.value })}
-                  className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                  type="number"
+                  min="0"
+                  value={form.order}
+                  onChange={(e) => setForm({ ...form, order: e.target.value })}
+                  placeholder={form.id ? 'যেমন: 1, 2' : `যেমন: ${lessons.length + 1}`}
+                  className="w-full rounded-lg bg-slate-900 border border-amber-500/40 px-3 py-2 text-amber-300 font-mono"
+                  title="ভিডিওর ক্রমিক নম্বর (খালি রাখলে স্বয়ংক্রিয়ভাবে টাইটেল বা আপলোড ক্রম অনুযায়ী সিরিয়াল হবে)"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-1 font-bold">Release Date</label>
+              <input
+                type="date"
+                value={form.releaseDate}
+                onChange={(e) => setForm({ ...form, releaseDate: e.target.value })}
+                className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+              />
             </div>
 
             <button type="submit" className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs shadow-lg transition-all hover:scale-[1.02] mt-2">
@@ -283,16 +300,66 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
                     {[...lessons].sort((a, b) => {
-                      const strA = (a.title || '') + ' ' + (a.chapter || '') + ' ' + (a.module || '') + ' ' + (a.id || '');
-                      const strB = (b.title || '') + ' ' + (b.chapter || '') + ' ' + (b.module || '') + ' ' + (b.id || '');
-                      const matchA = strA.match(/(?:class|lecture|lesson|\#|ক্লাস|পাঠ)[-_\s]*(\d+)/i) || strA.match(/(\d+)/);
-                      const matchB = strB.match(/(?:class|lecture|lesson|\#|ক্লাস|পাঠ)[-_\s]*(\d+)/i) || strB.match(/(\d+)/);
-                      const numA = matchA ? parseInt(matchA[1], 10) : 999999;
-                      const numB = matchB ? parseInt(matchB[1], 10) : 999999;
+                      const toEnDigits = (str) => {
+                        if (!str) return '';
+                        const bn = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
+                        return String(str).replace(/[০-৯]/g, (d) => bn.indexOf(d));
+                      };
+                      const parseNum = (l) => {
+                        const explicitOrder = (l.order !== undefined && l.order !== null && !isNaN(Number(l.order)) && Number(l.order) > 0)
+                          ? Number(l.order) : null;
+                        const rawStr = ((l.title || '') + ' ' + (l.chapter || '') + ' ' + (l.module || '') + ' ' + (l.id || '')).toLowerCase();
+                        const str = toEnDigits(rawStr);
+
+                        if (str.includes('orientation') || str.includes('অরিয়েন্টেশন') || str.includes('ইনট্রো') || str.includes('intro') || str.includes('গাইডলাইন') || str.includes('guideline')) {
+                          return -1;
+                        }
+                        if (/\b(?:fast|first|1st)\b/i.test(str) || str.includes('fast class') || str.includes('first class') || str.includes('১ম') || str.includes('প্রথম')) {
+                          return 1;
+                        }
+                        if (/\b(?:2nd|second|secend)\b/i.test(str) || str.includes('2nd class') || str.includes('second class') || str.includes('২য়') || str.includes('দ্বিতীয়')) {
+                          return 2;
+                        }
+                        if (/\b(?:3rd|third)\b/i.test(str) || str.includes('3rd class') || str.includes('৩য়') || str.includes('তৃতীয়')) {
+                          return 3;
+                        }
+                        if (/\b(?:4th|fourth|forth)\b/i.test(str) || str.includes('৪র্থ') || str.includes('চতুর্থ')) {
+                          return 4;
+                        }
+                        const bnOrdinals = [
+                          { num: 5, words: ['5th', 'fifth', '৫ম', 'পঞ্চম'] },
+                          { num: 6, words: ['6th', 'sixth', '৬ষ্ঠ', 'ষষ্ঠ'] },
+                          { num: 7, words: ['7th', 'seventh', '৭ম', 'সপ্তম'] },
+                          { num: 8, words: ['8th', 'eighth', '৮ম', 'অষ্টম'] },
+                          { num: 9, words: ['9th', 'ninth', '৯ম', 'নবম'] },
+                          { num: 10, words: ['10th', 'tenth', '১০ম', 'দশম'] },
+                          { num: 11, words: ['11th', '১১তম'] },
+                          { num: 12, words: ['12th', '১২তম'] },
+                          { num: 13, words: ['13th', '১৩তম'] },
+                          { num: 14, words: ['14th', '১৪তম'] },
+                          { num: 15, words: ['15th', '১৫তম'] },
+                        ];
+                        for (const item of bnOrdinals) {
+                          if (item.words.some(w => str.includes(w))) return item.num;
+                        }
+                        const prefixMatch = str.match(/(?:class|lecture|lesson|module|video|part|পর্ব|ক্লাস|পাঠ|লেকচার|অধ্যায়|\#)[-_\s]*(\d+)/i);
+                        if (prefixMatch) return parseInt(prefixMatch[1], 10);
+                        const ordinalMatch = str.match(/(\d+)\s*(?:st|nd|rd|th|ম|য়|র্থ|ষ্ঠ|তম)/i);
+                        if (ordinalMatch) return parseInt(ordinalMatch[1], 10);
+                        if (explicitOrder !== null) return explicitOrder;
+                        const allNums = [...str.matchAll(/\b(\d+)\b/g)].map(m => parseInt(m[1], 10));
+                        const candidateNums = allNums.filter(n => n < 1800 || n > 2099);
+                        if (candidateNums.length > 0) return candidateNums[0];
+                        return 999999;
+                      };
+
+                      const numA = parseNum(a);
+                      const numB = parseNum(b);
                       if (numA !== numB) return numA - numB;
                       const dateA = new Date(a.createdAt || a.releaseDate || 0).getTime();
                       const dateB = new Date(b.createdAt || b.releaseDate || 0).getTime();
-                      return dateA - dateB;
+                      if (dateA !== dateB) return dateA - dateB;
+                      return (a.title || '').localeCompare(b.title || '');
                     }).map((l, index) => (
                       <tr key={l.id || index} className="hover:bg-slate-900/60 transition-colors">
                         <td className="p-2.5 font-mono font-bold text-amber-400 text-center">{index + 1}</td>

@@ -43,12 +43,79 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
     heroSubtitle: 'বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।'
   });
 
+  const toEnDigits = (str) => {
+    if (!str) return '';
+    const bn = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
+    return String(str).replace(/[০-৯]/g, (d) => bn.indexOf(d));
+  };
+
+  const parseLessonNum = (l) => {
+    const explicitOrder = (l.order !== undefined && l.order !== null && !isNaN(Number(l.order)) && Number(l.order) > 0)
+      ? Number(l.order) : null;
+    const rawStr = ((l.title || '') + ' ' + (l.chapter || '') + ' ' + (l.module || '') + ' ' + (l.id || '')).toLowerCase();
+    const str = toEnDigits(rawStr);
+
+    if (str.includes('orientation') || str.includes('অরিয়েন্টেশন') || str.includes('ইনট্রো') || str.includes('intro') || str.includes('গাইডলাইন') || str.includes('guideline')) {
+      return -1;
+    }
+    if (/\b(?:fast|first|1st)\b/i.test(str) || str.includes('fast class') || str.includes('first class') || str.includes('১ম') || str.includes('প্রথম')) {
+      return 1;
+    }
+    if (/\b(?:2nd|second|secend)\b/i.test(str) || str.includes('2nd class') || str.includes('second class') || str.includes('২য়') || str.includes('দ্বিতীয়')) {
+      return 2;
+    }
+    if (/\b(?:3rd|third)\b/i.test(str) || str.includes('3rd class') || str.includes('৩য়') || str.includes('তৃতীয়')) {
+      return 3;
+    }
+    if (/\b(?:4th|fourth|forth)\b/i.test(str) || str.includes('৪র্থ') || str.includes('চতুর্থ')) {
+      return 4;
+    }
+    const bnOrdinals = [
+      { num: 5, words: ['5th', 'fifth', '৫ম', 'পঞ্চম'] },
+      { num: 6, words: ['6th', 'sixth', '৬ষ্ঠ', 'ষষ্ঠ'] },
+      { num: 7, words: ['7th', 'seventh', '৭ম', 'সপ্তম'] },
+      { num: 8, words: ['8th', 'eighth', '৮ম', 'অষ্টম'] },
+      { num: 9, words: ['9th', 'ninth', '৯ম', 'নবম'] },
+      { num: 10, words: ['10th', 'tenth', '১০ম', 'দশম'] },
+      { num: 11, words: ['11th', '১১তম'] },
+      { num: 12, words: ['12th', '১২তম'] },
+      { num: 13, words: ['13th', '১৩তম'] },
+      { num: 14, words: ['14th', '১৪তম'] },
+      { num: 15, words: ['15th', '১৫তম'] },
+    ];
+    for (const item of bnOrdinals) {
+      if (item.words.some(w => str.includes(w))) return item.num;
+    }
+    const prefixMatch = str.match(/(?:class|lecture|lesson|module|video|part|পর্ব|ক্লাস|পাঠ|লেকচার|অধ্যায়|\#)[-_\s]*(\d+)/i);
+    if (prefixMatch) return parseInt(prefixMatch[1], 10);
+    const ordinalMatch = str.match(/(\d+)\s*(?:st|nd|rd|th|ম|য়|র্থ|ষ্ঠ|তম)/i);
+    if (ordinalMatch) return parseInt(ordinalMatch[1], 10);
+    if (explicitOrder !== null) return explicitOrder;
+    const allNums = [...str.matchAll(/\b(\d+)\b/g)].map(m => parseInt(m[1], 10));
+    const candidateNums = allNums.filter(n => n < 1800 || n > 2099);
+    if (candidateNums.length > 0) return candidateNums[0];
+    return 999999;
+  };
+
+  const sortLessons = (list) => {
+    return [...(list || [])].sort((a, b) => {
+      const numA = parseLessonNum(a);
+      const numB = parseLessonNum(b);
+      if (numA !== numB) return numA - numB;
+      const dateA = new Date(a.createdAt || a.releaseDate || 0).getTime();
+      const dateB = new Date(b.createdAt || b.releaseDate || 0).getTime();
+      if (dateA !== dateB) return dateA - dateB;
+      return (a.title || '').localeCompare(b.title || '');
+    });
+  };
+
   const handleOpenCourseDetails = async (c) => {
     setCourseDetailsModal({ isOpen: true, course: c, lessons: [], loading: true });
     try {
       const res = await api.get(`/lessons?courseId=${c.id}`);
       if (res.data && res.data.ok) {
-        setCourseDetailsModal({ isOpen: true, course: c, lessons: res.data.lessons || [], loading: false });
+        const sorted = sortLessons(res.data.lessons || []);
+        setCourseDetailsModal({ isOpen: true, course: c, lessons: sorted, loading: false });
       } else {
         setCourseDetailsModal({ isOpen: true, course: c, lessons: [], loading: false });
       }
@@ -627,11 +694,19 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                   {courseDetailsModal.lessons.map((l, index) => {
                     const isOrientation = (
                       (l.title || '').toLowerCase().includes('orientation') ||
-                      (l.title || '').includes('অরিয়েন্টেশন')
+                      (l.title || '').includes('অরিয়েন্টেশন') ||
+                      (l.title || '').toLowerCase().includes('intro') ||
+                      (l.title || '').includes('ইনট্রো')
                     );
                     const isFirstVideo = (index === 0);
                     const isFreeDemo = isOrientation || isFirstVideo;
                     const hasVideo = Boolean(l.youtubeId || l.youtubeUrl);
+
+                    const orientationCountBefore = courseDetailsModal.lessons.slice(0, index).filter(item => {
+                      const t = ((item.title || '') + ' ' + (item.module || '')).toLowerCase();
+                      return t.includes('orientation') || t.includes('অরিয়েন্টেশন') || t.includes('intro') || t.includes('ইনট্রো');
+                    }).length;
+                    const regularClassNum = Math.max(1, index + 1 - orientationCountBefore);
 
                     return (
                       <div
@@ -649,7 +724,7 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                                 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-mono'
                                 : 'bg-slate-800 text-slate-400 border-slate-700 font-mono'
                             }`}>
-                              {isOrientation ? '🎁 Orientation Class (Free Demo)' : isFirstVideo ? '🎁 Class #1 (Free Demo Unlocked)' : `🔒 Class #${index + 1} (Locked)`}
+                              {isOrientation ? '🎁 Orientation Class (Free Demo)' : isFirstVideo ? '🎁 Class #1 (Free Demo Unlocked)' : `🔒 Class #${regularClassNum} (Locked)`}
                             </span>
                             {l.duration && <span className="font-mono text-[10px] text-slate-400">⏱️ {l.duration}</span>}
                           </div>

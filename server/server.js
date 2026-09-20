@@ -3507,23 +3507,125 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
       }
     }
 
-    // Sort lessons serially in ascending order (#1, #2, #3 ... #15) with Orientation ALWAYS #1 at top
+    // Helper to convert Bengali numerals to English numerals
+    const toEnDigits = (str) => {
+      if (!str) return '';
+      const bn = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
+      return String(str).replace(/[০-৯]/g, (d) => bn.indexOf(d));
+    };
+
+    // Sort lessons serially in ascending order (#1, #2, #3 ...) with Orientation ALWAYS #1 at top
     const parseLessonNum = (l) => {
-      const str = ((l.title || '') + ' ' + (l.chapter || '') + ' ' + (l.module || '') + ' ' + (l.id || '')).toLowerCase();
-      if (str.includes('orientation') || str.includes('অরিয়েন্টেশন') || str.includes('ইনট্রোডিউসিং') || str.includes('গাইডলাইন')) {
+      const explicitOrder = (l.order !== undefined && l.order !== null && !isNaN(Number(l.order)) && Number(l.order) > 0)
+        ? Number(l.order)
+        : null;
+
+      const rawStr = ((l.title || '') + ' ' + (l.chapter || '') + ' ' + (l.module || '') + ' ' + (l.id || '')).toLowerCase();
+      const str = toEnDigits(rawStr);
+
+      // 1. Orientation / Demo / Intro always #1 at top
+      if (
+        str.includes('orientation') ||
+        str.includes('অরিয়েন্টেশন') ||
+        str.includes('ইনট্রো') ||
+        str.includes('intro') ||
+        str.includes('গাইডলাইন') ||
+        str.includes('guideline')
+      ) {
         return -1;
       }
-      const match = str.match(/(?:class|lecture|lesson|\#|ক্লাস|পাঠ)[-_\s]*(\d+)/i) || str.match(/(\d+)/);
-      return match ? parseInt(match[1], 10) : 999999;
+
+      // 2. Phonetic / Bengali / English ordinals for Class 1 (First/Fast/1st/১ম/প্রথম)
+      if (
+        /\b(?:fast|first|1st)\b/i.test(str) ||
+        str.includes('fast class') ||
+        str.includes('first class') ||
+        str.includes('১ম') ||
+        str.includes('প্রথম')
+      ) {
+        return 1;
+      }
+
+      // 3. Class 2 (Second/2nd/২য়/দ্বিতীয়)
+      if (
+        /\b(?:2nd|second|secend)\b/i.test(str) ||
+        str.includes('2nd class') ||
+        str.includes('second class') ||
+        str.includes('২য়') ||
+        str.includes('দ্বিতীয়')
+      ) {
+        return 2;
+      }
+
+      // 4. Class 3 (Third/3rd/৩য়/তৃতীয়)
+      if (
+        /\b(?:3rd|third)\b/i.test(str) ||
+        str.includes('3rd class') ||
+        str.includes('৩য়') ||
+        str.includes('তৃতীয়')
+      ) {
+        return 3;
+      }
+
+      // 5. Class 4 (Fourth/4th/৪র্থ/চতুর্থ)
+      if (
+        /\b(?:4th|fourth|forth)\b/i.test(str) ||
+        str.includes('৪র্থ') ||
+        str.includes('চতুর্থ')
+      ) {
+        return 4;
+      }
+
+      const bnOrdinals = [
+        { num: 5, words: ['5th', 'fifth', '৫ম', 'পঞ্চম'] },
+        { num: 6, words: ['6th', 'sixth', '৬ষ্ঠ', 'ষষ্ঠ'] },
+        { num: 7, words: ['7th', 'seventh', '৭ম', 'সপ্তম'] },
+        { num: 8, words: ['8th', 'eighth', '৮ম', 'অষ্টম'] },
+        { num: 9, words: ['9th', 'ninth', '৯ম', 'নবম'] },
+        { num: 10, words: ['10th', 'tenth', '১০ম', 'দশম'] },
+        { num: 11, words: ['11th', '১১তম'] },
+        { num: 12, words: ['12th', '১২তম'] },
+        { num: 13, words: ['13th', '১৩তম'] },
+        { num: 14, words: ['14th', '১৪তম'] },
+        { num: 15, words: ['15th', '১৫তম'] },
+        { num: 16, words: ['16th', '১৬তম'] },
+        { num: 17, words: ['17th', '১৭তম'] },
+        { num: 18, words: ['18th', '১৮তম'] },
+        { num: 19, words: ['19th', '১৯তম'] },
+        { num: 20, words: ['20th', '২০তম'] },
+      ];
+      for (const item of bnOrdinals) {
+        if (item.words.some(w => str.includes(w))) return item.num;
+      }
+
+      // 6. Keywords followed by numbers (class 1, lecture 2, পাঠ ৩, পর্ব ৪)
+      const classPrefixMatch = str.match(/(?:class|lecture|lesson|module|video|part|পর্ব|ক্লাস|পাঠ|লেকচার|অধ্যায়|\#)[-_\s]*(\d+)/i);
+      if (classPrefixMatch) return parseInt(classPrefixMatch[1], 10);
+
+      // 7. Ordinal numbers with suffixes
+      const ordinalNumMatch = str.match(/(\d+)\s*(?:st|nd|rd|th|ম|য়|র্থ|ষ্ঠ|তম)/i);
+      if (ordinalNumMatch) return parseInt(ordinalNumMatch[1], 10);
+
+      // 8. Explicit order property if set
+      if (explicitOrder !== null) return explicitOrder;
+
+      // 9. Standalone number, excluding legal years (1800-2099)
+      const allNums = [...str.matchAll(/\b(\d+)\b/g)].map(m => parseInt(m[1], 10));
+      const candidateNums = allNums.filter(n => n < 1800 || n > 2099);
+      if (candidateNums.length > 0) return candidateNums[0];
+
+      return 999999;
     };
 
     lessonsList.sort((a, b) => {
       const numA = parseLessonNum(a);
       const numB = parseLessonNum(b);
       if (numA !== numB) return numA - numB;
+      // If numbers match or none found, preserve sequential creation order (earlier uploaded first)
       const dateA = new Date(a.createdAt || a.releaseDate || 0).getTime();
       const dateB = new Date(b.createdAt || b.releaseDate || 0).getTime();
-      return dateA - dateB;
+      if (dateA !== dateB) return dateA - dateB;
+      return (a.title || '').localeCompare(b.title || '');
     });
 
     fastCache.set(cacheKey, lessonsList || [], 60);
@@ -3546,14 +3648,15 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
     const lessonData = {
       id: lessonId,
       courseId: body.courseId || "General Class",
-      module: body.module || "Fast Class",
+      module: body.module || "General Module",
       chapter: body.chapter || "",
       title: body.title || body.chapter || body.module || "Class Video",
       duration: body.duration || "56min",
       youtubeUrl: body.youtubeUrl || (youtubeId ? `https://youtu.be/${youtubeId}` : ""),
       youtubeId: youtubeId,
       releaseDate: body.releaseDate || new Date().toISOString().split("T")[0],
-      description: body.description || ""
+      description: body.description || "",
+      order: (body.order !== undefined && body.order !== null && !isNaN(Number(body.order))) ? Number(body.order) : 0
     };
 
     let saved = lessonData;
@@ -4945,66 +5048,6 @@ app.post("/api/admin/courses/toggle", async (req, res) => {
     return res.json({ ok: true, message: `Course "${c?.title || courseId}" is now ${newStatus}`, status: newStatus });
   } catch (e) {
     return res.status(500).json({ ok: false, message: "Error toggling course status." });
-  }
-});
-
-app.post("/api/admin/lessons/save", async (req, res) => {
-  try {
-    await ensureDbConnected();
-    let body = { ...req.body };
-
-    // Auto-generate unique lesson ID if missing
-    if (!body.id || !String(body.id).trim()) {
-      body.id = "les-" + Date.now() + "-" + Math.floor(1000 + Math.random() * 9000);
-    } else {
-      body.id = String(body.id).trim();
-    }
-
-    // Default title if left blank
-    if (!body.title || !String(body.title).trim()) {
-      body.title = body.chapter || body.module || "Class Video";
-    }
-
-    body.youtubeId = extractYoutubeId(body.youtubeUrl || body.youtubeId);
-
-    let savedLesson = body;
-    if (isMongoConnected) {
-      let lesson = await Lesson.findOne({ id: body.id });
-      if (lesson) {
-        Object.assign(lesson, body);
-        savedLesson = await lesson.save();
-      } else {
-        savedLesson = await Lesson.create(body);
-      }
-      if (savedLesson && savedLesson.toObject) {
-        savedLesson = savedLesson.toObject();
-      }
-    }
-
-    const idx = memoryDb.lessons.findIndex((l) => l.id === body.id);
-    if (idx > -1) {
-      memoryDb.lessons[idx] = { ...memoryDb.lessons[idx], ...savedLesson };
-    } else {
-      memoryDb.lessons.push({ ...savedLesson });
-    }
-
-    return res.json({ ok: true, message: `Video "${savedLesson.title}" saved successfully!`, lesson: savedLesson });
-  } catch (e) {
-    console.error("Lesson save error:", e);
-    return res.status(500).json({ ok: false, message: e.message || "Error saving video lesson." });
-  }
-});
-
-app.delete("/api/admin/lessons/:id", async (req, res) => {
-  try {
-    await ensureDbConnected();
-    if (isMongoConnected) {
-      await Lesson.deleteOne({ id: req.params.id });
-    }
-    memoryDb.lessons = memoryDb.lessons.filter((l) => l.id !== req.params.id);
-    return res.json({ ok: true, message: "Video deleted successfully!" });
-  } catch (e) {
-    return res.status(500).json({ ok: false, message: "Error deleting video." });
   }
 });
 

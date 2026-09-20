@@ -12,6 +12,7 @@ const lessonSchema = new mongoose.Schema({
   releaseDate: { type: String, default: "" },
   resources: [{ type: String }],
   description: { type: String, default: "" },
+  order: { type: Number, default: 0 },
 }, { timestamps: true });
 
 module.exports = mongoose.model("Lesson", lessonSchema);
