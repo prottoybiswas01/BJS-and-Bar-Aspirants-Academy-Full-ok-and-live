@@ -329,6 +329,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     note: 'Course Fee Payment'
   });
   const [receiptPreviewModal, setReceiptPreviewModal] = useState({ isOpen: false, receipt: null });
+  const [copiedReceiptId, setCopiedReceiptId] = useState(null);
   const [noteModal, setNoteModal] = useState({ isOpen: false, student: null, noteText: '', loading: false });
 
   const handleOpenNoteModal = (student) => {
@@ -1564,6 +1565,64 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     setSelectedStudentForReceipt({ id: r.studentId, name: r.studentName, phone: r.studentPhone, email: r.studentEmail });
     showToast(`Editing Money Receipt ${r.receiptId}`, 'success');
     document.getElementById('payment-form-section')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleCopyReceiptDetails = (r) => {
+    if (!r) return;
+    const formattedDate = new Date(r.paymentTime || r.createdAt).toLocaleString();
+    const formattedAmount = Number(r.amount || 0).toLocaleString();
+
+    const lines = [
+      `স্টুডেন্টের নাম: ${r.studentName || 'N/A'}`,
+      `টাকার পরিমাণ: ৳ ${formattedAmount} BDT`,
+      `ট্রানজেকশন আইডি (TrxID): ${r.trxId || 'N/A'}${r.paymentMethod ? ` (${r.paymentMethod})` : ''}`,
+      `পেমেন্টের তারিখ ও সময়: ${formattedDate}`
+    ];
+
+    if (r.receiptId) lines.push(`মানি রিসিট নম্বর: ${r.receiptId}`);
+    if (r.studentId) lines.push(`স্টুডেন্ট আইডি: ${r.studentId}`);
+    if (r.studentPhone) lines.push(`মোবাইল নম্বর: ${r.studentPhone}`);
+    if (r.batch) lines.push(`কোর্স / ব্যাচ: ${r.batch}`);
+
+    const textToCopy = lines.join('\n');
+
+    const copySuccess = () => {
+      setCopiedReceiptId(r.receiptId);
+      showToast(`✓ "${r.studentName || 'স্টুডেন্ট'}" এর পেমেন্ট তথ্য কপি করা হয়েছে!`, 'success');
+      setTimeout(() => setCopiedReceiptId(null), 2500);
+    };
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(textToCopy)
+        .then(copySuccess)
+        .catch(() => fallbackCopy(textToCopy, r.receiptId, r.studentName));
+    } else {
+      fallbackCopy(textToCopy, r.receiptId, r.studentName);
+    }
+  };
+
+  const fallbackCopy = (text, id, name) => {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (successful) {
+        setCopiedReceiptId(id);
+        showToast(`✓ "${name || 'স্টুডেন্ট'}" এর পেমেন্ট তথ্য কপি করা হয়েছে!`, 'success');
+        setTimeout(() => setCopiedReceiptId(null), 2500);
+      } else {
+        throw new Error('execCommand failed');
+      }
+    } catch (e) {
+      showToast('কপি করতে সমস্যা হয়েছে। দয়া করে ম্যানুয়ালি কপি করুন।', 'error');
+    }
   };
 
   const handlePrintAllReceiptsSummary = () => {
@@ -4303,6 +4362,18 @@ return (
                       <td className="p-3 text-right space-x-1.5 whitespace-nowrap">
                         <button
                           type="button"
+                          onClick={() => handleCopyReceiptDetails(r)}
+                          className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all shadow-sm ${
+                            copiedReceiptId === r.receiptId
+                              ? 'bg-emerald-600 text-white border-emerald-400'
+                              : 'bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border-cyan-500/30'
+                          }`}
+                          title="পেমেন্ট ও রিসিট তথ্য কপি করুন (Copy Details)"
+                        >
+                          {copiedReceiptId === r.receiptId ? '✓ Copied' : '📋 Copy'}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleResendReceiptEmail(r.receiptId)}
                           className="px-2.5 py-1 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold transition-all"
                           title="Re-send Email to Student"
@@ -4427,7 +4498,7 @@ return (
               </div>
             </div>
 
-            <div className="flex justify-between items-center pt-2">
+            <div className="flex justify-between items-center pt-2 gap-2">
               <button
                 type="button"
                 onClick={() => setReceiptPreviewModal({ isOpen: false, receipt: null })}
@@ -4436,8 +4507,21 @@ return (
                 বন্ধ করুন (Close)
               </button>
 
-              <button
-                type="button"
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCopyReceiptDetails(receiptPreviewModal.receipt)}
+                  className={`px-3.5 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    copiedReceiptId === receiptPreviewModal.receipt.receiptId
+                      ? 'bg-emerald-600 text-white border-emerald-400'
+                      : 'bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border-cyan-500/30'
+                  }`}
+                  title="পেমেন্ট বিবরণ কপি করুন"
+                >
+                  <span>📋</span> {copiedReceiptId === receiptPreviewModal.receipt.receiptId ? '✓ কপি সম্পন্ন' : 'বিবরণ কপি করুন (Copy)'}
+                </button>
+                <button
+                  type="button"
                 onClick={() => {
                   const content = document.getElementById('printable-receipt-slip')?.innerHTML;
                   const win = window.open('', '_blank');
@@ -4466,6 +4550,7 @@ return (
               >
                 <span>🖨️</span> স্লিপ প্রিন্ট করুন (Print Slip)
               </button>
+              </div>
             </div>
           </div>
         
