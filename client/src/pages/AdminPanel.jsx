@@ -330,6 +330,28 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   });
   const [receiptPreviewModal, setReceiptPreviewModal] = useState({ isOpen: false, receipt: null });
   const [copiedReceiptId, setCopiedReceiptId] = useState(null);
+
+  // Monthly Filter, Student Payment Profile & Due Notice State
+  const getCurrentMonthStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const [selectedPaymentMonth, setSelectedPaymentMonth] = useState(getCurrentMonthStr());
+  const [receiptFilterMonthMode, setReceiptFilterMonthMode] = useState('all'); // 'all' | 'selected'
+  const [dueTrackerTab, setDueTrackerTab] = useState('due'); // 'due' | 'paid' | 'all'
+  const [dueSearchQuery, setDueSearchQuery] = useState('');
+  const [selectedDueStudentIds, setSelectedDueStudentIds] = useState([]);
+  const [studentPaymentProfileModal, setStudentPaymentProfileModal] = useState({ isOpen: false, student: null });
+  const [dueReminderEmailModal, setDueReminderEmailModal] = useState({
+    isOpen: false,
+    subject: '',
+    body: '',
+    sending: false,
+    targetIds: []
+  });
+  const [isCopiedDueList, setIsCopiedDueList] = useState(false);
+
   const [noteModal, setNoteModal] = useState({ isOpen: false, student: null, noteText: '', loading: false });
 
   const handleOpenNoteModal = (student) => {
@@ -1625,19 +1647,280 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
+  const getReceiptMonthKey = (r) => {
+    if (!r) return '';
+    const d = new Date(r.paymentTime || r.createdAt);
+    if (isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  };
+
+  const monthNamesBn = {
+    '01': 'জানুয়ারি',
+    '02': 'ফেব্রুয়ারি',
+    '03': 'মার্চ',
+    '04': 'এপ্রিল',
+    '05': 'মে',
+    '06': 'জুন',
+    '07': 'জুলাই',
+    '08': 'আগস্ট',
+    '09': 'সেপ্টেম্বর',
+    '10': 'অক্টোবর',
+    '11': 'নভেম্বর',
+    '12': 'ডিসেম্বর'
+  };
+
+  const formatMonthLabel = (monthKey) => {
+    if (!monthKey || monthKey === 'all') return 'সকল মাস (সর্বমোট / All-Time)';
+    const parts = monthKey.split('-');
+    if (parts.length !== 2) return monthKey;
+    const [y, m] = parts;
+    return `${monthNamesBn[m] || m} ${y}`;
+  };
+
+  const getStudentPaymentSummary = (s, targetMonthKey = selectedPaymentMonth) => {
+    if (!s) return { isPaid: false, monthReceipts: [], totalPaidInMonth: 0, allTimePaid: 0, allTimeReceipts: [], receiptCount: 0, monthReceiptCount: 0, targetMonthLabel: '' };
+    const targetMonth = (!targetMonthKey || targetMonthKey === 'all')
+      ? getCurrentMonthStr()
+      : targetMonthKey;
+
+    const sReceipts = (receipts || []).filter(r =>
+      (r.studentId && (r.studentId === s.id || r.studentId === s.regId)) ||
+      (s.phone && r.studentPhone === s.phone) ||
+      (s.email && r.studentEmail && r.studentEmail.toLowerCase() === s.email.toLowerCase())
+    );
+
+    const monthReceipts = sReceipts.filter(r => getReceiptMonthKey(r) === targetMonth);
+    const totalPaidInMonth = monthReceipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const allTimePaid = sReceipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const isPaidThisMonth = monthReceipts.length > 0;
+
+    return {
+      isPaid: isPaidThisMonth,
+      monthReceipts,
+      totalPaidInMonth,
+      allTimePaid,
+      allTimeReceipts: sReceipts,
+      receiptCount: sReceipts.length,
+      monthReceiptCount: monthReceipts.length,
+      targetMonthLabel: formatMonthLabel(targetMonth)
+    };
+  };
+
+  const handleOpenStudentPaymentProfile = (student) => {
+    if (!student) return;
+    setStudentPaymentProfileModal({ isOpen: true, student });
+  };
+
+  const handleOpenDueReminderModal = (singleStudentId = null) => {
+    const targetMonth = (!selectedPaymentMonth || selectedPaymentMonth === 'all') ? getCurrentMonthStr() : selectedPaymentMonth;
+    const monthLabel = formatMonthLabel(targetMonth);
+
+    let targetIds = [];
+    if (singleStudentId) {
+      const stu = (students || []).find(s => s.id === singleStudentId || s.regId === singleStudentId);
+      if (stu) {
+        const pInfo = getStudentPaymentSummary(stu, targetMonth);
+        if (pInfo.isPaid) {
+          showToast(`⚠️ "${stu.name}" ইতিমধ্যে ${monthLabel}-এর পেমেন্ট সম্পন্ন করেছেন!`, 'error');
+          return;
+        }
+        targetIds = [stu.id];
+      }
+    } else if (selectedDueStudentIds.length > 0) {
+      targetIds = selectedDueStudentIds.filter(id => {
+        const stu = (students || []).find(s => s.id === id || s.regId === id);
+        if (!stu) return false;
+        return !getStudentPaymentSummary(stu, targetMonth).isPaid;
+      });
+    } else {
+      targetIds = (students || [])
+        .filter(s => !getStudentPaymentSummary(s, targetMonth).isPaid)
+        .map(s => s.id);
+    }
+
+    if (targetIds.length === 0) {
+      showToast(`⚠️ ${monthLabel}-এর জন্য কোনো বকেয়া শিক্ষার্থী পাওয়া যায়নি।`, 'error');
+      return;
+    }
+
+    const defaultSubject = `⚖️ BJS & Bar Academy - ${monthLabel} মাসের কোর্স ফি বকেয়া নোটিশ`;
+    const defaultBody = `সম্মানিত শিক্ষার্থী,
+আসসালামু আলাইকুম।
+BJS & Bar Aspirants Academy-এর ${monthLabel}-এর মাসিক কোর্স ফি বাবদ আপনার অ্যাকাউন্টে বকেয়া রয়েছে।
+
+নিয়মিত লাইভ ক্লাস, রেকর্ডেড ক্লাস ও এক্সাম পোর্টালে নিরবচ্ছিন্ন অ্যাক্সেস বজায় রাখতে অনুগ্রহ করে আপনার বকেয়া ফি দ্রুত পরিশোধ করুন।
+
+💳 অফিসিয়াল পেমেন্ট নম্বরসমূহ:
+• বিকাশ (bKash Personal): 01975341714
+• নগদ (Nagad Personal): 01975341714
+• পেমেন্ট সম্পন্ন করে 01800077663 এই নম্বরে একটি স্ক্রিনশট পাঠিয়ে দেবেন
+
+ফি পরিশোধ সম্পন্ন করার পর আপনার ট্রানজেকশন আইডি (TrxID) নিশ্চিত করুন অথবা অ্যাকাডেমিক হেল্পলাইনে অবগত করুন।
+
+ধন্যবাদান্তে,
+অ্যাকাডেমিক অ্যাকাউন্টস ডিপার্টমেন্ট
+BJS & Bar Aspirants Academy
+হেল্পলাইন: 01800077663`;
+
+    setDueReminderEmailModal({
+      isOpen: true,
+      subject: defaultSubject,
+      body: defaultBody,
+      sending: false,
+      targetIds
+    });
+  };
+
+  const handleSendDueReminderEmail = async () => {
+    const { targetIds, subject, body } = dueReminderEmailModal;
+    if (!targetIds || targetIds.length === 0) {
+      showToast('কোনো বকেয়া শিক্ষার্থী সিলেক্ট করা নেই।', 'error');
+      return;
+    }
+
+    const targetMonth = (!selectedPaymentMonth || selectedPaymentMonth === 'all') ? getCurrentMonthStr() : selectedPaymentMonth;
+    const safeTargetIds = targetIds.filter(id => {
+      const stu = (students || []).find(s => s.id === id || s.regId === id);
+      if (!stu) return false;
+      return !getStudentPaymentSummary(stu, targetMonth).isPaid;
+    });
+
+    if (safeTargetIds.length === 0) {
+      showToast('⚠️ নির্বাচিত শিক্ষার্থীদের মধ্যে সবাই ইতিমধ্যে ফি পরিশোধ করেছেন!', 'error');
+      setDueReminderEmailModal({ isOpen: false, subject: '', body: '', sending: false, targetIds: [] });
+      return;
+    }
+
+    setDueReminderEmailModal(prev => ({ ...prev, sending: true }));
+    try {
+      const res = await api.post('/admin/students/message', {
+        studentIds: safeTargetIds,
+        type: 'email',
+        subject: subject || 'বকেয়া কোর্স ফি নোটিশ',
+        body: body || ''
+      });
+
+      if (res.data.ok) {
+        showToast(res.data.message || `✓ ${safeTargetIds.length} জন বকেয়া শিক্ষার্থীর কাছে সফলভাবে ইমেইল রিমাইন্ডার পাঠানো হয়েছে!`, 'success');
+        setDueReminderEmailModal({ isOpen: false, subject: '', body: '', sending: false, targetIds: [] });
+        setSelectedDueStudentIds([]);
+      } else {
+        showToast(res.data.message || 'ইমেইল পাঠাতে সমস্যা হয়েছে।', 'error');
+        setDueReminderEmailModal(prev => ({ ...prev, sending: false }));
+      }
+    } catch (err) {
+      showToast('ইমেইল পাঠাতে সমস্যা হয়েছে। দয়া করে সার্ভার চেক করুন।', 'error');
+      setDueReminderEmailModal(prev => ({ ...prev, sending: false }));
+    }
+  };
+
+  const handleCopyDueStudentsList = () => {
+    const targetMonth = (!selectedPaymentMonth || selectedPaymentMonth === 'all') ? getCurrentMonthStr() : selectedPaymentMonth;
+    const monthLabel = formatMonthLabel(targetMonth);
+
+    let listToCopy = [];
+    if (selectedDueStudentIds.length > 0) {
+      listToCopy = (students || []).filter(s =>
+        selectedDueStudentIds.includes(s.id) && !getStudentPaymentSummary(s, targetMonth).isPaid
+      );
+    } else {
+      listToCopy = (students || []).filter(s => !getStudentPaymentSummary(s, targetMonth).isPaid);
+    }
+
+    if (listToCopy.length === 0) {
+      showToast(`⚠️ ${monthLabel}-এর জন্য কোনো বকেয়া শিক্ষার্থী নেই।`, 'error');
+      return;
+    }
+
+    const lines = [
+      `📌 বকেয়া কোর্স ফি তালিকা (${monthLabel})`,
+      `প্রতিষ্ঠান: BJS & Bar Aspirants Academy`,
+      `তারিখ: ${new Date().toLocaleString()}`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+    ];
+
+    listToCopy.forEach((s, idx) => {
+      lines.push(`${idx + 1}. ${s.name} - ${s.phone || 'মোবাইল নেই'} (আইডি: ${s.id}${s.batch ? ` | ${s.batch}` : ''})`);
+    });
+
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`মোট বকেয়া শিক্ষার্থী: ${listToCopy.length} জন`);
+
+    const text = lines.join('\n');
+
+    const copySuccess = () => {
+      setIsCopiedDueList(true);
+      showToast(`✓ ${listToCopy.length} জন বকেয়া শিক্ষার্থীর নাম ও মোবাইল নম্বর কপি করা হয়েছে!`, 'success');
+      setTimeout(() => setIsCopiedDueList(false), 3000);
+    };
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(copySuccess).catch(() => fallbackCopyDueList(text, listToCopy.length));
+    } else {
+      fallbackCopyDueList(text, listToCopy.length);
+    }
+  };
+
+  const fallbackCopyDueList = (text, count) => {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setIsCopiedDueList(true);
+      showToast(`✓ ${count} জন বকেয়া শিক্ষার্থীর নাম ও মোবাইল নম্বর কপি করা হয়েছে!`, 'success');
+      setTimeout(() => setIsCopiedDueList(false), 3000);
+    } catch (e) {
+      showToast('কপি করতে সমস্যা হয়েছে। দয়া করে ম্যানুয়ালি কপি করুন।', 'error');
+    }
+  };
+
+  const toggleSelectAllDueStudents = (visibleDueList) => {
+    const visibleIds = visibleDueList.map(s => s.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedDueStudentIds.includes(id));
+    if (allSelected) {
+      setSelectedDueStudentIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedDueStudentIds(prev => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const toggleDueStudentSelection = (id) => {
+    if (selectedDueStudentIds.includes(id)) {
+      setSelectedDueStudentIds(prev => prev.filter(i => i !== id));
+    } else {
+      setSelectedDueStudentIds(prev => [...prev, id]);
+    }
+  };
+
   const handlePrintAllReceiptsSummary = () => {
-    const totalAmount = receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-    const bkashAmt = (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-    const nagadAmt = (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-    const rocketAmt = (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const targetMonth = selectedPaymentMonth;
+    const targetReceipts = (!targetMonth || targetMonth === 'all')
+      ? (receipts || [])
+      : (receipts || []).filter(r => getReceiptMonthKey(r) === targetMonth);
+
+    const totalAmount = targetReceipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const bkashAmt = targetReceipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const nagadAmt = targetReceipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const rocketAmt = targetReceipts.filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
     const othersAmt = totalAmount - (bkashAmt + nagadAmt + rocketAmt);
+
+    const periodLabel = (!targetMonth || targetMonth === 'all')
+      ? 'সর্বমোট কালেকশন ও পেমেন্ট সামারি রিপোর্ট (All-Time Collections)'
+      : `${formatMonthLabel(targetMonth)}-এর কালেকশন ও পেমেন্ট সামারি রিপোর্ট`;
 
     const win = window.open('', '_blank');
     win.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Payment & Collection Summary Report - BJS & Bar Academy</title>
+        <title>${periodLabel} - BJS & Bar Academy</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 20px; color: #1e293b; }
           h1 { color: #d97706; margin-bottom: 4px; }
@@ -1652,7 +1935,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       </head>
       <body>
         <h1>⚖️ BJS & Bar Aspirants Academy</h1>
-        <p style="margin-top:0; font-size: 12px; color: #64748b;">Official Accounts Collection & Money Receipt Summary Report | Issued: ${new Date().toLocaleString()}</p>
+        <p style="margin-top:0; font-size: 12px; color: #64748b;">${periodLabel} | Issued: ${new Date().toLocaleString()}</p>
         
         <div class="summary-card">
           <div class="card">
@@ -1691,7 +1974,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             </tr>
           </thead>
           <tbody>
-            ${(receipts || []).map(r => `
+            ${targetReceipts.map(r => `
               <tr>
                 <td><strong>${r.receiptId}</strong></td>
                 <td>${new Date(r.paymentTime || r.createdAt).toLocaleString()}</td>
@@ -1792,6 +2075,60 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   });
 
 
+
+  // Available Payment Months Calculation
+  const availablePaymentMonths = Array.from(new Set([
+    getCurrentMonthStr(),
+    '2026-11',
+    '2026-10',
+    '2026-09',
+    '2026-08',
+    '2026-07',
+    '2026-06',
+    '2026-05',
+    '2026-04',
+    ...(receipts || []).map(r => getReceiptMonthKey(r)).filter(Boolean)
+  ])).sort().reverse();
+
+  const filteredReceiptsByMonth = (receipts || []).filter(r => {
+    if (!selectedPaymentMonth || selectedPaymentMonth === 'all') return true;
+    return getReceiptMonthKey(r) === selectedPaymentMonth;
+  });
+
+  const monthTotalAmount = filteredReceiptsByMonth.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const monthBkash = filteredReceiptsByMonth.filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const monthNagad = filteredReceiptsByMonth.filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const monthRocket = filteredReceiptsByMonth.filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const monthOthers = monthTotalAmount - (monthBkash + monthNagad + monthRocket);
+
+  const studentsWithPaymentStatus = (students || []).map(s => {
+    const paymentInfo = getStudentPaymentSummary(s, selectedPaymentMonth);
+    return { ...s, paymentInfo };
+  });
+
+  const paidStudentsList = studentsWithPaymentStatus.filter(s => s.paymentInfo.isPaid);
+  const dueStudentsList = studentsWithPaymentStatus.filter(s => !s.paymentInfo.isPaid);
+
+  const currentDueTrackerList = dueTrackerTab === 'due'
+    ? dueStudentsList
+    : dueTrackerTab === 'paid'
+      ? paidStudentsList
+      : studentsWithPaymentStatus;
+
+  const filteredDueStudents = currentDueTrackerList.filter(s => {
+    if (!dueSearchQuery) return true;
+    const q = dueSearchQuery.toLowerCase();
+    return (
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.id || '').toLowerCase().includes(q) ||
+      (s.phone || '').includes(q) ||
+      (s.email || '').toLowerCase().includes(q)
+    );
+  });
+
+  const displayReceipts = (receiptFilterMonthMode === 'selected' && selectedPaymentMonth !== 'all')
+    ? filteredReceiptsByMonth
+    : receipts;
 
 return (
     <div className="min-h-screen bg-[#070d19] text-slate-100 font-sans flex flex-col lg:flex-row gap-6 p-2 sm:p-4 animate-fadeIn relative">
@@ -4011,33 +4348,56 @@ return (
               <span>💳</span> Payment for Student (পেমেন্ট ও মানি রিসিট সেকশন)
             </h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              স্টুডেন্ট সার্চ করুন, পেমেন্ট অ্যান্ট্রি দিন এবং সরাসরি ইউজারের ইমেইলে ব্র্যান্ডেড সিল-ছাপ্পড়সহ অফিশিয়াল মানি রিসিট (Paid Slip) পাঠান।
+              মাসভিত্তিক আয়-ব্যয় অডিট করুন, বকেয়া শিক্ষার্থী ট্র্যাক করুন এবং এক ক্লিকে নোটিশ ও সিল-ছাপ্পড়সহ অফিশিয়াল মানি রিসিট পাঠান।
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={handlePrintAllReceiptsSummary}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-2"
-          >
-            <span>📄</span> সর্বমোট কালেকশন রিপোর্ট প্রিন্ট (Export PDF/Print)
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Month Selector Filter Dropdown */}
+            <div className="flex items-center gap-2 bg-slate-900 border border-emerald-500/40 rounded-xl px-3 py-1.5 shadow-md">
+              <span className="text-xs text-emerald-400 font-bold flex items-center gap-1">
+                <span>📅</span> মাস:
+              </span>
+              <select
+                value={selectedPaymentMonth}
+                onChange={(e) => setSelectedPaymentMonth(e.target.value)}
+                className="bg-transparent text-white text-xs font-bold font-mono focus:outline-none cursor-pointer pr-1"
+              >
+                <option value="all" className="bg-slate-950 text-white">🌐 সকল মাস (সর্বমোট / All-Time)</option>
+                {availablePaymentMonths.map(m => (
+                  <option key={m} value={m} className="bg-slate-950 text-white">
+                    🗓️ {formatMonthLabel(m)} {m === getCurrentMonthStr() ? '(চলতি মাস)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={handlePrintAllReceiptsSummary}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-2 active:scale-95"
+            >
+              <span>📄</span> কালেকশন রিপোর্ট প্রিন্ট (Print)
+            </button>
+          </div>
         </div>
 
-        {/* Collection Summary Stat Cards */}
+        {/* Dynamic Month-Filtered Collection Summary Stat Cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
           <div className="p-4 rounded-xl bg-slate-900/90 border border-emerald-500/30 text-center space-y-1">
-            <span className="text-[10px] font-mono text-emerald-400 font-bold uppercase">TOTAL COLLECTIONS</span>
+            <span className="text-[10px] font-mono text-emerald-400 font-bold uppercase">
+              {selectedPaymentMonth === 'all' ? 'ALL TIME TOTAL' : `${formatMonthLabel(selectedPaymentMonth)} মোট`}
+            </span>
             <p className="text-xl font-black text-emerald-400 font-mono">
-              ৳ {receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
+              ৳ {monthTotalAmount.toLocaleString()} BDT
             </p>
-            <p className="text-[10px] text-slate-400">{receipts.length} Payment Receipts</p>
+            <p className="text-[10px] text-slate-400">{filteredReceiptsByMonth.length} Payment Receipts</p>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-900/90 border border-amber-500/30 text-center space-y-1">
             <span className="text-[10px] font-mono text-amber-400 font-bold uppercase">BKASH TOTAL</span>
             <p className="text-lg font-bold text-amber-300 font-mono">
-              ৳ {(receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
+              ৳ {monthBkash.toLocaleString()} BDT
             </p>
             <p className="text-[10px] text-slate-400">bKash Merchant/Personal</p>
           </div>
@@ -4045,7 +4405,7 @@ return (
           <div className="p-4 rounded-xl bg-slate-900/90 border border-orange-500/30 text-center space-y-1">
             <span className="text-[10px] font-mono text-orange-400 font-bold uppercase">NAGAD TOTAL</span>
             <p className="text-lg font-bold text-orange-300 font-mono">
-              ৳ {(receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
+              ৳ {monthNagad.toLocaleString()} BDT
             </p>
             <p className="text-[10px] text-slate-400">Nagad Official</p>
           </div>
@@ -4053,7 +4413,7 @@ return (
           <div className="p-4 rounded-xl bg-slate-900/90 border border-purple-500/30 text-center space-y-1">
             <span className="text-[10px] font-mono text-purple-400 font-bold uppercase">ROCKET TOTAL</span>
             <p className="text-lg font-bold text-purple-300 font-mono">
-              ৳ {(receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toLocaleString()} BDT
+              ৳ {monthRocket.toLocaleString()} BDT
             </p>
             <p className="text-[10px] text-slate-400">DBBL Rocket</p>
           </div>
@@ -4061,13 +4421,276 @@ return (
           <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-700 text-center space-y-1">
             <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">OTHERS / CASH</span>
             <p className="text-lg font-bold text-slate-300 font-mono">
-              ৳ {(receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0) - (
-                (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('bkash')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0) +
-                (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('nagad')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0) +
-                (receipts || []).filter(r => (r.paymentMethod || '').toLowerCase().includes('rocket')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
-              )).toLocaleString()} BDT
+              ৳ {monthOthers.toLocaleString()} BDT
             </p>
             <p className="text-[10px] text-slate-400">Upay / Bank / Cash</p>
+          </div>
+        </div>
+
+        {/* 📊 Monthly Student Payment & Due Audit Tracker */}
+        <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3 border-b border-slate-800 pb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base">📊</span>
+                <h3 className="font-extrabold text-white text-sm">
+                  মাসিক স্টুডেন্ট পেমেন্ট ও বকেয়া ট্র্যাকার ({formatMonthLabel(selectedPaymentMonth)})
+                </h3>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                কোন কোন শিক্ষার্থী এই মাসে কোর্স ফি পরিশোধ করেছেন এবং কাদের বকেয়া রয়েছে তা একনজরে অডিট করুন।
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2.5 py-1 rounded-lg bg-rose-950/80 text-rose-300 border border-rose-500/30 text-xs font-bold font-mono">
+                🚨 বকেয়া: {dueStudentsList.length} জন
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 text-xs font-bold font-mono">
+                ✅ পরিশোধিত: {paidStudentsList.length} জন
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 text-xs font-bold font-mono">
+                👥 মোট শিক্ষার্থী: {students.length} জন
+              </span>
+            </div>
+          </div>
+
+          {/* Sub-tabs & Action Bar */}
+          <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3">
+            {/* View Tabs */}
+            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setDueTrackerTab('due')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                  dueTrackerTab === 'due'
+                    ? 'bg-rose-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>🚨</span> বকেয়া তালিকা ({dueStudentsList.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setDueTrackerTab('paid')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                  dueTrackerTab === 'paid'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>✅</span> পরিশোধিত তালিকা ({paidStudentsList.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setDueTrackerTab('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                  dueTrackerTab === 'all'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>👥</span> সকল শিক্ষার্থী ({students.length})
+              </button>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Copy Due List Button */}
+              <button
+                type="button"
+                onClick={handleCopyDueStudentsList}
+                className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer ${
+                  isCopiedDueList
+                    ? 'bg-emerald-600 text-white border-emerald-400'
+                    : 'bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border-cyan-500/40'
+                }`}
+                title="বকেয়া শিক্ষার্থীদের নাম ও মোবাইল নম্বর ক্লিপবোর্ডে কপি করুন"
+              >
+                <span>📋</span>
+                <span>
+                  {isCopiedDueList
+                    ? '✓ কপি সম্পন্ন হয়েছে!'
+                    : selectedDueStudentIds.length > 0
+                      ? `সিলেক্টেড বকেয়া কপি (${selectedDueStudentIds.length})`
+                      : `বকেয়াদের লিস্ট কপি (${dueStudentsList.length})`}
+                </span>
+              </button>
+
+              {/* Bulk Due Reminder Email Button */}
+              <button
+                type="button"
+                onClick={() => handleOpenDueReminderModal(null)}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white text-xs font-bold shadow-lg shadow-rose-600/20 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                title="বকেয়া শিক্ষার্থীদের অ্যাকাউন্টে ইমেইল নোটিশ পাঠান"
+              >
+                <span>✉️</span>
+                <span>
+                  {selectedDueStudentIds.length > 0
+                    ? `সিলেক্টেড (${selectedDueStudentIds.length}) জনকে নোটিশ পাঠান`
+                    : `সকল বকেয়াদের নোটিশ পাঠান (${dueStudentsList.length})`}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search bar for Due Tracker */}
+          <div className="relative">
+            <input
+              type="text"
+              value={dueSearchQuery}
+              onChange={(e) => setDueSearchQuery(e.target.value)}
+              placeholder="🔍 স্টুডেন্ট নাম, আইডি, মোবাইল নম্বর বা ইমেইল দিয়ে খুঁজুন..."
+              className="w-full rounded-xl bg-slate-950 border border-slate-800 px-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-medium"
+            />
+            {dueSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setDueSearchQuery('')}
+                className="absolute right-3 top-2 text-xs text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Due & Paid Students Table */}
+          <div className="overflow-x-auto rounded-xl border border-slate-800 max-h-[460px] overflow-y-auto">
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="bg-slate-950 text-slate-400 font-mono text-[11px] uppercase border-b border-slate-800 sticky top-0 z-10">
+                <tr>
+                  <th className="p-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={
+                        filteredDueStudents.length > 0 &&
+                        filteredDueStudents.filter(s => !s.paymentInfo.isPaid).length > 0 &&
+                        filteredDueStudents
+                          .filter(s => !s.paymentInfo.isPaid)
+                          .every(s => selectedDueStudentIds.includes(s.id))
+                      }
+                      onChange={() => toggleSelectAllDueStudents(filteredDueStudents.filter(s => !s.paymentInfo.isPaid))}
+                      className="rounded accent-emerald-500 cursor-pointer"
+                      title="বকেয়া সবাইকে সিলেক্ট করুন"
+                    />
+                  </th>
+                  <th className="p-3">শিক্ষার্থী তথ্য</th>
+                  <th className="p-3">যোগাযোগ</th>
+                  <th className="p-3">ব্যাচ / সেশন</th>
+                  <th className="p-3 text-center">{formatMonthLabel(selectedPaymentMonth)} স্ট্যাটাস</th>
+                  <th className="p-3 text-center">পেমেন্ট সংখ্যা</th>
+                  <th className="p-3 text-right">অ্যাকশন (Actions)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/80">
+                {filteredDueStudents.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-slate-500">
+                      কোনো শিক্ষার্থী পাওয়া যায়নি।
+                    </td>
+                  </tr>
+                ) : (
+                  filteredDueStudents.map(s => {
+                    const { isPaid, totalPaidInMonth, allTimePaid, receiptCount } = s.paymentInfo;
+                    const isChecked = selectedDueStudentIds.includes(s.id);
+                    return (
+                      <tr
+                        key={s.id}
+                        className={`transition-colors ${
+                          isChecked
+                            ? 'bg-emerald-950/30'
+                            : isPaid
+                              ? 'hover:bg-slate-800/40'
+                              : 'hover:bg-rose-950/20 bg-rose-950/10'
+                        }`}
+                      >
+                        <td className="p-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleDueStudentSelection(s.id)}
+                            className="rounded accent-emerald-500 cursor-pointer"
+                          />
+                        </td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                              isPaid ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            }`}>
+                              {s.name ? s.name.substring(0, 1).toUpperCase() : 'S'}
+                            </div>
+                            <div>
+                              <p className="font-bold text-white text-xs">{s.name}</p>
+                              <p className="text-[10px] text-amber-400 font-mono">{s.id}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <p className="font-mono text-slate-200 text-[11px]">{s.phone || 'N/A'}</p>
+                          <p className="text-[10px] text-slate-400">{s.email || 'N/A'}</p>
+                        </td>
+                        <td className="p-3">
+                          <span className="text-[11px] font-semibold text-slate-300">
+                            {s.batch || 'BJS Masterclass'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          {isPaid ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-[11px]">
+                              <span>✓</span> পরিশোধিত (৳{totalPaidInMonth.toLocaleString()})
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold text-[11px]">
+                              <span>⚠️</span> বকেয়া (Due)
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center font-mono text-xs">
+                          <span className="text-slate-300 font-bold">{receiptCount} টি রিসিট</span>
+                          <span className="block text-[10px] text-emerald-400 font-bold">মোট: ৳ {allTimePaid.toLocaleString()}</span>
+                        </td>
+                        <td className="p-3 text-right space-x-1.5 whitespace-nowrap">
+                          {/* Payment Profile Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenStudentPaymentProfile(s)}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold transition-all cursor-pointer"
+                            title="পেমেন্ট প্রোফাইল ও বিস্তারিত রিসিট হিস্ট্রি দেখুন"
+                          >
+                            💳 প্রোফাইল
+                          </button>
+
+                          {/* Quick Select for new receipt */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleSelectStudentForReceipt(s);
+                              document.getElementById('payment-step-b')?.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold transition-all cursor-pointer"
+                            title="নতুন মানি রিসিট ইস্যু করুন"
+                          >
+                            ➕ রিসিট
+                          </button>
+
+                          {/* Individual Reminder Email Button (for unpaid) */}
+                          {!isPaid && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDueReminderModal(s.id)}
+                              className="px-2.5 py-1 rounded-lg bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/30 text-[11px] font-bold transition-all cursor-pointer"
+                              title="বকেয়া নোটিশ ইমেইল পাঠান"
+                            >
+                              ✉️ নোটিশ
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -4175,7 +4798,7 @@ return (
         </div>
 
         {/* Step B: Payment Form */}
-        <form onSubmit={handleSaveReceipt} className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4 text-xs">
+        <form id="payment-step-b" onSubmit={handleSaveReceipt} className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4 text-xs">
           <h3 className="font-bold text-white text-sm flex items-center gap-2">
             <span>📝</span> ধাপ ২: পেমেন্ট ও মানি রিসিট অ্যান্ট্রি (Payment Details Entry)
           </h3>
@@ -4285,9 +4908,36 @@ return (
         {/* Step C: Receipts History Table */}
         <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <h3 className="font-bold text-white text-sm flex items-center gap-2">
-              <span>📋</span> ইস্যুকৃত মানি রিসিট তালিকা (Issued Receipts History - {receipts.length})
-            </h3>
+            <div className="flex flex-wrap items-center gap-3">
+              <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                <span>📋</span> ইস্যুকৃত মানি রিসিট তালিকা ({displayReceipts.length})
+              </h3>
+              {/* Filter mode toggle */}
+              <div className="flex items-center p-0.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setReceiptFilterMonthMode('all')}
+                  className={`px-2.5 py-0.5 rounded transition-all cursor-pointer ${
+                    receiptFilterMonthMode === 'all'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  সব রিসিট ({receipts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReceiptFilterMonthMode('selected')}
+                  className={`px-2.5 py-0.5 rounded transition-all cursor-pointer ${
+                    receiptFilterMonthMode === 'selected'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {formatMonthLabel(selectedPaymentMonth)} ({filteredReceiptsByMonth.length})
+                </button>
+              </div>
+            </div>
             <span className="text-xs text-emerald-400 font-mono font-bold">Auto-Email & PDF Attachment Enabled</span>
           </div>
 
@@ -4304,7 +4954,7 @@ return (
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
-                {(receipts || []).filter(r => {
+                {(displayReceipts || []).filter(r => {
                   if (!receiptSearchQuery) return true;
                   const q = receiptSearchQuery.toLowerCase();
                   return (
@@ -4752,6 +5402,273 @@ return (
         </div>
 
 </div>
+      )}
+
+      {/* Student Payment Profile & Receipts History Modal */}
+      {studentPaymentProfileModal.isOpen && studentPaymentProfileModal.student && (() => {
+        const stu = studentPaymentProfileModal.student;
+        const summary = getStudentPaymentSummary(stu, selectedPaymentMonth);
+        const stuReceipts = summary.allTimeReceipts || [];
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+            <div className="glass-card rounded-2xl p-6 border border-indigo-500/40 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto space-y-5 bg-[#0b1325] text-slate-100 font-sans">
+              {/* Header */}
+              <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-2xl">💳</span>
+                  <div>
+                    <h3 className="font-extrabold text-white text-base">স্টুডেন্ট পেমেন্ট প্রোফাইল ও রিসিট হিস্ট্রি</h3>
+                    <p className="text-[11px] text-slate-400">এই শিক্ষার্থীর সকল ফি ও ট্রানজেকশন অডিট</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStudentPaymentProfileModal({ isOpen: false, student: null })}
+                  className="text-slate-400 hover:text-white p-1 font-bold text-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Student Summary Banner */}
+              <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-black shrink-0 ${
+                    summary.isPaid ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                  }`}>
+                    {stu.name ? stu.name.substring(0, 1).toUpperCase() : 'S'}
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-white">{stu.name}</h4>
+                    <p className="text-xs text-amber-400 font-mono">{stu.id}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{stu.phone} • {stu.email}</p>
+                  </div>
+                </div>
+
+                <div className="text-left sm:text-right">
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">বর্তমান মাসের স্ট্যাটাস</span>
+                  {summary.isPaid ? (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-xs mt-1">
+                      <span>✓</span> {summary.targetMonthLabel}-এ পরিশোধিত (৳{summary.totalPaidInMonth.toLocaleString()})
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold text-xs mt-1">
+                      <span>⚠️</span> {summary.targetMonthLabel}-এ বকেয়া রয়েছে
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Stat Cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                  <span className="text-[10px] font-mono text-slate-400 uppercase">সর্বমোট পরিশোধ</span>
+                  <p className="text-lg font-black text-emerald-400 font-mono mt-0.5">৳ {summary.allTimePaid.toLocaleString()}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                  <span className="text-[10px] font-mono text-slate-400 uppercase">মোট রিসিট সংখ্যা</span>
+                  <p className="text-lg font-black text-amber-400 font-mono mt-0.5">{summary.receiptCount} টি</p>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                  <span className="text-[10px] font-mono text-slate-400 uppercase">{summary.targetMonthLabel} পেমেন্ট</span>
+                  <p className="text-lg font-black text-cyan-400 font-mono mt-0.5">৳ {summary.totalPaidInMonth.toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* All Receipts History for this Student */}
+              <div className="space-y-3">
+                <h5 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                  <span>📜</span> সকল ইস্যুকৃত মানি রিসিটের তালিকা ({stuReceipts.length} টি)
+                </h5>
+
+                {stuReceipts.length === 0 ? (
+                  <div className="p-8 text-center text-slate-500 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+                    এখনো এই শিক্ষার্থীর কোনো মানি রিসিট ইস্যু করা হয়নি।
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-slate-800 max-h-56 overflow-y-auto">
+                    <table className="w-full text-left text-xs text-slate-300">
+                      <thead className="bg-slate-950 text-slate-400 font-mono text-[10px] uppercase border-b border-slate-800 sticky top-0">
+                        <tr>
+                          <th className="p-2.5">রিসিট নম্বর</th>
+                          <th className="p-2.5">তারিখ</th>
+                          <th className="p-2.5">মাধ্যম & TrxID</th>
+                          <th className="p-2.5">পরিমাণ</th>
+                          <th className="p-2.5 text-right">অ্যাকশন</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/80">
+                        {stuReceipts.map(r => (
+                          <tr key={r.receiptId} className="hover:bg-slate-800/50">
+                            <td className="p-2.5 font-mono font-bold text-amber-400 text-[11px]">{r.receiptId}</td>
+                            <td className="p-2.5 text-slate-400 font-mono text-[10px]">
+                              {new Date(r.paymentTime || r.createdAt).toLocaleDateString()}
+                            </td>
+                            <td className="p-2.5">
+                              <span className="font-bold text-slate-200">{r.paymentMethod}</span>
+                              <span className="text-[10px] text-emerald-400 font-mono block">Trx: {r.trxId || 'N/A'}</span>
+                            </td>
+                            <td className="p-2.5 font-mono font-black text-emerald-400">
+                              ৳ {Number(r.amount || 0).toLocaleString()}
+                            </td>
+                            <td className="p-2.5 text-right space-x-1 whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyReceiptDetails(r)}
+                                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-bold"
+                                title="কপি করুন"
+                              >
+                                📋 Copy
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setStudentPaymentProfileModal({ isOpen: false, student: null });
+                                  setReceiptPreviewModal({ isOpen: true, receipt: r });
+                                }}
+                                className="px-2 py-0.5 rounded bg-blue-950 hover:bg-blue-900 text-blue-300 text-[10px] font-bold"
+                                title="স্লিপ দেখুন"
+                              >
+                                📥 Slip
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setStudentPaymentProfileModal({ isOpen: false, student: null })}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                >
+                  বন্ধ করুন (Close)
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {!summary.isPaid && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStudentPaymentProfileModal({ isOpen: false, student: null });
+                        handleOpenDueReminderModal(stu.id);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <span>✉️</span> বকেয়া নোটিশ পাঠান
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudentPaymentProfileModal({ isOpen: false, student: null });
+                      handleSelectStudentForReceipt(stu);
+                      document.getElementById('payment-form-section')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span>➕</span> নতুন মানি রিসিট অ্যান্ট্রি দিন
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Due Reminder Email Modal */}
+      {dueReminderEmailModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="glass-card rounded-2xl p-6 border border-rose-500/40 shadow-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto space-y-4 bg-[#0b1325] text-slate-100 font-sans">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">✉️</span>
+                <div>
+                  <h3 className="font-extrabold text-white text-base">বকেয়া কোর্স ফি পরিশোধের নোটিশ ইমেইল</h3>
+                  <p className="text-[11px] text-slate-400">
+                    {formatMonthLabel(selectedPaymentMonth)} মাসের বকেয়া শিক্ষার্থীদের সরাসরি ইমেইল রিমাইন্ডার পাঠান
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDueReminderEmailModal({ isOpen: false, subject: '', body: '', sending: false, targetIds: [] })}
+                className="text-slate-400 hover:text-white p-1 font-bold text-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Safety & Count Notice */}
+            <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-slate-300 font-bold">চিহ্নিত বকেয়া শিক্ষার্থী:</span>
+                <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-mono font-bold">
+                  {dueReminderEmailModal.targetIds.length} জন শিক্ষার্থী
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
+                <span>🛡️</span>
+                <span>স্বয়ংক্রিয় সুরক্ষা: যারা ইতিপূর্বে {formatMonthLabel(selectedPaymentMonth)}-এ পেমেন্ট করেছেন, তাদের কাছে এই ইমেইল কোনোভাবেই যাবে না।</span>
+              </p>
+            </div>
+
+            {/* Email Form */}
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">ইমেইল সাবজেক্ট (Email Subject):</label>
+                <input
+                  type="text"
+                  value={dueReminderEmailModal.subject}
+                  onChange={(e) => setDueReminderEmailModal(prev => ({ ...prev, subject: e.target.value }))}
+                  className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-white font-medium focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">ইমেইল মেসেজ বডি (Email Message Body):</label>
+                <textarea
+                  rows={9}
+                  value={dueReminderEmailModal.body}
+                  onChange={(e) => setDueReminderEmailModal(prev => ({ ...prev, body: e.target.value }))}
+                  className="w-full rounded-xl bg-slate-950 border border-slate-700 p-3.5 text-slate-200 font-sans focus:outline-none focus:border-emerald-500 text-xs leading-relaxed"
+                />
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex justify-between items-center pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                disabled={dueReminderEmailModal.sending}
+                onClick={() => setDueReminderEmailModal({ isOpen: false, subject: '', body: '', sending: false, targetIds: [] })}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+              >
+                বাতিল করুন
+              </button>
+
+              <button
+                type="button"
+                disabled={dueReminderEmailModal.sending || dueReminderEmailModal.targetIds.length === 0}
+                onClick={handleSendDueReminderEmail}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white text-xs font-black shadow-lg shadow-rose-600/30 transition-all flex items-center gap-2 disabled:opacity-50 active:scale-95 cursor-pointer"
+              >
+                <span>{dueReminderEmailModal.sending ? '⏳' : '✉️'}</span>
+                <span>
+                  {dueReminderEmailModal.sending
+                    ? 'ইমেইল পাঠানো হচ্ছে...'
+                    : `${dueReminderEmailModal.targetIds.length} জনকে নোটিশ পাঠান`}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Student Portal Live Preview Modal */}
