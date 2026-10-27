@@ -41,6 +41,18 @@
       "dest": "client/apple-touch-icon.png"
     },
     {
+      "src": "/robots.txt",
+      "dest": "client/robots.txt"
+    },
+    {
+      "src": "/sitemap.xml",
+      "dest": "client/sitemap.xml"
+    },
+    {
+      "src": "/google(.*).html",
+      "dest": "client/google$1.html"
+    },
+    {
       "src": "/(.*)",
       "dest": "client/index.html"
     }
