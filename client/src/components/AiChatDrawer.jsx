@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -13,6 +13,7 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [accessModal, setAccessModal] = useState(null);
+  const messagesEndRef = useRef(null);
 
   // Auto-trigger question when opened via URL parameter or quick search
   useEffect(() => {
@@ -22,6 +23,36 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
       triggerQuery(q);
     }
   }, [isOpen, initialQuery]);
+
+  // Lock body scroll when drawer is open
+  useEffect(() => {
+    if (isOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [isOpen]);
+
+  // Close drawer on Escape key press
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  // Smooth scroll to latest message
+  useEffect(() => {
+    if (isOpen) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, loading, isOpen]);
 
   if (!isOpen) return null;
 
@@ -211,7 +242,22 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 z-[9990] w-full max-w-md bg-[#0d172a] border-l border-slate-800 shadow-2xl flex flex-col animate-slideLeft font-sans relative overflow-hidden">
+    <div className="fixed inset-0 z-[99999] overflow-hidden flex justify-end">
+      {/* Semi-transparent backdrop overlay - clicking it closes drawer */}
+      <div
+        className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300 animate-fadeIn cursor-pointer"
+        onClick={onClose}
+        aria-label="Close AI Assistant drawer"
+      />
+
+      {/* Slide-out Drawer Panel on Right Side */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-md sm:max-w-lg h-full bg-[#0d172a] border-l border-slate-800 shadow-2xl flex flex-col font-sans z-10 overflow-hidden animate-slide-in-right"
+        style={{
+          boxShadow: '-15px 0 45px rgba(0, 0, 0, 0.85), 0 0 25px rgba(6, 182, 212, 0.15)'
+        }}
+      >
       {/* Access Gate Modal / Dialog */}
       {accessModal && (
         <div className="absolute inset-0 z-[9999] bg-slate-950/95 backdrop-blur-md p-5 flex flex-col justify-center items-center animate-fadeIn text-center">
@@ -495,6 +541,7 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
             </div>
           </div>
         )}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Quick Ultra-Short Legal Prompts & Section Chips */}
@@ -539,5 +586,6 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
         </button>
       </form>
     </div>
+  </div>
   );
 }
