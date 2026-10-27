@@ -183,6 +183,8 @@ const Assignment = require("./models/Assignment");
 const Submission = require("./models/Submission");
 const McqExam = require("./models/McqExam");
 const McqResult = require("./models/McqResult");
+const { fetchYoutubeTranscript, searchLessonsForQuery } = require("./services/transcriptService");
+const { processLegalAiQuery } = require("./services/legalAiService");
 
 // Configure Mongoose options for Serverless environment
 // // mongoose.set("bufferCommands", false);
@@ -3842,13 +3844,19 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       youtubeId: youtubeId,
       releaseDate: body.releaseDate || new Date().toISOString().split("T")[0],
       description: body.description || "",
-      order: orderNum
+      order: orderNum,
+      transcript: body.transcript || "",
+      transcriptStatus: body.transcript ? "manual" : "none"
     };
 
     let saved = lessonData;
     if (isMongoConnected) {
       let existing = await Lesson.findOne({ $or: [{ id: lessonId }, ...(mongoose.Types.ObjectId.isValid(lessonId) ? [{ _id: lessonId }] : [])] });
       if (existing) {
+        if (!lessonData.transcript && existing.transcript) {
+          lessonData.transcript = existing.transcript;
+          lessonData.transcriptStatus = existing.transcriptStatus || "ready";
+        }
         Object.assign(existing, lessonData);
         saved = await existing.save();
       } else {
@@ -3865,6 +3873,30 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       (memoryDb.lessons = memoryDb.lessons || []).unshift(lessonData);
     }
 
+    // Auto-fetch YouTube transcript in background if missing
+    if (youtubeId && (!saved.transcript || saved.transcriptStatus !== 'ready')) {
+      fetchYoutubeTranscript(youtubeId).then(async (trRes) => {
+        if (trRes && trRes.ok && trRes.transcript) {
+          if (isMongoConnected) {
+            await Lesson.updateOne({ id: lessonId }, {
+              transcript: trRes.transcript,
+              transcriptStatus: 'ready',
+              transcriptUpdatedAt: new Date()
+            });
+          }
+          const mem = (memoryDb.lessons || []).find(l => l.id === lessonId);
+          if (mem) {
+            mem.transcript = trRes.transcript;
+            mem.transcriptStatus = 'ready';
+            mem.transcriptUpdatedAt = new Date();
+          }
+          console.log(`✓ Auto-fetched transcript for lesson "${saved.title}" (${trRes.wordCount} words)`);
+        }
+      }).catch(err => {
+        console.warn(`Notice auto-fetching transcript for ${lessonId}:`, err.message);
+      });
+    }
+
     // Trigger automated email notification to enrolled batch students in background
     notifyStudentsNewLesson(saved.courseId, saved).catch(err => {
       console.warn("Notice sending new lesson upload email:", err.message);
@@ -3875,12 +3907,218 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
 
     return res.json({
       ok: true,
-      message: `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং শিক্ষার্থীদের নোটিফিকেশন ইমেইল পাঠানো হয়েছে!`,
+      message: `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং ব্যাকগ্রাউন্ডে সাবটাইটেল সিঙ্ক হচ্ছে!`,
       lesson: saved
     });
   } catch (err) {
     console.error("Save lesson error:", err);
     return res.status(500).json({ ok: false, message: "Error saving video lesson: " + err.message });
+  }
+});
+
+// BATCH SYNC: Auto-sync transcripts for all existing past video lessons
+app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    let allLessons = [];
+    if (isMongoConnected) {
+      allLessons = await Lesson.find().lean();
+    }
+    if (allLessons.length === 0) {
+      allLessons = memoryDb.lessons || [];
+    }
+
+    const force = req.body && req.body.force === true;
+    const eligible = allLessons.filter(l => {
+      const yId = l.youtubeId || extractYoutubeId(l.youtubeUrl);
+      if (!yId) return false;
+      if (force) return true;
+      return !l.transcript || l.transcript.length < 20 || l.transcriptStatus !== 'ready';
+    });
+
+    if (eligible.length === 0) {
+      return res.json({
+        ok: true,
+        message: "সবগুলো ভিডিওর সাবটাইটেল ইতিমধ্যে ডেটাবেজে সিঙ্ক করা আছে!",
+        totalChecked: allLessons.length,
+        eligibleCount: 0,
+        updated: 0,
+        failed: 0
+      });
+    }
+
+    let updated = 0;
+    let failed = 0;
+
+    for (const lsn of eligible) {
+      const yId = lsn.youtubeId || extractYoutubeId(lsn.youtubeUrl);
+      if (!yId) continue;
+
+      try {
+        const trRes = await fetchYoutubeTranscript(yId);
+        if (trRes && trRes.ok && trRes.transcript) {
+          if (isMongoConnected) {
+            await Lesson.updateOne({ _id: lsn._id }, {
+              transcript: trRes.transcript,
+              transcriptStatus: 'ready',
+              transcriptUpdatedAt: new Date()
+            });
+          }
+          const m = (memoryDb.lessons || []).find(x => x.id === lsn.id || String(x._id) === String(lsn._id));
+          if (m) {
+            m.transcript = trRes.transcript;
+            m.transcriptStatus = 'ready';
+            m.transcriptUpdatedAt = new Date();
+          }
+          updated++;
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        failed++;
+      }
+      // Small pause to avoid hitting YouTube rate limits
+      await new Promise(r => setTimeout(r, 250));
+    }
+
+    fastCache.del("lessons");
+
+    return res.json({
+      ok: true,
+      message: `✓ মোট ${eligible.length}টি ক্লাসের মধ্যে ${updated}টি ক্লাসের সাবটাইটেল সফলভাবে সিঙ্ক ও ডেটাবেজে সেভ হয়েছে! (ইউটিউব ক্যাপশনহীন: ${failed})`,
+      totalChecked: allLessons.length,
+      eligibleCount: eligible.length,
+      updated,
+      failed
+    });
+  } catch (err) {
+    console.error("Batch sync transcripts error:", err);
+    return res.status(500).json({ ok: false, message: "Error syncing transcripts: " + err.message });
+  }
+});
+
+// GET & POST Single Lesson Transcript (Admin Inspector & Editor)
+app.get("/api/admin/lessons/:id/transcript", async (req, res) => {
+  try {
+    const { id } = req.params;
+    let lsn = null;
+    if (isMongoConnected) {
+      lsn = await Lesson.findOne({ $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])] }).lean();
+    }
+    if (!lsn) {
+      lsn = (memoryDb.lessons || []).find(l => l.id === id || l._id === id);
+    }
+    if (!lsn) {
+      return res.status(404).json({ ok: false, message: "ভিডিও ক্লাস খুঁজে পাওয়া যায়নি।" });
+    }
+
+    return res.json({
+      ok: true,
+      lessonId: lsn.id,
+      title: lsn.title,
+      youtubeId: lsn.youtubeId,
+      youtubeUrl: lsn.youtubeUrl,
+      transcript: lsn.transcript || "",
+      transcriptStatus: lsn.transcriptStatus || "none",
+      transcriptUpdatedAt: lsn.transcriptUpdatedAt || null,
+      wordCount: lsn.transcript ? lsn.transcript.split(/\s+/).filter(Boolean).length : 0
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { transcript, action } = req.body; // 'save' or 'refetch'
+
+    let lsn = null;
+    if (isMongoConnected) {
+      lsn = await Lesson.findOne({ $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])] });
+    }
+    if (!lsn) {
+      lsn = (memoryDb.lessons || []).find(l => l.id === id || l._id === id);
+    }
+    if (!lsn) {
+      return res.status(404).json({ ok: false, message: "ভিডিও ক্লাস খুঁজে পাওয়া যায়নি।" });
+    }
+
+    if (action === 'refetch') {
+      const yId = lsn.youtubeId || extractYoutubeId(lsn.youtubeUrl);
+      const trRes = await fetchYoutubeTranscript(yId);
+      if (trRes && trRes.ok && trRes.transcript) {
+        lsn.transcript = trRes.transcript;
+        lsn.transcriptStatus = 'ready';
+        lsn.transcriptUpdatedAt = new Date();
+        if (isMongoConnected) await lsn.save();
+        const mem = (memoryDb.lessons || []).find(l => l.id === lsn.id);
+        if (mem) {
+          mem.transcript = trRes.transcript;
+          mem.transcriptStatus = 'ready';
+          mem.transcriptUpdatedAt = new Date();
+        }
+        return res.json({
+          ok: true,
+          message: `✓ ইউটিউব থেকে ${trRes.wordCount} শব্দের সাবটাইটেল সফলভাবে রি-ফেচ ও সেভ করা হয়েছে!`,
+          transcript: trRes.transcript,
+          transcriptStatus: 'ready',
+          wordCount: trRes.wordCount
+        });
+      } else {
+        return res.status(400).json({ ok: false, message: trRes.message || "ইউটিউব ক্যাপশন ফেচ করা যায়নি।" });
+      }
+    } else {
+      // Manual Save/Edit by Admin
+      lsn.transcript = transcript || "";
+      lsn.transcriptStatus = 'manual';
+      lsn.transcriptUpdatedAt = new Date();
+      if (isMongoConnected) await lsn.save();
+      const mem = (memoryDb.lessons || []).find(l => l.id === lsn.id);
+      if (mem) {
+        mem.transcript = transcript || "";
+        mem.transcriptStatus = 'manual';
+        mem.transcriptUpdatedAt = new Date();
+      }
+      return res.json({
+        ok: true,
+        message: "✓ সাবটাইটেল সফলভাবে সংরক্ষণ করা হয়েছে!",
+        transcript: lsn.transcript,
+        transcriptStatus: 'manual',
+        wordCount: lsn.transcript.split(/\s+/).filter(Boolean).length
+      });
+    }
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// AI LEGAL ASSISTANT ENDPOINT (Bangladesh Constitution & Law + Video Transcript Matching)
+app.post("/api/ai/legal-assistant", async (req, res) => {
+  try {
+    const { query, studentName } = req.body;
+    if (!query || !query.trim()) {
+      return res.status(400).json({ ok: false, message: "অনুগ্রহ করে প্রশ্ন লিখুন।" });
+    }
+
+    let allLessons = [];
+    if (isMongoConnected) {
+      allLessons = await Lesson.find().lean().catch(() => []);
+    }
+    if (allLessons.length === 0) {
+      allLessons = memoryDb.lessons || [];
+    }
+
+    const result = await processLegalAiQuery({
+      query: query.trim(),
+      studentName: studentName || 'শিক্ষার্থী',
+      allLessons
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error("AI Legal Assistant Error:", err);
+    return res.status(500).json({ ok: false, message: "আইনি পরামর্শ দিতে সমস্যা হয়েছে: " + err.message });
   }
 });
 
@@ -5092,6 +5330,165 @@ app.post("/api/mentor/reset-submission", async (req, res) => {
   }
 });
 
+// GET Student Available MCQ Exams
+app.get("/api/student/mcq-exams", async (req, res) => {
+  try {
+    const { studentId, phone, courseId } = req.query;
+    await ensureDbConnected();
+
+    let allExams = [];
+    if (isMongoConnected) {
+      allExams = await McqExam.find({ status: "Active" }).sort({ createdAt: -1 }).lean();
+    } else {
+      allExams = (memoryDb.mcqExams || []).filter(e => e.status === "Active");
+    }
+
+    // Get past submissions for this student
+    let pastResults = [];
+    if (studentId || phone) {
+      const orClauses = [];
+      if (studentId) orClauses.push({ studentId });
+      if (phone) orClauses.push({ candidatePhone: phone });
+      if (orClauses.length > 0) {
+        if (isMongoConnected) {
+          pastResults = await McqResult.find({ $or: orClauses }).lean().catch(() => []);
+        } else {
+          pastResults = (memoryDb.mcqResults || []).filter(r => (studentId && r.studentId === studentId) || (phone && r.candidatePhone === phone));
+        }
+      }
+    }
+
+    // Filter by student's enrolled courses or universal exams
+    let studentAllowedCourses = [];
+    if (studentId) {
+      const stu = (memoryDb.students || []).find(s => s.id === studentId) || (isMongoConnected ? await Student.findOne({ id: studentId }).lean() : null);
+      if (stu) {
+        studentAllowedCourses = stu.allowedCourseIds || stu.enrolledCourseIds || [];
+      }
+    }
+
+    const filtered = allExams.filter(ex => {
+      // Universal exams (no course assigned) are open to all
+      if (!ex.courseId || ex.courseId === "" || ex.courseId === "Universal" || ex.courseId === "All") return true;
+      if (courseId && (ex.courseId === courseId || ex.courseTitle === courseId)) return true;
+      if (studentAllowedCourses.length > 0) {
+        return studentAllowedCourses.includes(ex.courseId);
+      }
+      return true;
+    });
+
+    const mapped = filtered.map(ex => {
+      const myAttempts = pastResults.filter(r => r.examId === ex.id);
+      const limit = Number(ex.attemptLimit) !== undefined ? Number(ex.attemptLimit) : 1;
+      const canAttempt = limit === 0 || myAttempts.length < limit;
+      return {
+        id: ex.id,
+        _id: ex._id,
+        title: ex.title,
+        courseId: ex.courseId,
+        courseTitle: ex.courseTitle,
+        durationMinutes: ex.durationMinutes || 30,
+        totalMarks: ex.totalMarks || (ex.questions || []).length || 40,
+        passPercentage: ex.passPercentage || 50,
+        negativeMarks: ex.negativeMarks !== undefined ? ex.negativeMarks : 0.25,
+        startDate: ex.startDate,
+        endDate: ex.endDate,
+        attemptLimit: limit,
+        attemptsTaken: myAttempts.length,
+        canAttempt,
+        questionsCount: (ex.questions || []).length,
+        latestScore: myAttempts.length > 0 ? myAttempts[myAttempts.length - 1].score : null
+      };
+    });
+
+    return res.json({ ok: true, exams: mapped });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error fetching student exams: " + err.message });
+  }
+});
+
+// GET Student Past MCQ Results
+app.get("/api/student/my-mcq-results", async (req, res) => {
+  try {
+    const { studentId, phone, email } = req.query;
+    await ensureDbConnected();
+
+    const orClauses = [];
+    if (studentId) orClauses.push({ studentId });
+    if (phone) orClauses.push({ candidatePhone: phone });
+    if (email) orClauses.push({ candidateEmail: email.toLowerCase() });
+
+    let results = [];
+    if (orClauses.length > 0) {
+      if (isMongoConnected) {
+        results = await McqResult.find({ $or: orClauses }).sort({ submittedAt: -1 }).lean();
+      } else {
+        results = (memoryDb.mcqResults || []).filter(r =>
+          (studentId && r.studentId === studentId) ||
+          (phone && r.candidatePhone === phone) ||
+          (email && r.candidateEmail && r.candidateEmail.toLowerCase() === email.toLowerCase())
+        );
+      }
+    }
+
+    return res.json({ ok: true, results: results || [] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error fetching student MCQ results." });
+  }
+});
+
+// GET Detailed Review of Single MCQ Result
+app.get("/api/student/mcq-result/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await ensureDbConnected();
+
+    let result = null;
+    if (isMongoConnected) {
+      result = await McqResult.findOne({ $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])] }).lean();
+    }
+    if (!result) {
+      result = (memoryDb.mcqResults || []).find(r => r.id === id || r._id === id);
+    }
+    if (!result) {
+      return res.status(404).json({ ok: false, message: "ফলাফল খুঁজে পাওয়া যায়নি।" });
+    }
+
+    let exam = null;
+    if (isMongoConnected) {
+      exam = await McqExam.findOne({ id: result.examId }).lean();
+    }
+    if (!exam) {
+      exam = (memoryDb.mcqExams || []).find(e => e.id === result.examId);
+    }
+
+    let reviewData = [];
+    if (exam && Array.isArray(exam.questions)) {
+      reviewData = exam.questions.map((q, idx) => {
+        const userAns = (result.userAnswers || []).find(a => a.questionId === q.id) || {};
+        return {
+          serial: idx + 1,
+          questionId: q.id,
+          questionText: q.questionText,
+          options: q.options,
+          correctIndex: q.correctIndex,
+          selectedIndex: userAns.selectedIndex !== undefined ? userAns.selectedIndex : -1,
+          isCorrect: userAns.isCorrect || false,
+          explanation: q.explanation || ""
+        };
+      });
+    }
+
+    return res.json({
+      ok: true,
+      result,
+      review: reviewData
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error fetching result review: " + err.message });
+  }
+});
+
 // GET Student Available Assignments
 app.get("/api/student/assignments", async (req, res) => {
   try {
@@ -6104,6 +6501,7 @@ app.delete("/api/admin/receipts/:receiptId", async (req, res) => {
 });
 
 // 6. Gemini AI Legal Assistant & Smart Course Monetization Engine
+// 6. Gemini AI Legal Assistant with Real-Time YouTube Transcript Matching Engine
 app.post("/api/ai/chat", async (req, res) => {
   try {
     await ensureDbConnected();
@@ -6113,110 +6511,45 @@ app.post("/api/ai/chat", async (req, res) => {
     }
 
     const userQuery = String(prompt).trim();
-    const qLower = userQuery.toLowerCase();
 
-    // Fetch active courses and lessons for smart recommendation
-    let activeCourses = memoryDb.courses || [];
+    // Fetch active lessons from DB or memory
     let activeLessons = memoryDb.lessons || [];
-
     if (isMongoConnected) {
       try {
-        activeCourses = await Course.find({ status: { $ne: "Inactive" } }).lean();
-        activeLessons = await Lesson.find().lean();
+        const dbLessons = await Lesson.find().lean();
+        if (dbLessons && dbLessons.length > 0) activeLessons = dbLessons;
       } catch (e) { }
     }
 
-    // Match query against courses & lessons
-    let matchedCourse = null;
-    let matchedLesson = null;
-    let isOrientation = false;
+    // Process legal query & search video transcripts
+    const aiResult = await processLegalAiQuery({
+      query: userQuery,
+      studentName: 'আইন শিক্ষার্থী',
+      allLessons: activeLessons
+    });
 
-    // Search lessons first for exact module/title match
-    for (const les of activeLessons) {
-      const lesTitle = (les.title || "").toLowerCase();
-      const lesModule = (les.module || "").toLowerCase();
-      const lesChap = (les.chapter || "").toLowerCase();
-
-      if (
-        (lesTitle && qLower.includes(lesTitle)) ||
-        (lesModule && qLower.includes(lesModule)) ||
-        (lesChap && qLower.includes(lesChap)) ||
-        qLower.includes("cpc") || qLower.includes("crpc") || qLower.includes("penal") || qLower.includes("bjs") || qLower.includes("bar")
-      ) {
-        matchedLesson = les;
-        matchedCourse = activeCourses.find(c => c.id === les.courseId || c._id === les.courseId);
-        break;
-      }
-    }
-
-    // Fallback to course match if no specific lesson matched
-    if (!matchedCourse && activeCourses.length > 0) {
-      matchedCourse = activeCourses.find(c =>
-        qLower.includes((c.title || "").toLowerCase()) ||
-        qLower.includes((c.category || "").toLowerCase())
-      ) || activeCourses[0];
-    }
-
-    // Check if matched lesson or course has an orientation video
-    if (matchedCourse) {
-      const courseLessons = activeLessons.filter(l => l.courseId === matchedCourse.id || l.courseId === matchedCourse._id);
-      const orientLesson = courseLessons.find(l => {
-        const t = (l.title || "").toLowerCase();
-        const m = (l.module || "").toLowerCase();
-        return t.includes("orientation") || t.includes("অরিয়েন্টেশন") || m.includes("orientation") || m.includes("অরিয়েন্টেশন");
-      });
-
-      if (orientLesson) {
-        matchedLesson = orientLesson;
-        isOrientation = true;
-      } else if (matchedLesson) {
-        const t = (matchedLesson.title || "").toLowerCase();
-        const m = (matchedLesson.module || "").toLowerCase();
-        isOrientation = t.includes("orientation") || t.includes("অরিয়েন্টেশন") || m.includes("orientation") || m.includes("অরিয়েন্টেশন");
-      }
-    }
-
-    // Build Legal Diagnosis Response based on Bangladesh Constitution & Laws
-    let replyText = "";
     let recommendation = null;
-
-    // Constitutional & Statute Diagnosis Engine
-    if (qLower.includes("সংবিধান") || qLower.includes("constitution") || qLower.includes("মৌলিক অধিকার") || qLower.includes("১০২") || qLower.includes("writ")) {
-      replyText = `🏛️ **বাংলাদেশ সংবিধান ও মৌলিক অধিকার সংক্রান্ত বিশ্লেষণ:**\n\n📌 **প্রযোজ্য সাংবিধানিক অনুচ্ছেদ:**\n- **অনুচ্ছেদ ২৭:** আইনের দৃষ্টিতে সমতা ও সমান আশ্রয় লাভের অধিকার।\n- **অনুচ্ছেদ ৩১ & ৩২:** আইনের আশ্রয় লাভ এবং জীবন ও ব্যক্তিস্বাধীনতা সংরক্ষণের মৌলিক অধিকার।\n- **অনুচ্ছেদ ৪৪ & ১০২:** মৌলিক অধিকার বলবৎকরণের জন্য হাইকোর্ট বিভাগে রিট (Writ Petition) দায়েরের সাংবিধানিক প্রতিকার।\n\n🔍 **সমস্যার আইনি পদক্ষেপ:**\nপ্রতিকার পেতে হলে সংবিধানের ১০২ অনুচ্ছেদের অধীনে হাইকোর্ট বিভাগে রিট আবেদন (Mandamus / Certiorari / Habeas Corpus) দায়ের করা যেতে পারে।`;
-    } else if (qLower.includes("fir") || qLower.includes("১৫৪") || qLower.includes("ফৌজদারী") || qLower.includes("crpc")) {
-      replyText = `⚖️ **ফৌজদারী কার্যবিধি (CrPC) ও এজাহার (FIR) বিশ্লেষণ:**\n\n📌 **আইনি ধারা:**\n- **CrPC Section 154:** আমলযোগ্য অপরাধের সংবাদ থানায় এজাহার (FIR) হিসেবে রেকর্ড করার নিয়ম।\n- **CrPC Section 156(3):** থানা এজাহার গ্রহণ না করলে সরাসরি বিচারিক ম্যাজিস্ট্রেট আদালতে মামলা দায়েরের অধিকার।\n\n🔍 **আইনি প্রতিকার ও পদক্ষেপ:**\nথানা মামলা না নিলে বিজ্ঞ জুডিশিয়াল ম্যাজিস্ট্রেট আদালতে CrPC Section 200 অনুযায়ী নালিশী দরখাস্ত (CR Case) দায়ের করতে পারবেন।`;
-    } else if (qLower.includes("cpc") || qLower.includes("দেওয়ানী") || qLower.includes("res judicata") || qLower.includes("১১")) {
-      replyText = `📜 **দেওয়ানী কার্যবিধি (CPC 1908) বিশ্লেষণ:**\n\n📌 **আইনি ধারা (CPC Section 11 - Res Judicata):**\nএকই পক্ষগণের মধ্যে সমবিষয়বস্তু নিয়ে চূড়ান্ত নিষ্পত্তি হওয়া কোনো মোকদ্দমা পুনরায় দায়ের করা বারণ।\n\n🔍 **আইনি পরামর্শ:**\nপ্রতিপক্ষ যদি দোবারা দোষ (Res Judicata) না মেনে নতুন মোকদ্দমা করে, তবে CPC Order 7 Rule 11 অনুযায়ী আরজি প্রত্যাখানের (Rejection of Plaint) আবেদন করতে হবে।`;
-    } else {
-      replyText = `⚖️ **বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) ও বার কাউন্সিল আইন বিশেষজ্ঞ বিশ্লেষণ:**\n\nআপনার প্রশ্নের বিষয়টি বাংলাদেশ আইন, দণ্ডবিধি (Penal Code), দেওয়ানী কার্যবিধি (CPC) এবং সংবিধানের সংশ্লিষ্ট বিধানের আওতায় পড়ে।\n\n📌 **গুরুত্বপূর্ণ পরামর্শ:**\nআইনি প্রতিকার সুনির্দিষ্ট করতে মামলার তথ্য, ধারা এবং উপযুক্ত এখতিয়ারসম্পন্ন আদালতের শরণাপন্ন হওয়া প্রয়োজন।`;
+    if (aiResult.matchedLessons && aiResult.matchedLessons.length > 0) {
+      const topMatch = aiResult.matchedLessons[0];
+      recommendation = {
+        type: "MATCHED_LESSON",
+        courseTitle: topMatch.chapter || topMatch.courseId || "বিজিএস ও বার কাউন্সিল মাস্টারক্লাস",
+        lesson: topMatch,
+        snippet: topMatch.snippet,
+        matchedKeywords: topMatch.matchedKeywords,
+        note: `আমাদের একাডেমির মেন্টরের ভিডিও ক্লাসে এই বিষয়ে সরাসরি আলোচনা রয়েছে!`
+      };
     }
 
-    // Apply strict Monetization & Orientation Exemption Rules
-    if (matchedCourse) {
-      if (isOrientation && matchedLesson) {
-        replyText += `\n\n🎁 **ফ্রি অরিয়েন্টেশন ক্লাস (Orientation Class Exemption):**\nসুসংবাদ! এই কোর্সটির একটি **ফ্রি অরিয়েন্টেশন ক্লাস** সবার জন্য সম্পূর্ণ উন্মুক্ত রয়েছে। নিচের বাটনটিতে ক্লিক করে ফ্রিতে অরিয়েন্টেশন ভিডিও ক্লাসটি দেখে নিন।`;
-        recommendation = {
-          type: "FREE_ORIENTATION",
-          courseTitle: matchedCourse.title,
-          lesson: matchedLesson,
-          note: "অরিয়েন্টেশন ক্লাস সবার জন্য ১০০% উন্মুক্ত ও ফ্রি!"
-        };
-      } else {
-        replyText += `\n\n🔒 **কোর্স ও ভিডিও ক্লাস রিকমেন্ডেশন (Paid Module Notice):**\nএই সমস্যা ও সম্পর্কিত সকল ধারার উপর আমাদের একাডেমির **"${matchedCourse.title}"** কোর্সে পূর্ণাঙ্গ ও বিস্তারিত ভিডিও লেকচার রয়েছে।\n\n⚠️ **কোর্স অ্যাক্সেস নিয়ম:** এটি একটি পেইড প্রিমিয়াম কোর্স। সম্পূর্ণ ভিডিও লেকচারটি দেখতে হলে প্রথমে কোর্সটিতে এনরোল / পারচেজ করতে হবে।`;
-        recommendation = {
-          type: "PAID_COURSE_ENROLL",
-          courseId: matchedCourse.id || matchedCourse._id,
-          courseTitle: matchedCourse.title,
-          price: matchedCourse.price || 5000,
-          note: "পেইড কোর্স - এনরোলমেন্ট প্রয়োজন"
-        };
-      }
-    }
-
-    return res.json({ ok: true, reply: replyText, recommendation });
+    return res.json({
+      ok: true,
+      reply: aiResult.answer,
+      matchedLessons: aiResult.matchedLessons || [],
+      recommendation
+    });
   } catch (e) {
     console.error("AI Chat Error:", e);
-    return res.status(500).json({ ok: false, message: "AI Assistant processing error." });
+    return res.status(500).json({ ok: false, message: "AI Assistant processing error: " + e.message });
   }
 });
 

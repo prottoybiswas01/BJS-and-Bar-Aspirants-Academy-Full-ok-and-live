@@ -4011,13 +4011,37 @@ return (
             <span className="text-[10px] font-mono text-amber-400 uppercase font-bold">COURSE CONTROL</span>
             <h2 className="text-lg font-extrabold text-white">Course Launch Manager</h2>
           </div>
-          <button
-            type="button"
-            onClick={handleClearCourseForm}
-            className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-all shadow-md"
-          >
-            Clear Form
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!window.confirm("আপনি কি সকল ভিডিওর সাবটাইটেল ইউটিউব থেকে সিঙ্ক করতে চান? এতে ব্যাকগ্রাউন্ডে সমস্ত ভিডিওর বাংলা/ইংরেজি সাবটাইটেল ডেটাবেজে সেভ হয়ে যাবে।")) return;
+                showToast("⏳ ইউটিউব থেকে সকল ক্লাসের সাবটাইটেল সিঙ্ক হচ্ছে...", "success");
+                try {
+                  const res = await api.post('/admin/lessons/sync-transcripts');
+                  if (res.data.ok) {
+                    showToast(res.data.message || "✓ সাবটাইটেল সফলভাবে সিঙ্ক হয়েছে!", "success");
+                  } else {
+                    showToast(res.data.message || "সিঙ্ক করতে সমস্যা হয়েছে।", "error");
+                  }
+                } catch (err) {
+                  showToast(err.response?.data?.message || "সিঙ্ক করতে সমস্যা হয়েছে।", "error");
+                }
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-cyan-950 hover:bg-cyan-900 text-cyan-300 font-bold text-xs border border-cyan-500/40 transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+              title="ইউটিউব থেকে সকল ক্লাসের সাবটাইটেল স্বয়ংক্রিয়ভাবে সিঙ্ক করুন"
+            >
+              <span>🔄</span>
+              <span>সাবটাইটেল অটো-সিঙ্ক (Batch Sync)</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleClearCourseForm}
+              className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-all shadow-md cursor-pointer"
+            >
+              Clear Form
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

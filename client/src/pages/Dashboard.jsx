@@ -22,6 +22,16 @@ export default function Dashboard({ openVideoModal }) {
   const [subLoading, setSubLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
+  // Student MCQ Exams & Performance States
+  const [studentExams, setStudentExams] = useState([]);
+  const [studentResults, setStudentResults] = useState([]);
+  const [reviewModal, setReviewModal] = useState({
+    isOpen: false,
+    result: null,
+    review: [],
+    loading: false
+  });
+
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 4500);
@@ -31,14 +41,16 @@ export default function Dashboard({ openVideoModal }) {
     fetchData(true);
     if (user?.id) {
       fetchAssignments();
+      fetchExamsAndResults();
     }
 
     const interval = setInterval(() => {
       fetchData(false);
       if (user?.id) {
         fetchAssignments();
+        fetchExamsAndResults();
       }
-    }, 3500);
+    }, 4000);
 
     return () => clearInterval(interval);
   }, [user?.id]);
@@ -53,6 +65,37 @@ export default function Dashboard({ openVideoModal }) {
       if (resSub.data.ok) setMySubmissions(resSub.data.submissions || []);
     } catch (err) {
       console.log('Assignments fetch notice:', err);
+    }
+  };
+
+  const fetchExamsAndResults = async () => {
+    try {
+      const [resEx, resRes] = await Promise.all([
+        api.get('/student/mcq-exams', { params: { studentId: user?.id, phone: user?.phone } }),
+        api.get('/student/my-mcq-results', { params: { studentId: user?.id, phone: user?.phone, email: user?.email } })
+      ]);
+      if (resEx.data.ok) setStudentExams(resEx.data.exams || []);
+      if (resRes.data.ok) setStudentResults(resRes.data.results || []);
+    } catch (err) {
+      console.log('MCQ Exams fetch notice:', err);
+    }
+  };
+
+  const handleOpenReviewModal = async (resObj) => {
+    setReviewModal({ isOpen: true, result: resObj, review: [], loading: true });
+    try {
+      const res = await api.get(`/student/mcq-result/${resObj.id || resObj.resultId || resObj._id}`);
+      if (res.data.ok) {
+        setReviewModal(prev => ({
+          ...prev,
+          review: res.data.review || [],
+          loading: false
+        }));
+      }
+    } catch (err) {
+      console.log('Error loading result review:', err);
+    } finally {
+      setReviewModal(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -443,11 +486,11 @@ export default function Dashboard({ openVideoModal }) {
         </div>
       </section>
 
-      {/* Section Tab Navigation: Video Lectures vs Assignments */}
-      <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-2">
+      {/* Section Tab Navigation: Video Lectures vs Assignments vs MCQ Exams */}
+      <div className="flex flex-wrap sm:flex-nowrap bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-2">
         <button
           onClick={() => setSelectedTab('lectures')}
-          className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all ${
+          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center ${
             selectedTab === 'lectures'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
               : 'text-slate-400 hover:text-white'
@@ -457,13 +500,23 @@ export default function Dashboard({ openVideoModal }) {
         </button>
         <button
           onClick={() => setSelectedTab('assignments')}
-          className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative ${
+          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center ${
             selectedTab === 'assignments'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          <span>📝 অ্যাসাইনমেন্ট ও পরীক্ষা ({studentAssignments.length})</span>
+          <span>📝 লিখিত অ্যাসাইনমেন্ট ({studentAssignments.length})</span>
+        </button>
+        <button
+          onClick={() => setSelectedTab('exams')}
+          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center ${
+            selectedTab === 'exams'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <span>🎯 অনলাইন এমসিকিউ পরীক্ষা ({studentExams.length})</span>
         </button>
       </div>
 
@@ -874,6 +927,354 @@ export default function Dashboard({ openVideoModal }) {
             )}
           </div>
         </section>
+      )}
+
+      {/* EXAMS TAB */}
+      {selectedTab === 'exams' && (
+        <section className="space-y-6">
+          {/* Active Available MCQ Exams */}
+          <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+              <div>
+                <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/30 uppercase">
+                  ONLINE MODEL TESTS
+                </span>
+                <h2 className="text-lg font-extrabold text-white mt-1 flex items-center gap-2">
+                  <span>🎯 উপলব্ধ অনলাইন এমসিকিউ পরীক্ষা ও মডেল টেস্ট</span>
+                </h2>
+                <p className="text-xs text-slate-400">
+                  নির্ধারিত সময়ের মধ্যে পরীক্ষায় অংশগ্রহণ করুন। সময় শেষ হলে উত্তর স্বয়ংক্রিয়ভাবে জমা হয়ে যাবে।
+                </p>
+              </div>
+            </div>
+
+            {studentExams.length === 0 ? (
+              <div className="p-10 text-center text-slate-500 text-xs bg-slate-950/60 rounded-xl border border-slate-800">
+                বর্তমানে আপনার জন্য কোনো সক্রিয় অনলাইন এমসিকিউ পরীক্ষা নেই।
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {studentExams.map(ex => {
+                  const now = new Date();
+                  const isUpcoming = ex.startDate && new Date(ex.startDate) > now;
+                  const isExpired = ex.endDate && new Date(ex.endDate) < now;
+                  const isLive = !isUpcoming && !isExpired;
+
+                  return (
+                    <div
+                      key={ex.id || ex._id}
+                      className="p-5 rounded-2xl bg-slate-950/90 border border-slate-800 hover:border-amber-500/40 transition-all flex flex-col justify-between space-y-4 shadow-xl"
+                    >
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="px-2.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 font-mono text-[10px] font-bold border border-cyan-500/30">
+                            {ex.courseTitle || ex.courseId || '🌐 সার্বজনীন পরীক্ষা'}
+                          </span>
+
+                          {isUpcoming ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              ⏳ আসন্ন
+                            </span>
+                          ) : isExpired ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                              🔒 বন্ধ
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse">
+                              🟢 লাইভ চলছে
+                            </span>
+                          )}
+                        </div>
+
+                        <h3 className="text-base font-extrabold text-white leading-snug">
+                          {ex.title}
+                        </h3>
+
+                        <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-slate-900 font-sans">
+                          <div className="text-slate-300">
+                            ⏱️ সময়: <strong className="text-amber-400 font-mono">{ex.durationMinutes} মিনিট</strong>
+                          </div>
+                          <div className="text-slate-300">
+                            🎯 পূর্ণমান: <strong className="text-emerald-400 font-mono">{ex.totalMarks} মার্কস</strong>
+                          </div>
+                          <div className="text-slate-300">
+                            📉 ভুল উত্তর: <strong className="text-rose-400 font-mono">-{ex.negativeMarks}</strong>
+                          </div>
+                          <div className="text-slate-300">
+                            🔄 সুযোগ (Limit): <strong className="text-cyan-400 font-mono">
+                              {ex.attemptLimit === 0 ? 'আনলিমিটেড' : `${ex.attemptLimit} বার (${ex.attemptsTaken} বার দেওয়া হয়েছে)`}
+                            </strong>
+                          </div>
+                        </div>
+
+                        {/* Schedule Info */}
+                        {(ex.startDate || ex.endDate) && (
+                          <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80 text-[10px] text-slate-400 space-y-0.5 font-mono">
+                            {ex.startDate && (
+                              <div>📅 শুরু: {new Date(ex.startDate).toLocaleString()}</div>
+                            )}
+                            {ex.endDate && (
+                              <div>🔒 শেষ: {new Date(ex.endDate).toLocaleString()}</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-900">
+                        {isUpcoming ? (
+                          <button
+                            disabled
+                            className="w-full py-2.5 rounded-xl bg-slate-800 text-slate-500 text-xs font-bold cursor-not-allowed"
+                          >
+                            ⏳ নির্ধারিত সময়ে শুরু হবে
+                          </button>
+                        ) : isExpired ? (
+                          <button
+                            disabled
+                            className="w-full py-2.5 rounded-xl bg-slate-800 text-slate-500 text-xs font-bold cursor-not-allowed"
+                          >
+                            🔒 পরীক্ষার সময় শেষ হয়েছে
+                          </button>
+                        ) : !ex.canAttempt ? (
+                          <button
+                            disabled
+                            className="w-full py-2.5 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 text-xs font-bold cursor-not-allowed flex items-center justify-center gap-1.5"
+                          >
+                            <span>✓</span> আপনার সর্বোচ্চ সুযোগ শেষ ({ex.attemptsTaken}/{ex.attemptLimit})
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              window.location.hash = `#mcq-exam-${ex.id}`;
+                            }}
+                            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                          >
+                            <span>▶️</span> পরীক্ষা শুরু করুন (Start Exam)
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Past MCQ Results & Performance Table */}
+          <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+              <div>
+                <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold border border-emerald-500/30 uppercase">
+                  ACADEMIC PERFORMANCE
+                </span>
+                <h2 className="text-lg font-extrabold text-white mt-1 flex items-center gap-2">
+                  <span>🏆 আমার পূর্ববর্তী পরীক্ষার ফলাফল ও পারফরম্যান্স</span>
+                </h2>
+                <p className="text-xs text-slate-400">
+                  আপনার জমা দেওয়া সকল পরীক্ষার নম্বর, প্রাপ্ত গ্রেড ও বিস্তারিত সমাধান দেখুন।
+                </p>
+              </div>
+            </div>
+
+            {studentResults.length === 0 ? (
+              <div className="p-10 text-center text-slate-500 text-xs bg-slate-950/60 rounded-xl border border-slate-800">
+                আপনি এখনো কোনো অনলাইন এমসিকিউ পরীক্ষায় অংশগ্রহণ করেননি। উপরের পরীক্ষাগুলো থেকে শুরু করুন।
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-900 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                    <tr>
+                      <th className="p-3">পরীক্ষার শিরোনাম (Exam Title)</th>
+                      <th className="p-3 text-center">প্রাপ্ত নম্বর (Score)</th>
+                      <th className="p-3 text-center">শতকরা হার (%)</th>
+                      <th className="p-3 text-center">গ্রেড ও ফলাফল</th>
+                      <th className="p-3 text-center">জমাদানের সময়</th>
+                      <th className="p-3 text-right">বিস্তারিত রিভিউ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {studentResults.map((r, idx) => (
+                      <tr key={r.id || r.resultId || idx} className="hover:bg-slate-900/50 transition-colors">
+                        <td className="p-3">
+                          <div className="font-extrabold text-white text-xs">{r.examTitle || 'MCQ Model Test'}</div>
+                          <span className="text-[10px] text-amber-400 font-mono">ID: {r.id || r.resultId}</span>
+                        </td>
+                        <td className="p-3 text-center font-mono font-black text-amber-400 text-sm">
+                          {r.score} <span className="text-xs text-slate-500 font-normal">/ {r.totalMarks}</span>
+                        </td>
+                        <td className="p-3 text-center font-mono font-bold text-white">
+                          {r.percentage}%
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                            r.percentage >= 80 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' :
+                            r.percentage >= 50 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' :
+                            'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                          }`}>
+                            {r.grade || (r.percentage >= 50 ? 'Passed ✓' : 'Needs Practice')}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center font-mono text-[11px] text-slate-400">
+                          {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : 'N/A'}
+                        </td>
+                        <td className="p-3 text-right">
+                          <button
+                            onClick={() => handleOpenReviewModal(r)}
+                            className="px-3 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 font-bold text-xs transition-all shadow-sm cursor-pointer"
+                          >
+                            🔍 উত্তর রিভিউ দেখুন
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* DETAILED MCQ RESULT REVIEW MODAL */}
+      {reviewModal.isOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fadeIn">
+          <div className="w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col max-h-[90vh] text-xs">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+              <div>
+                <h3 className="font-black text-white text-base flex items-center gap-2">
+                  <span>📝 পরীক্ষার পূর্ণাঙ্গ উত্তরপত্র ও আইনি ব্যাখ্যা</span>
+                </h3>
+                <p className="text-xs text-amber-400 font-mono mt-0.5">
+                  {reviewModal.result?.examTitle}
+                </p>
+              </div>
+              <button
+                onClick={() => setReviewModal({ isOpen: false, result: null, review: [], loading: false })}
+                className="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Scorecard Strip */}
+            <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-950 border border-slate-800 mb-4 text-center">
+              <div>
+                <span className="text-[10px] text-slate-400 block font-bold">প্রাপ্ত স্কোর (Score)</span>
+                <span className="text-lg font-black text-amber-400 font-mono">
+                  {reviewModal.result?.score} <span className="text-xs text-slate-500">/ {reviewModal.result?.totalMarks}</span>
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block font-bold">শতকরা হার (Percentage)</span>
+                <span className="text-lg font-black text-emerald-400 font-mono">
+                  {reviewModal.result?.percentage}%
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block font-bold">ফলাফল গ্রেড</span>
+                <span className="text-sm font-extrabold text-cyan-300">
+                  {reviewModal.result?.grade || 'Passed'}
+                </span>
+              </div>
+            </div>
+
+            {/* Questions Review List */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              {reviewModal.loading ? (
+                <div className="p-12 text-center text-amber-400 font-bold">
+                  ⏳ উত্তরপত্রের বিস্তারিত রিভিউ লোড হচ্ছে...
+                </div>
+              ) : reviewModal.review.length === 0 ? (
+                <div className="p-8 text-center text-slate-500">
+                  এই পরীক্ষার বিস্তারিত প্রশ্ন ব্যাখ্যা সংরক্ষিত নেই।
+                </div>
+              ) : (
+                reviewModal.review.map((item, idx) => {
+                  const optLabels = ['(ক)', '(খ)', '(গ)', '(ঘ)'];
+                  return (
+                    <div
+                      key={item.questionId || idx}
+                      className={`p-4 rounded-xl border space-y-2.5 ${
+                        item.isCorrect
+                          ? 'bg-emerald-950/20 border-emerald-500/40'
+                          : item.selectedIndex === -1
+                          ? 'bg-slate-950 border-slate-800'
+                          : 'bg-rose-950/20 border-rose-500/40'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-extrabold text-white text-xs leading-relaxed">
+                          {item.serial}. {item.questionText}
+                        </span>
+                        {item.isCorrect ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 shrink-0">
+                            ✓ সঠিক (+১)
+                          </span>
+                        ) : item.selectedIndex === -1 ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 font-bold shrink-0">
+                            উত্তর দেওয়া হয়নি (০)
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30 shrink-0">
+                            ✕ ভুল উত্তর (নেগেটিভ)
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Options Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        {(item.options || []).map((opt, oIdx) => {
+                          const isCorrectOpt = oIdx === Number(item.correctIndex);
+                          const isUserSelected = oIdx === Number(item.selectedIndex);
+
+                          let optClass = 'bg-slate-900/60 border-slate-800 text-slate-300';
+                          if (isCorrectOpt) {
+                            optClass = 'bg-emerald-950/80 border-emerald-500/60 text-emerald-200 font-bold';
+                          } else if (isUserSelected) {
+                            optClass = 'bg-rose-950/80 border-rose-500/60 text-rose-200 font-bold line-through';
+                          }
+
+                          return (
+                            <div
+                              key={oIdx}
+                              className={`p-2.5 rounded-lg border text-xs flex items-center justify-between ${optClass}`}
+                            >
+                              <span>
+                                <strong className="mr-1.5 font-mono">{optLabels[oIdx] || `[${oIdx + 1}]`}</strong>
+                                {opt}
+                              </span>
+                              {isCorrectOpt && <span className="text-emerald-400 font-bold text-[10px]">✓ সঠিক</span>}
+                              {isUserSelected && !isCorrectOpt && <span className="text-rose-400 font-bold text-[10px]">✕ আপনার ভুল</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Legal Explanation Box */}
+                      {item.explanation && (
+                        <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 leading-relaxed space-y-1">
+                          <span className="font-extrabold text-amber-400 block">💡 আইনি ব্যাখ্যা (Mentor Explanation):</span>
+                          <p>{item.explanation}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-800 flex justify-end mt-3">
+              <button
+                onClick={() => setReviewModal({ isOpen: false, result: null, review: [], loading: false })}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer"
+              >
+                বন্ধ করুন (Close Review)
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

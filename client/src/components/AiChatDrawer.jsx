@@ -89,6 +89,48 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
               {/* Dynamic Course & Video Recommendation Action Cards */}
               {msg.recommendation && (
                 <div className="mt-3 pt-2.5 border-t border-slate-700/80 space-y-2">
+                  {msg.recommendation.type === 'MATCHED_LESSON' && (
+                    <div className="p-3.5 rounded-xl bg-gradient-to-br from-cyan-950/90 to-blue-950/90 border border-cyan-500/50 space-y-2.5 text-xs shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-cyan-300 flex items-center gap-1.5">
+                          <span>🎥</span> প্রস্তাবিত ভিডিও লেকচার (Academy Class)
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-200 border border-cyan-500/30 font-bold">
+                          Relevant Match
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs text-white font-extrabold line-clamp-2">
+                          {msg.recommendation.lesson?.title}
+                        </p>
+                        {msg.recommendation.courseTitle && (
+                          <span className="text-[10px] text-amber-300 font-mono">
+                            📚 {msg.recommendation.courseTitle}
+                          </span>
+                        )}
+                      </div>
+                      {msg.recommendation.snippet && (
+                        <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300 italic leading-relaxed">
+                          <span className="text-cyan-400 font-bold not-italic">🗣️ ক্লাসে শিক্ষকের বক্তব্য: </span>
+                          "{msg.recommendation.snippet}"
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (openVideoModal && msg.recommendation.lesson) {
+                            openVideoModal(msg.recommendation.lesson);
+                          } else if (msg.recommendation.lesson?.youtubeId) {
+                            window.open(`https://youtu.be/${msg.recommendation.lesson.youtubeId}`, '_blank');
+                          }
+                        }}
+                        className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                      >
+                        <span>▶️</span> এই ক্লাসটি সরাসরি প্লে করুন
+                      </button>
+                    </div>
+                  )}
+
                   {msg.recommendation.type === 'FREE_ORIENTATION' && (
                     <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/50 space-y-2 text-xs">
                       <div className="flex items-center justify-between">
