@@ -84,6 +84,44 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
   };
 
   const handlePlayVideo = (rec) => {
+    // 1. Direct Backend-Processed Access Decision (from MongoDB + Fast-Cache)
+    const backendAccess = rec?.access;
+    if (backendAccess) {
+      if (backendAccess.canPlay) {
+        setAccessModal(null);
+        if (openVideoModal && rec.lesson) {
+          openVideoModal(rec.lesson);
+        } else if (rec.lesson?.youtubeId) {
+          window.open(`https://youtu.be/${rec.lesson.youtubeId}`, '_blank');
+        }
+        return;
+      }
+
+      if (backendAccess.actionRequired === 'LOGIN') {
+        setAccessModal({
+          type: 'LOGIN_REQUIRED',
+          title: backendAccess.promptTitle || 'প্রথমে রেজিস্ট্রেশন বা লগইন করুন',
+          message: backendAccess.promptMessage || 'এই প্রিমিয়াম একাডেমি ক্লাসটি দেখার জন্য আপনাকে প্রথমে একটি একাউন্ট রেজিস্ট্রেশন অথবা লগইন করতে হবে।',
+          lesson: rec.lesson,
+          courseTitle: backendAccess.courseTitle || rec.courseTitle || 'একাডেমি কোর্স'
+        });
+        return;
+      }
+
+      if (backendAccess.actionRequired === 'ENROLL') {
+        setAccessModal({
+          type: 'ENROLL_REQUIRED',
+          title: backendAccess.promptTitle || 'আপনি এই কোর্সে এনরোল করেন',
+          message: backendAccess.promptMessage || `এই ভিডিও ক্লাসটি "${backendAccess.courseTitle || rec.courseTitle || 'একাডেমি কোর্স'}" এর অন্তর্ভুক্ত। ক্লাসটি দেখতে হলে অনুগ্রহ করে কোর্সে এনরোল সম্পন্ন করুন।`,
+          lesson: rec.lesson,
+          courseTitle: backendAccess.courseTitle || rec.courseTitle || 'একাডেমি কোর্স',
+          courseId: rec.courseId || rec.lesson?.courseId
+        });
+        return;
+      }
+    }
+
+    // 2. Fallback Client-side Verification
     const access = checkLessonAccess(rec);
 
     if (access.allowed) {
@@ -324,26 +362,28 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
               {msg.recommendation && (
                 <div className="mt-3 pt-2.5 border-t border-slate-700/80 space-y-2">
                   {msg.recommendation.type === 'MATCHED_LESSON' && (() => {
-                    const access = checkLessonAccess(msg.recommendation);
+                    const bAccess = msg.recommendation.access;
+                    const access = bAccess
+                      ? {
+                          allowed: bAccess.canPlay,
+                          badgeText: bAccess.badgeText,
+                          btnText: bAccess.btnText,
+                          reason: bAccess.actionRequired === 'LOGIN' ? 'LOGIN_REQUIRED' : bAccess.actionRequired === 'ENROLL' ? 'ENROLL_REQUIRED' : ''
+                        }
+                      : checkLessonAccess(msg.recommendation);
                     return (
                       <div className="p-3.5 rounded-xl bg-gradient-to-br from-cyan-950/90 to-blue-950/90 border border-cyan-500/50 space-y-2.5 text-xs shadow-lg">
                         <div className="flex items-center justify-between">
                           <span className="font-extrabold text-cyan-300 flex items-center gap-1.5">
                             <span>🎥</span> প্রস্তাবিত ভিডিও লেকচার (Academy Class)
                           </span>
-                          {access.allowed ? (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
-                              ✅ আনলক করা
-                            </span>
-                          ) : access.reason === 'LOGIN_REQUIRED' ? (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
-                              🔒 লগইন প্রয়োজন
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
-                              🔒 এনরোল প্রয়োজন
-                            </span>
-                          )}
+                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
+                            access.allowed
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                              : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                          }`}>
+                            {access.badgeText || (access.allowed ? '✅ আনলক করা' : access.reason === 'LOGIN_REQUIRED' ? '🔒 লগইন প্রয়োজন' : '🔒 এনরোল প্রয়োজন')}
+                          </span>
                         </div>
                         <div>
                           <p className="text-xs text-white font-extrabold line-clamp-2">
@@ -371,11 +411,11 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
                           }`}
                         >
                           <span>{access.allowed ? '▶️' : '🔒'}</span>{' '}
-                          {access.allowed
+                          {access.btnText || (access.allowed
                             ? 'এই ক্লাসটি সরাসরি প্লে করুন'
                             : access.reason === 'LOGIN_REQUIRED'
                             ? 'ক্লাসটি দেখতে লগইন করুন'
-                            : 'ক্লাসটি দেখতে এনরোল করুন'}
+                            : 'ক্লাসটি দেখতে এনরোল করুন')}
                         </button>
                       </div>
                     );

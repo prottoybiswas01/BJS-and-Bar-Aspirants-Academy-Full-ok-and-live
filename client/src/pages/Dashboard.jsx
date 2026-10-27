@@ -39,18 +39,13 @@ export default function Dashboard({ openVideoModal }) {
 
   useEffect(() => {
     fetchData(true);
-    if (user?.id) {
-      fetchAssignments();
-      fetchExamsAndResults();
-    }
 
+    // Fast-Cached Single-Trip Polling Interval (Updates all states in 1 quick call)
     const interval = setInterval(() => {
-      fetchData(false);
       if (user?.id) {
-        fetchAssignments();
-        fetchExamsAndResults();
+        fetchData(false);
       }
-    }, 4000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [user?.id]);
@@ -190,33 +185,48 @@ export default function Dashboard({ openVideoModal }) {
     }
   };
 
-  const fetchData = async (isInitial = true) => {
+  const fetchData = async (isInitial = true, courseIdOverride = null) => {
     if (isInitial) setLoading(true);
     try {
-      const courseRes = await api.get('/courses');
-      if (courseRes.data.ok) {
-        const activeCourses = (courseRes.data.courses || []).filter(c =>
-          !c.status || c.status === 'Active' || String(c.status).toLowerCase().includes('active')
-        );
-        setCourses(activeCourses);
-        if (activeCourses.length > 0) {
+      const targetCourseId = courseIdOverride || selectedCourse?.id;
+      // High-Speed Backend-Processed & Fast-Cached Student Dashboard API
+      const res = await api.get('/student/dashboard-data', {
+        params: {
+          studentId: user?.id || user?.regId,
+          courseId: targetCourseId
+        }
+      });
+
+      if (res.data?.ok) {
+        if (Array.isArray(res.data.courses)) setCourses(res.data.courses);
+        if (res.data.selectedCourse) {
           setSelectedCourse(prev => {
-            if (!prev) {
-              const enrolled = activeCourses.find(c => 
-                (user?.allowedCourseIds || user?.enrolledCourseIds || []).includes(c.id)
-              ) || activeCourses[0];
-              fetchLessons(enrolled.id);
-              return enrolled;
-            } else {
-              const matched = activeCourses.find(c => c.id === prev.id) || prev;
-              fetchLessons(matched.id);
-              return matched;
-            }
+            if (courseIdOverride) return res.data.selectedCourse;
+            return prev ? { ...prev, ...res.data.selectedCourse } : res.data.selectedCourse;
           });
         }
+        if (Array.isArray(res.data.lessons)) setLessons(res.data.lessons);
+        if (Array.isArray(res.data.assignments)) setStudentAssignments(res.data.assignments);
+        if (Array.isArray(res.data.submissions)) setMySubmissions(res.data.submissions);
+        if (Array.isArray(res.data.exams)) setStudentExams(res.data.exams);
+        if (Array.isArray(res.data.results)) setStudentResults(res.data.results);
+        return;
       }
     } catch (err) {
-      console.log('Dashboard error:', err);
+      console.log('Dashboard backend-processed data notice, falling back:', err.message);
+      try {
+        const courseRes = await api.get('/courses');
+        if (courseRes.data.ok) {
+          const activeCourses = (courseRes.data.courses || []).filter(c =>
+            !c.status || c.status === 'Active' || String(c.status).toLowerCase().includes('active')
+          );
+          setCourses(activeCourses);
+          if (activeCourses.length > 0 && !selectedCourse) {
+            setSelectedCourse(activeCourses[0]);
+            fetchLessons(activeCourses[0].id);
+          }
+        }
+      } catch (e) {}
     } finally {
       if (isInitial) setLoading(false);
     }
@@ -235,7 +245,7 @@ export default function Dashboard({ openVideoModal }) {
 
   const handleSelectCourse = (course) => {
     setSelectedCourse(course);
-    fetchLessons(course.id);
+    fetchData(false, course.id);
   };
 
   const toggleComplete = async (lessonId) => {
@@ -346,6 +356,8 @@ export default function Dashboard({ openVideoModal }) {
 
   const checkCourseEnrolled = (c) => {
     if (!c || !isApproved) return false;
+    // 1. Direct Backend-Processed Access from MongoDB
+    if (c.isEnrolled !== undefined) return Boolean(c.isEnrolled);
     if (isUnlimited) return true;
 
     const rawAllowed = user?.allowedCourseIds || [];

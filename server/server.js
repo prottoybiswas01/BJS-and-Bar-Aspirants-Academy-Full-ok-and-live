@@ -39,6 +39,7 @@ process.on("unhandledRejection", (reason, promise) => {
 });
 
 const express = require("express");
+const crypto = require("crypto");
 const compression = require("compression");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -4129,6 +4130,225 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
   }
 });
 
+// -------------------------------------------------------------
+// USER SESSION & ACCESS RESOLUTION HELPER (BACKEND-PROCESSING)
+// -------------------------------------------------------------
+async function getAuthUserFromRequest(req) {
+  try {
+    let token = null;
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.substring(7).trim();
+    }
+    
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (decoded && decoded.id) {
+          if (decoded.role === "admin" || decoded.isAdmin) {
+            return { id: decoded.id, name: "Super Admin", role: "admin", isAdmin: true };
+          }
+          if (decoded.role === "mentor" || decoded.isMentor) {
+            let mtr = null;
+            if (isMongoConnected) mtr = await Mentor.findOne({ id: decoded.id }).lean();
+            if (!mtr) mtr = (memoryDb.mentors || []).find(m => m.id === decoded.id);
+            if (mtr) return { ...mtr, isMentor: true, role: "mentor" };
+          }
+          // Student match
+          let stu = null;
+          if (isMongoConnected) {
+            stu = await Student.findOne({ $or: [{ id: decoded.id }, ...(mongoose.Types.ObjectId.isValid(decoded.id) ? [{ _id: decoded.id }] : [])] }).lean();
+          }
+          if (!stu) stu = (memoryDb.students || []).find(s => s.id === decoded.id);
+          if (stu) return { ...stu, role: "student" };
+        }
+      } catch (jwtErr) {
+        // Fall through to query/body check
+      }
+    }
+
+    const fallbackId = req.query?.studentId || req.body?.studentId || req.query?.id;
+    if (fallbackId) {
+      let stu = null;
+      if (isMongoConnected) {
+        stu = await Student.findOne({ $or: [{ id: fallbackId }, ...(mongoose.Types.ObjectId.isValid(fallbackId) ? [{ _id: fallbackId }] : [])] }).lean();
+      }
+      if (!stu) stu = (memoryDb.students || []).find(s => s.id === fallbackId);
+      if (stu) return { ...stu, role: "student" };
+    }
+  } catch (e) {}
+  return null;
+}
+
+function checkStudentCourseAccess(student, courseId, lesson = null) {
+  // Free / orientation lessons are open to everyone
+  if (lesson) {
+    const isFree = lesson.isFree === true ||
+      (lesson.title && (lesson.title.toLowerCase().includes('orientation') || lesson.title.includes('অরিয়েন্টেশন'))) ||
+      (lesson.module && (lesson.module.toLowerCase().includes('orientation') || lesson.module.includes('অরিয়েন্টেশন')));
+    if (isFree) return { allowed: true, reason: 'FREE_ORIENTATION' };
+  }
+
+  if (!student) {
+    return { allowed: false, reason: 'UNAUTHENTICATED' };
+  }
+
+  if (student.isAdmin || student.isMentor) {
+    return { allowed: true, reason: 'ADMIN_OR_MENTOR' };
+  }
+
+  // Account must be approved and active
+  if (student.loginApproval !== 'Approved' && student.status !== 'Active') {
+    return { allowed: false, reason: 'PENDING_APPROVAL' };
+  }
+
+  // Unlimited access
+  const allowed = student.allowedCourseIds || [];
+  const enrolled = student.enrolledCourseIds || [];
+  const rules = student.courseRules || [];
+
+  if (student.unlimitedAccess === true || allowed.includes('all')) {
+    return { allowed: true, reason: 'UNLIMITED_ACCESS' };
+  }
+
+  if (!courseId) {
+    return { allowed: false, reason: 'NO_COURSE_SPECIFIED' };
+  }
+
+  const sCourseId = String(courseId).toLowerCase().trim();
+  const isEnrolled = 
+    allowed.some(id => String(id).toLowerCase().trim() === sCourseId) ||
+    enrolled.some(id => String(id).toLowerCase().trim() === sCourseId) ||
+    (student.course && String(student.course).toLowerCase().trim() === sCourseId) ||
+    rules.some(r => r && String(r.courseId).toLowerCase().trim() === sCourseId && r.enrollmentStatus !== 'Suspended');
+
+  if (isEnrolled) {
+    return { allowed: true, reason: 'ENROLLED' };
+  }
+
+  return { allowed: false, reason: 'NOT_ENROLLED' };
+}
+
+// DEDICATED QUERY-DRIVEN STUDENT DASHBOARD OVERVIEW ENDPOINT (Backend-Processed & Fast-Cached)
+app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const student = await getAuthUserFromRequest(req);
+    if (!student) {
+      return res.status(401).json({ ok: false, message: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" });
+    }
+
+    const { courseId: requestedCourseId } = req.query;
+    const studentUniqueKey = student.id || student.phone || 'student';
+    const cacheKey = `student_dash_${studentUniqueKey}_${requestedCourseId || 'auto'}`;
+    const cached = fastCache.get(cacheKey);
+    if (cached) {
+      return res.json({ ok: true, ...cached, source: "fast-cache" });
+    }
+
+    // Parallel fetch of Courses, Assignments, Submissions, Exams, Results from MongoDB
+    const [allCourses, dbAssignments, dbSubmissions, dbExams, dbResults] = await Promise.all([
+      isMongoConnected ? Course.find({ status: { $ne: "Inactive" } }).sort({ createdAt: -1 }).lean().catch(() => []) : (memoryDb.courses || []).filter(c => c && c.status !== "Inactive"),
+      isMongoConnected ? Assignment.find().sort({ createdAt: -1 }).lean().catch(() => []) : (memoryDb.assignments || []),
+      isMongoConnected ? Submission.find({ studentId: student.id }).sort({ submittedAt: -1 }).lean().catch(() => []) : (memoryDb.submissions || []).filter(s => s.studentId === student.id),
+      isMongoConnected ? McqExam.find().sort({ createdAt: -1 }).lean().catch(() => []) : (memoryDb.mcqExams || []),
+      isMongoConnected ? McqResult.find({ studentId: student.id }).sort({ createdAt: -1 }).lean().catch(() => []) : (memoryDb.mcqResults || []).filter(r => r.studentId === student.id)
+    ]);
+
+    // Backend-processed course enrollment annotation
+    const processedCourses = (allCourses || []).map(c => {
+      const access = checkStudentCourseAccess(student, c.id);
+      return {
+        ...c,
+        isEnrolled: access.allowed,
+        isLocked: !access.allowed
+      };
+    });
+
+    const enrolledCourses = processedCourses.filter(c => c.isEnrolled);
+
+    // Resolve selected course
+    let selectedCourse = null;
+    if (requestedCourseId) {
+      selectedCourse = processedCourses.find(c => c.id === requestedCourseId || String(c._id) === String(requestedCourseId)) || null;
+    }
+    if (!selectedCourse) {
+      selectedCourse = enrolledCourses.length > 0 ? enrolledCourses[0] : (processedCourses[0] || null);
+    }
+
+    // Fetch and process lessons for selected course directly from DB
+    let lessonsList = [];
+    if (selectedCourse) {
+      const cId = selectedCourse.id;
+      if (isMongoConnected) {
+        lessonsList = await Lesson.find({ courseId: cId }).lean().catch(() => []);
+      }
+      if (!lessonsList || lessonsList.length === 0) {
+        lessonsList = (memoryDb.lessons || []).filter(l => l.courseId === cId || l.courseId === String(cId));
+      }
+    }
+
+    // Sort lessons serially with Orientation at top
+    lessonsList.sort((a, b) => {
+      const isOrientationA = (a.title && (a.title.includes('অরিয়েন্টেশন') || a.title.toLowerCase().includes('orientation'))) ? -1 : 1;
+      const isOrientationB = (b.title && (b.title.includes('অরিয়েন্টেশন') || b.title.toLowerCase().includes('orientation'))) ? -1 : 1;
+      if (isOrientationA !== isOrientationB) return isOrientationA - isOrientationB;
+      const orderA = a.order || 0;
+      const orderB = b.order || 0;
+      if (orderA !== orderB) return orderA - orderB;
+      return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+    });
+
+    // Backend-mark each lesson as unlocked or locked
+    const processedLessons = lessonsList.map(l => {
+      const access = checkStudentCourseAccess(student, selectedCourse?.id, l);
+      return {
+        ...l,
+        isUnlocked: access.allowed
+      };
+    });
+
+    // Backend-calculate progress
+    const completedLessonIds = student.completedLessonIds || [];
+    const completedCount = completedLessonIds.filter(cId => processedLessons.some(l => l.id === cId)).length;
+    const progressPercent = processedLessons.length > 0 ? Math.round((completedCount / processedLessons.length) * 100) : 0;
+
+    const payload = {
+      student: {
+        id: student.id,
+        name: student.name,
+        phone: student.phone,
+        email: student.email,
+        loginApproval: student.loginApproval,
+        status: student.status,
+        batch: student.batch,
+        isApproved: student.loginApproval === 'Approved' && student.status !== 'Inactive' && student.status !== 'Blocked',
+        completedLessonIds
+      },
+      courses: processedCourses,
+      selectedCourse,
+      lessons: processedLessons,
+      stats: {
+        totalLessons: processedLessons.length,
+        completedCount,
+        progressPercent,
+        enrolledCount: enrolledCourses.length
+      },
+      assignments: dbAssignments || [],
+      submissions: dbSubmissions || [],
+      exams: dbExams || [],
+      results: dbResults || [],
+      source: "mongodb-backend-processed"
+    };
+
+    fastCache.set(cacheKey, payload, 30); // 30 seconds high-speed cache
+    return res.json({ ok: true, ...payload });
+  } catch (err) {
+    console.error("Student dashboard-data error:", err);
+    return res.status(500).json({ ok: false, message: "ড্যাশবোর্ড ডেটা লোড করতে সমস্যা হয়েছে: " + err.message });
+  }
+});
+
 // AI LEGAL ASSISTANT ENDPOINT (Bangladesh Constitution & Law + Video Transcript Matching)
 app.post("/api/ai/legal-assistant", async (req, res) => {
   try {
@@ -6537,7 +6757,7 @@ app.delete("/api/admin/receipts/:receiptId", async (req, res) => {
 });
 
 // 6. Gemini AI Legal Assistant & Smart Course Monetization Engine
-// 6. Gemini AI Legal Assistant with Real-Time YouTube Transcript Matching Engine
+// 6. Gemini AI Legal Assistant with Real-Time YouTube Transcript Matching Engine (Backend-Processed & Fast-Cached)
 app.post("/api/ai/chat", async (req, res) => {
   try {
     await ensureDbConnected();
@@ -6548,7 +6768,21 @@ app.post("/api/ai/chat", async (req, res) => {
 
     const userQuery = String(prompt).trim();
 
-    // Fetch active lessons from DB or memory
+    // 1. Resolve student/user identity on the backend
+    const authUser = await getAuthUserFromRequest(req);
+    const userRoleKey = authUser
+      ? `${authUser.id}_${(authUser.allowedCourseIds || []).join(',')}`
+      : 'guest';
+
+    // 2. High-speed cache check (Sub-5ms response for repeated queries)
+    const queryHash = crypto.createHash('md5').update(userQuery.toLowerCase()).digest('hex');
+    const cacheKey = `ai_chat_${queryHash}_${userRoleKey}`;
+    const cachedResponse = fastCache.get(cacheKey);
+    if (cachedResponse) {
+      return res.json({ ok: true, ...cachedResponse, source: "fast-cache" });
+    }
+
+    // 3. Fetch active lessons from DB or memory
     let activeLessons = memoryDb.lessons || [];
     if (isMongoConnected) {
       try {
@@ -6557,10 +6791,10 @@ app.post("/api/ai/chat", async (req, res) => {
       } catch (e) { }
     }
 
-    // Process legal query & search video transcripts
+    // 4. Process legal query & search video transcripts
     const aiResult = await processLegalAiQuery({
       query: userQuery,
-      studentName: 'আইন শিক্ষার্থী',
+      studentName: authUser?.name || 'আইন শিক্ষার্থী',
       allLessons: activeLessons
     });
 
@@ -6578,6 +6812,37 @@ app.post("/api/ai/chat", async (req, res) => {
         }
       } catch (ce) {}
 
+      // 5. Backend-processed Access Verification Engine
+      const accessCheck = checkStudentCourseAccess(authUser, resolvedCourseId, topMatch);
+
+      let actionRequired = 'PLAY';
+      let badgeText = '✅ আনলক করা';
+      let btnText = '▶️ এই ক্লাসটি সরাসরি প্লে করুন';
+      let promptTitle = '';
+      let promptMessage = '';
+
+      if (!accessCheck.allowed) {
+        if (accessCheck.reason === 'UNAUTHENTICATED') {
+          actionRequired = 'LOGIN';
+          badgeText = '🔒 লগইন প্রয়োজন';
+          btnText = '🔒 ক্লাসটি দেখতে লগইন করুন';
+          promptTitle = 'প্রথমে রেজিস্ট্রেশন বা লগইন করুন';
+          promptMessage = 'এই প্রিমিয়াম একাডেমি ক্লাসটি দেখার জন্য আপনাকে প্রথমে একটি একাউন্ট রেজিস্ট্রেশন অথবা লগইন করতে হবে।';
+        } else if (accessCheck.reason === 'NOT_ENROLLED') {
+          actionRequired = 'ENROLL';
+          badgeText = '🔒 এনরোল প্রয়োজন';
+          btnText = '🔒 ক্লাসটি দেখতে এনরোল করুন';
+          promptTitle = 'আপনি এই কোর্সে এনরোল করেন';
+          promptMessage = `এই ভিডিও ক্লাসটি "${resolvedCourseTitle}" কোর্সের অন্তর্ভুক্ত। ক্লাসটি সম্পূর্ণ দেখতে হলে অনুগ্রহ করে এই কোর্সে এনরোল সম্পন্ন করুন।`;
+        } else if (accessCheck.reason === 'PENDING_APPROVAL') {
+          actionRequired = 'PENDING';
+          badgeText = '⏳ এপ্রুভাল অপেক্ষমাণ';
+          btnText = '⏳ অ্যাকাউন্ট এপ্রুভাল প্রয়োজন';
+          promptTitle = 'একাউন্ট অনুমোদনের অপেক্ষমাণ';
+          promptMessage = 'আপনার অ্যাকাউন্টটি বর্তমানে অ্যাডমিন অনুমোদনের অপেক্ষায় রয়েছে। অনুমোদন সম্পন্ন হলে এই ক্লাসটি উপভোগ করতে পারবেন।';
+        }
+      }
+
       recommendation = {
         type: "MATCHED_LESSON",
         courseId: resolvedCourseId,
@@ -6585,16 +6850,29 @@ app.post("/api/ai/chat", async (req, res) => {
         lesson: topMatch,
         snippet: topMatch.snippet,
         matchedKeywords: topMatch.matchedKeywords,
-        note: `আমাদের একাডেমির মেন্টরের ভিডিও ক্লাসে এই বিষয়ে সরাসরি আলোচনা রয়েছে!`
+        note: `আমাদের একাডেমির মেন্টরের ভিডিও ক্লাসে এই বিষয়ে সরাসরি আলোচনা রয়েছে!`,
+        access: {
+          canPlay: accessCheck.allowed,
+          actionRequired,
+          badgeText,
+          btnText,
+          promptTitle,
+          promptMessage,
+          isLoggedIn: !!authUser,
+          isEnrolled: accessCheck.allowed
+        }
       };
     }
 
-    return res.json({
-      ok: true,
+    const responsePayload = {
       reply: aiResult.answer,
       matchedLessons: aiResult.matchedLessons || [],
-      recommendation
-    });
+      recommendation,
+      source: "mongodb-backend-processed"
+    };
+
+    fastCache.set(cacheKey, responsePayload, 120); // 2 minutes query cache
+    return res.json({ ok: true, ...responsePayload });
   } catch (e) {
     console.error("AI Chat Error:", e);
     return res.status(500).json({ ok: false, message: "AI Assistant processing error: " + e.message });
