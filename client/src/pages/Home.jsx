@@ -239,12 +239,18 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                     ? '👨‍🏫 আপনার মেন্টর ড্যাশবোর্ড (Mentor Dashboard)'
                     : '🎓 আপনার স্টুডেন্ট ড্যাশবোর্ড (Student Dashboard)'}
                 </button>
-                <a
-                  href="#courses"
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-sm transition-all text-center"
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById('courses');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    if (window.history.pushState) window.history.pushState(null, '', '/courses');
+                    document.title = '📚 প্রিমিয়াম আইন কোর্সসমূহ | BJS & Bar Aspirants Academy';
+                  }}
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-sm transition-all text-center cursor-pointer"
                 >
                   📚 কোর্সসমূহ দেখুন (View Courses)
-                </a>
+                </button>
               </>
             ) : (
               <>

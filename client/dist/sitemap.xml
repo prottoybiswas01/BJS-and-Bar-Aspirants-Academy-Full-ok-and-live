@@ -14,23 +14,23 @@
 
   <!-- 2. Course Catalog & Masterclasses -->
   <url>
-    <loc>https://bjs.kodl.uk/#courses</loc>
+    <loc>https://bjs.kodl.uk/courses</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>daily</changefreq>
-    <priority>0.9</priority>
+    <priority>0.95</priority>
   </url>
 
   <!-- 3. Online MCQ Exams & Model Tests -->
   <url>
-    <loc>https://bjs.kodl.uk/#mcq-exams</loc>
+    <loc>https://bjs.kodl.uk/mcq-exams</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>daily</changefreq>
-    <priority>0.9</priority>
+    <priority>0.95</priority>
   </url>
 
   <!-- 4. Free Orientation Classes -->
   <url>
-    <loc>https://bjs.kodl.uk/#free-classes</loc>
+    <loc>https://bjs.kodl.uk/free-classes</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
@@ -38,15 +38,15 @@
 
   <!-- 5. AI Legal Assistant (Gemini AI) -->
   <url>
-    <loc>https://bjs.kodl.uk/#ai-legal-assistant</loc>
+    <loc>https://bjs.kodl.uk/ai-assistant</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
+    <priority>0.9</priority>
   </url>
 
   <!-- 6. Student Login Portal -->
   <url>
-    <loc>https://bjs.kodl.uk/#login</loc>
+    <loc>https://bjs.kodl.uk/login</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
@@ -54,15 +54,15 @@
 
   <!-- 7. Student Registration Portal -->
   <url>
-    <loc>https://bjs.kodl.uk/#register</loc>
+    <loc>https://bjs.kodl.uk/register</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <priority>0.85</priority>
   </url>
 
   <!-- 8. Civil Laws Masterclass (CPC & SR Act) -->
   <url>
-    <loc>https://bjs.kodl.uk/#civil-laws-intensive</loc>
+    <loc>https://bjs.kodl.uk/civil-laws-intensive</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
@@ -70,7 +70,7 @@
 
   <!-- 9. Criminal Laws Masterclass (Penal Code & CrPC) -->
   <url>
-    <loc>https://bjs.kodl.uk/#criminal-laws-intensive</loc>
+    <loc>https://bjs.kodl.uk/criminal-laws-intensive</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
@@ -78,7 +78,7 @@
 
   <!-- 10. Bangladesh Constitution Masterclass -->
   <url>
-    <loc>https://bjs.kodl.uk/#constitutional-law</loc>
+    <loc>https://bjs.kodl.uk/constitutional-law</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
@@ -86,7 +86,7 @@
 
   <!-- 11. Family Laws & Special Acts -->
   <url>
-    <loc>https://bjs.kodl.uk/#family-laws</loc>
+    <loc>https://bjs.kodl.uk/family-laws</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -94,7 +94,7 @@
 
   <!-- 12. Limitation & Evidence Act -->
   <url>
-    <loc>https://bjs.kodl.uk/#limitation-and-evidence</loc>
+    <loc>https://bjs.kodl.uk/limitation-and-evidence</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -102,7 +102,7 @@
 
   <!-- 13. BJS Preliminary & Written Preparation -->
   <url>
-    <loc>https://bjs.kodl.uk/#bjs-preliminary-preparation</loc>
+    <loc>https://bjs.kodl.uk/bjs-preliminary-preparation</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
@@ -110,7 +110,7 @@
 
   <!-- 14. Bar Council Exam Suggestion & Question Bank -->
   <url>
-    <loc>https://bjs.kodl.uk/#bar-council-exam-suggestion</loc>
+    <loc>https://bjs.kodl.uk/bar-council-exam-suggestion</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
@@ -118,7 +118,7 @@
 
   <!-- 15. The Penal Code 1860 Master Series -->
   <url>
-    <loc>https://bjs.kodl.uk/#penal-code-1860</loc>
+    <loc>https://bjs.kodl.uk/penal-code-1860</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
@@ -126,7 +126,7 @@
 
   <!-- 16. Specific Relief Act (SR Act 1877) -->
   <url>
-    <loc>https://bjs.kodl.uk/#specific-relief-act</loc>
+    <loc>https://bjs.kodl.uk/specific-relief-act</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -134,7 +134,7 @@
 
   <!-- 17. Legal Drafting & Court Practice (Bail, Plaint, Legal Notice) -->
   <url>
-    <loc>https://bjs.kodl.uk/#legal-drafting-and-practice</loc>
+    <loc>https://bjs.kodl.uk/legal-drafting-and-practice</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -142,7 +142,7 @@
 
   <!-- 18. Cheque Dishonour Case (NI Act 138) -->
   <url>
-    <loc>https://bjs.kodl.uk/#ni-act-138</loc>
+    <loc>https://bjs.kodl.uk/ni-act-138</loc>
     <lastmod>2026-10-27T12:00:00+06:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
