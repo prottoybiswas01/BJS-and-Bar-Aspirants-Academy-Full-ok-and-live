@@ -173,7 +173,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
     setSyncingSubtitles(true);
     setMsg({ type: 'success', text: '⏳ ইউটিউব থেকে সাবটাইটেল সিঙ্ক হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...' });
     try {
-      const res = await api.post('/admin/lessons/sync-transcripts');
+      const res = await api.post('/admin/lessons/sync-transcripts', { courseId: targetCourseId });
       if (res.data.ok) {
         setMsg({ type: 'success', text: res.data.message || '✓ সকল ভিডিওর সাবটাইটেল সফলভাবে সিঙ্ক ও সেভ হয়েছে!' });
         await loadLessons();
