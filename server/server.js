@@ -3343,6 +3343,102 @@ app.get(["/api/health", "/health", "/api/db-diagnostic", "/db-diagnostic"], asyn
 });
 
 // -------------------------------------------------------------
+// DYNAMIC SEO SITEMAP & SEARCH ENGINE ROBOTS ENGINE
+// -------------------------------------------------------------
+app.get("/robots.txt", (req, res) => {
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=86400"); // 24 hours
+  res.send(`# Robots.txt for BJS & Bar Aspirants Academy (https://bjs.kodl.uk)
+User-agent: *
+Allow: /
+Allow: /#courses
+Allow: /#mcq-exams
+Allow: /#free-classes
+Allow: /#legal-assistant
+Disallow: /admin
+Disallow: /api/admin/
+Disallow: /mentor-dashboard
+
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+Sitemap: https://bjs.kodl.uk/sitemap.xml
+`);
+});
+
+app.get("/sitemap.xml", async (req, res) => {
+  res.setHeader("Content-Type", "application/xml; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=43200"); // 12 hours
+
+  try {
+    const cachedSitemap = fastCache.get("xml_sitemap");
+    if (cachedSitemap) {
+      return res.send(cachedSitemap);
+    }
+
+    let activeCourses = memoryDb.courses || [];
+    if (isMongoConnected) {
+      try {
+        const crs = await Course.find({ status: { $ne: "Inactive" } }).lean();
+        if (crs && crs.length > 0) activeCourses = crs;
+      } catch (e) {}
+    }
+
+    const todayDate = new Date().toISOString().split("T")[0];
+
+    let courseXmlEntries = activeCourses.map(c => `  <url>
+    <loc>https://bjs.kodl.uk/#course-${c.id}</loc>
+    <lastmod>${todayDate}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>`).join("\n");
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://bjs.kodl.uk/</loc>
+    <lastmod>${todayDate}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://bjs.kodl.uk/#courses</loc>
+    <lastmod>${todayDate}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://bjs.kodl.uk/#mcq-exams</loc>
+    <lastmod>${todayDate}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://bjs.kodl.uk/#free-classes</loc>
+    <lastmod>${todayDate}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://bjs.kodl.uk/#ai-legal-assistant</loc>
+    <lastmod>${todayDate}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+${courseXmlEntries}
+</urlset>`;
+
+    fastCache.set("xml_sitemap", xml, 3600); // 1 hour
+    return res.send(xml);
+  } catch (err) {
+    return res.send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://bjs.kodl.uk/</loc></url></urlset>`);
+  }
+});
+
+// -------------------------------------------------------------
 // CONSOLIDATED ULTRA-FAST HOMEPAGE ENDPOINT
 // -------------------------------------------------------------
 app.get(["/api/home-data", "/home-data"], async (req, res) => {

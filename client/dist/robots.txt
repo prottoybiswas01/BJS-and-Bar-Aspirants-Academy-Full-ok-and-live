@@ -1,0 +1,28 @@
+# Robots.txt for BJS & Bar Aspirants Academy (https://bjs.kodl.uk)
+# Optimized for Googlebot, Bingbot, DuckDuckBot, and all Search Engine Crawlers
+
+User-agent: *
+Allow: /
+Allow: /#courses
+Allow: /#mcq-exams
+Allow: /#free-classes
+Allow: /#legal-assistant
+Disallow: /admin
+Disallow: /api/admin/
+Disallow: /mentor-dashboard
+
+# Specific search engine crawlers
+User-agent: Googlebot
+Allow: /
+
+User-agent: Googlebot-Image
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+# Canonical Sitemap Reference
+Sitemap: https://bjs.kodl.uk/sitemap.xml
