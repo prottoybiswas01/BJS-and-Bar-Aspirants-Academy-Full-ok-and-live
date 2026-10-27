@@ -3369,6 +3369,12 @@ Sitemap: https://bjs.kodl.uk/sitemap.xml
 `);
 });
 
+// Google Search Console Site Verification File Endpoint
+app.get(["/google383c86237ae49b0a.html", "/google383c86237ae49b0a"], (req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send("google-site-verification: google383c86237ae49b0a.html");
+});
+
 app.get("/sitemap.xml", async (req, res) => {
   res.setHeader("Content-Type", "application/xml; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=43200"); // 12 hours
