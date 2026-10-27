@@ -185,6 +185,24 @@ function MainApp() {
           }
         }).catch(() => {});
       }
+
+      // 4. Handle Deep-Linked AI Legal Search Queries (?q=302 or #ai-legal-assistant?q=...)
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const queryParam = urlParams.get('q') || urlParams.get('search') || urlParams.get('ask');
+        if (queryParam && queryParam.trim()) {
+          setAiInitialQuery(queryParam.trim());
+          setAiDrawerOpen(true);
+        } else if (hash.startsWith('#ai-legal-assistant') || hash === '#ai' || hash.startsWith('#ai?')) {
+          const hashQuery = window.location.hash.split('?')[1];
+          if (hashQuery) {
+            const hp = new URLSearchParams(hashQuery);
+            const q = hp.get('q') || hp.get('ask') || hp.get('search') || '';
+            if (q.trim()) setAiInitialQuery(q.trim());
+          }
+          setAiDrawerOpen(true);
+        }
+      } catch (err) {}
     };
     handleUrlChange();
     window.addEventListener('popstate', handleUrlChange);
@@ -207,6 +225,20 @@ function MainApp() {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [lessonManagerModal, setLessonManagerModal] = useState({ isOpen: false, course: null });
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
+  const [aiInitialQuery, setAiInitialQuery] = useState('');
+
+  // Global window helper for one-click AI queries from anywhere on the platform
+  useEffect(() => {
+    window.askLegalAi = (prompt) => {
+      if (prompt && prompt.trim()) {
+        setAiInitialQuery(prompt.trim());
+        setAiDrawerOpen(true);
+      }
+    };
+    return () => {
+      delete window.askLegalAi;
+    };
+  }, []);
 
   const openVideoModal = (lesson) => {
     setVideoModal({ isOpen: true, lesson });
@@ -278,6 +310,8 @@ function MainApp() {
         onClose={() => setAiDrawerOpen(false)}
         openVideoModal={openVideoModal}
         setActivePage={setActivePage}
+        initialQuery={aiInitialQuery}
+        onQueryHandled={() => setAiInitialQuery('')}
       />
 
       {/* Profile Modal */}

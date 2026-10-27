@@ -11,6 +11,7 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
   const [courseDetailsModal, setCourseDetailsModal] = useState({ isOpen: false, course: null, lessons: [], loading: false });
   const [toastMsg, setToastMsg] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [aiSearchInput, setAiSearchInput] = useState('');
 
   const showToast = (msg) => {
     setToastMsg(msg);
@@ -261,6 +262,63 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                 </button>
               </>
             )}
+          </div>
+
+          {/* AI Instant Legal & Section Search Bar */}
+          <div className="w-full max-w-2xl mx-auto my-6 p-2 rounded-2xl bg-gradient-to-r from-slate-900/95 via-[#0d1c38]/95 to-slate-900/95 border border-cyan-500/35 shadow-2xl shadow-cyan-950/40 backdrop-blur-md text-left">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const q = aiSearchInput.trim();
+                if (q && window.askLegalAi) {
+                  window.askLegalAi(q);
+                  setAiSearchInput('');
+                }
+              }}
+              className="flex items-center gap-2"
+            >
+              <div className="pl-3 text-cyan-400 text-base sm:text-lg shrink-0">⚡</div>
+              <input
+                type="text"
+                value={aiSearchInput}
+                onChange={(e) => setAiSearchInput(e.target.value)}
+                placeholder="আইনের যেকোনো ধারা বা প্রশ্ন লিখুন (যেমন: ৩০২ ধারা, ৫৪ ধারা, BJS, বার কাউন্সিল, জামিন)..."
+                className="flex-1 bg-transparent border-0 text-white placeholder-slate-400 text-xs sm:text-sm px-1 py-1.5 focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-xs sm:text-sm shadow-md transition-all shrink-0 flex items-center gap-1.5 cursor-pointer active:scale-95"
+              >
+                <span>AI উত্তর পান</span>
+                <span>🤖</span>
+              </button>
+            </form>
+
+            {/* Clickable Quick Keyword & Section Chips */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-2 px-2 border-t border-slate-800/80 mt-2">
+              <span className="text-slate-400 text-[10px] font-mono shrink-0">জনপ্রিয় শর্টকাট:</span>
+              {[
+                { label: '🏛️ BJS প্রস্তুতি', q: 'সহকারী জজ (BJS) পরীক্ষার প্রিলিমিনারি ও লিখিত সিলেবাস এবং প্রস্তুতি কৌশল' },
+                { label: '📋 বার কাউন্সিল MCQ', q: 'বার কাউন্সিল অ্যাডভোকেটশিপ এমসিকিউ পরীক্ষার পাস মার্কস ও গুরুত্বপূর্ণ বিষয়' },
+                { label: '⚖️ ৩০২ ধারা', q: 'দণ্ডবিধি ৩০২ ধারা ও খুনের শাস্তির উপাদান কি কি?' },
+                { label: '🚨 ৫৪ ধারা', q: 'ফৌজদারী কার্যবিধি ৫৪ ধারায় পরোয়ানা ছাড়া গ্রেফতারের নিয়ম কি?' },
+                { label: '🛡️ ৪৯৭ ধারা (জামিন)', q: 'CrPC Section 497 জামিনের দরখাস্ত ও জামিন মঞ্জুরের নিয়ম' },
+                { label: '📜 ১০২ অনুচ্ছেদ (রিট)', q: 'বাংলাদেশ সংবিধানের ১০২ অনুচ্ছেদে রিট পিটিশন করার নিয়ম' },
+                { label: '📑 দেওয়ানী ১৪৪ ধারা', q: 'দেওয়ানী কার্যবিধি ১৪৪ ধারা Restitution বা পুনঃস্থাপন কি?' },
+                { label: '⏱️ তামাদি ৫ ধারা', q: 'তামাদি আইন ৫ ধারা বিলম্ব মার্জনা (Condonation of Delay)' }
+              ].map((chip, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    if (window.askLegalAi) window.askLegalAi(chip.q);
+                  }}
+                  className="px-2 py-0.5 rounded-lg bg-slate-800/90 hover:bg-cyan-950 hover:border-cyan-500/50 hover:text-cyan-300 border border-slate-700/60 text-slate-300 transition-all text-[10px] font-medium cursor-pointer active:scale-95"
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Dynamic 4 Stat Badges */}

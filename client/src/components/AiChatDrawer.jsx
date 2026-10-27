@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActivePage }) {
+export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActivePage, initialQuery, onQueryHandled }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState([
     {
@@ -13,6 +13,15 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [accessModal, setAccessModal] = useState(null);
+
+  // Auto-trigger question when opened via URL parameter or quick search
+  useEffect(() => {
+    if (isOpen && initialQuery && initialQuery.trim()) {
+      const q = initialQuery.trim();
+      if (onQueryHandled) onQueryHandled();
+      triggerQuery(q);
+    }
+  }, [isOpen, initialQuery]);
 
   if (!isOpen) return null;
 
@@ -158,18 +167,17 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
     }
   };
 
-  const handleSend = async (e) => {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
+  const triggerQuery = async (userText) => {
+    if (!userText || !userText.trim() || loading) return;
 
-    const userText = input;
+    const trimmed = userText.trim();
     setInput('');
-    setMessages((prev) => [...prev, { sender: 'user', text: userText }]);
+    setMessages((prev) => [...prev, { sender: 'user', text: trimmed }]);
     setLoading(true);
 
     try {
-      const res = await api.post('/ai/chat', { prompt: userText });
-      if (res.data.ok) {
+      const res = await api.post('/ai/chat', { prompt: trimmed });
+      if (res.data && res.data.ok) {
         setMessages((prev) => [
           ...prev,
           {
@@ -182,17 +190,24 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
       } else {
         setMessages((prev) => [
           ...prev,
-          { sender: 'ai', text: 'দুঃখিত, কোনো ত্রুটি ঘটেছে। অনুগ্রহ করে আবার চেষ্টা করুন।' },
+          { sender: 'ai', text: res.data?.message || 'দুঃখিত, কোনো ত্রুটি ঘটেছে। অনুগ্রহ করে আবার চেষ্টা করুন।' },
         ]);
       }
     } catch (err) {
       setMessages((prev) => [
         ...prev,
-        { sender: 'ai', text: 'AI সার্ভিস কানেকশনে ত্রুটি ঘটেছে।' },
+        { sender: 'ai', text: 'AI সার্ভিস কানেকশনে ত্রুটি ঘটেছে। অনুগ্রহ করে আবার চেষ্টা করুন।' },
       ]);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSend = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!input.trim() || loading) return;
+    const text = input;
+    triggerQuery(text);
   };
 
   return (
@@ -482,26 +497,28 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
         )}
       </div>
 
-      {/* Quick Prompts */}
-      <div className="p-2 bg-slate-900/60 border-t border-slate-800 flex gap-1.5 overflow-x-auto text-[10px]">
-        <button
-          onClick={() => setInput('বাংলাদেশ সংবিধানের মৌলিক অধিকার কি কি?')}
-          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 whitespace-nowrap font-medium"
-        >
-          সংবিধান মৌলিক অধিকার (Art 27-44)
-        </button>
-        <button
-          onClick={() => setInput('CPC Section 11 Res Judicata কি?')}
-          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 whitespace-nowrap font-medium"
-        >
-          Res Judicata (Sec 11)
-        </button>
-        <button
-          onClick={() => setInput('CrPC Section 154 FIR এবং ১০০% ফ্রি ক্লাস বলুন')}
-          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 whitespace-nowrap font-medium"
-        >
-          FIR (Sec 154)
-        </button>
+      {/* Quick Ultra-Short Legal Prompts & Section Chips */}
+      <div className="p-2 bg-slate-900/80 border-t border-slate-800 flex gap-1.5 overflow-x-auto text-[10px] scrollbar-none">
+        {[
+          { label: '⚖️ ৩০২ ধারা (খুন)', query: 'দণ্ডবিধি ৩০২ ধারা ও খুনের শাস্তির উপাদান কি কি?' },
+          { label: '🚨 ৫৪ ধারা (গ্রেপ্তার)', query: 'ফৌজদারী কার্যবিধি ৫৪ ধারায় পরোয়ানা ছাড়া গ্রেফতারের নিয়ম কি?' },
+          { label: '📜 অনুচ্ছেদ ১০২ (রিট)', query: 'বাংলাদেশ সংবিধানের ১০২ অনুচ্ছেদে রিট পিটিশন করার নিয়ম ও প্রকারভেদ' },
+          { label: '🛡️ ৪৯৭ ধারা (জামিন)', query: 'CrPC Section 497 জামিনের দরখাস্ত ও জামিনযোগ্য/অযোগ্য অপরাধের নিয়ম' },
+          { label: '🏛️ BJS প্রস্তুতি', query: 'সহকারী জজ (BJS) পরীক্ষার প্রিলিমিনারি ও লিখিত সিলেবাস এবং প্রস্তুতি কৌশল' },
+          { label: '📋 বার কাউন্সিল MCQ', query: 'বার কাউন্সিল অ্যাডভোকেটশিপ এমসিকিউ পরীক্ষার পাস মার্কস ও গুরুত্বপূর্ণ বিষয়' },
+          { label: '📑 দেওয়ানী ১৪৪ ধারা', query: 'দেওয়ানী কার্যবিধি ১৪৪ ধারা Restitution বা পুনঃস্থাপন কি?' },
+          { label: '⏱️ তামাদি ৫ ধারা', query: 'তামাদি আইন ৫ ধারা তামাদির বিলম্ব মার্জনা (Condonation of Delay) এর নিয়ম কি?' },
+          { label: '🏠 এসআর এক্ট ৯ ধারা', query: 'সুনির্দিষ্ট প্রতিকার আইন ৯ ধারা স্থাবর সম্পত্তির দখল পুনরুদ্ধার মামলা' }
+        ].map((item, idx) => (
+          <button
+            key={idx}
+            type="button"
+            onClick={() => triggerQuery(item.query)}
+            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-cyan-950 hover:border-cyan-500/50 hover:text-cyan-300 text-slate-300 border border-slate-700/60 whitespace-nowrap font-medium transition-all cursor-pointer active:scale-95 shrink-0"
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
 
       {/* Form Input */}
