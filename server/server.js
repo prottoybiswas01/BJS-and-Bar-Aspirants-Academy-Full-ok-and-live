@@ -6567,9 +6567,21 @@ app.post("/api/ai/chat", async (req, res) => {
     let recommendation = null;
     if (aiResult.matchedLessons && aiResult.matchedLessons.length > 0) {
       const topMatch = aiResult.matchedLessons[0];
+      let resolvedCourseTitle = topMatch.chapter || topMatch.courseId || "বিজিএস ও বার কাউন্সিল মাস্টারক্লাস";
+      let resolvedCourseId = topMatch.courseId || "";
+      try {
+        if (topMatch.courseId) {
+          const cDoc = (await Course.findOne({ id: topMatch.courseId }).lean()) || (memoryDb.courses || []).find(c => c.id === topMatch.courseId);
+          if (cDoc && cDoc.title) {
+            resolvedCourseTitle = cDoc.title;
+          }
+        }
+      } catch (ce) {}
+
       recommendation = {
         type: "MATCHED_LESSON",
-        courseTitle: topMatch.chapter || topMatch.courseId || "বিজিএস ও বার কাউন্সিল মাস্টারক্লাস",
+        courseId: resolvedCourseId,
+        courseTitle: resolvedCourseTitle,
         lesson: topMatch,
         snippet: topMatch.snippet,
         matchedKeywords: topMatch.matchedKeywords,
