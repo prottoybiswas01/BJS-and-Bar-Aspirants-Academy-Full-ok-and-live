@@ -100,4 +100,52 @@
     <priority>0.8</priority>
   </url>
 
+  <!-- 13. BJS Preliminary & Written Preparation -->
+  <url>
+    <loc>https://bjs.kodl.uk/#bjs-preliminary-preparation</loc>
+    <lastmod>2026-10-27T12:00:00+06:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+
+  <!-- 14. Bar Council Exam Suggestion & Question Bank -->
+  <url>
+    <loc>https://bjs.kodl.uk/#bar-council-exam-suggestion</loc>
+    <lastmod>2026-10-27T12:00:00+06:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+
+  <!-- 15. The Penal Code 1860 Master Series -->
+  <url>
+    <loc>https://bjs.kodl.uk/#penal-code-1860</loc>
+    <lastmod>2026-10-27T12:00:00+06:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+
+  <!-- 16. Specific Relief Act (SR Act 1877) -->
+  <url>
+    <loc>https://bjs.kodl.uk/#specific-relief-act</loc>
+    <lastmod>2026-10-27T12:00:00+06:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- 17. Legal Drafting & Court Practice (Bail, Plaint, Legal Notice) -->
+  <url>
+    <loc>https://bjs.kodl.uk/#legal-drafting-and-practice</loc>
+    <lastmod>2026-10-27T12:00:00+06:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- 18. Cheque Dishonour Case (NI Act 138) -->
+  <url>
+    <loc>https://bjs.kodl.uk/#ni-act-138</loc>
+    <lastmod>2026-10-27T12:00:00+06:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
 </urlset>
