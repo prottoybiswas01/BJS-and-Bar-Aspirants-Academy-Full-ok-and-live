@@ -3,7 +3,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import QuestionFormattedView from '../components/QuestionFormattedView';
 
-export default function Dashboard({ openVideoModal }) {
+export default function Dashboard({ openVideoModal, openProfileModal }) {
   const { user, updateUserProfile } = useAuth();
   const [courses, setCourses] = useState([]);
   const [lessons, setLessons] = useState([]);
@@ -450,13 +450,24 @@ export default function Dashboard({ openVideoModal }) {
       <section className="glass-card rounded-2xl p-6 sm:p-8 border border-amber-500/20 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold border border-emerald-500/30">
                 ● STATUS: {user?.status || 'Active'}
               </span>
               <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-amber-500/30">
                 ID: {user?.id || 'STU-2026-001'}
               </span>
+              {openProfileModal && (
+                <button
+                  type="button"
+                  onClick={openProfileModal}
+                  className="px-3 py-1 rounded-full bg-slate-900/90 hover:bg-slate-800 text-amber-300 hover:text-amber-200 font-bold text-xs border border-amber-500/30 hover:border-amber-400 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  title="প্রোফাইল দেখুন ও ইমেইল পরিবর্তন করুন"
+                >
+                  <span>👤</span>
+                  <span>আমার প্রোফাইল ও সেটিংস</span>
+                </button>
+              )}
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-black text-white">

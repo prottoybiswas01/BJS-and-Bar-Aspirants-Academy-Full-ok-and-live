@@ -395,7 +395,7 @@ function MainApp() {
         {activePage === 'login' && <Login setActivePage={navigatePage} />}
         {activePage === 'register' && <Register setActivePage={navigatePage} />}
         {activePage === 'dashboard' && (
-          <Dashboard openVideoModal={openVideoModal} />
+          <Dashboard openVideoModal={openVideoModal} openProfileModal={() => setProfileModalOpen(true)} />
         )}
         {activePage === 'mentor-login' && <MentorLogin setActivePage={navigatePage} />}
         {activePage === 'mentor-dashboard' && <MentorDashboard />}

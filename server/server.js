@@ -3440,6 +3440,7 @@ ${courseXmlEntries}
     fastCache.set("xml_sitemap", xml, 3600); // 1 hour
     return res.send(xml);
   } catch (err) {
+    
     return res.send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://bjs.kodl.uk/</loc></url></urlset>`);
   }
 });
@@ -6117,6 +6118,164 @@ app.post("/api/student/complete-lesson", async (req, res) => {
     res.json({ ok: true, completedLessonIds });
   } catch (e) {
     res.status(500).json({ ok: false, message: "Error updating lesson completion." });
+  }
+});
+
+// -------------------------------------------------------------
+// STUDENT PROFILE EMAIL UPDATE ENDPOINT
+// Security Directive: Students are strictly permitted to update ONLY their email address!
+// Name, Phone, ID, Batch, Course rules, and other critical credentials are fully locked
+// and protected from any client-side tampering.
+// -------------------------------------------------------------
+app.post(["/api/student/update-profile", "/api/student/update-email", "/student/update-profile", "/student/update-email", "/api/user/update-email"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+
+    // 1. Identify student from Bearer token or request identifier
+    const authUser = await getAuthUserFromRequest(req);
+    const identifier = authUser?.id || req.body?.studentId || req.body?.id;
+
+    if (!identifier) {
+      return res.status(401).json({
+        ok: false,
+        message: "অননুমোদিত অনুরোধ! অনুগ্রহ করে পুনরায় লগইন করুন।"
+      });
+    }
+
+    // 2. Strict Payload Filtering: ONLY email is accepted from students!
+    // Any extra keys like name, phone, batch, isAdmin, etc. are completely ignored.
+    const rawEmail = req.body?.email || req.body?.newEmail;
+    if (!rawEmail || typeof rawEmail !== "string") {
+      return res.status(400).json({
+        ok: false,
+        message: "অনুগ্রহ করে একটি সঠিক ইমেইল এড্রেস লিখুন।"
+      });
+    }
+
+    const cleanEmail = rawEmail.trim().toLowerCase();
+
+    // 3. Email format & disposable domain validation
+    const emailValidation = validateRealEmail(cleanEmail);
+    if (!emailValidation.ok) {
+      return res.status(400).json({
+        ok: false,
+        message: emailValidation.message
+      });
+    }
+
+    // 4. Locate student in MongoDB or fallback memoryDb
+    let targetStudent = null;
+    if (isMongoConnected) {
+      targetStudent = await Student.findOne({
+        $or: [
+          { id: identifier },
+          { regId: identifier },
+          ...(mongoose.Types.ObjectId.isValid(identifier) ? [{ _id: identifier }] : [])
+        ]
+      });
+    }
+
+    let memStudent = (memoryDb.students || []).find(
+      s => s && (s.id === identifier || s.regId === identifier || String(s._id) === identifier)
+    );
+
+    if (!targetStudent && !memStudent) {
+      return res.status(404).json({
+        ok: false,
+        message: "শিক্ষার্থীর অ্যাকাউন্ট খুঁজে পাওয়া যায়নি।"
+      });
+    }
+
+    const studentId = targetStudent ? targetStudent.id : memStudent.id;
+    const currentEmail = (targetStudent?.email || memStudent?.email || "").toLowerCase();
+
+    if (currentEmail === cleanEmail) {
+      return res.json({
+        ok: true,
+        message: "আপনার ইমেইল এড্রেসটি ইতিমধ্যেই হালনাগাদ করা আছে।",
+        email: cleanEmail
+      });
+    }
+
+    // 5. Unique Email Check: Prevent duplicate email across other students
+    if (isMongoConnected) {
+      const duplicateStudent = await Student.findOne({
+        email: cleanEmail,
+        id: { $ne: studentId }
+      }).lean();
+
+      if (duplicateStudent) {
+        return res.status(400).json({
+          ok: false,
+          message: "এই ইমেইল এড্রেসটি ইতিমধ্যেই অন্য একজন শিক্ষার্থীর অ্যাকাউন্টে নিবন্ধিত রয়েছে।"
+        });
+      }
+    }
+
+    const memDuplicate = (memoryDb.students || []).find(
+      s => s && s.id !== studentId && s.email && s.email.toLowerCase() === cleanEmail
+    );
+    if (memDuplicate) {
+      return res.status(400).json({
+        ok: false,
+        message: "এই ইমেইল এড্রেসটি ইতিমধ্যেই অন্য একজন শিক্ষার্থীর অ্যাকাউন্টে নিবন্ধিত রয়েছে।"
+      });
+    }
+
+    // 6. Update ONLY email in Student record (MongoDB)
+    let updatedStudentObj = null;
+    if (targetStudent) {
+      targetStudent.email = cleanEmail;
+      await targetStudent.save();
+      updatedStudentObj = targetStudent.toObject ? targetStudent.toObject() : targetStudent;
+    }
+
+    // 7. Update in memoryDb.students
+    if (memStudent) {
+      memStudent.email = cleanEmail;
+      if (!updatedStudentObj) updatedStudentObj = { ...memStudent };
+    } else if (updatedStudentObj) {
+      const idx = (memoryDb.students || []).findIndex(s => s && s.id === studentId);
+      if (idx > -1) {
+        memoryDb.students[idx].email = cleanEmail;
+      }
+    }
+
+    // 8. Sync Registration record if exists
+    if (isMongoConnected) {
+      try {
+        await Registration.updateMany(
+          { $or: [{ regId: studentId }, { phone: targetStudent?.phone || memStudent?.phone }] },
+          { $set: { email: cleanEmail } }
+        );
+      } catch (regErr) {
+        console.warn("Notice updating registration email:", regErr.message);
+      }
+    }
+
+    const memReg = (memoryDb.registrations || []).find(
+      r => r && (r.regId === studentId || r.phone === (targetStudent?.phone || memStudent?.phone))
+    );
+    if (memReg) {
+      memReg.email = cleanEmail;
+    }
+
+    if (updatedStudentObj) {
+      delete updatedStudentObj.password;
+    }
+
+    return res.json({
+      ok: true,
+      message: "✓ আপনার ইমেইল এড্রেস সফলভাবে পরিবর্তন করা হয়েছে!",
+      email: cleanEmail,
+      student: updatedStudentObj
+    });
+  } catch (err) {
+    console.error("Student profile email update error:", err);
+    return res.status(500).json({
+      ok: false,
+      message: "ইমেইল আপডেট করতে সমস্যা হয়েছে: " + (err.message || "সার্ভার এরর")
+    });
   }
 });
 
