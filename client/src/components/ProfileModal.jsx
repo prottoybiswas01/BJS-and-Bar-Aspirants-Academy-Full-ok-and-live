@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import {
@@ -13,36 +13,56 @@ import {
   Copy,
   Check,
   GraduationCap,
-  Laptop,
   Sparkles,
   X,
   ExternalLink,
-  ShieldAlert,
-  Calendar,
   Layers,
   HelpCircle,
-  Loader2
+  Loader2,
+  KeyRound,
+  RotateCw,
+  ArrowLeft
 } from 'lucide-react';
 
 export default function ProfileModal({ isOpen, onClose }) {
   const { user, updateUserProfile, getDeviceId } = useAuth();
 
-  const [isEditingEmail, setIsEditingEmail] = useState(false);
+  // editStep: 'view' | 'input' | 'otp'
+  const [editStep, setEditStep] = useState('view');
   const [emailInput, setEmailInput] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [otpInput, setOtpInput] = useState('');
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [cooldown, setCooldown] = useState(0);
   const [copiedId, setCopiedId] = useState(false);
   const [copiedDevId, setCopiedDevId] = useState(false);
+
+  const cooldownTimerRef = useRef(null);
 
   useEffect(() => {
     if (user?.email) {
       setEmailInput(user.email);
     }
-    setIsEditingEmail(false);
+    setEditStep('view');
+    setOtpInput('');
     setErrorMsg('');
     setSuccessMsg('');
+    setCooldown(0);
   }, [user, isOpen]);
+
+  // Resend OTP Cooldown countdown
+  useEffect(() => {
+    if (cooldown > 0) {
+      cooldownTimerRef.current = setTimeout(() => {
+        setCooldown(prev => prev - 1);
+      }, 1000);
+    }
+    return () => {
+      if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+    };
+  }, [cooldown]);
 
   // Handle ESC key to close modal
   useEffect(() => {
@@ -60,7 +80,7 @@ export default function ProfileModal({ isOpen, onClose }) {
   const currentDeviceId = getDeviceId ? getDeviceId() : 'DEV-UNKNOWN';
 
   const handleCopyId = () => {
-    const stuId = user.id || user.regId || 'STU-2026';
+    const stuId = user.id || user.regId || (user.isMentor ? 'MENTOR' : 'STU-2026');
     navigator.clipboard.writeText(stuId).then(() => {
       setCopiedId(true);
       setTimeout(() => setCopiedId(false), 2500);
@@ -80,12 +100,13 @@ export default function ProfileModal({ isOpen, onClose }) {
     return regex.test(clean);
   };
 
-  const handleSaveEmail = async (e) => {
+  // Step 1: Send OTP to the NEW email address
+  const handleSendOtp = async (e) => {
     if (e) e.preventDefault();
     const cleanEmail = emailInput.trim().toLowerCase();
 
     if (!cleanEmail) {
-      setErrorMsg('অনুগ্রহ করে একটি সঠিক ইমেইল এড্রেস প্রদান করুন।');
+      setErrorMsg('অনুগ্রহ করে একটি সঠিক নতুন ইমেইল এড্রেস লিখুন।');
       return;
     }
 
@@ -95,37 +116,31 @@ export default function ProfileModal({ isOpen, onClose }) {
     }
 
     if (cleanEmail === (user.email || '').toLowerCase()) {
-      setIsEditingEmail(false);
-      setErrorMsg('');
-      setSuccessMsg('ইমেইল অপরিবর্তিত রয়েছে।');
-      setTimeout(() => setSuccessMsg(''), 3000);
+      setErrorMsg('এই ইমেইলটি ইতিমধ্যেই আপনার বর্তমান প্রোফাইলে যুক্ত আছে। নতুন ইমেইল লিখুন।');
       return;
     }
 
-    setSaving(true);
+    setSendingOtp(true);
     setErrorMsg('');
     setSuccessMsg('');
 
     try {
-      // Security: Backend only accepts and updates the student's email.
-      // Any other fields are strictly disregarded.
-      const res = await api.post('/student/update-email', {
+      const res = await api.post('/student/send-email-otp', {
         studentId: user.id || user.regId,
-        email: cleanEmail
+        newEmail: cleanEmail
       });
 
-      setSaving(false);
+      setSendingOtp(false);
       if (res.data && res.data.ok) {
-        const updatedEmail = res.data.email || cleanEmail;
-        updateUserProfile({ email: updatedEmail });
-        setSuccessMsg(res.data.message || '✓ আপনার ইমেইল এড্রেস সফলভাবে পরিবর্তন করা হয়েছে!');
-        setIsEditingEmail(false);
-        setTimeout(() => setSuccessMsg(''), 4500);
+        setEditStep('otp');
+        setCooldown(60);
+        setOtpInput('');
+        setSuccessMsg(res.data.message || `✓ আপনার নতুন ইমেইল (${cleanEmail})-এ ৬-ডিজিটের ভেরিফিকেশন OTP পাঠানো হয়েছে!`);
       } else {
-        setErrorMsg(res.data?.message || 'ইমেইল আপডেট করতে সমস্যা হয়েছে।');
+        setErrorMsg(res.data?.message || 'ওটিপি পাঠাতে সমস্যা হয়েছে। পুনরায় চেষ্টা করুন।');
       }
     } catch (err) {
-      setSaving(false);
+      setSendingOtp(false);
       setErrorMsg(
         err.response?.data?.message ||
         'সার্ভার সংযোগ সমস্যা। অনুগ্রহ করে পুনরায় চেষ্টা করুন।'
@@ -133,9 +148,52 @@ export default function ProfileModal({ isOpen, onClose }) {
     }
   };
 
+  // Step 2: Verify OTP and save new email address
+  const handleVerifyOtp = async (e) => {
+    if (e) e.preventDefault();
+    const cleanEmail = emailInput.trim().toLowerCase();
+    const cleanOtp = otpInput.trim();
+
+    if (!cleanOtp || cleanOtp.length < 4) {
+      setErrorMsg('অনুগ্রহ করে আপনার নতুন ইমেইলে প্রাপ্ত ৬-ডিজিটের OTP কোডটি লিখুন।');
+      return;
+    }
+
+    setVerifyingOtp(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      const res = await api.post('/student/verify-email-otp', {
+        studentId: user.id || user.regId,
+        newEmail: cleanEmail,
+        otp: cleanOtp
+      });
+
+      setVerifyingOtp(false);
+      if (res.data && res.data.ok) {
+        const updatedEmail = res.data.email || cleanEmail;
+        updateUserProfile({ email: updatedEmail });
+        setSuccessMsg(res.data.message || '✓ অভিনন্দন! আপনার নতুন ইমেইল সফলভাবে ভেরিফাই ও যুক্ত হয়েছে!');
+        setEditStep('view');
+        setOtpInput('');
+        setTimeout(() => setSuccessMsg(''), 5000);
+      } else {
+        setErrorMsg(res.data?.message || 'ভুল OTP কোড! অনুগ্রহ করে সঠিক কোডটি লিখুন।');
+      }
+    } catch (err) {
+      setVerifyingOtp(false);
+      setErrorMsg(
+        err.response?.data?.message ||
+        'ভেরিফিকেশন ব্যর্থ হয়েছে। অনুগ্রহ করে পুনরায় চেষ্টা করুন।'
+      );
+    }
+  };
+
   const cancelEdit = () => {
     setEmailInput(user.email || '');
-    setIsEditingEmail(false);
+    setOtpInput('');
+    setEditStep('view');
     setErrorMsg('');
   };
 
@@ -275,10 +333,10 @@ export default function ProfileModal({ isOpen, onClose }) {
           <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs shadow-md space-y-1.5">
             <div className="flex items-center gap-2 font-bold text-amber-300">
               <Lock className="w-4 h-4 shrink-0 text-amber-400" />
-              <span>একাডেমি প্রোফাইল নিরাপত্তা ও পরিবর্তন নীতিমালা:</span>
+              <span>একাডেমি প্রোফাইল নিরাপত্তা ও ওটিপি ভেরিফিকেশন নীতিমালা:</span>
             </div>
             <p className="leading-relaxed text-slate-300 text-[11px] sm:text-xs">
-              আইনি প্রত্যয়ন ও পরীক্ষার স্বচ্ছতার স্বার্থে শিক্ষার্থীর <strong className="text-white">নাম, মোবাইল নম্বর ও রেজিস্টার্ড ব্যাচ</strong> একাডেমি কর্তৃপক্ষ কর্তৃক স্থায়ীভাবে সুরক্ষিত ও লক করা রয়েছে। শুধুমাত্র আপনার প্রয়োজনীয় <strong className="text-amber-300">ইমেইল এড্রেসটি</strong> আপনি নিজে থেকে পরিবর্তন ও আপডেট করতে পারবেন।
+              আইনি প্রত্যয়ন ও পরীক্ষার স্বচ্ছতার স্বার্থে শিক্ষার্থীর <strong className="text-white">নাম, মোবাইল নম্বর ও রেজিস্টার্ড ব্যাচ</strong> স্থায়ীভাবে লক করা রয়েছে। শুধুমাত্র আপনার প্রয়োজনীয় <strong className="text-amber-300">ইমেইল এড্রেসটি</strong> পরিবর্তন করতে পারবেন। নিরাপত্তা নিশ্চিত করতে নতুন মেইলে প্রেরিত <strong className="text-emerald-400">ওটিপি (OTP) কোডটি মিললেই কেবল তা অ্যাকাউন্টে যুক্ত হবে</strong>।
             </p>
           </div>
 
@@ -297,7 +355,7 @@ export default function ProfileModal({ isOpen, onClose }) {
             </div>
           )}
 
-          {/* SECTION 1: ব্যক্তিগত ও যোগাযোগ তথ্য (Primary Contact Card) */}
+          {/* SECTION 1: ব্যক্তিগত ও যোগাযোগ তথ্য */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-xs sm:text-sm font-extrabold text-white flex items-center gap-2">
@@ -305,94 +363,192 @@ export default function ProfileModal({ isOpen, onClose }) {
                 <span>ব্যক্তিগত ও যোগাযোগ তথ্য</span>
               </h4>
               <span className="text-[11px] text-slate-400">
-                ইমেইল এডিটেবল • বাকি তথ্য সুরক্ষিত
+                ইমেইল ওটিপি ভেরিফায়েড • বাকি তথ্য সুরক্ষিত
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
 
-              {/* 1. EMAIL FIELD (THE ONLY EDITABLE FIELD) */}
-              <div className="sm:col-span-2 p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-slate-900 to-slate-900 border-2 border-amber-500/40 shadow-md relative group">
+              {/* 1. EMAIL FIELD (WITH DUAL-STEP OTP VERIFICATION) */}
+              <div className="sm:col-span-2 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-slate-900 to-slate-900 border-2 border-amber-500/40 shadow-md relative">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <Mail className="w-4 h-4 text-amber-400" />
                     <span className="text-xs font-bold text-slate-200">ইমেইল এড্রেস (Email Address)</span>
                     <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-extrabold border border-amber-500/30 flex items-center gap-1">
                       <Sparkles className="w-3 h-3" />
-                      একমাত্র পরিবর্তনযোগ্য ফিল্ড
+                      ওটিপি ভেরিফিকেশন সহ এডিটেবল
                     </span>
                   </div>
 
-                  {!isEditingEmail && (
+                  {editStep === 'view' && (
                     <button
                       type="button"
                       onClick={() => {
-                        setIsEditingEmail(true);
+                        setEditStep('input');
                         setErrorMsg('');
                         setSuccessMsg('');
+                        setEmailInput('');
                       }}
                       className="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
-                      <span>ইমেইল এডিট করুন</span>
+                      <span>ইমেইল পরিবর্তন করুন</span>
                     </button>
                   )}
                 </div>
 
-                {!isEditingEmail ? (
+                {/* VIEW MODE */}
+                {editStep === 'view' && (
                   <div className="flex items-center justify-between pt-1">
                     <p className="font-bold text-white text-sm sm:text-base font-mono tracking-wide break-all">
                       {user.email || 'ইমেইল যুক্ত করা হয়নি'}
                     </p>
                     <span className="text-[11px] text-slate-400 hidden sm:inline-block">
-                      ক্লাস নোটিফিকেশন ও অ্যাকাউন্ট রিকভারির প্রধান মাধ্যম
+                      ক্লাস আপডেট ও গুরুত্বপূর্ণ নোটিসের মূল মাধ্যম
                     </span>
                   </div>
-                ) : (
-                  <form onSubmit={handleSaveEmail} className="mt-3 space-y-3">
-                    <div className="relative">
-                      <input
-                        type="email"
-                        value={emailInput}
-                        onChange={(e) => setEmailInput(e.target.value)}
-                        placeholder="আপনার নতুন ইমেইল এড্রেস লিখুন..."
-                        disabled={saving}
-                        autoFocus
-                        className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-amber-500/60 focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20 text-white text-sm font-mono outline-none transition-all"
-                      />
-                      <span className="absolute right-3 top-2.5 text-xs text-slate-500 font-mono">
-                        Real Email
-                      </span>
+                )}
+
+                {/* STEP 1: INPUT NEW EMAIL & SEND OTP */}
+                {editStep === 'input' && (
+                  <form onSubmit={handleSendOtp} className="mt-3 space-y-3 animate-fadeIn">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-amber-300">
+                        আপনার নতুন ইমেইল এড্রেস লিখুন:
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="email"
+                          value={emailInput}
+                          onChange={(e) => setEmailInput(e.target.value)}
+                          placeholder="যেমন: student@gmail.com"
+                          disabled={sendingOtp}
+                          autoFocus
+                          className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-amber-500/60 focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20 text-white text-sm font-mono outline-none transition-all placeholder:text-slate-600"
+                        />
+                        <span className="absolute right-3 top-2.5 text-xs text-slate-500 font-mono">
+                          New Mail
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                      <p className="text-[11px] text-slate-400">
-                        সতর্কতা: সঠিক ব্যক্তিগত বা অফিসিয়াল ইমেইল লিখুন। অস্থায়ী বা ফেক ইমেইল গ্রহণযোগ্য নয়।
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      💡 আপনি সাবমিট করলে এই নতুন মেইলে ৬-ডিজিটের একটি ভেরিফিকেশন ওটিপি (OTP) পাঠানো হবে।
+                    </p>
+
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={cancelEdit}
+                        disabled={sendingOtp}
+                        className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all cursor-pointer"
+                      >
+                        বাতিল
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={sendingOtp}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-50"
+                      >
+                        {sendingOtp ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>ওটিপি পাঠানো হচ্ছে...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>📨 ওটিপি কোড পাঠান</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* STEP 2: ENTER OTP RECEIVED ON NEW EMAIL */}
+                {editStep === 'otp' && (
+                  <form onSubmit={handleVerifyOtp} className="mt-3 space-y-3.5 animate-fadeIn">
+                    <div className="p-3 rounded-xl bg-slate-950/80 border border-amber-500/30 space-y-1">
+                      <p className="text-xs text-slate-300">
+                        ভেরিফিকেশন কোড পাঠানো হয়েছে: <strong className="text-amber-300 font-mono">{emailInput}</strong>
                       </p>
+                      <p className="text-[11px] text-slate-400">
+                        আপনার নতুন ইমেইলের ইনবক্স বা স্প্যাম ফোল্ডার চেক করে নিচে ৬-ডিজিটের OTP কোডটি লিখুন।
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                        <KeyRound className="w-3.5 h-3.5" />
+                        ৬-ডিজিটের ওটিপি কোড (OTP Code):
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          maxLength={6}
+                          value={otpInput}
+                          onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))}
+                          placeholder="123456"
+                          disabled={verifyingOtp}
+                          autoFocus
+                          className="w-full px-4 py-2.5 text-center rounded-xl bg-slate-950 border-2 border-emerald-500/60 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20 text-emerald-300 text-lg font-mono tracking-[8px] font-extrabold outline-none transition-all placeholder:text-slate-700 placeholder:tracking-normal placeholder:font-normal"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+                      {/* Change / Resend OTP Controls */}
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditStep('input');
+                            setErrorMsg('');
+                          }}
+                          className="text-[11px] text-slate-400 hover:text-amber-300 transition-colors flex items-center gap-1 cursor-pointer"
+                        >
+                          <ArrowLeft className="w-3 h-3" />
+                          <span>ইমেইল সংশোধন</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleSendOtp}
+                          disabled={cooldown > 0 || sendingOtp}
+                          className="text-[11px] text-amber-400 hover:text-amber-300 disabled:text-slate-600 transition-colors flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          <RotateCw className={`w-3 h-3 ${sendingOtp ? 'animate-spin' : ''}`} />
+                          <span>
+                            {cooldown > 0 ? `পুনরায় পাঠান (${cooldown}s)` : 'পুনরায় ওটিপি পাঠান'}
+                          </span>
+                        </button>
+                      </div>
 
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={cancelEdit}
-                          disabled={saving}
+                          disabled={verifyingOtp}
                           className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all cursor-pointer"
                         >
                           বাতিল
                         </button>
                         <button
                           type="submit"
-                          disabled={saving}
-                          className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-50"
+                          disabled={verifyingOtp || otpInput.length < 4}
+                          className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-50"
                         >
-                          {saving ? (
+                          {verifyingOtp ? (
                             <>
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              <span>আপডেট হচ্ছে...</span>
+                              <span>যাচাই হচ্ছে...</span>
                             </>
                           ) : (
                             <>
                               <Check className="w-3.5 h-3.5" />
-                              <span>ইমেইল সেভ করুন</span>
+                              <span>✓ ওটিপি যাচাই ও সেভ করুন</span>
                             </>
                           )}
                         </button>
