@@ -6,6 +6,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState(null);
   const [syncingSubtitles, setSyncingSubtitles] = useState(false);
+  const [quickSyncingId, setQuickSyncingId] = useState(null);
   const [subtitleModal, setSubtitleModal] = useState({
     isOpen: false,
     lesson: null,
@@ -184,6 +185,25 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       setMsg({ type: 'error', text: err.response?.data?.message || 'Error syncing video subtitles.' });
     } finally {
       setSyncingSubtitles(false);
+    }
+  };
+
+  const handleQuickSyncSubtitle = async (l) => {
+    const lId = l.id || l._id;
+    setQuickSyncingId(lId);
+    setMsg({ type: 'success', text: `⏳ "${l.title}" এর জন্য ইউটিউব থেকে সাবটাইটেল সিঙ্ক হচ্ছে...` });
+    try {
+      const res = await api.post('/admin/lessons/sync-single', { lessonId: lId });
+      if (res.data.ok) {
+        setMsg({ type: 'success', text: res.data.message || '✓ সাবটাইটেল সফলভাবে সিঙ্ক হয়েছে!' });
+        await loadLessons();
+      } else {
+        setMsg({ type: 'error', text: res.data.message || 'ইউটিউব এখনও এই ভিডিওর ক্যাপশন তৈরি করেনি।' });
+      }
+    } catch (err) {
+      setMsg({ type: 'error', text: err.response?.data?.message || 'সাবটাইটেল সিঙ্ক করতে সমস্যা হয়েছে।' });
+    } finally {
+      setQuickSyncingId(null);
     }
   };
 
@@ -509,14 +529,25 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                         <td className="p-2.5 font-bold text-white">
                           {l.title}
                           {l.chapter && <span className="block text-[10px] text-slate-400 font-normal italic">{l.chapter}</span>}
-                          {l.transcript && l.transcript.length > 20 ? (
+                          {l.transcript && l.transcript.length > 20 && l.transcriptStatus !== 'pending' ? (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold mt-1">
                               ✓ সাবটাইটেল সিঙ্কড ({l.transcript.split(/\s+/).filter(Boolean).length} শব্দ)
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-slate-800 text-slate-400 font-medium mt-1">
-                              ⚠️ নো সাবটাইটেল
-                            </span>
+                            <div className="flex items-center gap-1 mt-1">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium">
+                                ⏳ সাবটাইটেল পেন্ডিং
+                              </span>
+                              <button
+                                type="button"
+                                disabled={quickSyncingId === (l.id || l._id)}
+                                onClick={() => handleQuickSyncSubtitle(l)}
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
+                                title="ইউটিউব থেকে এখনই সাবটাইটেল সিঙ্ক করুন"
+                              >
+                                {quickSyncingId === (l.id || l._id) ? 'সিঙ্ক হচ্ছে...' : '🔄 সিঙ্ক'}
+                              </button>
+                            </div>
                           )}
                         </td>
                         <td className="p-2.5 text-slate-300 font-mono">{l.duration || '56min'}</td>
@@ -524,6 +555,15 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                           {l.youtubeUrl || `https://youtu.be/${l.youtubeId}`}
                         </td>
                         <td className="p-2.5 text-right space-x-1.5 whitespace-nowrap">
+                          <button
+                            type="button"
+                            disabled={quickSyncingId === (l.id || l._id)}
+                            onClick={() => handleQuickSyncSubtitle(l)}
+                            className="px-2 py-1 rounded bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/40 font-bold transition-all text-[10px] disabled:opacity-50"
+                            title="ইউটিউব থেকে সরাসরি সাবটাইটেল সিঙ্ক করুন"
+                          >
+                            {quickSyncingId === (l.id || l._id) ? '...' : '🔄 সিঙ্ক'}
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleOpenSubtitleModal(l)}

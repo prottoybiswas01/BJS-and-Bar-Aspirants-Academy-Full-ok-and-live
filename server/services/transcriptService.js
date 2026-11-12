@@ -107,6 +107,20 @@ const BANGLA_STOPWORDS = new Set([
 ]);
 
 /**
+ * Bengali Stemmer / Root-word extractor for inflectional suffixes (-এর, -কে, -তে, -দের, etc.)
+ */
+function getBengaliRoot(word) {
+  if (!word || word.length <= 3) return word;
+  const suffixes = ['গুলো', 'গুলি', 'দেরকে', 'দের', 'সমূহ', 'ের', 'তে', 'কে', 'র', 'ে'];
+  for (const suf of suffixes) {
+    if (word.endsWith(suf) && word.length - suf.length >= 3) {
+      return word.slice(0, -suf.length);
+    }
+  }
+  return word;
+}
+
+/**
  * Search lessons by keywords in their transcript, title, chapter, or description
  * Returns top matching lessons with contextual snippet
  */
@@ -114,14 +128,24 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
   if (!query || !Array.isArray(lessons) || lessons.length === 0) return [];
 
   // Extract clean keywords from query (both Bengali & English)
-  const cleanTokens = query
+  const rawTokens = query
     .toLowerCase()
     .replace(/[^\w\u0980-\u09FF\s]/g, ' ')
     .split(/\s+/)
     .map(t => t.trim())
     .filter(t => t.length >= 2 && !BANGLA_STOPWORDS.has(t));
 
-  if (cleanTokens.length === 0) return [];
+  if (rawTokens.length === 0) return [];
+
+  // Build tokens with Bengali root variations for high-precision semantic matching
+  const cleanTokens = [];
+  for (const t of rawTokens) {
+    if (!cleanTokens.includes(t)) cleanTokens.push(t);
+    const root = getBengaliRoot(t);
+    if (root && root.length >= 2 && !cleanTokens.includes(root) && !BANGLA_STOPWORDS.has(root)) {
+      cleanTokens.push(root);
+    }
+  }
 
   const scoredLessons = [];
 
@@ -149,14 +173,18 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
         tokenMatches += 1;
       }
       if (moduleName.includes(token)) {
-        score += 10;
+        score += 15;
+        tokenMatches += 1;
+      }
+      if (description.includes(token)) {
+        score += 15;
         tokenMatches += 1;
       }
 
       // Transcript search
       if (transcript.includes(token)) {
         // Count occurrences (capped at 5 to avoid skew)
-        const regex = new RegExp(token, 'gi');
+        const regex = new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
         const matches = transcript.match(regex);
         const count = matches ? Math.min(matches.length, 5) : 0;
         score += count * 8;
@@ -167,17 +195,17 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
           const idx = transcript.indexOf(token);
           const start = Math.max(0, idx - 60);
           const end = Math.min(transcript.length, idx + 140);
-          bestSnippet = '...' + lesson.transcript.substring(start, end).trim() + '...';
+          bestSnippet = '...' + (lesson.transcript || '').substring(start, end).trim() + '...';
         }
       }
 
-      if (tokenMatches > 0) {
+      if (tokenMatches > 0 && !matchedTokens.includes(token)) {
         matchedTokens.push(token);
       }
     }
 
     // Minimum match threshold
-    if (score >= 15 && matchedTokens.length >= 1) {
+    if (score >= 12 && matchedTokens.length >= 1) {
       scoredLessons.push({
         id: lesson.id || lesson._id,
         title: lesson.title,

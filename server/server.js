@@ -3977,10 +3977,20 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       (memoryDb.lessons = memoryDb.lessons || []).unshift(lessonData);
     }
 
-    // Auto-fetch YouTube transcript in background if missing
-    if (youtubeId && (!saved.transcript || saved.transcriptStatus !== 'ready')) {
-      fetchYoutubeTranscript(youtubeId).then(async (trRes) => {
+    // Synchronous with fast-timeout YouTube transcript fetch (Guaranteed on Vercel Serverless)
+    let transcriptSynced = false;
+    if (youtubeId && (!saved.transcript || saved.transcript.length < 20 || saved.transcriptStatus !== 'ready')) {
+      try {
+        const trPromise = fetchYoutubeTranscript(youtubeId);
+        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), 3500));
+        const trRes = await Promise.race([trPromise, timeoutPromise]);
+
         if (trRes && trRes.ok && trRes.transcript) {
+          saved.transcript = trRes.transcript;
+          saved.transcriptStatus = 'ready';
+          saved.transcriptUpdatedAt = new Date();
+          transcriptSynced = true;
+
           if (isMongoConnected) {
             await Lesson.updateOne({ id: lessonId }, {
               transcript: trRes.transcript,
@@ -3994,11 +4004,32 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
             mem.transcriptStatus = 'ready';
             mem.transcriptUpdatedAt = new Date();
           }
-          console.log(`✓ Auto-fetched transcript for lesson "${saved.title}" (${trRes.wordCount} words)`);
+          console.log(`✓ Synchronously fetched transcript for lesson "${saved.title}" (${trRes.wordCount} words)`);
+        } else {
+          // If video was freshly uploaded to YouTube, YouTube captions take 2-10 minutes to process
+          // Provide an intelligent initial legal topic fallback so Gemini AI can find it immediately
+          const initialTopicText = `${saved.module || saved.courseId || 'আইন'} স্পেশাল লেকচার: ${saved.title || ''} ${saved.chapter || ''} ${saved.description || ''} সম্পর্কিত আইনি বিষয়বস্তুর বিস্তারিত আলোচনা।`;
+          saved.transcript = initialTopicText;
+          saved.transcriptStatus = 'pending';
+          saved.transcriptUpdatedAt = new Date();
+
+          if (isMongoConnected) {
+            await Lesson.updateOne({ id: lessonId }, {
+              transcript: initialTopicText,
+              transcriptStatus: 'pending',
+              transcriptUpdatedAt: new Date()
+            });
+          }
+          const mem = (memoryDb.lessons || []).find(l => l.id === lessonId);
+          if (mem) {
+            mem.transcript = initialTopicText;
+            mem.transcriptStatus = 'pending';
+            mem.transcriptUpdatedAt = new Date();
+          }
         }
-      }).catch(err => {
-        console.warn(`Notice auto-fetching transcript for ${lessonId}:`, err.message);
-      });
+      } catch (err) {
+        console.warn(`Notice fetching transcript for ${lessonId}:`, err.message);
+      }
     }
 
     // Trigger automated email notification to enrolled batch students in background
@@ -4009,14 +4040,86 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
     // Instant cache invalidation
     fastCache.del("lessons");
 
+    const responseMsg = transcriptSynced
+      ? `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং সাবটাইটেল সিঙ্ক হয়েছে!`
+      : (saved.transcriptStatus === 'pending'
+        ? `✓ ভিডিও "${saved.title}" সেভ হয়েছে! (ইউটিউব সদ্য আপলোড করা ভিডিওর সাবটাইটেল প্রসেস করতে কিছুটা সময় নেয়। সিস্টেম স্বয়ংক্রিয়ভাবে কিছুক্ষণ পর এটি সম্পূর্ণ সিঙ্ক করে নেবে)`
+        : `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে!`);
+
     return res.json({
       ok: true,
-      message: `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং ব্যাকগ্রাউন্ডে সাবটাইটেল সিঙ্ক হচ্ছে!`,
+      message: responseMsg,
+      transcriptSynced,
       lesson: saved
     });
   } catch (err) {
     console.error("Save lesson error:", err);
     return res.status(500).json({ ok: false, message: "Error saving video lesson: " + err.message });
+  }
+});
+
+// SINGLE LESSON SYNC: 1-Click Sync/Refetch transcript for a specific lesson
+app.post(["/api/admin/lessons/sync-single", "/admin/lessons/sync-single"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { lessonId } = req.body;
+    if (!lessonId) {
+      return res.status(400).json({ ok: false, message: "lessonId is required." });
+    }
+
+    let lesson = null;
+    if (isMongoConnected) {
+      lesson = await Lesson.findOne({
+        $or: [
+          { id: lessonId },
+          ...(mongoose.Types.ObjectId.isValid(lessonId) ? [{ _id: lessonId }] : [])
+        ]
+      });
+    }
+    if (!lesson) {
+      lesson = (memoryDb.lessons || []).find(l => l.id === lessonId || l._id === lessonId);
+    }
+
+    if (!lesson) {
+      return res.status(404).json({ ok: false, message: "ক্লাসটি খুঁজে পাওয়া যায়নি।" });
+    }
+
+    const yId = lesson.youtubeId || extractYoutubeId(lesson.youtubeUrl);
+    if (!yId) {
+      return res.status(400).json({ ok: false, message: "এই ক্লাসে কোনো বৈধ ইউটিউব লিঙ্ক নেই।" });
+    }
+
+    const trRes = await fetchYoutubeTranscript(yId);
+    if (trRes && trRes.ok && trRes.transcript) {
+      if (isMongoConnected) {
+        await Lesson.updateOne({ id: lesson.id || lessonId }, {
+          transcript: trRes.transcript,
+          transcriptStatus: 'ready',
+          transcriptUpdatedAt: new Date()
+        });
+      }
+      const mem = (memoryDb.lessons || []).find(l => l.id === lesson.id || l.id === lessonId);
+      if (mem) {
+        mem.transcript = trRes.transcript;
+        mem.transcriptStatus = 'ready';
+        mem.transcriptUpdatedAt = new Date();
+      }
+      fastCache.del("lessons");
+      return res.json({
+        ok: true,
+        message: `✓ সাবটাইটেল সফলভাবে সিঙ্ক হয়েছে! (${trRes.wordCount}টি শব্দ পাওয়া গেছে)`,
+        transcript: trRes.transcript,
+        transcriptStatus: 'ready',
+        wordCount: trRes.wordCount
+      });
+    } else {
+      return res.status(400).json({
+        ok: false,
+        message: trRes.message || "ইউটিউব এখনও এই ভিডিওর ক্যাপশন তৈরি করেনি। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।"
+      });
+    }
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "সাবটাইটেল সিঙ্ক ত্রুটি: " + err.message });
   }
 });
 
