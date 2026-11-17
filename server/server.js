@@ -285,67 +285,92 @@ async function syncMemoryDbFromMongo() {
   }
 }
 
-let cachedConn = null;
+// Global Mongoose connection caching for Vercel Serverless environment
+let cached = global.mongoose;
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
 
 // Mongoose Connection Resilience Guards for Serverless (Vercel) Environment
 mongoose.connection.on("disconnected", () => {
   isMongoConnected = false;
-  cachedConn = null;
+  if (global.mongoose) {
+    global.mongoose.conn = null;
+    global.mongoose.promise = null;
+  }
 });
 
 mongoose.connection.on("error", (err) => {
   isMongoConnected = false;
-  cachedConn = null;
+  if (global.mongoose) {
+    global.mongoose.conn = null;
+    global.mongoose.promise = null;
+  }
+  console.warn("MongoDB connection warning:", err?.message || err);
 });
 
 async function ensureDbConnected() {
-  if (mongoose.connection && mongoose.connection.readyState === 1) {
+  if (cached.conn && mongoose.connection && mongoose.connection.readyState === 1) {
     isMongoConnected = true;
-    return mongoose.connection;
+    return cached.conn;
   }
 
-  // Reset cached connection if connection state is disconnected (0) or disconnecting (3)
-  if (!mongoose.connection || mongoose.connection.readyState === 0 || mongoose.connection.readyState === 3) {
-    cachedConn = null;
-  }
-
-  if (mongoose.connection && mongoose.connection.readyState === 2) {
-    let retries = 0;
-    while (mongoose.connection && mongoose.connection.readyState === 2 && retries < 15) {
-      await new Promise(r => setTimeout(r, 100));
-      retries++;
-    }
-    if (mongoose.connection && mongoose.connection.readyState === 1) {
+  // If connection is in connecting state (2), wait for existing promise
+  if (mongoose.connection && mongoose.connection.readyState === 2 && cached.promise) {
+    try {
+      cached.conn = await cached.promise;
       isMongoConnected = true;
-      return mongoose.connection;
+      return cached.conn;
+    } catch (e) {
+      cached.promise = null;
+      cached.conn = null;
     }
+  }
+
+  if (!cached.promise) {
+    const mongoUri = process.env.MONGODB_URI || MONGODB_URI;
+    if (!mongoUri) {
+      isMongoConnected = false;
+      return null;
+    }
+
+    const opts = {
+      dbName: process.env.MONGODB_DB || "bjs_academy",
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      family: 4, // Force IPv4 to prevent IPv6 TLS handshake timeouts on Vercel
+      bufferCommands: false, // Instant fail-safe without waiting on cold starts
+      retryWrites: true,
+      w: "majority"
+    };
+
+    cached.promise = mongoose.connect(mongoUri, opts).then((m) => {
+      isMongoConnected = true;
+      return m;
+    }).catch((err) => {
+      cached.promise = null;
+      cached.conn = null;
+      isMongoConnected = false;
+      console.error("MongoDB Connection Error:", err?.message || err);
+      throw err;
+    });
   }
 
   try {
-    const mongoUri = process.env.MONGODB_URI || MONGODB_URI;
-    if (!cachedConn) {
-      cachedConn = mongoose.connect(mongoUri, {
-        serverSelectionTimeoutMS: 3000,
-        connectTimeoutMS: 4000,
-        maxPoolSize: 5,
-        socketTimeoutMS: 30000,
-        family: 4, // Force IPv4 to prevent IPv6 TLS handshake timeouts on Vercel
-        bufferCommands: false, // Instant fail-safe to memoryDb without waiting on cold starts
-        retryWrites: true,
-        w: "majority"
-      });
-    }
-    await cachedConn;
+    cached.conn = await cached.promise;
     isMongoConnected = true;
     // Fast non-blocking background sync of siteSettings only
     if (!memoryDb.siteSettings.heroTitle) {
       SiteSetting.findOne().lean().then(s => {
         if (s) memoryDb.siteSettings = { ...memoryDb.siteSettings, ...s };
-      }).catch(() => {});
+      }).catch(() => { });
     }
-    return mongoose.connection;
+    return cached.conn;
   } catch (err) {
-    cachedConn = null;
+    cached.promise = null;
+    cached.conn = null;
     isMongoConnected = false;
     return null;
   }
@@ -619,7 +644,7 @@ app.post("/api/auth/register", async (req, res) => {
     };
 
     // Auto-detect course matching registered batch
-    let matchedCourseOnReg = (memoryDb.courses || []).find(c => 
+    let matchedCourseOnReg = (memoryDb.courses || []).find(c =>
       c.id === batch || c.title === batch || c.shortTitle === batch ||
       (c.batchRegText && c.batchRegText === batch) ||
       (c.title && c.title.toLowerCase().includes(String(batch).toLowerCase()))
@@ -1110,7 +1135,7 @@ app.post(["/api/auth/google-login", "/auth/google-login"], async (req, res) => {
     if (isMongoConnected) {
       try {
         mentorUser = await Mentor.findOne({ email: new RegExp(`^${cleanEmail}$`, "i") }).lean();
-      } catch (e) {}
+      } catch (e) { }
     }
     if (!mentorUser) {
       mentorUser = (memoryDb.mentors || []).find(m => m && String(m.email || "").trim().toLowerCase() === cleanEmail);
@@ -1139,7 +1164,7 @@ app.post(["/api/auth/google-login", "/auth/google-login"], async (req, res) => {
     if (isMongoConnected) {
       try {
         student = await Student.findOne({ email: new RegExp(`^${cleanEmail}$`, "i") });
-      } catch (e) {}
+      } catch (e) { }
     }
     if (!student) {
       student = (memoryDb.students || []).find(s => s && String(s.email || "").trim().toLowerCase() === cleanEmail);
@@ -2682,7 +2707,7 @@ function applyBengaliPdfWatermarkAndFooter(doc, titleText = "Official Document")
 
     // 2. Official 2-Line Footer (Admission Numbers + Page Count)
     doc.save();
-    
+
     // Thin divider line above footer at y = 790
     doc.moveTo(36, 790).lineTo(559, 790).strokeColor("#cbd5e1").lineWidth(0.5).stroke();
 
@@ -3105,7 +3130,7 @@ app.post("/api/admin/generate-master-submissions-pdf", async (req, res) => {
 function parseQuestionText(text) {
   if (!text) return [];
   const cleanText = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  
+
   const rawBlocks = cleanText.split(/(?=\n\s*(?:প্রশ্ন\s*[০-৯\d]+[:.]?|[০-৯\d]+[\.:\)])\s*)/gi).filter(Boolean);
   const banglaToEngOptionMap = { 'ক': 0, 'খ': 1, 'গ': 2, 'ঘ': 3, 'a': 0, 'b': 1, 'c': 2, 'd': 3 };
 
@@ -3390,7 +3415,7 @@ app.get("/sitemap.xml", async (req, res) => {
       try {
         const crs = await Course.find({ status: { $ne: "Inactive" } }).lean();
         if (crs && crs.length > 0) activeCourses = crs;
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const todayDate = new Date().toISOString().split("T")[0];
@@ -3440,7 +3465,7 @@ ${courseXmlEntries}
     fastCache.set("xml_sitemap", xml, 3600); // 1 hour
     return res.send(xml);
   } catch (err) {
-    
+
     return res.send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://bjs.kodl.uk/</loc></url></urlset>`);
   }
 });
@@ -3611,7 +3636,7 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
     }
 
     // Match in memoryDb by _id, oldId, or id
-    const idx = (memoryDb.courses || []).findIndex(c => 
+    const idx = (memoryDb.courses || []).findIndex(c =>
       (body._id && String(c._id) === String(body._id)) ||
       (oldId && c.id === oldId) ||
       (courseId && c.id === courseId)
@@ -3638,25 +3663,25 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
       await Lesson.updateMany(
         { courseId: { $in: oldAliasList } },
         { $set: { courseId: newCourseId } }
-      ).catch(() => {});
+      ).catch(() => { });
 
       // 2. Update Student Batch
       await Student.updateMany(
         { batch: { $in: oldAliasList } },
         { $set: { batch: newCourseTitle } }
-      ).catch(() => {});
+      ).catch(() => { });
 
       // 3. Update Registration Batch
       await Registration.updateMany(
         { batch: { $in: oldAliasList } },
         { $set: { batch: newCourseTitle } }
-      ).catch(() => {});
+      ).catch(() => { });
 
       // 4. Update MCQ Exams
       await MCQExam.updateMany(
         { courseId: { $in: oldAliasList } },
         { $set: { courseId: newCourseId } }
-      ).catch(() => {});
+      ).catch(() => { });
 
       // 5. Update Student allowedCourseIds & enrolledCourseIds
       const affectedStudents = await Student.find({
@@ -3694,7 +3719,7 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
           if (st.batch !== newCourseTitle && oldAliasList.includes(st.batch)) {
             st.batch = newCourseTitle;
           }
-          await st.save().catch(() => {});
+          await st.save().catch(() => { });
         }
       }
 
@@ -3702,7 +3727,7 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
       await Student.updateMany(
         {},
         { $pull: { allowedCourseIds: { $in: ["-------", "----", "---", "", null] }, enrolledCourseIds: { $in: ["-------", "----", "---", "", null] } } }
-      ).catch(() => {});
+      ).catch(() => { });
     }
 
     // Synchronize memoryDb
@@ -3794,7 +3819,7 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
     // Helper to convert Bengali numerals to English numerals
     const toEnDigits = (str) => {
       if (!str) return '';
-      const bn = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
+      const bn = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
       return String(str).replace(/[০-৯]/g, (d) => bn.indexOf(d));
     };
 
@@ -4346,7 +4371,7 @@ async function getAuthUserFromRequest(req) {
     if (authHeader && authHeader.startsWith("Bearer ")) {
       token = authHeader.substring(7).trim();
     }
-    
+
     if (token) {
       try {
         const decoded = jwt.verify(token, JWT_SECRET);
@@ -4382,7 +4407,7 @@ async function getAuthUserFromRequest(req) {
       if (!stu) stu = (memoryDb.students || []).find(s => s.id === fallbackId);
       if (stu) return { ...stu, role: "student" };
     }
-  } catch (e) {}
+  } catch (e) { }
   return null;
 }
 
@@ -4422,7 +4447,7 @@ function checkStudentCourseAccess(student, courseId, lesson = null) {
   }
 
   const sCourseId = String(courseId).toLowerCase().trim();
-  const isEnrolled = 
+  const isEnrolled =
     allowed.some(id => String(id).toLowerCase().trim() === sCourseId) ||
     enrolled.some(id => String(id).toLowerCase().trim() === sCourseId) ||
     (student.course && String(student.course).toLowerCase().trim() === sCourseId) ||
@@ -4649,7 +4674,7 @@ app.post(["/api/admin/mentors/save", "/admin/mentors/save"], async (req, res) =>
     }
 
     const mentorId = body.id || body._id || (`MTR-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`);
-    
+
     const mentorData = {
       id: mentorId,
       name: body.name,
@@ -4909,10 +4934,10 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
     if (isMongoConnected) {
       try {
         mongoStudents = await Student.find().sort({ createdAt: -1 }).lean();
-      } catch (e) {}
+      } catch (e) { }
       try {
         mongoRegs = await Registration.find().sort({ createdAt: -1 }).lean();
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const studentMap = new Map();
@@ -4943,7 +4968,7 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
     if (isMongoConnected && allCoursesList.length === 0) {
       try {
         allCoursesList = await Course.find().lean();
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const matchCourse = (rawBatch) => {
@@ -4955,7 +4980,7 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
         const cShort = String(c.shortTitle || "").trim().toLowerCase();
         const cBatch = String(c.batchRegText || "").trim().toLowerCase();
         return cId === bStr || cTitle === bStr || cShort === bStr || cBatch === bStr ||
-               (cTitle && cTitle.includes(bStr)) || (bStr && bStr.includes(cShort));
+          (cTitle && cTitle.includes(bStr)) || (bStr && bStr.includes(cShort));
       });
     };
 
@@ -5096,7 +5121,7 @@ app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
         if (mtrs > 0) mentorsCount = mtrs;
         if (crss > 0) coursesCount = crss;
         if (mcqs > 0) examsCount = mcqs;
-      } catch (dbErr) {}
+      } catch (dbErr) { }
     }
 
     const payload = {
@@ -5330,7 +5355,7 @@ app.get("/api/mcq-exams/:id", async (req, res) => {
     if (!exam && isMongoConnected) {
       try {
         exam = await McqExam.findOne({ id }).lean();
-      } catch (e) {}
+      } catch (e) { }
     }
     if (!exam) {
       return res.status(404).json({ ok: false, message: "এমসিকিউ পরীক্ষা খুঁজে পাওয়া যায়নি।" });
@@ -5349,7 +5374,7 @@ app.delete("/api/admin/mcq-exams/:id", async (req, res) => {
       try {
         await McqExam.deleteMany({ id });
         await McqResult.deleteMany({ examId: id });
-      } catch (e) {}
+      } catch (e) { }
     }
     memoryDb.mcqExams = (memoryDb.mcqExams || []).filter(e => e.id !== id);
     memoryDb.mcqResults = (memoryDb.mcqResults || []).filter(r => r.examId !== id);
@@ -5373,7 +5398,7 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
     if (!exam && isMongoConnected) {
       try {
         exam = await McqExam.findOne({ id: examId }).lean();
-      } catch (e) {}
+      } catch (e) { }
     }
     if (!exam) {
       return res.status(404).json({ ok: false, message: "এমসিকিউ পরীক্ষা খুঁজে পাওয়া যায়নি।" });
@@ -5412,7 +5437,7 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
       const userSel = answers ? answers[q.id] : undefined;
       const isSelected = userSel !== undefined && Number(userSel) >= 0;
       const isCorrect = isSelected && Number(userSel) === Number(q.correctIndex);
-      
+
       if (isCorrect) {
         correctCount += 1;
       } else if (isSelected) {
@@ -5447,7 +5472,7 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
       try {
         const dbStudents = await Student.find().lean();
         allStudents = dbStudents.length > 0 ? dbStudents : allStudents;
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const cleanPhone = (candidatePhone || "").replace(/\D/g, "");
@@ -5486,7 +5511,7 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
       try {
         savedResult = await McqResult.create(resultData);
         if (savedResult && savedResult.toObject) savedResult = savedResult.toObject();
-      } catch (e) {}
+      } catch (e) { }
     }
     (memoryDb.mcqResults = memoryDb.mcqResults || []).unshift(resultData);
 
@@ -5511,8 +5536,8 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
               <p style="color: #94a3b8; font-size: 12px;">© 2026 BJS & Bar Aspirants Academy. Judiciary & Advocacy Excellence Portal.</p>
             </div>
           `
-        }).catch(() => {});
-      } catch (mErr) {}
+        }).catch(() => { });
+      } catch (mErr) { }
     }
 
     return res.json({
@@ -6648,7 +6673,7 @@ app.post(["/api/student/verify-email-otp", "/student/verify-email-otp"], async (
           { $or: [{ regId: studentId }, { phone: targetStudent?.phone || memStudent?.phone }] },
           { $set: { email: cleanEmail } }
         );
-      } catch (regErr) {}
+      } catch (regErr) { }
     }
 
     const memReg = (memoryDb.registrations || []).find(
@@ -6810,10 +6835,10 @@ app.post("/api/admin/students/save", async (req, res) => {
     const cleanRegId = body.regId ? String(body.regId).trim() : "";
 
     let oldAllowed = [];
-    const existingSt = (memoryDb.students || []).find(s => 
-      (cleanId && s.id === cleanId) || 
-      (cleanRegId && s.regId === cleanRegId) || 
-      (cleanPhone && s.phone === cleanPhone) || 
+    const existingSt = (memoryDb.students || []).find(s =>
+      (cleanId && s.id === cleanId) ||
+      (cleanRegId && s.regId === cleanRegId) ||
+      (cleanPhone && s.phone === cleanPhone) ||
       (cleanEmail && s.email && s.email.toLowerCase() === cleanEmail)
     );
     if (existingSt) {
@@ -6895,13 +6920,13 @@ app.post("/api/admin/students/save", async (req, res) => {
       await Registration.updateMany(
         { $or: [{ regId: cleanRegId || cleanId }, { phone: cleanPhone }, { email: cleanEmail }] },
         { $set: { status: savedStudent.loginApproval === "Approved" ? "Approved" : (savedStudent.status || "Pending"), batch: savedStudent.batch } }
-      ).catch(() => {});
+      ).catch(() => { });
     }
 
-    const idx = memoryDb.students.findIndex((s) => 
-      s.id === body.id || 
-      (cleanRegId && s.regId === cleanRegId) || 
-      (cleanPhone && s.phone === cleanPhone) || 
+    const idx = memoryDb.students.findIndex((s) =>
+      s.id === body.id ||
+      (cleanRegId && s.regId === cleanRegId) ||
+      (cleanPhone && s.phone === cleanPhone) ||
       (cleanEmail && s.email && s.email.toLowerCase() === cleanEmail)
     );
     if (idx > -1) {
@@ -6961,7 +6986,7 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
     if (isMongoConnected && allCourses.length === 0) {
       try {
         allCourses = await Course.find().lean();
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // Helper to resolve matching course
@@ -6974,7 +6999,7 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
         const cShort = String(c.shortTitle || "").trim().toLowerCase();
         const cBatch = String(c.batchRegText || "").trim().toLowerCase();
         return cId === bStr || cTitle === bStr || cShort === bStr || cBatch === bStr ||
-               (cTitle && cTitle.includes(bStr)) || (bStr && bStr.includes(cShort));
+          (cTitle && cTitle.includes(bStr)) || (bStr && bStr.includes(cShort));
       });
     };
 
@@ -7165,12 +7190,12 @@ app.delete("/api/admin/students/:id", async (req, res) => {
 
     if (isMongoConnected) {
       await Promise.all([
-        Student.deleteMany({ $or: buildConditions() }).catch(() => {}),
-        Registration.deleteMany({ $or: buildConditions() }).catch(() => {}),
-        Receipt.deleteMany({ $or: buildConditions("studentId") }).catch(() => {}),
-        Submission.deleteMany({ $or: buildConditions("studentId") }).catch(() => {}),
-        Device.deleteMany({ $or: buildConditions("studentId") }).catch(() => {}),
-        McqResult.deleteMany({ $or: buildConditions("studentId") }).catch(() => {})
+        Student.deleteMany({ $or: buildConditions() }).catch(() => { }),
+        Registration.deleteMany({ $or: buildConditions() }).catch(() => { }),
+        Receipt.deleteMany({ $or: buildConditions("studentId") }).catch(() => { }),
+        Submission.deleteMany({ $or: buildConditions("studentId") }).catch(() => { }),
+        Device.deleteMany({ $or: buildConditions("studentId") }).catch(() => { }),
+        McqResult.deleteMany({ $or: buildConditions("studentId") }).catch(() => { })
       ]);
     }
 
@@ -7239,10 +7264,10 @@ app.post(["/api/admin/students/note", "/admin/students/note"], async (req, res) 
       await Registration.updateMany(
         { $or: orClauses },
         { $set: { adminNote: cleanNote, reviewNote: cleanNote } }
-      ).catch(() => {});
+      ).catch(() => { });
     }
 
-    const memSt = (memoryDb.students || []).find(s => 
+    const memSt = (memoryDb.students || []).find(s =>
       s.id === studentId || s.regId === studentId || s.phone === studentId || s.email === studentId
     );
     if (memSt) {
@@ -7251,7 +7276,7 @@ app.post(["/api/admin/students/note", "/admin/students/note"], async (req, res) 
       if (!updated) updated = memSt;
     }
 
-    const memReg = (memoryDb.registrations || []).find(r => 
+    const memReg = (memoryDb.registrations || []).find(r =>
       r.regId === studentId || r.phone === studentId || r.email === studentId
     );
     if (memReg) {
@@ -7302,7 +7327,7 @@ app.post("/api/admin/students/message", async (req, res) => {
       try {
         const dbStus = await Student.find({ id: { $in: studentIds } }).lean();
         if (dbStus && dbStus.length > 0) allStus = dbStus;
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const targetStudents = allStus.filter(s => studentIds.includes(s.id));
@@ -7474,7 +7499,7 @@ app.post("/api/ai/chat", async (req, res) => {
             resolvedCourseTitle = cDoc.title;
           }
         }
-      } catch (ce) {}
+      } catch (ce) { }
 
       // 5. Backend-processed Access Verification Engine
       const accessCheck = checkStudentCourseAccess(authUser, resolvedCourseId, topMatch);
