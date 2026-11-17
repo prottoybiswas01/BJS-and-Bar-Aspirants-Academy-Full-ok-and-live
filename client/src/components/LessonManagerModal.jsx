@@ -468,9 +468,9 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                         return String(str).replace(/[০-৯]/g, (d) => bn.indexOf(d));
                       };
                       const parseNum = (l) => {
-                        const explicitOrder = (l.order !== undefined && l.order !== null && !isNaN(Number(l.order)) && Number(l.order) > 0)
+                        const explicitOrder = (l?.order !== undefined && l?.order !== null && !isNaN(Number(l?.order)) && Number(l?.order) > 0)
                           ? Number(l.order) : null;
-                        const rawStr = ((l.title || '') + ' ' + (l.chapter || '') + ' ' + (l.module || '') + ' ' + (l.id || '')).toLowerCase();
+                        const rawStr = ((l?.title || '') + ' ' + (l?.chapter || '') + ' ' + (l?.module || '') + ' ' + (l?.id || '')).toLowerCase();
                         const str = toEnDigits(rawStr);
 
                         if (str.includes('orientation') || str.includes('অরিয়েন্টেশন') || str.includes('ইনট্রো') || str.includes('intro') || str.includes('গাইডলাইন') || str.includes('guideline')) {

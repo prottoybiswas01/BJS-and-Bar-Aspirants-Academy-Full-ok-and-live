@@ -205,7 +205,23 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
             return prev ? { ...prev, ...res.data.selectedCourse } : res.data.selectedCourse;
           });
         }
-        if (Array.isArray(res.data.lessons)) setLessons(res.data.lessons);
+        if (Array.isArray(res.data.lessons)) {
+          if (res.data.lessons.length === 0) {
+            // Resilient Fallback: If 0 lessons returned for new session/course, fetch all available lessons
+            try {
+              const allRes = await api.get('/lessons');
+              if (allRes.data?.ok && Array.isArray(allRes.data.lessons) && allRes.data.lessons.length > 0) {
+                setLessons(allRes.data.lessons);
+              } else {
+                setLessons([]);
+              }
+            } catch (e) {
+              setLessons([]);
+            }
+          } else {
+            setLessons(res.data.lessons);
+          }
+        }
         if (Array.isArray(res.data.assignments)) setStudentAssignments(res.data.assignments);
         if (Array.isArray(res.data.submissions)) setMySubmissions(res.data.submissions);
         if (Array.isArray(res.data.exams)) setStudentExams(res.data.exams);
@@ -234,9 +250,16 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
   const fetchLessons = async (courseId) => {
     try {
-      const res = await api.get(`/lessons?courseId=${courseId}`);
-      if (res.data.ok) {
-        setLessons(res.data.lessons);
+      const res = await api.get(`/lessons?courseId=${courseId || ''}`);
+      if (res.data?.ok) {
+        let loaded = Array.isArray(res.data.lessons) ? res.data.lessons : [];
+        if (loaded.length === 0 && courseId) {
+          const allRes = await api.get('/lessons');
+          if (allRes.data?.ok && Array.isArray(allRes.data.lessons) && allRes.data.lessons.length > 0) {
+            loaded = allRes.data.lessons;
+          }
+        }
+        setLessons(loaded);
       }
     } catch (err) {
       console.log('Lessons error:', err);
@@ -272,9 +295,9 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
   // Helper to extract lesson number from title/chapter/module/id for serial ascending order (#1, #2 ... #15)
   const getLessonNum = (l) => {
-    const explicitOrder = (l.order !== undefined && l.order !== null && !isNaN(Number(l.order)) && Number(l.order) > 0)
+    const explicitOrder = (l?.order !== undefined && l?.order !== null && !isNaN(Number(l?.order)) && Number(l?.order) > 0)
       ? Number(l.order) : null;
-    const rawStr = ((l.title || '') + ' ' + (l.chapter || '') + ' ' + (l.module || '') + ' ' + (l.id || '')).toLowerCase();
+    const rawStr = ((l?.title || '') + ' ' + (l?.chapter || '') + ' ' + (l?.module || '') + ' ' + (l?.id || '')).toLowerCase();
     const str = toEnDigits(rawStr);
 
     if (str.includes('orientation') || str.includes('অরিয়েন্টেশন') || str.includes('ইনট্রো') || str.includes('intro') || str.includes('গাইডলাইন') || str.includes('guideline')) {
@@ -323,17 +346,17 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     const numA = getLessonNum(a);
     const numB = getLessonNum(b);
     if (numA !== numB) return numA - numB;
-    const dateA = new Date(a.createdAt || a.releaseDate || 0).getTime();
-    const dateB = new Date(b.createdAt || b.releaseDate || 0).getTime();
+    const dateA = new Date(a?.createdAt || a?.releaseDate || 0).getTime();
+    const dateB = new Date(b?.createdAt || b?.releaseDate || 0).getTime();
     if (dateA !== dateB) return dateA - dateB;
-    return (a.title || '').localeCompare(b.title || '');
+    return (a?.title || '').localeCompare(b?.title || '');
   });
 
   const firstLessonId = sortedLessons[0]?.id;
 
   // Group lessons by Chapter (অধ্যায়) if available, otherwise by Module
   const groupedLessons = sortedLessons.reduce((acc, l) => {
-    const groupKey = l.chapter && l.chapter.trim() !== '' ? l.chapter : (l.module || 'সাধারণ বিষয়সূচি (General Module)');
+    const groupKey = l?.chapter && l.chapter.trim() !== '' ? l.chapter : (l?.module || 'সাধারণ বিষয়সূচি (General Module)');
     if (!acc[groupKey]) acc[groupKey] = [];
     acc[groupKey].push(l);
     return acc;
@@ -368,12 +391,12 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
     const isMatch = (idList) => (idList || []).some(id => {
       const sId = String(id).toLowerCase().trim();
-      const cId = String(c.id || '').toLowerCase().trim();
-      const cMongoId = String(c._id || '').toLowerCase().trim();
-      const cOldId = String(c.oldId || '').toLowerCase().trim();
-      const cTitle = String(c.title || '').toLowerCase().trim();
-      const cShort = String(c.shortTitle || '').toLowerCase().trim();
-      const cCat = String(c.category || '').toLowerCase().trim();
+      const cId = String(c?.id || '').toLowerCase().trim();
+      const cMongoId = String(c?._id || '').toLowerCase().trim();
+      const cOldId = String(c?.oldId || '').toLowerCase().trim();
+      const cTitle = String(c?.title || '').toLowerCase().trim();
+      const cShort = String(c?.shortTitle || '').toLowerCase().trim();
+      const cCat = String(c?.category || '').toLowerCase().trim();
 
       return (
         sId === cId ||
@@ -388,7 +411,20 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
     if (isMatch(allowed) || isMatch(enrolled)) return true;
 
-    // Strict Access Control: If this course is not explicitly assigned by admin, it remains LOCKED!
+    // Resilient fallback: Check student's batch or session against the course title or schedule
+    const uBatch = String(user?.batch || '').toLowerCase().trim();
+    const uSession = String(user?.session || '').toLowerCase().trim();
+    const cTitle = String(c?.title || '').toLowerCase().trim();
+    const cId = String(c?.id || '').toLowerCase().trim();
+    const cSession = String(c?.sessionRegText || '').toLowerCase().trim();
+
+    if (uBatch && (cTitle.includes(uBatch) || uBatch.includes(cTitle) || cId.includes(uBatch) || uBatch.includes(cId))) {
+      return true;
+    }
+    if (uSession && (cSession.includes(uSession) || uSession.includes(cSession))) {
+      return true;
+    }
+
     return false;
   };
 

@@ -307,10 +307,10 @@ export default function ProfileModal({ isOpen, onClose }) {
                   </div>
 
                   <p className="text-xs text-slate-400 pt-0.5">
-                    {user.isMentor ? (
-                      <>👨‍🏫 পদবি: <span className="text-amber-300 font-bold">{user.designation || 'সহকারী জজ ও প্রশিক্ষক'}</span></>
+                    {user?.isMentor ? (
+                      <>👨‍🏫 পদবি: <span className="text-amber-300 font-bold">{user?.designation || 'সহকারী জজ ও প্রশিক্ষক'}</span></>
                     ) : (
-                      <>🎓 ব্যাচ: <span className="text-amber-300 font-bold">{user.batch || 'Judiciary 2026'}</span> • <span className="text-slate-300">{user.session || 'Weekend Intensive'}</span></>
+                      <>🎓 ব্যাচ: <span className="text-amber-300 font-bold">{user?.batch || 'Judiciary 2026'}</span> • <span className="text-slate-300">{user?.session || 'Weekend Intensive'}</span></>
                     )}
                   </p>
                 </div>
@@ -320,10 +320,10 @@ export default function ProfileModal({ isOpen, onClose }) {
               <div className="hidden sm:flex flex-col items-end gap-1.5 shrink-0">
                 <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-xs border border-emerald-500/30 flex items-center gap-1.5 shadow-sm">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  {user.status || 'Active'}
+                  {user?.status || 'Active'}
                 </span>
                 <span className="text-[10px] text-slate-500 font-mono">
-                  {user.portalAccessMode || 'Full Access Mode'}
+                  {user?.portalAccessMode || 'Full Access Mode'}
                 </span>
               </div>
             </div>
@@ -603,7 +603,7 @@ export default function ProfileModal({ isOpen, onClose }) {
                   </span>
                 </div>
                 <p className="font-bold text-slate-200 text-xs sm:text-sm">
-                  {user.university || 'Department of Law (BJS Track)'}
+                  {user?.university || 'Department of Law (BJS Track)'}
                 </p>
                 <p className="text-[10px] text-slate-500 mt-1">শিক্ষার্থীর একাডেমিক ব্যাকগ্রাউন্ড রেকর্ড</p>
               </div>
@@ -621,7 +621,7 @@ export default function ProfileModal({ isOpen, onClose }) {
                   </span>
                 </div>
                 <p className="font-bold text-amber-300 text-xs sm:text-sm">
-                  {user.batch || 'Judiciary 2026'} ({user.session || 'Weekend Intensive'})
+                  {user?.batch || 'Judiciary 2026'} ({user?.session || 'Weekend Intensive'})
                 </p>
                 <p className="text-[10px] text-slate-500 mt-1">বর্তমান সক্রিয় কোর্সরুম ও লেকচার রুটিন</p>
               </div>
@@ -640,7 +640,7 @@ export default function ProfileModal({ isOpen, onClose }) {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2 border-b border-slate-800/60">
                 <span className="text-xs text-slate-400 font-medium">পোর্টাল অ্যাক্সেস পারমিশন:</span>
                 <span className="px-3 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-bold text-xs border border-emerald-500/30 self-start sm:self-auto">
-                  {user.portalAccessMode || 'Full Masterclass Access'}
+                  {user?.portalAccessMode || 'Full Masterclass Access'}
                 </span>
               </div>
 

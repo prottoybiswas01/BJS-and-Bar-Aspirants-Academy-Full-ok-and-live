@@ -898,14 +898,50 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     setPreviewLoading(true);
     try {
       const res = await api.get('/lessons');
-      if (res.data.ok) {
-        const allowedCourses = (student.allowedCourseIds || student.enrolledCourseIds || []).filter(Boolean);
-        const isUnlimited = student.unlimitedAccess === true || allowedCourses.includes('all');
-        const studentLessons = isUnlimited
-          ? res.data.lessons
-          : allowedCourses.length === 0
-          ? []
-          : res.data.lessons.filter(l => allowedCourses.includes(l.courseId));
+      if (res.data?.ok) {
+        const allLessons = Array.isArray(res.data.lessons) ? res.data.lessons : [];
+        const rawAllowed = [
+          ...(Array.isArray(student?.allowedCourseIds) ? student.allowedCourseIds : []),
+          ...(Array.isArray(student?.enrolledCourseIds) ? student.enrolledCourseIds : []),
+          ...(student?.course ? [student.course] : [])
+        ].filter(Boolean);
+
+        const isUnlimited = student?.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase() === 'all');
+
+        let studentLessons = [];
+        if (isUnlimited) {
+          studentLessons = allLessons;
+        } else if (rawAllowed.length > 0) {
+          studentLessons = allLessons.filter(l => {
+            const lCourse = String(l?.courseId || '').toLowerCase().trim();
+            const lMod = String(l?.module || '').toLowerCase().trim();
+            return rawAllowed.some(id => {
+              const cleanId = String(id).toLowerCase().trim();
+              return cleanId === lCourse || cleanId === lMod || lCourse.includes(cleanId) || cleanId.includes(lCourse);
+            });
+          });
+        }
+
+        // Resilient Fallback: If strict course matching yields 0 lessons (e.g. newly added session or batch),
+        // try matching by student's batch or session or fallback to all lessons so admin can always preview!
+        if (studentLessons.length === 0 && (student?.batch || student?.session)) {
+          const sBatch = String(student?.batch || '').toLowerCase();
+          const sSession = String(student?.session || '').toLowerCase();
+          studentLessons = allLessons.filter(l => {
+            const lCourse = String(l?.courseId || '').toLowerCase();
+            const lMod = String(l?.module || '').toLowerCase();
+            return (
+              (sBatch && (lCourse.includes(sBatch) || sBatch.includes(lCourse) || lMod.includes(sBatch) || sBatch.includes(lMod))) ||
+              (sSession && (lCourse.includes(sSession) || sSession.includes(lCourse)))
+            );
+          });
+        }
+
+        // Final fallback: If still empty, display all available lessons so preview is never completely blank
+        if (studentLessons.length === 0) {
+          studentLessons = allLessons;
+        }
+
         setPreviewLessons(studentLessons);
       }
     } catch (err) {
@@ -5707,13 +5743,14 @@ return (
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-extrabold text-white">{previewStudentModal.student.name}</h2>
+                    <h2 className="text-lg font-extrabold text-white">{previewStudentModal.student?.name}</h2>
                     <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-mono text-xs border border-amber-500/30">
-                      {previewStudentModal.student.id}
+                      {previewStudentModal.student?.id}
                     </span>
                   </div>
                   <p className="text-xs text-slate-400">
-                    {previewStudentModal.student.phone} • {previewStudentModal.student.email} • {previewStudentModal.student.batch}
+                    {previewStudentModal.student?.phone} • {previewStudentModal.student?.email} • {previewStudentModal.student?.batch || 'Judiciary 2026'}
+                    {previewStudentModal.student?.session ? ` • সেশন: ${previewStudentModal.student.session}` : ''}
                   </p>
                 </div>
               </div>
@@ -5730,25 +5767,32 @@ return (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-slate-900/80 p-3 rounded-xl border border-slate-800">
               <div>
                 <span className="text-[10px] text-slate-400 uppercase font-bold">AUTHORIZATION</span>
-                <p className="font-bold text-emerald-400">{previewStudentModal.student.loginApproval || 'Approved'}</p>
+                <p className="font-bold text-emerald-400">{previewStudentModal.student?.loginApproval || 'Approved'}</p>
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 uppercase font-bold">ACCOUNT STATUS</span>
-                <p className="font-bold text-cyan-400">{previewStudentModal.student.status || 'Active'}</p>
+                <p className="font-bold text-cyan-400">{previewStudentModal.student?.status || 'Active'}</p>
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 uppercase font-bold">ACCESS MODE</span>
                 {(() => {
-                  const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
-                  const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
+                  const rawAllowed = [
+                    ...(Array.isArray(previewStudentModal.student?.allowedCourseIds) ? previewStudentModal.student.allowedCourseIds : []),
+                    ...(Array.isArray(previewStudentModal.student?.enrolledCourseIds) ? previewStudentModal.student.enrolledCourseIds : []),
+                    ...(previewStudentModal.student?.course ? [previewStudentModal.student.course] : [])
+                  ].filter(Boolean);
+                  const isUnlimited = previewStudentModal.student?.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase() === 'all');
                   if (isUnlimited) return <p className="font-bold text-purple-300">Unlimited Access</p>;
-                  if (allowed.length > 0) return <p className="font-bold text-emerald-400">{allowed.length} Course(s) Active</p>;
+                  if (rawAllowed.length > 0) return <p className="font-bold text-emerald-400">{rawAllowed.length} Course(s) Active</p>;
+                  if (previewStudentModal.student?.batch || previewStudentModal.student?.session) {
+                    return <p className="font-bold text-emerald-400">Batch/Session Active</p>;
+                  }
                   return <p className="font-bold text-rose-400">Locked (0 Assigned)</p>;
                 })()}
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 uppercase font-bold">DEVICE LIMIT</span>
-                <p className="font-mono font-bold text-amber-400">0/{previewStudentModal.student.maxDeviceCount || 2} Active</p>
+                <p className="font-mono font-bold text-amber-400">0/{previewStudentModal.student?.maxDeviceCount || 2} Active</p>
               </div>
             </div>
 
@@ -5760,28 +5804,64 @@ return (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {courses
                   .filter(c => {
-                    const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
-                    const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
-                    return isUnlimited || allowed.includes(c.id);
+                    const rawAllowed = [
+                      ...(Array.isArray(previewStudentModal.student?.allowedCourseIds) ? previewStudentModal.student.allowedCourseIds : []),
+                      ...(Array.isArray(previewStudentModal.student?.enrolledCourseIds) ? previewStudentModal.student.enrolledCourseIds : []),
+                      ...(previewStudentModal.student?.course ? [previewStudentModal.student.course] : [])
+                    ].filter(Boolean);
+                    const isUnlimited = previewStudentModal.student?.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase() === 'all');
+                    if (isUnlimited) return true;
+                    const cId = String(c?.id || '').toLowerCase().trim();
+                    const cTitle = String(c?.title || '').toLowerCase().trim();
+                    const sBatch = String(previewStudentModal.student?.batch || '').toLowerCase().trim();
+                    const sSession = String(previewStudentModal.student?.session || '').toLowerCase().trim();
+                    const cSession = String(c?.sessionRegText || '').toLowerCase().trim();
+
+                    return (
+                      rawAllowed.some(id => {
+                        const cleanId = String(id).toLowerCase().trim();
+                        return cleanId === cId || cleanId === cTitle || cTitle.includes(cleanId) || cleanId.includes(cTitle);
+                      }) ||
+                      (sBatch && (cTitle.includes(sBatch) || sBatch.includes(cTitle) || cId.includes(sBatch) || sBatch.includes(cId))) ||
+                      (sSession && (cSession.includes(sSession) || sSession.includes(cSession)))
+                    );
                   })
                   .map(c => (
-                    <div key={c.id} className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1 text-xs">
-                      <p className="font-extrabold text-amber-300">{c.title}</p>
-                      <p className="text-slate-400 text-[11px]">ফ্যাকাল্টি: {c.faculty}</p>
-                      <p className="text-slate-400 text-[11px]">সিডিউল: <span className="font-mono text-slate-200">{c.schedule}</span></p>
+                    <div key={c?.id || c?._id} className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1 text-xs">
+                      <p className="font-extrabold text-amber-300">{c?.title}</p>
+                      <p className="text-slate-400 text-[11px]">ফ্যাকাল্টি: {c?.faculty}</p>
+                      <p className="text-slate-400 text-[11px]">সিডিউল: <span className="font-mono text-slate-200">{c?.schedule}</span></p>
                       <div className="pt-1 flex items-center justify-between text-[10px]">
                         <span className="text-emerald-400 font-bold">✓ Access Granted</span>
-                        <span className="text-slate-500 font-mono">৳{c.price} BDT</span>
+                        <span className="text-slate-500 font-mono">৳{c?.price} BDT</span>
                       </div>
                     </div>
                   ))}
                 {courses.filter(c => {
-                  const allowed = (previewStudentModal.student.allowedCourseIds || previewStudentModal.student.enrolledCourseIds || []).filter(Boolean);
-                  const isUnlimited = previewStudentModal.student.unlimitedAccess === true || allowed.includes('all');
-                  return isUnlimited || allowed.includes(c.id);
+                  const rawAllowed = [
+                    ...(Array.isArray(previewStudentModal.student?.allowedCourseIds) ? previewStudentModal.student.allowedCourseIds : []),
+                    ...(Array.isArray(previewStudentModal.student?.enrolledCourseIds) ? previewStudentModal.student.enrolledCourseIds : []),
+                    ...(previewStudentModal.student?.course ? [previewStudentModal.student.course] : [])
+                  ].filter(Boolean);
+                  const isUnlimited = previewStudentModal.student?.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase() === 'all');
+                  if (isUnlimited) return true;
+                  const cId = String(c?.id || '').toLowerCase().trim();
+                  const cTitle = String(c?.title || '').toLowerCase().trim();
+                  const sBatch = String(previewStudentModal.student?.batch || '').toLowerCase().trim();
+                  const sSession = String(previewStudentModal.student?.session || '').toLowerCase().trim();
+                  const cSession = String(c?.sessionRegText || '').toLowerCase().trim();
+
+                  return (
+                    rawAllowed.some(id => {
+                      const cleanId = String(id).toLowerCase().trim();
+                      return cleanId === cId || cleanId === cTitle || cTitle.includes(cleanId) || cleanId.includes(cTitle);
+                    }) ||
+                    (sBatch && (cTitle.includes(sBatch) || sBatch.includes(cTitle) || cId.includes(sBatch) || sBatch.includes(cId))) ||
+                    (sSession && (cSession.includes(sSession) || sSession.includes(cSession)))
+                  );
                 }).length === 0 && (
                   <div className="col-span-1 sm:col-span-2 p-4 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs text-center font-medium">
-                    🔒 কোনো কোর্স অ্যাক্সেস অ্যাসাইন করা হয়নি (Locked - 0 Courses Assigned)
+                    🔒 কোনো নির্দিষ্ট কোর্স অ্যাসাইন করা হয়নি (সকল উন্মুক্ত লেকচার নিচে প্রদর্শিত হচ্ছে)
                   </div>
                 )}
               </div>
@@ -5807,13 +5887,13 @@ return (
               ) : (
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                   {previewLessons.map(l => (
-                    <div key={l.id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3 text-xs hover:border-cyan-500/40 transition-all">
+                    <div key={l?.id || l?._id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3 text-xs hover:border-cyan-500/40 transition-all">
                       <div className="space-y-0.5">
                         <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 text-[10px] font-bold">
-                          {l.courseId}
+                          {l?.courseId || 'General'}
                         </span>
-                        <p className="font-bold text-white">{l.title}</p>
-                        <p className="text-[10px] text-slate-400">{l.duration} • {l.releaseDate}</p>
+                        <p className="font-bold text-white">{l?.title}</p>
+                        <p className="text-[10px] text-slate-400">{l?.duration || '56min'} • {l?.releaseDate || 'Recent'}</p>
                       </div>
                       <button
                         type="button"
