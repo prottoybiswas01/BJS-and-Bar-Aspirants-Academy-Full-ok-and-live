@@ -3815,11 +3815,6 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
     let lessonsList = [];
     if (isMongoConnected) {
       lessonsList = await Lesson.find(query).lean().catch(() => []);
-      // Resilient Fallback: If strict course matching returned 0 lessons,
-      // fallback to returning all available lessons so that newly created/empty sessions never show an empty screen!
-      if ((!lessonsList || lessonsList.length === 0) && courseId) {
-        lessonsList = await Lesson.find({}).lean().catch(() => []);
-      }
     }
 
     if (!lessonsList || lessonsList.length === 0) {
@@ -4443,7 +4438,7 @@ function checkStudentCourseAccess(student, courseId, lesson = null) {
   }
 
   // Account must be approved and active
-  if (student.loginApproval !== 'Approved' && student.status !== 'Active') {
+  if (student.loginApproval !== 'Approved' || student.status === 'Inactive' || student.status === 'Blocked') {
     return { allowed: false, reason: 'PENDING_APPROVAL' };
   }
 
@@ -4453,7 +4448,7 @@ function checkStudentCourseAccess(student, courseId, lesson = null) {
     ...(Array.isArray(student.enrolledCourseIds) ? student.enrolledCourseIds : [])
   ].filter(Boolean);
 
-  if (student.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase() === 'all')) {
+  if (student.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase().trim() === 'all')) {
     return { allowed: true, reason: 'UNLIMITED_ACCESS' };
   }
 
@@ -4464,22 +4459,21 @@ function checkStudentCourseAccess(student, courseId, lesson = null) {
   const sCourseId = String(courseId).toLowerCase().trim();
   const rules = Array.isArray(student.courseRules) ? student.courseRules : [];
 
+  // Strict check: Student must be explicitly enrolled in THIS specific course
   const isEnrolled =
     rawAllowed.some(id => {
       const cId = String(id).toLowerCase().trim();
-      return cId === sCourseId || cId.includes(sCourseId) || sCourseId.includes(cId);
+      return (
+        cId === sCourseId ||
+        cId.replace(/[-_]/g, ' ') === sCourseId.replace(/[-_]/g, ' ') ||
+        (sCourseId.length > 3 && (cId === sCourseId || cId === sCourseId.replace(/[-_]/g, ' ')))
+      );
     }) ||
     (student.course && String(student.course).toLowerCase().trim() === sCourseId) ||
-    (student.batch && (String(student.batch).toLowerCase().includes(sCourseId) || sCourseId.includes(String(student.batch).toLowerCase()))) ||
     rules.some(r => r && String(r.courseId).toLowerCase().trim() === sCourseId && r.enrollmentStatus !== 'Suspended');
 
   if (isEnrolled) {
     return { allowed: true, reason: 'ENROLLED' };
-  }
-
-  // Fallback: If student is approved and has active course enrollments, grant access
-  if (student.loginApproval === 'Approved' && rawAllowed.length > 0) {
-    return { allowed: true, reason: 'APPROVED_STUDENT' };
   }
 
   return { allowed: false, reason: 'NOT_ENROLLED' };
@@ -4552,8 +4546,8 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       }
     }
 
-    // Resilient Fallback 1: If selected course has 0 lessons, check other enrolled courses that HAVE lessons
-    if (!lessonsList || lessonsList.length === 0) {
+    // If requested course has 0 lessons, check other ENROLLED courses for this student
+    if ((!lessonsList || lessonsList.length === 0) && enrolledCourses.length > 1) {
       for (const enc of enrolledCourses) {
         if (enc.id !== selectedCourse?.id) {
           const fb = isMongoConnected
@@ -4565,20 +4559,6 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
             break;
           }
         }
-      }
-    }
-
-    // Resilient Fallback 2: If still 0 lessons, load all available lessons in the system
-    // so new sessions or unmatched course names never leave student with an empty dashboard!
-    if (!lessonsList || lessonsList.length === 0) {
-      if (isMongoConnected) {
-        lessonsList = await Lesson.find({}).lean().catch(() => []);
-        if (lessonsList.length > 0) {
-          const matchCourse = processedCourses.find(c => lessonsList.some(l => l.courseId === c.id));
-          if (matchCourse) selectedCourse = matchCourse;
-        }
-      } else if (memoryDb.lessons && memoryDb.lessons.length > 0) {
-        lessonsList = memoryDb.lessons;
       }
     }
 

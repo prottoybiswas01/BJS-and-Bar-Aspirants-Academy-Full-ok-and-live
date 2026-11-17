@@ -206,21 +206,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           });
         }
         if (Array.isArray(res.data.lessons)) {
-          if (res.data.lessons.length === 0) {
-            // Resilient Fallback: If 0 lessons returned for new session/course, fetch all available lessons
-            try {
-              const allRes = await api.get('/lessons');
-              if (allRes.data?.ok && Array.isArray(allRes.data.lessons) && allRes.data.lessons.length > 0) {
-                setLessons(allRes.data.lessons);
-              } else {
-                setLessons([]);
-              }
-            } catch (e) {
-              setLessons([]);
-            }
-          } else {
-            setLessons(res.data.lessons);
-          }
+          setLessons(res.data.lessons);
         }
         if (Array.isArray(res.data.assignments)) setStudentAssignments(res.data.assignments);
         if (Array.isArray(res.data.submissions)) setMySubmissions(res.data.submissions);
@@ -252,14 +238,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     try {
       const res = await api.get(`/lessons?courseId=${courseId || ''}`);
       if (res.data?.ok) {
-        let loaded = Array.isArray(res.data.lessons) ? res.data.lessons : [];
-        if (loaded.length === 0 && courseId) {
-          const allRes = await api.get('/lessons');
-          if (allRes.data?.ok && Array.isArray(allRes.data.lessons) && allRes.data.lessons.length > 0) {
-            loaded = allRes.data.lessons;
-          }
-        }
-        setLessons(loaded);
+        setLessons(Array.isArray(res.data.lessons) ? res.data.lessons : []);
       }
     } catch (err) {
       console.log('Lessons error:', err);
@@ -411,20 +390,15 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
     if (isMatch(allowed) || isMatch(enrolled)) return true;
 
-    // Resilient fallback: Check student's batch or session against the course title or schedule
-    const uBatch = String(user?.batch || '').toLowerCase().trim();
-    const uSession = String(user?.session || '').toLowerCase().trim();
-    const cTitle = String(c?.title || '').toLowerCase().trim();
-    const cId = String(c?.id || '').toLowerCase().trim();
-    const cSession = String(c?.sessionRegText || '').toLowerCase().trim();
-
-    if (uBatch && (cTitle.includes(uBatch) || uBatch.includes(cTitle) || cId.includes(uBatch) || uBatch.includes(cId))) {
-      return true;
-    }
-    if (uSession && (cSession.includes(uSession) || uSession.includes(cSession))) {
-      return true;
+    // Strict Check: Check student.course match
+    if (user?.course) {
+      const uCourse = String(user.course).toLowerCase().trim();
+      const cId = String(c?.id || '').toLowerCase().trim();
+      const cTitle = String(c?.title || '').toLowerCase().trim();
+      if (uCourse === cId || uCourse === cTitle) return true;
     }
 
+    // Strict Access Control: If this course is not explicitly assigned by admin, it remains LOCKED!
     return false;
   };
 

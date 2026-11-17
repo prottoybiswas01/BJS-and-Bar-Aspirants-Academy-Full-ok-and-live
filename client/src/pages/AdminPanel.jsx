@@ -917,29 +917,14 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
             const lMod = String(l?.module || '').toLowerCase().trim();
             return rawAllowed.some(id => {
               const cleanId = String(id).toLowerCase().trim();
-              return cleanId === lCourse || cleanId === lMod || lCourse.includes(cleanId) || cleanId.includes(lCourse);
+              return (
+                cleanId === lCourse ||
+                cleanId === lMod ||
+                cleanId.replace(/[-_]/g, ' ') === lCourse.replace(/[-_]/g, ' ') ||
+                cleanId.replace(/[-_]/g, ' ') === lMod.replace(/[-_]/g, ' ')
+              );
             });
           });
-        }
-
-        // Resilient Fallback: If strict course matching yields 0 lessons (e.g. newly added session or batch),
-        // try matching by student's batch or session or fallback to all lessons so admin can always preview!
-        if (studentLessons.length === 0 && (student?.batch || student?.session)) {
-          const sBatch = String(student?.batch || '').toLowerCase();
-          const sSession = String(student?.session || '').toLowerCase();
-          studentLessons = allLessons.filter(l => {
-            const lCourse = String(l?.courseId || '').toLowerCase();
-            const lMod = String(l?.module || '').toLowerCase();
-            return (
-              (sBatch && (lCourse.includes(sBatch) || sBatch.includes(lCourse) || lMod.includes(sBatch) || sBatch.includes(lMod))) ||
-              (sSession && (lCourse.includes(sSession) || sSession.includes(lCourse)))
-            );
-          });
-        }
-
-        // Final fallback: If still empty, display all available lessons so preview is never completely blank
-        if (studentLessons.length === 0) {
-          studentLessons = allLessons;
         }
 
         setPreviewLessons(studentLessons);
@@ -5813,18 +5798,16 @@ return (
                     if (isUnlimited) return true;
                     const cId = String(c?.id || '').toLowerCase().trim();
                     const cTitle = String(c?.title || '').toLowerCase().trim();
-                    const sBatch = String(previewStudentModal.student?.batch || '').toLowerCase().trim();
-                    const sSession = String(previewStudentModal.student?.session || '').toLowerCase().trim();
-                    const cSession = String(c?.sessionRegText || '').toLowerCase().trim();
 
-                    return (
-                      rawAllowed.some(id => {
-                        const cleanId = String(id).toLowerCase().trim();
-                        return cleanId === cId || cleanId === cTitle || cTitle.includes(cleanId) || cleanId.includes(cTitle);
-                      }) ||
-                      (sBatch && (cTitle.includes(sBatch) || sBatch.includes(cTitle) || cId.includes(sBatch) || sBatch.includes(cId))) ||
-                      (sSession && (cSession.includes(sSession) || sSession.includes(cSession)))
-                    );
+                    return rawAllowed.some(id => {
+                      const cleanId = String(id).toLowerCase().trim();
+                      return (
+                        cleanId === cId ||
+                        cleanId === cTitle ||
+                        cleanId.replace(/[-_]/g, ' ') === cId.replace(/[-_]/g, ' ') ||
+                        cleanId.replace(/[-_]/g, ' ') === cTitle.replace(/[-_]/g, ' ')
+                      );
+                    });
                   })
                   .map(c => (
                     <div key={c?.id || c?._id} className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1 text-xs">
@@ -5847,21 +5830,19 @@ return (
                   if (isUnlimited) return true;
                   const cId = String(c?.id || '').toLowerCase().trim();
                   const cTitle = String(c?.title || '').toLowerCase().trim();
-                  const sBatch = String(previewStudentModal.student?.batch || '').toLowerCase().trim();
-                  const sSession = String(previewStudentModal.student?.session || '').toLowerCase().trim();
-                  const cSession = String(c?.sessionRegText || '').toLowerCase().trim();
 
-                  return (
-                    rawAllowed.some(id => {
-                      const cleanId = String(id).toLowerCase().trim();
-                      return cleanId === cId || cleanId === cTitle || cTitle.includes(cleanId) || cleanId.includes(cTitle);
-                    }) ||
-                    (sBatch && (cTitle.includes(sBatch) || sBatch.includes(cTitle) || cId.includes(sBatch) || sBatch.includes(cId))) ||
-                    (sSession && (cSession.includes(sSession) || sSession.includes(cSession)))
-                  );
+                  return rawAllowed.some(id => {
+                    const cleanId = String(id).toLowerCase().trim();
+                    return (
+                      cleanId === cId ||
+                      cleanId === cTitle ||
+                      cleanId.replace(/[-_]/g, ' ') === cId.replace(/[-_]/g, ' ') ||
+                      cleanId.replace(/[-_]/g, ' ') === cTitle.replace(/[-_]/g, ' ')
+                    );
+                  });
                 }).length === 0 && (
                   <div className="col-span-1 sm:col-span-2 p-4 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs text-center font-medium">
-                    🔒 কোনো নির্দিষ্ট কোর্স অ্যাসাইন করা হয়নি (সকল উন্মুক্ত লেকচার নিচে প্রদর্শিত হচ্ছে)
+                    🔒 কোনো নির্দিষ্ট কোর্স অ্যাসাইন করা হয়নি (Locked - 0 Courses Assigned)
                   </div>
                 )}
               </div>
