@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
+import { getLessonNum, sortLessons, getNextSerial } from '../utils/lessonUtils';
 
 export default function LessonManagerModal({ course, isOpen, onClose }) {
   const [lessons, setLessons] = useState([]);
@@ -20,17 +21,6 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
   const [batchReport, setBatchReport] = useState(null);
 
   const targetCourseId = course?.id || course?._id || '';
-
-  const getNextSerial = (lessonList) => {
-    if (!Array.isArray(lessonList) || lessonList.length === 0) return 1;
-    let maxOrder = 0;
-    for (const l of lessonList) {
-      if (l.order !== undefined && l.order !== null && !isNaN(Number(l.order)) && Number(l.order) > 0) {
-        maxOrder = Math.max(maxOrder, Number(l.order));
-      }
-    }
-    return Math.max(maxOrder + 1, lessonList.length + 1);
-  };
 
   const generateTitle = (moduleName, num) => {
     const mod = (moduleName || course?.title || '').trim();
@@ -110,6 +100,11 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
   };
 
   const handleEditLesson = (l) => {
+    const inferredOrder = getLessonNum(l);
+    const resolvedOrder = (l.order !== undefined && l.order !== null && Number(l.order) > 0)
+      ? String(l.order)
+      : (inferredOrder > 0 && inferredOrder < 999999 ? String(inferredOrder) : '');
+
     setForm({
       id: l.id,
       module: l.module || course?.title || '',
@@ -119,7 +114,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       youtubeUrl: l.youtubeUrl || (l.youtubeId ? `https://youtu.be/${l.youtubeId}` : ''),
       releaseDate: l.releaseDate || new Date().toISOString().split('T')[0],
       description: l.description || '',
-      order: l.order !== undefined && l.order !== null && l.order > 0 ? String(l.order) : '',
+      order: resolvedOrder,
     });
     setMsg(null);
   };
@@ -491,68 +486,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {[...lessons].sort((a, b) => {
-                      const toEnDigits = (str) => {
-                        if (!str) return '';
-                        const bn = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
-                        return String(str).replace(/[০-৯]/g, (d) => bn.indexOf(d));
-                      };
-                      const parseNum = (l) => {
-                        const explicitOrder = (l?.order !== undefined && l?.order !== null && !isNaN(Number(l?.order)) && Number(l?.order) > 0)
-                          ? Number(l.order) : null;
-                        const rawStr = ((l?.title || '') + ' ' + (l?.chapter || '') + ' ' + (l?.module || '') + ' ' + (l?.id || '')).toLowerCase();
-                        const str = toEnDigits(rawStr);
-
-                        if (str.includes('orientation') || str.includes('অরিয়েন্টেশন') || str.includes('ইনট্রো') || str.includes('intro') || str.includes('গাইডলাইন') || str.includes('guideline')) {
-                          return -1;
-                        }
-                        if (/\b(?:fast|first|1st)\b/i.test(str) || str.includes('fast class') || str.includes('first class') || str.includes('১ম') || str.includes('প্রথম')) {
-                          return 1;
-                        }
-                        if (/\b(?:2nd|second|secend)\b/i.test(str) || str.includes('2nd class') || str.includes('second class') || str.includes('২য়') || str.includes('দ্বিতীয়')) {
-                          return 2;
-                        }
-                        if (/\b(?:3rd|third)\b/i.test(str) || str.includes('3rd class') || str.includes('৩য়') || str.includes('তৃতীয়')) {
-                          return 3;
-                        }
-                        if (/\b(?:4th|fourth|forth)\b/i.test(str) || str.includes('৪র্থ') || str.includes('চতুর্থ')) {
-                          return 4;
-                        }
-                        const bnOrdinals = [
-                          { num: 5, words: ['5th', 'fifth', '৫ম', 'পঞ্চম'] },
-                          { num: 6, words: ['6th', 'sixth', '৬ষ্ঠ', 'ষষ্ঠ'] },
-                          { num: 7, words: ['7th', 'seventh', '৭ম', 'সপ্তম'] },
-                          { num: 8, words: ['8th', 'eighth', '৮ম', 'অষ্টম'] },
-                          { num: 9, words: ['9th', 'ninth', '৯ম', 'নবম'] },
-                          { num: 10, words: ['10th', 'tenth', '১০ম', 'দশম'] },
-                          { num: 11, words: ['11th', '১১তম'] },
-                          { num: 12, words: ['12th', '১২তম'] },
-                          { num: 13, words: ['13th', '১৩তম'] },
-                          { num: 14, words: ['14th', '১৪তম'] },
-                          { num: 15, words: ['15th', '১৫তম'] },
-                        ];
-                        for (const item of bnOrdinals) {
-                          if (item.words.some(w => str.includes(w))) return item.num;
-                        }
-                        const prefixMatch = str.match(/(?:class|lecture|lesson|module|video|part|পর্ব|ক্লাস|পাঠ|লেকচার|অধ্যায়|\#)[-_\s]*(\d+)/i);
-                        if (prefixMatch) return parseInt(prefixMatch[1], 10);
-                        const ordinalMatch = str.match(/(\d+)\s*(?:st|nd|rd|th|ম|য়|র্থ|ষ্ঠ|তম)/i);
-                        if (ordinalMatch) return parseInt(ordinalMatch[1], 10);
-                        if (explicitOrder !== null) return explicitOrder;
-                        const allNums = [...str.matchAll(/\b(\d+)\b/g)].map(m => parseInt(m[1], 10));
-                        const candidateNums = allNums.filter(n => n < 1800 || n > 2099);
-                        if (candidateNums.length > 0) return candidateNums[0];
-                        return 999999;
-                      };
-
-                      const numA = parseNum(a);
-                      const numB = parseNum(b);
-                      if (numA !== numB) return numA - numB;
-                      const dateA = new Date(a.createdAt || a.releaseDate || 0).getTime();
-                      const dateB = new Date(b.createdAt || b.releaseDate || 0).getTime();
-                      if (dateA !== dateB) return dateA - dateB;
-                      return (a.title || '').localeCompare(b.title || '');
-                    }).map((l, index) => (
+                    {sortLessons(lessons).map((l, index) => (
                       <tr key={l.id || index} className="hover:bg-slate-900/60 transition-colors">
                         <td className="p-2.5 font-mono font-bold text-amber-400 text-center">{index + 1}</td>
                         <td className="p-2.5 font-semibold text-amber-300">{l.module}</td>
