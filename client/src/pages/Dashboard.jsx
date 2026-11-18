@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import QuestionFormattedView from '../components/QuestionFormattedView';
@@ -10,7 +10,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Tab state: 'lectures' | 'assignments'
+  // Tab state: 'lectures' | 'assignments' | 'exams'
   const [selectedTab, setSelectedTab] = useState('lectures');
   const [showCoursesSection, setShowCoursesSection] = useState(true);
   const [studentAssignments, setStudentAssignments] = useState([]);
@@ -32,22 +32,60 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     loading: false
   });
 
+  // Request sequence and in-memory tab/course cache to prevent race conditions
+  const currentReqSeqRef = useRef(0);
+  const courseLessonsCacheRef = useRef({});
+
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 4500);
   };
 
   useEffect(() => {
+    // Immediate state reset on user change or logout to guarantee zero data leakage
+    setCourses([]);
+    setLessons([]);
+    setSelectedCourse(null);
+    setStudentAssignments([]);
+    setMySubmissions([]);
+    setStudentExams([]);
+    setStudentResults([]);
+    courseLessonsCacheRef.current = {};
+
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
+
     fetchData(true);
 
-    // Fast-Cached Single-Trip Polling Interval (Updates all states in 1 quick call)
-    const interval = setInterval(() => {
+    // Dynamic refetch when tab is refocused or becomes visible
+    const onVisibilityChange = () => {
+      if (!document.hidden && user?.id) {
+        fetchData(false);
+      }
+    };
+    const onFocus = () => {
       if (user?.id) {
         fetchData(false);
       }
-    }, 5000);
+    };
 
-    return () => clearInterval(interval);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onFocus);
+
+    // Fast background sync interval
+    const interval = setInterval(() => {
+      if (user?.id && !document.hidden) {
+        fetchData(false);
+      }
+    }, 8000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onFocus);
+      clearInterval(interval);
+    };
   }, [user?.id]);
 
   const fetchAssignments = async () => {
@@ -186,6 +224,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
   };
 
   const fetchData = async (isInitial = true, courseIdOverride = null) => {
+    const seq = ++currentReqSeqRef.current;
     if (isInitial) setLoading(true);
     try {
       const targetCourseId = courseIdOverride || selectedCourse?.id;
@@ -197,6 +236,9 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         }
       });
 
+      // Discard response if another newer request has already been dispatched
+      if (seq !== currentReqSeqRef.current) return;
+
       if (res.data?.ok) {
         if (Array.isArray(res.data.courses)) setCourses(res.data.courses);
         if (res.data.selectedCourse) {
@@ -204,9 +246,15 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
             if (courseIdOverride) return res.data.selectedCourse;
             return prev ? { ...prev, ...res.data.selectedCourse } : res.data.selectedCourse;
           });
+        } else if (res.data.courses && res.data.courses.every(c => !c.isEnrolled)) {
+          setSelectedCourse(null);
         }
+
         if (Array.isArray(res.data.lessons)) {
           setLessons(res.data.lessons);
+          if (res.data.selectedCourse?.id) {
+            courseLessonsCacheRef.current[res.data.selectedCourse.id] = res.data.lessons;
+          }
         }
         if (Array.isArray(res.data.assignments)) setStudentAssignments(res.data.assignments);
         if (Array.isArray(res.data.submissions)) setMySubmissions(res.data.submissions);
@@ -215,6 +263,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         return;
       }
     } catch (err) {
+      if (seq !== currentReqSeqRef.current) return;
       console.log('Dashboard backend-processed data notice, falling back:', err.message);
       try {
         const courseRes = await api.get('/courses');
@@ -230,7 +279,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         }
       } catch (e) {}
     } finally {
-      if (isInitial) setLoading(false);
+      if (seq === currentReqSeqRef.current && isInitial) setLoading(false);
     }
   };
 
@@ -238,7 +287,9 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     try {
       const res = await api.get(`/lessons?courseId=${courseId || ''}`);
       if (res.data?.ok) {
-        setLessons(Array.isArray(res.data.lessons) ? res.data.lessons : []);
+        const fetched = Array.isArray(res.data.lessons) ? res.data.lessons : [];
+        setLessons(fetched);
+        if (courseId) courseLessonsCacheRef.current[courseId] = fetched;
       }
     } catch (err) {
       console.log('Lessons error:', err);
@@ -246,7 +297,12 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
   };
 
   const handleSelectCourse = (course) => {
+    if (!course) return;
     setSelectedCourse(course);
+    // Instant cache-hit: immediately populate screen with cached lessons if already viewed
+    if (course.id && courseLessonsCacheRef.current[course.id]) {
+      setLessons(courseLessonsCacheRef.current[course.id]);
+    }
     fetchData(false, course.id);
   };
 
@@ -362,44 +418,21 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     if (c.isEnrolled !== undefined) return Boolean(c.isEnrolled);
     if (isUnlimited) return true;
 
-    const rawAllowed = user?.allowedCourseIds || [];
-    const rawEnrolled = user?.enrolledCourseIds || [];
+    const rawAllowed = (Array.isArray(user?.allowedCourseIds) && user.allowedCourseIds.length > 0)
+      ? user.allowedCourseIds
+      : (Array.isArray(user?.enrolledCourseIds) ? user.enrolledCourseIds : []);
 
     const allowed = rawAllowed.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
-    const enrolled = rawEnrolled.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
 
-    const isMatch = (idList) => (idList || []).some(id => {
+    const cId = String(c?.id || '').toLowerCase().trim();
+    const cMongoId = String(c?._id || '').toLowerCase().trim();
+    const cOldId = String(c?.oldId || '').toLowerCase().trim();
+    const cNorm = cId.replace(/[-_]/g, ' ');
+
+    return allowed.some(id => {
       const sId = String(id).toLowerCase().trim();
-      const cId = String(c?.id || '').toLowerCase().trim();
-      const cMongoId = String(c?._id || '').toLowerCase().trim();
-      const cOldId = String(c?.oldId || '').toLowerCase().trim();
-      const cTitle = String(c?.title || '').toLowerCase().trim();
-      const cShort = String(c?.shortTitle || '').toLowerCase().trim();
-      const cCat = String(c?.category || '').toLowerCase().trim();
-
-      return (
-        sId === cId ||
-        sId === cMongoId ||
-        (cOldId && sId === cOldId) ||
-        (cShort && sId === cShort) ||
-        (cTitle && sId === cTitle) ||
-        (cCat && sId === cCat) ||
-        (cTitle && (cTitle.includes(sId) || sId.includes(cTitle)))
-      );
+      return sId === cId || sId === cMongoId || (cOldId && sId === cOldId) || sId.replace(/[-_]/g, ' ') === cNorm;
     });
-
-    if (isMatch(allowed) || isMatch(enrolled)) return true;
-
-    // Strict Check: Check student.course match
-    if (user?.course) {
-      const uCourse = String(user.course).toLowerCase().trim();
-      const cId = String(c?.id || '').toLowerCase().trim();
-      const cTitle = String(c?.title || '').toLowerCase().trim();
-      if (uCourse === cId || uCourse === cTitle) return true;
-    }
-
-    // Strict Access Control: If this course is not explicitly assigned by admin, it remains LOCKED!
-    return false;
   };
 
   const isCourseAllowed = checkCourseEnrolled(selectedCourse);
@@ -661,31 +694,36 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
                         <div className="space-y-2">
                           {groupLessons.map((l) => {
-                            const isOrientation = (
+                            const isOrientation = Boolean(
                               (l.title || '').toLowerCase().includes('orientation') ||
                               (l.title || '').includes('অরিয়েন্টেশন') ||
                               (l.module || '').toLowerCase().includes('orientation') ||
                               (l.module || '').includes('অরিয়েন্টেশন') ||
                               (l.chapter || '').toLowerCase().includes('orientation') ||
-                              (l.chapter || '').includes('অরিয়েন্টেশন')
+                              (l.chapter || '').includes('অরিয়েন্টেশন') ||
+                              l.isFree
                             );
                             const isCompleted = user?.completedLessonIds?.includes(l.id);
                             const hasVideo = Boolean(l.youtubeId || l.youtubeUrl);
-                            const canWatch = isEnrolled && hasVideo;
+                            const isUnlocked = l.isUnlocked !== undefined ? Boolean(l.isUnlocked) : (isEnrolled || isOrientation);
+                            const canWatch = isUnlocked && hasVideo;
 
                             let cardClass = 'bg-rose-950/20 border-rose-500/30 text-rose-200';
                             let badgeText = '🔴 Video Pending';
                             let badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
 
-                            if (!isApproved) {
+                            if (!isApproved && !isOrientation) {
                               badgeText = '🔒 Awaiting Admin Approval';
                               badgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/30 font-bold';
-                            } else if (!isEnrolled) {
+                            } else if (!isUnlocked) {
                               badgeText = '🔒 Course Locked';
                               badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30 font-bold';
-                            } else if (hasVideo) {
+                            } else if (!hasVideo) {
+                              badgeText = '🔴 Video Pending';
+                              badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+                            } else {
                               cardClass = 'bg-emerald-950/25 border-emerald-500/30 text-emerald-200 hover:border-emerald-400';
-                              badgeText = '🟢 Video Unlocked';
+                              badgeText = isOrientation ? '🟢 Free Preview / Demo' : '🟢 Video Unlocked';
                               badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
                             }
 
@@ -726,12 +764,10 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                                     onClick={() => {
                                       if (canWatch) {
                                         openVideoModal(l);
+                                      } else if (!isUnlocked) {
+                                        showToast('🔒 এই ভিডিও ক্লাসটি লকড্। ক্লাসটি দেখতে কোর্সে সক্রিয় ভর্তি ও অনুমোদন প্রয়োজন।', 'error');
                                       } else if (!hasVideo) {
                                         showToast('🔴 ভিডিও এখনো আপলোড করা হয়নি (Video Pending)।', 'error');
-                                      } else if (!isApproved) {
-                                        showToast('🔒 আপনার অ্যাকাউন্টটি এডমিন এপ্রুভালের জন্য অপেক্ষমাণ রয়েছে (Awaiting Admin Approval)। এডমিন এপ্রুভালের পর ভিডিও ক্লাস দেখতে পারবেন।', 'error');
-                                      } else if (!isEnrolled) {
-                                        showToast('🔒 এই ভিডিও ক্লাসটি লকড্। ক্লাসটি দেখতে কোর্সে অনুমোদন ও ভর্তি প্রয়োজন।', 'error');
                                       } else {
                                         showToast('🔒 এই ভিডিও ক্লাসটি বর্তমানে লক করা রয়েছে।', 'error');
                                       }

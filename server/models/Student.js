@@ -39,6 +39,7 @@ const studentSchema = new mongoose.Schema({
     sentAt: { type: Date },
   },
   joinedOn: { type: String, default: () => new Date().toISOString().split("T")[0] },
+  accessVersion: { type: Number, default: () => Date.now() },
 }, { timestamps: true });
 
 module.exports = mongoose.model("Student", studentSchema);

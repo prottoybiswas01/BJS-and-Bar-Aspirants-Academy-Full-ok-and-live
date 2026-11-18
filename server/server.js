@@ -255,6 +255,110 @@ const fastCache = {
   }
 };
 
+// -------------------------------------------------------------
+// STUDENT COURSE ACCESS SYNCHRONIZATION & CONSISTENCY ENGINE
+// -------------------------------------------------------------
+function syncStudentCourseData(student, explicitAllowedIds = null) {
+  if (!student) return;
+
+  let targetAllowed = null;
+  if (Array.isArray(explicitAllowedIds)) {
+    // Admin explicitly passed the course list (even if empty [])
+    targetAllowed = Array.from(new Set(
+      explicitAllowedIds
+        .map(id => String(id || '').trim())
+        .filter(id => id && !id.includes('---'))
+    ));
+  } else if (Array.isArray(student.allowedCourseIds)) {
+    targetAllowed = Array.from(new Set(
+      student.allowedCourseIds
+        .map(id => String(id || '').trim())
+        .filter(id => id && !id.includes('---'))
+    ));
+  } else if (Array.isArray(student.enrolledCourseIds)) {
+    targetAllowed = Array.from(new Set(
+      student.enrolledCourseIds
+        .map(id => String(id || '').trim())
+        .filter(id => id && !id.includes('---'))
+    ));
+  }
+
+  if (targetAllowed !== null) {
+    student.allowedCourseIds = targetAllowed;
+    student.enrolledCourseIds = targetAllowed;
+
+    // Ensure legacy single course field does not reference a removed course
+    if (student.course && !targetAllowed.some(id => id.toLowerCase() === String(student.course).toLowerCase().trim())) {
+      student.course = targetAllowed[0] || '';
+    }
+
+    // Synchronize courseRules
+    const existingRules = Array.isArray(student.courseRules) ? student.courseRules : [];
+    const updatedRules = [];
+
+    // Retain and update existing rules
+    existingRules.forEach(r => {
+      if (!r || !r.courseId) return;
+      const rId = String(r.courseId).trim();
+      const isRetained = targetAllowed.some(cId => 
+        cId.toLowerCase() === rId.toLowerCase() ||
+        cId.toLowerCase().replace(/[-_]/g, ' ') === rId.toLowerCase().replace(/[-_]/g, ' ')
+      );
+
+      const plain = (r && typeof r.toObject === 'function') ? r.toObject() : { ...r };
+      if (isRetained) {
+        updatedRules.push({
+          ...plain,
+          courseId: rId,
+          enrollmentStatus: plain.enrollmentStatus === 'Expired' ? 'Expired' : 'Active'
+        });
+      } else {
+        // Course removed: mark suspended so old rules never grant access
+        updatedRules.push({
+          ...plain,
+          courseId: rId,
+          enrollmentStatus: 'Suspended'
+        });
+      }
+    });
+
+    // Add default rules for newly added courses that don't yet have a rule
+    targetAllowed.forEach(cId => {
+      const hasRule = updatedRules.some(r =>
+        r.courseId.toLowerCase() === cId.toLowerCase() ||
+        r.courseId.toLowerCase().replace(/[-_]/g, ' ') === cId.toLowerCase().replace(/[-_]/g, ' ')
+      );
+      if (!hasRule) {
+        updatedRules.push({
+          courseId: cId,
+          unlimitedAccess: false,
+          accessStartDate: new Date().toISOString().split('T')[0],
+          accessEndDate: '2026-12-31',
+          videoAccessUntil: '2026-12-31',
+          lastPaymentDate: new Date().toISOString().split('T')[0],
+          paymentDueDate: '2026-12-31',
+          monthlyFee: '1000',
+          enrollmentStatus: 'Active',
+          paidMonths: new Date().toISOString().slice(0, 7)
+        });
+      }
+    });
+
+    student.courseRules = updatedRules;
+    student.accessVersion = Date.now();
+  }
+}
+
+function invalidateStudentDashboardCache(student) {
+  if (!student) return;
+  const ids = typeof student === 'object'
+    ? [student.id, student.phone, student.email, student._id].filter(Boolean)
+    : [String(student)];
+  ids.forEach(id => {
+    fastCache.del(`student_dash_${id}`);
+  });
+}
+
 async function syncMemoryDbFromMongo() {
   if (!isMongoConnected) return;
   try {
@@ -308,6 +412,47 @@ mongoose.connection.on("error", (err) => {
   }
   console.warn("MongoDB connection warning:", err?.message || err);
 });
+
+let hasRunStudentConsistencyCheck = false;
+async function runStudentConsistencySweep() {
+  if (hasRunStudentConsistencyCheck || !isMongoConnected) return;
+  hasRunStudentConsistencyCheck = true;
+  try {
+    const students = await Student.find({
+      $or: [
+        { allowedCourseIds: { $exists: true } },
+        { enrolledCourseIds: { $exists: true } }
+      ]
+    });
+    for (const st of students) {
+      let needsSave = false;
+      const allowed = Array.isArray(st.allowedCourseIds) ? st.allowedCourseIds : [];
+      const enrolled = Array.isArray(st.enrolledCourseIds) ? st.enrolledCourseIds : [];
+
+      const isDiff = allowed.length !== enrolled.length || allowed.some(a => !enrolled.includes(a));
+      if (isDiff) {
+        syncStudentCourseData(st, allowed);
+        needsSave = true;
+      }
+
+      if (Array.isArray(st.courseRules)) {
+        for (const r of st.courseRules) {
+          if (r && r.courseId && r.enrollmentStatus !== 'Suspended' && !allowed.includes(r.courseId)) {
+            r.enrollmentStatus = 'Suspended';
+            needsSave = true;
+          }
+        }
+      }
+
+      if (needsSave) {
+        st.accessVersion = Date.now();
+        await st.save().catch(() => {});
+      }
+    }
+  } catch (err) {
+    console.warn("Student consistency sweep notice:", err.message);
+  }
+}
 
 async function ensureDbConnected() {
   if (cached.conn && mongoose.connection && mongoose.connection.readyState === 1) {
@@ -367,6 +512,8 @@ async function ensureDbConnected() {
         if (s) memoryDb.siteSettings = { ...memoryDb.siteSettings, ...s };
       }).catch(() => { });
     }
+    // Background sweep to fix any existing inconsistent student course records
+    runStudentConsistencySweep().catch(() => { });
     return cached.conn;
   } catch (err) {
     cached.promise = null;
@@ -3788,11 +3935,22 @@ app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], async (req, res) =>
 // LESSONS & VIDEO LECTURE MANAGEMENT ENDPOINTS
 // -------------------------------------------------------------
 
-// GET Lessons (All or filtered by courseId with Fast Cache)
+// GET Lessons (All or filtered by courseId with Fast Cache & Access Control)
 app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], async (req, res) => {
-  res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
   const { courseId } = req.query;
-  const cacheKey = "lessons_" + (courseId ? String(courseId).trim() : "all");
+  const authUser = await getAuthUserFromRequest(req);
+  const isPrivileged = authUser && (authUser.isAdmin || authUser.isMentor);
+
+  if (!authUser) {
+    res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
+  } else {
+    res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
+  }
+
+  const cacheKey = !authUser
+    ? ("lessons_pub_" + (courseId ? String(courseId).trim() : "all"))
+    : ("lessons_u_" + (authUser.id || authUser.phone || 'usr') + "_v" + (authUser.accessVersion || 0) + "_" + (courseId ? String(courseId).trim() : "all"));
+
   const cached = fastCache.get(cacheKey);
   if (cached) {
     return res.json({ ok: true, lessons: cached, count: cached.length, source: "fast-cache" });
@@ -3813,8 +3971,9 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
     }
 
     let lessonsList = [];
+    const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree createdAt';
     if (isMongoConnected) {
-      lessonsList = await Lesson.find(query).lean().catch(() => []);
+      lessonsList = await Lesson.find(query, lessonProjection).lean().catch(() => []);
     }
 
     if (!lessonsList || lessonsList.length === 0) {
@@ -3946,8 +4105,30 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
       return (a.title || '').localeCompare(b.title || '');
     });
 
-    fastCache.set(cacheKey, lessonsList || [], 60);
-    return res.json({ ok: true, lessons: lessonsList || [], count: (lessonsList || []).length });
+    // Strictly enforce course access control for lessons & videos
+    const processedLessons = lessonsList.map(l => {
+      if (isPrivileged) {
+        return { ...l, isUnlocked: true };
+      }
+      const access = checkStudentCourseAccess(authUser, l.courseId || courseId, l);
+      if (!access.allowed) {
+        return {
+          ...l,
+          isUnlocked: false,
+          youtubeId: null,
+          youtubeUrl: null,
+          videoUrl: null,
+          description: l.description ? (l.description.slice(0, 150) + '... (লকড্)') : 'এই পেইড ক্লাসটি দেখতে কোর্সে এনরোল প্রয়োজন।'
+        };
+      }
+      return {
+        ...l,
+        isUnlocked: true
+      };
+    });
+
+    fastCache.set(cacheKey, processedLessons || [], 30);
+    return res.json({ ok: true, lessons: processedLessons || [], count: (processedLessons || []).length });
   } catch (err) {
     console.error("Fetch lessons error:", err);
     const fallback = (memoryDb.lessons || []).filter(l => !req.query.courseId || l.courseId === req.query.courseId);
@@ -4443,10 +4624,9 @@ function checkStudentCourseAccess(student, courseId, lesson = null) {
   }
 
   // Unlimited access
-  const rawAllowed = [
-    ...(Array.isArray(student.allowedCourseIds) ? student.allowedCourseIds : []),
-    ...(Array.isArray(student.enrolledCourseIds) ? student.enrolledCourseIds : [])
-  ].filter(Boolean);
+  const rawAllowed = (Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0)
+    ? student.allowedCourseIds
+    : (Array.isArray(student.enrolledCourseIds) ? student.enrolledCourseIds : []);
 
   if (student.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase().trim() === 'all')) {
     return { allowed: true, reason: 'UNLIMITED_ACCESS' };
@@ -4457,26 +4637,53 @@ function checkStudentCourseAccess(student, courseId, lesson = null) {
   }
 
   const sCourseId = String(courseId).toLowerCase().trim();
-  const rules = Array.isArray(student.courseRules) ? student.courseRules : [];
+  const sCourseNorm = sCourseId.replace(/[-_]/g, ' ');
 
   // Strict check: Student must be explicitly enrolled in THIS specific course
-  const isEnrolled =
-    rawAllowed.some(id => {
-      const cId = String(id).toLowerCase().trim();
-      return (
-        cId === sCourseId ||
-        cId.replace(/[-_]/g, ' ') === sCourseId.replace(/[-_]/g, ' ') ||
-        (sCourseId.length > 3 && (cId === sCourseId || cId === sCourseId.replace(/[-_]/g, ' ')))
-      );
-    }) ||
-    (student.course && String(student.course).toLowerCase().trim() === sCourseId) ||
-    rules.some(r => r && String(r.courseId).toLowerCase().trim() === sCourseId && r.enrollmentStatus !== 'Suspended');
+  const hasExplicitList = Array.isArray(student.allowedCourseIds) || Array.isArray(student.enrolledCourseIds);
 
-  if (isEnrolled) {
-    return { allowed: true, reason: 'ENROLLED' };
+  let isCourseAssigned = rawAllowed.some(id => {
+    const cId = String(id).toLowerCase().trim();
+    return cId === sCourseId || cId.replace(/[-_]/g, ' ') === sCourseNorm;
+  });
+
+  // Legacy fallback: ONLY if student has never had an allowedCourseIds/enrolledCourseIds array set at all
+  if (!isCourseAssigned && !hasExplicitList && student.course) {
+    const legacyCourse = String(student.course).toLowerCase().trim();
+    if (legacyCourse === sCourseId || legacyCourse.replace(/[-_]/g, ' ') === sCourseNorm) {
+      isCourseAssigned = true;
+    }
   }
 
-  return { allowed: false, reason: 'NOT_ENROLLED' };
+  // If this course is not explicitly in student's allowed courses list, access is strictly locked!
+  if (!isCourseAssigned) {
+    return { allowed: false, reason: 'NOT_ENROLLED' };
+  }
+
+  // Check per-course access rules (dates, suspension, payment expiry)
+  const rules = Array.isArray(student.courseRules) ? student.courseRules : [];
+  const matchingRule = rules.find(r => {
+    if (!r || !r.courseId) return false;
+    const rId = String(r.courseId).toLowerCase().trim();
+    return rId === sCourseId || rId.replace(/[-_]/g, ' ') === sCourseNorm;
+  });
+
+  if (matchingRule) {
+    if (matchingRule.enrollmentStatus === 'Suspended') {
+      return { allowed: false, reason: 'SUSPENDED' };
+    }
+    if (matchingRule.unlimitedAccess !== true) {
+      const now = new Date();
+      if (matchingRule.accessEndDate && new Date(matchingRule.accessEndDate) < now) {
+        return { allowed: false, reason: 'EXPIRED' };
+      }
+      if (lesson && matchingRule.videoAccessUntil && new Date(matchingRule.videoAccessUntil) < now) {
+        return { allowed: false, reason: 'VIDEO_ACCESS_EXPIRED' };
+      }
+    }
+  }
+
+  return { allowed: true, reason: 'ENROLLED' };
 }
 
 // DEDICATED QUERY-DRIVEN STUDENT DASHBOARD OVERVIEW ENDPOINT (Backend-Processed & Fast-Cached)
@@ -4490,22 +4697,29 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
 
     const { courseId: requestedCourseId } = req.query;
     const studentUniqueKey = student.id || student.phone || 'student';
-    const cacheKey = `student_dash_${studentUniqueKey}_${requestedCourseId || 'auto'}`;
+    const accessVer = student.accessVersion || (student.updatedAt ? new Date(student.updatedAt).getTime() : 0);
+    const cacheKey = `student_dash_${studentUniqueKey}_v${accessVer}_${requestedCourseId || 'auto'}`;
     const cached = fastCache.get(cacheKey);
     if (cached) {
       return res.json({ ok: true, ...cached, source: "fast-cache" });
     }
 
-    // Parallel fetch of Courses, Assignments, Submissions, Exams, Results from MongoDB
-    const [allCourses, dbAssignments, dbSubmissions, dbExams, dbResults] = await Promise.all([
-      isMongoConnected ? Course.find({ status: { $ne: "Inactive" } }).sort({ createdAt: -1 }).lean().catch(() => []) : (memoryDb.courses || []).filter(c => c && c.status !== "Inactive"),
-      isMongoConnected ? Assignment.find().sort({ createdAt: -1 }).lean().catch(() => []) : (memoryDb.assignments || []),
-      isMongoConnected ? Submission.find({ studentId: student.id }).sort({ submittedAt: -1 }).lean().catch(() => []) : (memoryDb.submissions || []).filter(s => s.studentId === student.id),
-      isMongoConnected ? McqExam.find().sort({ createdAt: -1 }).lean().catch(() => []) : (memoryDb.mcqExams || []),
-      isMongoConnected ? McqResult.find({ studentId: student.id }).sort({ createdAt: -1 }).lean().catch(() => []) : (memoryDb.mcqResults || []).filter(r => r.studentId === student.id)
-    ]);
+    // 1. Fetch courses with database-level status filter and lightweight field projection
+    // Enrolled courses are always included for the student even if not publicly active on homepage
+    const enrolledFilter = (Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0)
+      ? student.allowedCourseIds
+      : (Array.isArray(student.enrolledCourseIds) ? student.enrolledCourseIds : []);
 
-    // Backend-processed course enrollment annotation
+    const courseQuery = enrolledFilter.length > 0
+      ? { $or: [{ status: { $ne: "Inactive" } }, { id: { $in: enrolledFilter } }] }
+      : { status: { $ne: "Inactive" } };
+
+    const courseProjection = 'id title shortTitle category faculty status batchRegText sessionRegText';
+    const allCourses = isMongoConnected
+      ? await Course.find(courseQuery, courseProjection).sort({ createdAt: -1 }).lean().catch(() => [])
+      : (memoryDb.courses || []).filter(c => c && (c.status !== "Inactive" || enrolledFilter.includes(c.id)));
+
+    // 2. Backend-processed course enrollment annotation
     const processedCourses = (allCourses || []).map(c => {
       const access = checkStudentCourseAccess(student, c.id);
       return {
@@ -4516,22 +4730,26 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
     });
 
     const enrolledCourses = processedCourses.filter(c => c.isEnrolled);
+    const enrolledIds = enrolledCourses.map(c => c.id);
 
-    // Resolve selected course
+    // 3. Resolve selected course:
+    // If student has no enrolled courses and didn't request a specific course, selectedCourse is null!
+    // Prevents accidental leakage of unassigned course contents when enrolled list is empty!
     let selectedCourse = null;
     if (requestedCourseId) {
       selectedCourse = processedCourses.find(c => c.id === requestedCourseId || String(c._id) === String(requestedCourseId)) || null;
     }
     if (!selectedCourse) {
-      selectedCourse = enrolledCourses.length > 0 ? enrolledCourses[0] : (processedCourses[0] || null);
+      selectedCourse = enrolledCourses.length > 0 ? enrolledCourses[0] : null;
     }
 
-    // Fetch and process lessons for selected course directly from DB
+    // 4. Fetch and process lessons for selected course directly from DB with field projection
     let lessonsList = [];
     if (selectedCourse) {
       const cId = selectedCourse.id;
       const cleanCourse = String(cId).trim();
       const courseRegex = new RegExp(`^${cleanCourse.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '[-_ ]?')}$`, 'i');
+      const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree createdAt';
       if (isMongoConnected) {
         lessonsList = await Lesson.find({
           $or: [
@@ -4539,26 +4757,26 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
             { courseId: courseRegex },
             { module: courseRegex }
           ]
-        }).lean().catch(() => []);
+        }, lessonProjection).lean().catch(() => []);
       }
       if (!lessonsList || lessonsList.length === 0) {
-        lessonsList = (memoryDb.lessons || []).filter(l => l.courseId === cId || l.courseId === String(cId));
-      }
-    }
-
-    // If requested course has 0 lessons, check other ENROLLED courses for this student
-    if ((!lessonsList || lessonsList.length === 0) && enrolledCourses.length > 1) {
-      for (const enc of enrolledCourses) {
-        if (enc.id !== selectedCourse?.id) {
-          const fb = isMongoConnected
-            ? await Lesson.find({ courseId: enc.id }).lean().catch(() => [])
-            : (memoryDb.lessons || []).filter(l => l.courseId === enc.id);
-          if (fb && fb.length > 0) {
-            lessonsList = fb;
-            selectedCourse = enc;
-            break;
-          }
-        }
+        lessonsList = (memoryDb.lessons || [])
+          .filter(l => l.courseId === cId || l.courseId === String(cId))
+          .map(l => ({
+            id: l.id,
+            courseId: l.courseId,
+            module: l.module,
+            title: l.title,
+            duration: l.duration,
+            youtubeId: l.youtubeId,
+            youtubeUrl: l.youtubeUrl,
+            chapter: l.chapter,
+            releaseDate: l.releaseDate,
+            description: l.description,
+            order: l.order,
+            isFree: l.isFree,
+            createdAt: l.createdAt
+          }));
       }
     }
 
@@ -4573,14 +4791,55 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
     });
 
-    // Backend-mark each lesson as unlocked or locked
+    // Backend-mark each lesson as unlocked or locked, and strip protected video credentials if locked
     const processedLessons = lessonsList.map(l => {
       const access = checkStudentCourseAccess(student, selectedCourse?.id, l);
+      if (!access.allowed) {
+        return {
+          ...l,
+          isUnlocked: false,
+          youtubeId: null,
+          youtubeUrl: null,
+          videoUrl: null,
+          description: l.description ? (l.description.slice(0, 150) + '... (লকড্)') : 'এই পেইড ক্লাসটি দেখতে কোর্সে এনরোল প্রয়োজন।'
+        };
+      }
       return {
         ...l,
-        isUnlocked: access.allowed
+        isUnlocked: true
       };
     });
+
+    // 5. Optimized parallel query for assignments, submissions, exams, results using DB filtering & strict projections
+    const [dbAssignments, dbSubmissions, dbExams, dbResults] = await Promise.all([
+      isMongoConnected
+        ? Assignment.find(
+            enrolledIds.length > 0 ? { courseId: { $in: enrolledIds } } : { id: '__none__' },
+            'id title courseId dueDate totalMarks status createdAt'
+          ).sort({ createdAt: -1 }).limit(20).lean().catch(() => [])
+        : (memoryDb.assignments || []).filter(a => enrolledIds.includes(a.courseId)),
+      isMongoConnected
+        ? Submission.find(
+            { studentId: student.id },
+            'id assignmentId marksObtained gradedAt createdAt canResubmit courseId feedback'
+          ).sort({ createdAt: -1 }).limit(20).lean().catch(() => [])
+        : (memoryDb.submissions || []).filter(s => s.studentId === student.id),
+      isMongoConnected
+        ? McqExam.find(
+            {
+              status: { $ne: "Closed" },
+              ...(enrolledIds.length > 0 ? { $or: [{ isPublic: true }, { courseId: { $in: enrolledIds } }] } : { isPublic: true })
+            },
+            'id title courseId courseTitle durationMinutes totalMarks passPercentage startDate endDate attemptLimit negativeMarks isPublic status createdAt'
+          ).sort({ createdAt: -1 }).limit(20).lean().catch(() => [])
+        : (memoryDb.mcqExams || []).filter(e => e.status !== "Closed"),
+      isMongoConnected
+        ? McqResult.find(
+            { studentId: student.id },
+            'id examId examTitle score totalMarks percentage grade submittedAt'
+          ).sort({ submittedAt: -1 }).limit(20).lean().catch(() => [])
+        : (memoryDb.mcqResults || []).filter(r => r.studentId === student.id)
+    ]);
 
     // Backend-calculate progress
     const completedLessonIds = student.completedLessonIds || [];
@@ -6234,7 +6493,9 @@ app.post("/api/admin/students/course-rules", async (req, res) => {
         else rules.push(courseRule);
 
         student.courseRules = rules;
+        student.accessVersion = Date.now();
         await student.save();
+        invalidateStudentDashboardCache(student);
         return res.json({ ok: true, message: "Access rules updated successfully!", courseRules: rules });
       }
     }
@@ -6245,6 +6506,8 @@ app.post("/api/admin/students/course-rules", async (req, res) => {
       const idx = st.courseRules.findIndex(r => r.courseId === courseRule.courseId);
       if (idx > -1) st.courseRules[idx] = courseRule;
       else st.courseRules.push(courseRule);
+      st.accessVersion = Date.now();
+      invalidateStudentDashboardCache(st);
     }
     res.json({ ok: true, message: "Access rules updated successfully!" });
   } catch (e) {
@@ -6890,11 +7153,8 @@ app.post("/api/admin/students/save", async (req, res) => {
       oldAllowed = existingSt.allowedCourseIds || existingSt.enrolledCourseIds || [];
     }
 
-    // Keep allowed and enrolled course IDs unified
-    if (Array.isArray(body.allowedCourseIds)) {
-      body.allowedCourseIds = Array.from(new Set(body.allowedCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '')));
-      body.enrolledCourseIds = body.allowedCourseIds;
-    }
+    // If allowedCourseIds was explicitly provided, synchronize course state
+    const explicitCourses = Array.isArray(body.allowedCourseIds) ? body.allowedCourseIds : null;
 
     let savedStudent = body;
     if (isMongoConnected) {
@@ -6923,7 +7183,14 @@ app.post("/api/admin/students/save", async (req, res) => {
         }
         const updateData = { ...body };
         delete updateData._id;
+        delete updateData.allowedCourseIds;
+        delete updateData.enrolledCourseIds;
+        delete updateData.courseRules;
         Object.assign(student, updateData);
+
+        // Authoritative course synchronization
+        syncStudentCourseData(student, explicitCourses);
+        student.accessVersion = Date.now();
         savedStudent = await student.save();
       } else {
         // Double-check if phone or email is already registered before create
@@ -6944,7 +7211,12 @@ app.post("/api/admin/students/save", async (req, res) => {
           }
           const updateData = { ...body };
           delete updateData._id;
+          delete updateData.allowedCourseIds;
+          delete updateData.enrolledCourseIds;
+          delete updateData.courseRules;
           Object.assign(existingByPhoneOrEmail, updateData);
+          syncStudentCourseData(existingByPhoneOrEmail, explicitCourses);
+          existingByPhoneOrEmail.accessVersion = Date.now();
           savedStudent = await existingByPhoneOrEmail.save();
         } else {
           if (!body.password || !String(body.password).trim()) {
@@ -6954,6 +7226,8 @@ app.post("/api/admin/students/save", async (req, res) => {
           }
           const createData = { ...body };
           delete createData._id;
+          syncStudentCourseData(createData, explicitCourses || []);
+          createData.accessVersion = Date.now();
           savedStudent = await Student.create(createData);
         }
       }
@@ -6967,6 +7241,10 @@ app.post("/api/admin/students/save", async (req, res) => {
         { $set: { status: savedStudent.loginApproval === "Approved" ? "Approved" : (savedStudent.status || "Pending"), batch: savedStudent.batch } }
       ).catch(() => { });
     }
+
+    syncStudentCourseData(savedStudent, explicitCourses);
+    savedStudent.accessVersion = Date.now();
+    invalidateStudentDashboardCache(savedStudent);
 
     const idx = memoryDb.students.findIndex((s) =>
       s.id === body.id ||
@@ -7111,13 +7389,15 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
       if (student) {
         student.status = "Active";
         student.loginApproval = "Approved";
-        student.allowedCourseIds = Array.from(new Set([...(student.allowedCourseIds || []), ...coursesToAssign].filter(Boolean)));
-        student.enrolledCourseIds = Array.from(new Set([...(student.enrolledCourseIds || []), ...coursesToAssign].filter(Boolean)));
+        const combined = Array.from(new Set([...(student.allowedCourseIds || []), ...coursesToAssign].filter(Boolean)));
+        syncStudentCourseData(student, combined);
+        student.accessVersion = Date.now();
         const matchedC = findCourse(student.batch || batch || reg?.batch);
         if (matchedC) {
           student.batch = matchedC.title || matchedC.shortTitle || student.batch;
         }
         updatedStudent = await student.save();
+        invalidateStudentDashboardCache(updatedStudent);
       }
 
       if (reg) {
@@ -7135,8 +7415,10 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
         const matchedC = findCourse(st.batch || batch);
         coursesToAssign = matchedC ? [matchedC.id] : (allCourses[0] ? [allCourses[0].id] : []);
       }
-      st.allowedCourseIds = Array.from(new Set([...(st.allowedCourseIds || []), ...coursesToAssign].filter(Boolean)));
-      st.enrolledCourseIds = Array.from(new Set([...(st.enrolledCourseIds || []), ...coursesToAssign].filter(Boolean)));
+      const combined = Array.from(new Set([...(st.allowedCourseIds || []), ...coursesToAssign].filter(Boolean)));
+      syncStudentCourseData(st, combined);
+      st.accessVersion = Date.now();
+      invalidateStudentDashboardCache(st);
       updatedStudent = st;
     }
 

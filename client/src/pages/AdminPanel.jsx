@@ -1086,9 +1086,11 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
 
     try {
+      const allowed = Array.isArray(studentForm.allowedCourseIds) ? studentForm.allowedCourseIds : [];
       const payload = {
         ...studentForm,
-        enrolledCourseIds: studentForm.allowedCourseIds || []
+        allowedCourseIds: allowed,
+        enrolledCourseIds: allowed
       };
       const res = await api.post('/admin/students/save', payload);
       if (res.data.ok) {
@@ -1102,6 +1104,12 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           }
           return [savedStudent, ...prev];
         });
+        setSelectedStudentForRules(savedStudent);
+        setStudentForm(prev => ({
+          ...prev,
+          ...savedStudent,
+          allowedCourseIds: savedStudent.allowedCourseIds || []
+        }));
         showToast(res.data.message || `✓ Student profile for "${studentForm.name}" saved successfully in MongoDB!`, 'success');
         await loadAllAdminData();
       } else {
@@ -1274,7 +1282,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
 
     try {
-      const allowed = studentForm.allowedCourseIds || [];
+      const allowed = Array.isArray(studentForm.allowedCourseIds) ? studentForm.allowedCourseIds : [];
       const updatedStudent = {
         ...selectedStudentForRules,
         ...studentForm,
@@ -1285,8 +1293,23 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       const res = await api.post('/admin/students/save', updatedStudent);
 
       if (res.data.ok) {
-        setSelectedStudentForRules(updatedStudent);
-        showToast(`✓ Course access granted successfully for "${selectedStudentForRules.name}"!`, 'success');
+        const savedStudent = res.data.student || updatedStudent;
+        setSelectedStudentForRules(savedStudent);
+        setStudentForm(prev => ({
+          ...prev,
+          ...savedStudent,
+          allowedCourseIds: savedStudent.allowedCourseIds || []
+        }));
+        setStudents(prev => {
+          const idx = prev.findIndex(s => s.id === savedStudent.id || (savedStudent._id && s._id === savedStudent._id));
+          if (idx > -1) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...savedStudent };
+            return updated;
+          }
+          return [savedStudent, ...prev];
+        });
+        showToast(res.data.message || `✓ Course access granted successfully for "${selectedStudentForRules.name}"!`, 'success');
         await loadAllAdminData();
       } else {
         showToast(res.data.message || 'Error updating course access.', 'error');

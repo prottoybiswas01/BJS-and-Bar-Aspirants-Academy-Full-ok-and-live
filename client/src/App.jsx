@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import SecurityGuard from './components/SecurityGuard';
 import Navbar from './components/Navbar';
@@ -8,19 +8,21 @@ import Login from './pages/Login';
 import AdminLogin from './pages/AdminLogin';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
-import AdminPanel from './pages/AdminPanel';
 import MentorLogin from './pages/MentorLogin';
-import MentorDashboard from './pages/MentorDashboard';
-import McqExamPlayer from './pages/McqExamPlayer';
 import VideoPlayerModal from './components/VideoPlayerModal';
 import AiChatDrawer from './components/AiChatDrawer';
 import ProfileModal from './components/ProfileModal';
-import LessonManagerModal from './components/LessonManagerModal';
-import MentorProfileModal from './components/MentorProfileModal';
 import ForceTempPasswordModal from './components/ForceTempPasswordModal';
 import PwaInstallBanner from './components/PwaInstallBanner';
 import NotFound from './pages/NotFound';
 import api from './services/api';
+
+// Code-split heavy admin, mentor, and exam player modules for high-speed student loading
+const AdminPanel = lazy(() => import('./pages/AdminPanel'));
+const MentorDashboard = lazy(() => import('./pages/MentorDashboard'));
+const McqExamPlayer = lazy(() => import('./pages/McqExamPlayer'));
+const LessonManagerModal = lazy(() => import('./components/LessonManagerModal'));
+const MentorProfileModal = lazy(() => import('./components/MentorProfileModal'));
 
 const PAGE_TITLES = {
   'home': 'BJS & Bar Aspirants Academy - সহকারী জজ (BJS) ও বার কাউন্সিল প্রস্তুতি',
@@ -199,37 +201,34 @@ function MainApp() {
           return;
         }
 
-        // 2. Check if student is enrolled in targetCourseId
-        const allowed = currentUser.allowedCourseIds || [];
-        const enrolled = currentUser.enrolledCourseIds || [];
-        const rules = currentUser.courseRules || [];
-        const isEnrolled = currentUser.isAdmin || currentUser.isMentor ||
-          allowed.includes(targetCourseId) ||
-          enrolled.includes(targetCourseId) ||
-          rules.some(r => r && r.courseId === targetCourseId && r.enrollmentStatus !== 'Suspended');
-
-        if (!isEnrolled && targetCourseId) {
-          setActivePage('home');
-          setTimeout(() => {
-            alert('🔒 আপনি এখনো এই কোর্সে এনরোল করেননি। সম্পূর্ণ ভিডিও ক্লাসগুলো পেতে অনুগ্রহ করে কোর্সটিতে পেমেন্ট করে এনরোল সম্পন্ন করুন।');
-            const el = document.getElementById('courses') || document.getElementById('course-section');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
-          }, 400);
-          return;
-        }
-
-        // 3. Enrolled -> Fetch lesson & open video modal directly
+        // 2. Fetch lesson & check server access authorization directly
         api.get(`/lessons?courseId=${targetCourseId || ''}`).then(res => {
           if (res.data?.ok && Array.isArray(res.data.lessons) && res.data.lessons.length > 0) {
             const found = res.data.lessons.find(l => l.id === targetLessonId || l._id === targetLessonId) || res.data.lessons[0];
             if (found) {
+              if (!found.isUnlocked && !found.youtubeId) {
+                setActivePage('home');
+                setTimeout(() => {
+                  alert('🔒 আপনার এই ভিডিও ক্লাসে অ্যাক্সেস নেই। এই কোর্সটিতে আপনার ভর্তি বা অনুমোদন সক্রিয় নেই।');
+                  const el = document.getElementById('courses') || document.getElementById('course-section');
+                  if (el) el.scrollIntoView({ behavior: 'smooth' });
+                }, 400);
+                return;
+              }
               setActivePage('dashboard');
               setTimeout(() => {
                 setVideoModal({ isOpen: true, lesson: found });
               }, 400);
             }
+          } else {
+            setActivePage('home');
+            setTimeout(() => {
+              alert('🔒 ভিডিও ক্লাসটি খুঁজে পাওয়া যায়নি বা আপনার এতে অনুমতি নেই।');
+            }, 400);
           }
-        }).catch(() => {});
+        }).catch(() => {
+          setActivePage('home');
+        });
       }
 
       // 4. Handle Clean Section URL Scroll & Deep Linking
@@ -386,27 +385,34 @@ function MainApp() {
       <main className={`flex-1 w-full mx-auto px-3 sm:px-5 lg:px-6 pt-6 ${
         activePage === 'admin' ? 'max-w-[1750px]' : 'max-w-7xl'
       }`}>
-        {activePage === 'home' && (
-          <Home setActivePage={navigatePage} openMentorProfile={openMentorProfile} openVideoModal={openVideoModal} />
-        )}
-        {activePage === 'mcq-exam' && (
-          <McqExamPlayer examId={mcqExamId} onBack={() => navigatePage('home')} />
-        )}
-        {activePage === 'login' && <Login setActivePage={navigatePage} />}
-        {activePage === 'register' && <Register setActivePage={navigatePage} />}
-        {activePage === 'dashboard' && (
-          <Dashboard openVideoModal={openVideoModal} openProfileModal={() => setProfileModalOpen(true)} />
-        )}
-        {activePage === 'mentor-login' && <MentorLogin setActivePage={navigatePage} />}
-        {activePage === 'mentor-dashboard' && <MentorDashboard />}
-        {(activePage === 'admin' || activePage === 'admin-login') && (
-          user?.isAdmin ? (
-            <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />
-          ) : (
-            <AdminLogin setActivePage={navigatePage} />
-          )
-        )}
-        {activePage === '404' && <NotFound setActivePage={navigatePage} />}
+        <Suspense fallback={
+          <div className="min-h-[50vh] flex flex-col items-center justify-center space-y-3">
+            <div className="w-8 h-8 rounded-full border-2 border-amber-500 border-t-transparent animate-spin"></div>
+            <p className="text-amber-400 font-bold text-xs tracking-wider">লোড হচ্ছে...</p>
+          </div>
+        }>
+          {activePage === 'home' && (
+            <Home setActivePage={navigatePage} openMentorProfile={openMentorProfile} openVideoModal={openVideoModal} />
+          )}
+          {activePage === 'mcq-exam' && (
+            <McqExamPlayer examId={mcqExamId} onBack={() => navigatePage('home')} />
+          )}
+          {activePage === 'login' && <Login setActivePage={navigatePage} />}
+          {activePage === 'register' && <Register setActivePage={navigatePage} />}
+          {activePage === 'dashboard' && (
+            <Dashboard openVideoModal={openVideoModal} openProfileModal={() => setProfileModalOpen(true)} />
+          )}
+          {activePage === 'mentor-login' && <MentorLogin setActivePage={navigatePage} />}
+          {activePage === 'mentor-dashboard' && <MentorDashboard />}
+          {(activePage === 'admin' || activePage === 'admin-login') && (
+            user?.isAdmin ? (
+              <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />
+            ) : (
+              <AdminLogin setActivePage={navigatePage} />
+            )
+          )}
+          {activePage === '404' && <NotFound setActivePage={navigatePage} />}
+        </Suspense>
       </main>
 
       <Footer setActivePage={navigatePage} activePage={activePage} />
@@ -423,11 +429,13 @@ function MainApp() {
 
       {/* Lesson & Video Upload Manager Modal */}
       {lessonManagerModal.isOpen && (
-        <LessonManagerModal
-          course={lessonManagerModal.course}
-          isOpen={lessonManagerModal.isOpen}
-          onClose={() => setLessonManagerModal({ isOpen: false, course: null })}
-        />
+        <Suspense fallback={null}>
+          <LessonManagerModal
+            course={lessonManagerModal.course}
+            isOpen={lessonManagerModal.isOpen}
+            onClose={() => setLessonManagerModal({ isOpen: false, course: null })}
+          />
+        </Suspense>
       )}
 
       {/* Gemini AI Assistant Drawer */}
@@ -447,12 +455,14 @@ function MainApp() {
 
       {/* Shareable Mentor Profile Showcase Modal */}
       {mentorModal.isOpen && mentorModal.mentor && (
-        <MentorProfileModal
-          mentor={mentorModal.mentor}
-          isOpen={mentorModal.isOpen}
-          onClose={() => setMentorModal({ isOpen: false, mentor: null })}
-          setActivePage={setActivePage}
-        />
+        <Suspense fallback={null}>
+          <MentorProfileModal
+            mentor={mentorModal.mentor}
+            isOpen={mentorModal.isOpen}
+            onClose={() => setMentorModal({ isOpen: false, mentor: null })}
+            setActivePage={setActivePage}
+          />
+        </Suspense>
       )}
 
       {/* Force One-Time Temporary Password Change Modal */}
