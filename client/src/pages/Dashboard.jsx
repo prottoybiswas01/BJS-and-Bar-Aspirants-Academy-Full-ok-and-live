@@ -558,7 +558,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                 ● STATUS: {user?.status || 'Active'}
               </span>
               <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-amber-500/30">
-                ID: {user?.id || 'STU-2026-001'}
+                ID: {user?.id || '—'}
               </span>
               {openProfileModal && (
                 <button
@@ -587,7 +587,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                 ))}
               {courses.filter(c => checkCourseEnrolled(c)).length === 0 && (
                 <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
-                  📚 {isApproved ? (user?.batch || 'BJS & Bar Masterclass') : 'কোনো সক্রিয় কোর্স নেই (পেন্ডিং)'}
+                  📚 {isApproved ? (user?.batch || 'কোনো সক্রিয় কোর্স নেই') : 'কোনো সক্রিয় কোর্স নেই (পেন্ডিং)'}
                 </span>
               )}
             </div>
@@ -612,6 +612,67 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         </div>
       </section>
 
+      <div className="study-desk">
+      <aside className="study-context">
+          {/* Course Switcher Tabs */}
+          <section className="course-shelf space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <span>কোর্স বেছে নিন</span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowCoursesSection(!showCoursesSection)}
+                className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-amber-400 hover:text-amber-300 transition-all flex items-center gap-1.5 shadow-sm"
+              >
+                <span>{showCoursesSection ? 'গুটিয়ে রাখুন' : 'কোর্স দেখুন'}</span>
+              </button>
+            </div>
+
+            {showCoursesSection && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fadeIn">
+                {courses.map((c) => {
+                  const active = selectedCourse?.id === c.id;
+                  const enrolled = checkCourseEnrolled(c);
+
+                  return (
+                    <button
+                      key={c.id}
+                      aria-pressed={active}
+                      onClick={() => handleSelectCourse(c)}
+                      className={`p-4 rounded-2xl text-left transition-all border ${
+                        active
+                          ? 'bg-amber-500/10 border-amber-500 text-white shadow-lg shadow-amber-500/10'
+                          : 'glass-card border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-xs font-bold font-mono text-amber-400">{c.shortTitle || c.title}</span>
+                        {!isApproved ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                            ⏳ Pending Approval
+                          </span>
+                        ) : enrolled ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                            ✓ Enrolled
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">
+                            🔒 Not Enrolled
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="font-extrabold text-sm text-white line-clamp-1">{c.title}</h3>
+                      <p className="text-[11px] text-slate-500 mt-1">ফ্যাকাল্টি: {c.faculty}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+      </aside>
+      <div className="study-content space-y-6">
       {/* Section Tab Navigation: Video Lectures vs Assignments vs MCQ Exams */}
       <div className="student-actions flex flex-wrap sm:flex-nowrap bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-2">
         <button
@@ -649,62 +710,6 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       {/* LECTURES TAB */}
       {selectedTab === 'lectures' && (
         <>
-          {/* Course Switcher Tabs */}
-          <section className="space-y-4">
-            <div className="flex justify-between items-center">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <span>📚 নিবন্ধিত ও লার্নিং কোর্সসমূহ</span>
-              </h2>
-              <button
-                type="button"
-                onClick={() => setShowCoursesSection(!showCoursesSection)}
-                className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-amber-400 hover:text-amber-300 transition-all flex items-center gap-1.5 shadow-sm"
-              >
-                <span>{showCoursesSection ? '👁️ হাইড করুন (Hide)' : '👁️ দেখান (Show Courses)'}</span>
-              </button>
-            </div>
-
-            {showCoursesSection && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fadeIn">
-                {courses.map((c) => {
-                  const active = selectedCourse?.id === c.id;
-                  const enrolled = checkCourseEnrolled(c);
-
-                  return (
-                    <button
-                      key={c.id}
-                      onClick={() => handleSelectCourse(c)}
-                      className={`p-4 rounded-2xl text-left transition-all border ${
-                        active
-                          ? 'bg-amber-500/10 border-amber-500 text-white shadow-lg shadow-amber-500/10'
-                          : 'glass-card border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start mb-2">
-                        <span className="text-xs font-bold font-mono text-amber-400">{c.shortTitle || c.title}</span>
-                        {!isApproved ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
-                            ⏳ Pending Approval
-                          </span>
-                        ) : enrolled ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-                            ✓ Enrolled
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">
-                            🔒 Not Enrolled
-                          </span>
-                        )}
-                      </div>
-                      <h3 className="font-extrabold text-sm text-white line-clamp-1">{c.title}</h3>
-                      <p className="text-[11px] text-slate-500 mt-1">ফ্যাকাল্টি: {c.faculty}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
           {/* Selected Course Modules & Video Matrix */}
           {selectedCourse && (
             <section className="space-y-6">
@@ -1405,6 +1410,8 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           </div>
         </div>
       )}
+      </div>
+      </div>
     </div>
   );
 }

@@ -226,3 +226,64 @@ body { background:#f5f6fb; }
 .hero-search input,.hero-search form {min-width:0}
 .profile-sheet > :not(.profile-body) {flex-shrink:0}
 .profile-body {overflow-y:auto;grid-auto-rows:max-content}
+
+.library-masthead {
+  background:linear-gradient(90deg,rgba(11,32,36,.97) 0%,rgba(12,36,41,.87) 38%,rgba(12,32,38,.22) 100%),url('./assets/law-library.webp') center 48% / cover;
+  color:white;border-radius:1rem;overflow:hidden;
+}
+.masthead-inner {max-width:80rem;margin:auto;padding:clamp(2rem,5vw,5rem)}
+.admission-note {color:#f6c078;font-size:.85rem;font-weight:700;margin-bottom:1.3rem}
+.library-masthead h1 {font-size:clamp(2.15rem,4.6vw,4.6rem);line-height:1.2;font-weight:750;letter-spacing:-.025em;max-width:16ch;color:white;white-space:pre-line}
+.masthead-intro {max-width:52ch;line-height:1.7;margin:1rem 0;color:#e2edeb}
+.course-finder {display:flex;gap:.65rem;align-items:center;background:white;color:#214644;border-radius:.55rem;padding:.45rem .5rem .45rem .9rem;max-width:33rem;margin-top:1.7rem}
+.academy-shell .course-finder input {background:white;color:#173737;min-width:0;flex:1;border:0;padding:.6rem 0}
+.course-finder button,.catalog-enroll button {background:#195753;color:white;padding:.72rem 1rem;border-radius:.35rem;font-weight:700}
+.masthead-links {display:flex;align-items:center;flex-wrap:wrap;gap:.55rem 1.4rem;font-size:.86rem;margin-top:1.25rem}
+.masthead-links button:hover,.catalog-entry button:hover,.catalog-entry a:hover {text-decoration:underline}
+.catalog-list {display:grid;gap:1rem}
+.catalog-entry {display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) auto;gap:1rem 2rem;align-items:center;background:white;border:1px solid #c9d9d5;border-left:4px solid #34716a;padding:1.25rem 1.5rem;border-radius:.45rem}
+.catalog-entry small,.catalog-entry footer,.catalog-reset {color:#21645e;font-weight:650}
+.catalog-title h3 {font-size:1.35rem;line-height:1.4;font-weight:700;margin:.3rem 0}
+.catalog-title h3 button {text-align:left}
+.catalog-title p,.catalog-entry dt {color:#51645e;font-size:.85rem}
+.catalog-entry dl div {display:flex;justify-content:space-between;gap:.75rem;font-size:.9rem}
+.catalog-enroll {display:grid;gap:.4rem;text-align:center}
+.catalog-entry footer {grid-column:1/-1;display:flex;gap:.6rem 1.5rem;flex-wrap:wrap;border-top:1px solid #dae5df;padding-top:.7rem;font-size:.86rem}
+.catalog-reset {justify-self:start;text-decoration:underline}
+.console-header {background:#173e42;border-radius:1rem;padding:clamp(1rem,3vw,2.25rem);color:white}
+.console-heading {display:flex;justify-content:space-between;gap:1rem;align-items:center;margin-bottom:1.25rem}
+.console-heading h2 {font-size:clamp(1.45rem,3vw,2.35rem);font-weight:700}
+.console-heading button {border:1px solid #84a09c;border-radius:.45rem;padding:.5rem .75rem;font-size:.84rem}
+.console-tabs {display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:.4rem}
+.console-tabs button {position:relative;display:flex;align-items:flex-start;flex-direction:column;gap:.7rem;border-radius:.45rem;background:#224d50;padding:1rem .75rem;text-align:left;font-size:.86rem}
+.console-tabs small {position:absolute;right:.6rem;top:.6rem}
+.console-tabs button[aria-current=page] {background:#fff2d9;color:#28362d;font-weight:700}
+.console-tabs button:hover {box-shadow:inset 0 0 0 1px #accac0}
+.study-desk {display:grid;grid-template-columns:minmax(13rem,18rem) minmax(0,1fr);gap:1.5rem;align-items:start}
+.study-context {padding:1rem;background:#e6f0eb;border-radius:.8rem;border:1px solid #c2d3c9}
+.course-shelf > div.grid {display:grid;grid-template-columns:1fr;gap:.5rem}
+.course-shelf button[aria-pressed=true] {box-shadow:inset 4px 0 #21615a;background:white;border-color:#90b7aa}
+.academy-shell .profile-overlay {padding:0;background:#f6f8f5}
+.academy-shell .profile-sheet {border:0;border-radius:0;max-width:none;height:100dvh;max-height:100dvh;margin:0;box-shadow:none}
+.profile-body {flex:1;max-height:none}
+@media(min-width:850px){
+  .academy-shell .profile-sheet {display:grid;grid-template-columns:minmax(13rem,20%) 1fr;grid-template-rows:auto minmax(0,1fr)}
+  .profile-sheet > div:nth-child(2) {grid-column:1/-1}
+  .profile-index {flex-direction:column;align-items:stretch;padding:2rem 1rem;background:#e3ede8}
+  .profile-index button {text-align:left;color:#244b42}
+  .profile-body {padding:2rem max(2rem,calc((100vw - 78rem)/2))}
+}
+@media(max-width:880px){
+  .console-tabs {grid-template-columns:repeat(4,minmax(0,1fr))}
+  .study-desk {grid-template-columns:1fr}
+  .course-shelf > div.grid {grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr))}
+}
+@media(max-width:620px){
+  .library-masthead {background-position:60% center}
+  .masthead-inner {padding:2rem 1rem}
+  .catalog-entry {grid-template-columns:1fr;padding:1rem}
+  .catalog-enroll {display:flex;align-items:center;justify-content:space-between}
+  .console-tabs {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .console-tabs button {flex-direction:row;align-items:center;gap:.4rem;padding:.65rem .5rem;min-height:2.8rem}
+  .console-tabs small {position:static;margin-left:auto}
+}

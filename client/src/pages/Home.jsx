@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, Landmark, Scale, ArrowUpRight } from 'lucide-react';
+import { Search } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 export default function Home({ setActivePage, openMentorProfile, openVideoModal }) {
   const { user } = useAuth();
   const [courses, setCourses] = useState([]);
+  const [courseQuery, setCourseQuery] = useState('');
+  const query = courseQuery.trim().toLocaleLowerCase();
+  const matchingCourses = courses.filter(course =>
+    [course.title, course.category, course.faculty].some(value => String(value || '').toLocaleLowerCase().includes(query))
+  );
   const [mentors, setMentors] = useState([]);
   const [isMentorsModalOpen, setIsMentorsModalOpen] = useState(false);
   const [enrollModalCourse, setEnrollModalCourse] = useState(null);
@@ -202,88 +207,69 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
           </div>
         </div>
       )}
-      {/* Hero Section */}
-      <section className="academy-hero relative overflow-hidden pt-12 pb-20 border-b border-slate-800/80 bg-gradient-to-b from-slate-950 via-[#0b1325] to-[#0d172a]">
-        <div className="absolute top-0 right-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
-        <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
+      <section className="library-masthead">
+        <div className="masthead-inner">
+          {siteSettings.badgeText && <p className="admission-note">{siteSettings.badgeText}</p>}
+          <h1>{siteSettings.heroTitle}</h1>
+          <p className="masthead-intro">{siteSettings.heroSubtitle}</p>
+          <form className="course-finder" onSubmit={event => {
+            event.preventDefault();
+            document.getElementById('courses')?.scrollIntoView({behavior:'smooth'});
+          }}>
+            <Search size={21} aria-hidden="true" />
+            <input aria-label="কোর্স খুঁজুন" type="search" placeholder="কোর্স, বিষয় বা মেন্টরের নাম" value={courseQuery} onChange={event => setCourseQuery(event.target.value)} />
+            <button type="submit">কোর্স খুঁজুন</button>
+          </form>
+          <div className="masthead-links">
+            <button onClick={() => setActivePage(user ? ((user.isAdmin || user.role === 'admin') ? 'admin' : (user.isMentor || user.role === 'mentor') ? 'mentor-dashboard' : 'dashboard') : 'login')}>{user ? 'আমার ড্যাশবোর্ড' : 'স্টুডেন্ট লগইন'} ↗</button>
+            {!user && <button onClick={() => setActivePage('register')}>নিবন্ধন ↗</button>}
+            <button onClick={() => setIsMentorsModalOpen(true)}>মেন্টর পরিচিতি ↗</button>
+            {stats.studentsCount > 0 && <span>{stats.studentsCount.toLocaleString('bn-BD')} জন শিক্ষার্থী</span>}
+          </div>
+        </div>
+      </section>
 
-        <div className="hero-layout max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center space-y-6">
-          <div className="hero-intro space-y-5">
-          {(siteSettings.badgeText || '🔥 ১৮তম বিজিএস ও বার কাউন্সিল স্পেশাল ব্যাচে ভর্তি চলছে') && (
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] sm:text-xs font-semibold max-w-full text-center leading-snug">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0"></span>
-              <span className="line-clamp-2">{siteSettings.badgeText || '🔥 ১৮তম বিজিএস ও বার কাউন্সিল স্পেশাল ব্যাচে ভর্তি চলছে'}</span>
-            </div>
-          )}
 
-          <h1 className="text-2xl sm:text-5xl font-extrabold text-white tracking-tight leading-snug sm:leading-tight whitespace-pre-line">
-            {siteSettings.heroTitle || "BJS & Bar Aspirants Academy\nJudiciary & Advocacy Excellence Portal"}
-          </h1>
 
-          <p className="text-xs sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            {siteSettings.heroSubtitle || "বাংলাদেশের অন্যতম প্রধান আইন একাডেমিতে আপনাকে স্বাগতম। জুডিশিয়ারি ও বার কাউন্সিল প্রস্তুতির সেরা গাইডলাইন।"}
+      {/* Courses Showcase Section */}
+      <section id="courses" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center space-y-3 mb-12">
+          <h2 className="text-2xl sm:text-4xl font-extrabold text-white">কোর্সসমূহ</h2>
+          <p className="text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
+            ক্লাসের সময়সূচি, মেন্টর ও কোর্স ফি দেখে বেছে নিন।
           </p>
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4 pt-2 w-full max-w-md sm:max-w-none mx-auto">
-            {user ? (
-              <>
-                <button
-                  onClick={() => {
-                    if (user.isAdmin || user.role === 'admin') setActivePage('admin');
-                    else if (user.isMentor || user.role === 'mentor') setActivePage('mentor-dashboard');
-                    else setActivePage('dashboard');
-                  }}
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/25 transition-all active:scale-95 flex items-center justify-center gap-2"
-                >
-                  {(user.isAdmin || user.role === 'admin')
-                    ? '🛡️ আপনার এডমিন ড্যাশবোর্ড (Admin Panel)'
-                    : (user.isMentor || user.role === 'mentor')
-                    ? '👨‍🏫 আপনার মেন্টর ড্যাশবোর্ড (Mentor Dashboard)'
-                    : '🎓 আপনার স্টুডেন্ট ড্যাশবোর্ড (Student Dashboard)'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const el = document.getElementById('courses');
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                    if (window.history.pushState) window.history.pushState(null, '', '/courses');
-                    document.title = '📚 প্রিমিয়াম আইন কোর্সসমূহ | BJS & Bar Aspirants Academy';
-                  }}
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-sm transition-all text-center cursor-pointer"
-                >
-                  📚 কোর্সসমূহ দেখুন (View Courses)
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => setActivePage('register')}
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/25 transition-all active:scale-95"
-                >
-                  এখনই ভর্তি হোন
-                </button>
-                <button
-                  onClick={() => setActivePage('login')}
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-sm transition-all"
-                >
-                  স্টুডেন্ট লগইন
-                </button>
-              </>
-            )}
-          </div>
-
-          </div>
-          <div className="law-library" aria-hidden="true">
-            <div className="cover-back"><BookOpen strokeWidth={1} /></div>
-            <div className="cover-front"><span>BJS &amp; BAR</span><Landmark strokeWidth={1.15} /><strong>আইন পাঠ</strong></div>
-            <div className="cover-spine"><Scale size={20} />জুডিশিয়ারি ও বার কাউন্সিল</div>
-          </div>
         </div>
-        <div className="academy-directory">
-          <a href="#courses"><BookOpen size={20} />কোর্স দেখুন <ArrowUpRight size={16} /></a>
-          <button type="button" onClick={() => setIsMentorsModalOpen(true)}><Landmark size={20} />মেন্টর পরিচিতি <ArrowUpRight size={16} /></button>
-          {stats.studentsCount > 0 && <span>{stats.studentsCount.toLocaleString('bn-BD')} জন নিবন্ধিত শিক্ষার্থী</span>}
-        </div>
+
+        {loading ? (
+          <div className="text-center py-12 text-amber-400 font-mono animate-pulse">
+            কোর্স ডেটা লোড হচ্ছে...
+          </div>
+        ) : (
+          <div className="catalog-list">
+            {matchingCourses.map(c => (
+              <article key={c.id} className="catalog-entry">
+                <div className="catalog-title">
+                  {c.category && <small>{c.category}</small>}
+                  <h3><button onClick={() => handleOpenCourseDetails(c)}>{c.title}</button></h3>
+                  <p>{c.description}</p>
+                </div>
+                <dl>
+                  {[[ 'মেন্টর',c.faculty ],['ক্লাসের সময়',c.schedule],['পরবর্তী ক্লাস',c.nextLive]].filter(([,value]) => value).map(([label,value]) =>
+                    <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+                  )}
+                </dl>
+                <div className="catalog-enroll"><strong>৳ {c.price}</strong><button onClick={() => setEnrollModalCourse(c)}>ভর্তি হোন</button></div>
+                <footer>
+                  <button onClick={() => handleOpenCourseDetails(c)}>সিলেবাস ও ফ্রি ভিডিও ↗</button>
+                  {c.schedulePdfUrl && <a href={c.schedulePdfUrl} target="_blank" rel="noopener noreferrer" download="Class-Schedule.pdf">সময়সূচি PDF ↓</a>}
+                  <button onClick={event => handleCopyDemoLink(event,c.id)}>ডেমো লিংক কপি</button>
+                </footer>
+              </article>
+            ))}
+            {matchingCourses.length === 0 && <p role="status">{query ? 'এই নামে কোনো কোর্স পাওয়া যায়নি।' : 'এখন কোনো কোর্স প্রদর্শনের জন্য নেই।'}</p>}
+            {query && <button className="catalog-reset" onClick={() => setCourseQuery('')}>সব কোর্স দেখুন</button>}
+          </div>
+        )}
       </section>
       <section aria-label="আইন সহকারী" className="assistant-search-section">
           {/* AI Instant Legal & Section Search Bar */}
@@ -344,119 +330,6 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
             </div></details>
           </div>
 
-      </section>
-
-
-      {/* Courses Showcase Section */}
-      <section id="courses" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center space-y-3 mb-12">
-          <h2 className="text-2xl sm:text-4xl font-extrabold text-white">কোর্সসমূহ</h2>
-          <p className="text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
-            ক্লাসের সময়সূচি, মেন্টর ও কোর্স ফি দেখে বেছে নিন।
-          </p>
-        </div>
-
-        {loading ? (
-          <div className="text-center py-12 text-amber-400 font-mono animate-pulse">
-            কোর্স ডেটা লোড হচ্ছে...
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {courses.map((c) => (
-              <div
-                key={c.id}
-                onClick={() => handleOpenCourseDetails(c)}
-                className="glass-card glass-card-hover rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden cursor-pointer group hover:border-amber-500/50 transition-all duration-300"
-              >
-                <div className="absolute top-0 right-0 px-3 py-1 bg-amber-500/20 text-amber-300 text-[10px] font-bold rounded-bl-xl border-l border-b border-amber-500/30">
-                  {c.category || 'Law Course'}
-                </div>
-
-                <div className="space-y-4">
-                  <div className="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-2xl">
-                    📚
-                  </div>
-
-                  <div>
-                    <h3 className="font-extrabold text-white text-lg leading-snug">{c.title}</h3>
-                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">{c.description}</p>
-                  </div>
-
-                  <div className="space-y-2 text-xs text-slate-300 border-t border-slate-800/80 pt-3">
-                    <p className="flex justify-between">
-                      <span className="text-slate-500">ফ্যাকাল্টি:</span>
-                      <span className="font-semibold text-slate-200">{c.faculty}</span>
-                    </p>
-                    <p className="flex justify-between">
-                      <span className="text-slate-500">ক্লাস সিডিউল:</span>
-                      <span className="font-mono text-amber-300">{c.schedule}</span>
-                    </p>
-                    <p className="flex justify-between">
-                      <span className="text-slate-500">পরবর্তী লাইভ ক্লাস:</span>
-                      <span className="font-mono text-emerald-400">{c.nextLive}</span>
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-6 pt-4 border-t border-slate-800 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[10px] text-slate-400">কোর্স ফি</p>
-                      <p className="text-xl font-black text-amber-400 font-mono">৳ {c.price} <span className="text-xs font-normal text-slate-400">BDT</span></p>
-                    </div>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEnrollModalCourse(c);
-                      }}
-                      className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-extrabold shadow-md transition-all hover:scale-105"
-                    >
-                      ভর্তি হোন (Enroll)
-                    </button>
-                  </div>
-
-                  {c.schedulePdfUrl && (
-                    <a
-                      href={c.schedulePdfUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      download="Class-Schedule.pdf"
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-full py-2 rounded-xl bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-500/50 text-emerald-300 hover:text-white text-[11px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm hover:scale-[1.01]"
-                      title="ক্লাস শিডিউল ডাউনলোড করুন"
-                    >
-                      <span>📅</span>
-                      <span>ক্লাস শিডিউল ডাউনলোড (PDF)</span>
-                    </a>
-                  )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenCourseDetails(c);
-                      }}
-                      className="w-full py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700/80 text-amber-300 hover:text-white text-[11px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-sm cursor-pointer"
-                    >
-                      <span>📋 সিলেবাস ও ১টি ফ্রী ভিডিও</span>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCopyDemoLink(e, c.id);
-                      }}
-                      className="w-full py-2 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 text-cyan-300 hover:text-white text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 shadow-sm cursor-pointer"
-                      title="ফ্রী ডেমো ভিডিও এর ডিরেক্ট শেয়ারেবল লিংক কপি করুন"
-                    >
-                      <span>🔗 ডেমো লিংক কপি</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </section>
 
       {/* Course Enrollment WhatsApp Notice Modal */}

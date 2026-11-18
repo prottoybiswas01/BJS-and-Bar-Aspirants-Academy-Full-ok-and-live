@@ -125,7 +125,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   // Admin Modular Tab Navigation State
   const [adminTab, setAdminTab] = useState('settings'); // 'settings' | 'students' | 'mentors' | 'courses' | 'payments' | 'mcq' | 'merit'
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
 
   // Messaging State
   const [popupTitle, setPopupTitle] = useState('');
@@ -2185,7 +2185,7 @@ BJS & Bar Aspirants Academy
     : receipts;
 
 return (
-    <div className="admin-workspace min-h-screen bg-[#070d19] text-slate-100 font-sans flex flex-col lg:flex-row gap-6 p-2 sm:p-4 animate-fadeIn relative">
+    <div className="admin-workspace min-h-screen bg-[#070d19] text-slate-100 font-sans flex flex-col gap-6 p-2 sm:p-4 animate-fadeIn relative">
       {/* Floating Toast Notification Banner */}
       {msg && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[100] animate-bounce-short max-w-md w-[90%] shadow-2xl">
@@ -2209,33 +2209,9 @@ return (
         </div>
       )}
 
-      {/* LEFT EXECUTIVE NAVIGATION SIDEBAR */}
-      <aside aria-label="অ্যাডমিন বিভাগ" className="academy-sidebar w-full lg:w-72 glass-card rounded-3xl p-4 sm:p-5 border border-slate-800 shrink-0 space-y-4 lg:space-y-6 flex flex-col justify-between self-start relative lg:sticky lg:top-24 z-20 bg-[#0b1325]/95 backdrop-blur-xl shadow-2xl">
-        <div className="space-y-4 lg:space-y-6">
-          {/* Brand Profile Header & Mobile Toggle */}
-          <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-black text-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
-                §
-              </div>
-              <div>
-                <h3 className="font-extrabold text-white text-sm">BJS & Bar Academy</h3>
-                <p className="text-[11px] text-amber-400 font-mono font-bold">অ্যাডমিন প্যানেল</p>
-              </div>
-            </div>
-
-            {/* Mobile Expand / Collapse Menu Toggle */}
-            <button
-              type="button"
-              aria-expanded={isMobileMenuOpen}
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="lg:hidden px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-amber-400 text-xs font-bold flex items-center gap-1.5 hover:bg-slate-800 transition-all cursor-pointer"
-            >
-              <span>{isMobileMenuOpen ? 'মেনু গুটান' : 'বিভাগ নির্বাচন ▾'}</span>
-            </button>
-          </div>
-
-          <nav aria-label="অ্যাডমিনের কাজ" className={isMobileMenuOpen ? 'work-nav' : 'work-nav hidden lg:grid'}>
+      <header className="console-header">
+        <div className="console-heading"><h2>একাডেমি পরিচালনা</h2><button type="button" onClick={loadAllAdminData}>তথ্য রিফ্রেশ ↻</button></div>
+        <nav aria-label="অ্যাডমিনের কাজ" className="console-tabs">
             {[
                 { key: 'settings', label: 'সাইট সেটিংস ও ব্যানার', icon: NavSettings2 },
                 { key: 'students', label: 'স্টুডেন্ট কন্ট্রোল', icon: NavUsersRound, count: students.length },
@@ -2246,35 +2222,13 @@ return (
                 { key: 'merit', label: 'মেধা তালিকা ও রেজাল্ট', icon: NavTrophy }
             ].map(({key, label, icon: Icon, count}) => (
               <button type="button" key={key} aria-current={adminTab === key ? 'page' : undefined}
-                onClick={() => { setAdminTab(key); setIsMobileMenuOpen(false); }}>
+                onClick={() => setAdminTab(key)}>
                 <Icon size={18} aria-hidden="true" /><span>{label}</span>
                 {count != null && <small>{count}</small>}
               </button>
             ))}
-          </nav>
-        </div>
-
-        {/* Sidebar Bottom Footer */}
-        <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-amber-500 text-slate-950 font-bold flex items-center justify-center text-xs shadow-md">
-              A
-            </div>
-            <div>
-              <p className="text-xs font-bold text-white leading-none">Admin</p>
-              <p className="text-[10px] text-slate-400 font-mono">Administrator</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={loadAllAdminData}
-            className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-bold transition-all border border-slate-800 cursor-pointer"
-            title="Refresh Data"
-          >
-            🔄
-          </button>
-        </div>
-      </aside>
+        </nav>
+      </header>
 
       {/* RIGHT DYNAMIC MAIN CONTENT AREA */}
       <main className="flex-1 space-y-6 overflow-hidden">
