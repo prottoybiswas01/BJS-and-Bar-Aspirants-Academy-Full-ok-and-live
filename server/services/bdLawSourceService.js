@@ -493,6 +493,12 @@ const VERIFIED_BD_STATUTES = [
   }
 ];
 
+const LEGAL_STOPWORDS = new Set([
+  'আইন', 'ধারা', 'অনুচ্ছেদ', 'কী', 'কি', 'কেন', 'কিভাবে', 'কোন', 'কোনো', 'হলে',
+  'হবে', 'নাকি', 'এবং', 'অথবা', 'বা', 'থেকে', 'দিয়ে', 'জন্য', 'অনুসারে', 'মোতাবেক',
+  'সম্পর্কে', 'বিধান', 'নিয়ম', 'বলুন', 'জানান', 'চাচ্ছি', 'পারে', 'যায়', 'করার', 'করা'
+]);
+
 /**
  * Check if the query is ambiguous or lacks legal context
  */
@@ -507,7 +513,37 @@ function checkAmbiguity(query) {
       clarificationPrompt: 'আপনার প্রশ্নটি সংক্ষিপ্ত বা অস্পষ্ট। অনুগ্রহ করে সংশ্লিষ্ট সুনির্দিষ্ট আইনের নাম (যেমন: সংবিধান, ফৌজদারি কার্যবিধি, দেওয়ানী কার্যবিধি, দণ্ডবিধি বা সাক্ষ্য আইন) অথবা ধারা নম্বর (যেমন: ১৬৭ ধারা, ১০২ অনুচ্ছেদ, আদেশ ৩৯) উল্লেখ করুন।'
     };
   }
+
+  // Check if query mentions an act or statute synonym
+  const mentionsStatute = VERIFIED_BD_STATUTES.some(s =>
+    s.synonyms.some(syn => clean.includes(syn.toLowerCase())) || clean.includes(s.actTitleBn.toLowerCase())
+  );
+
+  // Check if query mentions distinctive subject matter keywords
+  const distinctiveKeywords = [
+    'রিট', 'মৌলিক অধিকার', 'জামিন', 'গ্রেপ্তার', 'রিমান্ড', 'বেদখল', 'স্বত্ব', 'খুন', 'হত্যা', 'চুরি',
+    'ডাকাতি', 'প্রতারণা', 'স্থগিতাদেশ', 'নিষেধাজ্ঞা', 'জবানবন্দি', 'স্বীকারোক্তি', 'দলিল', 'প্রমাণ',
+    'মৃত্যুকালীন ঘোষণা', 'বলপ্রয়োগ', 'ক্ষতিপূরণ', 'বিনা পরোয়ানা'
+  ];
+  const hasDistinctiveSubject = distinctiveKeywords.some(kw => clean.includes(kw));
+
+  // If query mentions section/article but neither statute nor distinctive subject
+  const hasSectionPattern = /(?:ধারা|অনুচ্ছেদ|আদেশ|দফা|section|sec|art|article|order)\s*[০-৯0-9]+|[০-৯0-9]+\s*(?:ধারা|অনুচ্ছেদ|আদেশ|দফা)/u.test(clean);
+
+  if (hasSectionPattern && !mentionsStatute && !hasDistinctiveSubject) {
+    return {
+      isAmbiguous: true,
+      clarificationPrompt: 'আপনার প্রশ্নে একাধিক আইনের ধারা নির্দেশ করতে পারে। অনুগ্রহ করে সংশ্লিষ্ট সুনির্দিষ্ট আইনের নাম (যেমন: দেওয়ানী কার্যবিধি, সুনির্দিষ্ট প্রতিকার আইন, ফৌজদারি কার্যবিধি বা দণ্ডবিধি) অথবা মূল বিষয়টি (যেমন: জমি দখল, নিষেধাজ্ঞা, রিমান্ড) উল্লেখ করুন।'
+    };
+  }
+
   return { isAmbiguous: false };
+}
+
+function matchesSectionNumber(text, numBn, numEn) {
+  const bnRegex = new RegExp('(^|[^০-৯a-zA-Z0-9])' + numBn + '([^০-৯a-zA-Z0-9]|$)', 'u');
+  const enRegex = new RegExp('(^|[^০-৯a-zA-Z0-9])' + numEn + '([^০-৯a-zA-Z0-9]|$)', 'i');
+  return bnRegex.test(text) || enRegex.test(text);
 }
 
 /**
@@ -515,8 +551,7 @@ function checkAmbiguity(query) {
  */
 function searchStatutes(query) {
   const qClean = query.trim().toLowerCase();
-  const enDigits = toEnglishDigits(qClean);
-  const words = qClean.split(/[\s,?!।.]+/).filter(w => w.length >= 2);
+  const words = qClean.split(/[\s,?!।.]+/).filter(w => w.length >= 2 && !LEGAL_STOPWORDS.has(w));
   const matchedSources = [];
 
   for (const statute of VERIFIED_BD_STATUTES) {
@@ -533,11 +568,9 @@ function searchStatutes(query) {
     // Check sections
     for (const sec of statute.sections) {
       let secScore = 0;
-      const numMatch = sec.num.toLowerCase();
-      const numBnMatch = sec.numBn;
 
-      // Exact section number match (both Bengali & English)
-      if (enDigits.includes(numMatch.toLowerCase()) || qClean.includes(numBnMatch)) {
+      // Exact section number match with word/punctuation boundary (avoids matching e.g. 2099 as 9)
+      if (matchesSectionNumber(qClean, sec.numBn, sec.num)) {
         secScore += 10;
       }
 
@@ -556,7 +589,8 @@ function searchStatutes(query) {
 
       if (statuteMatches && secScore > 0) secScore += 5;
 
-      if (secScore >= 5) {
+      // Require meaningful score (if only section matched but no statute/keywords/words, demand statute or keyword)
+      if (secScore >= 10 && (statuteMatches || secScore > 10 || words.length > 0)) {
         matchedSources.push({
           statuteId: statute.id,
           actTitleBn: statute.actTitleBn,
