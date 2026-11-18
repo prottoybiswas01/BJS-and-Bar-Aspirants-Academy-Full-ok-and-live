@@ -205,3 +205,7 @@
   .auth-card form input:not([type=checkbox]):not([type=radio]) { font-size: 1rem; }
   .lesson-workspace { padding: 1rem; }
 }
+@media (max-width: 639px) {
+  .academy-nav > div > div { flex-wrap: wrap; height: auto; min-height: 4rem; padding-block: .5rem; gap: .4rem; }
+  .academy-nav > div > div > :last-child { margin-left: auto; }
+}
