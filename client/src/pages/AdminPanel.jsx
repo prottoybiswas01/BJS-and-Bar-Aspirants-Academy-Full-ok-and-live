@@ -1752,11 +1752,59 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     return `${monthNamesBn[m] || m} ${y}`;
   };
 
+  const getStudentAdmissionMonth = (s) => {
+    if (!s) return null;
+    const admissionDateStr = s.joinedOn || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
+    if (admissionDateStr && admissionDateStr.length >= 7) {
+      return admissionDateStr.substring(0, 7);
+    }
+    if (Array.isArray(s.courseRules) && s.courseRules.length > 0) {
+      for (const rule of s.courseRules) {
+        if (rule.accessStartDate && String(rule.accessStartDate).length >= 7) {
+          return String(rule.accessStartDate).substring(0, 7);
+        }
+      }
+    }
+    const sReceipts = (receipts || []).filter(r =>
+      (r.studentId && (r.studentId === s.id || r.studentId === s.regId)) ||
+      (s.phone && r.studentPhone === s.phone) ||
+      (s.email && r.studentEmail && r.studentEmail.toLowerCase() === s.email.toLowerCase())
+    );
+    if (sReceipts.length > 0) {
+      const sortedReceipts = [...sReceipts].sort((a, b) => {
+        return new Date(a.paymentTime || a.createdAt || 0) - new Date(b.paymentTime || b.createdAt || 0);
+      });
+      const firstDate = sortedReceipts[0].paymentTime || sortedReceipts[0].createdAt;
+      if (firstDate) {
+        try {
+          const d = new Date(firstDate);
+          if (!isNaN(d.getTime())) return d.toISOString().substring(0, 7);
+        } catch (e) {}
+      }
+    }
+    return getCurrentMonthStr();
+  };
+
   const getStudentPaymentSummary = (s, targetMonthKey = selectedPaymentMonth) => {
-    if (!s) return { isPaid: false, monthReceipts: [], totalPaidInMonth: 0, allTimePaid: 0, allTimeReceipts: [], receiptCount: 0, monthReceiptCount: 0, targetMonthLabel: '' };
+    if (!s) return {
+      isPaid: false,
+      isDue: false,
+      isEnrolledThisMonth: false,
+      admissionMonth: '',
+      monthReceipts: [],
+      totalPaidInMonth: 0,
+      allTimePaid: 0,
+      allTimeReceipts: [],
+      receiptCount: 0,
+      monthReceiptCount: 0,
+      targetMonthLabel: ''
+    };
+
     const targetMonth = (!targetMonthKey || targetMonthKey === 'all')
       ? getCurrentMonthStr()
       : targetMonthKey;
+
+    const admissionMonth = getStudentAdmissionMonth(s);
 
     const sReceipts = (receipts || []).filter(r =>
       (r.studentId && (r.studentId === s.id || r.studentId === s.regId)) ||
@@ -1769,8 +1817,16 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     const allTimePaid = sReceipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
     const isPaidThisMonth = monthReceipts.length > 0;
 
+    // A student is only enrolled for months on or after their admission month
+    const isEnrolledThisMonth = Boolean(admissionMonth && targetMonth >= admissionMonth);
+    // Student ONLY has a due if they were actually admitted in or before that month AND have not paid for that month
+    const isDue = isEnrolledThisMonth && !isPaidThisMonth;
+
     return {
       isPaid: isPaidThisMonth,
+      isDue,
+      isEnrolledThisMonth,
+      admissionMonth,
       monthReceipts,
       totalPaidInMonth,
       allTimePaid,
@@ -1799,17 +1855,21 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           showToast(`⚠️ "${stu.name}" ইতিমধ্যে ${monthLabel}-এর পেমেন্ট সম্পন্ন করেছেন!`, 'error');
           return;
         }
+        if (!pInfo.isEnrolledThisMonth) {
+          showToast(`⚠️ "${stu.name}" ${monthLabel}-এ ভর্তি হননি (ভর্তি মাস: ${pInfo.admissionMonth})!`, 'error');
+          return;
+        }
         targetIds = [stu.id];
       }
     } else if (selectedDueStudentIds.length > 0) {
       targetIds = selectedDueStudentIds.filter(id => {
         const stu = (students || []).find(s => s.id === id || s.regId === id);
         if (!stu) return false;
-        return !getStudentPaymentSummary(stu, targetMonth).isPaid;
+        return getStudentPaymentSummary(stu, targetMonth).isDue;
       });
     } else {
       targetIds = (students || [])
-        .filter(s => !getStudentPaymentSummary(s, targetMonth).isPaid)
+        .filter(s => getStudentPaymentSummary(s, targetMonth).isDue)
         .map(s => s.id);
     }
 
@@ -1857,7 +1917,7 @@ BJS & Bar Aspirants Academy
     const safeTargetIds = targetIds.filter(id => {
       const stu = (students || []).find(s => s.id === id || s.regId === id);
       if (!stu) return false;
-      return !getStudentPaymentSummary(stu, targetMonth).isPaid;
+      return getStudentPaymentSummary(stu, targetMonth).isDue;
     });
 
     if (safeTargetIds.length === 0) {
@@ -1896,10 +1956,10 @@ BJS & Bar Aspirants Academy
     let listToCopy = [];
     if (selectedDueStudentIds.length > 0) {
       listToCopy = (students || []).filter(s =>
-        selectedDueStudentIds.includes(s.id) && !getStudentPaymentSummary(s, targetMonth).isPaid
+        selectedDueStudentIds.includes(s.id) && getStudentPaymentSummary(s, targetMonth).isDue
       );
     } else {
-      listToCopy = (students || []).filter(s => !getStudentPaymentSummary(s, targetMonth).isPaid);
+      listToCopy = (students || []).filter(s => getStudentPaymentSummary(s, targetMonth).isDue);
     }
 
     if (listToCopy.length === 0) {
@@ -2180,7 +2240,7 @@ BJS & Bar Aspirants Academy
   });
 
   const paidStudentsList = studentsWithPaymentStatus.filter(s => s.paymentInfo.isPaid);
-  const dueStudentsList = studentsWithPaymentStatus.filter(s => !s.paymentInfo.isPaid);
+  const dueStudentsList = studentsWithPaymentStatus.filter(s => s.paymentInfo.isDue);
 
   const currentDueTrackerList = dueTrackerTab === 'due'
     ? dueStudentsList
@@ -4119,6 +4179,200 @@ return (
             </div>
           )}
         </div>
+
+        {/* 📊 MCQ Exam Candidate Results Audit & Student Performance Tracker */}
+        <div className="pt-8 border-t border-slate-800 space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                <span>📊</span> পরীক্ষার্থীদের MCQ পরীক্ষার ফলাফল ও পারফরম্যান্স অডিট ট্র্যাকার
+              </h3>
+              <p className="text-xs text-slate-400">
+                কোন শিক্ষার্থী কোন এমসিকিউ পরীক্ষায় কত পয়েন্ট ও মার্কস পেয়েছে তা ব্যাচ/কোর্স এবং পরীক্ষা সিলেক্ট করে সরাসরি অডিট করুন।
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (filteredMcqResults.length === 0) {
+                    showToast('⚠️ কোনো ফলাফল ডাটা নেই।', 'error');
+                    return;
+                  }
+                  const header = ["Result ID", "Candidate Name", "Phone", "Email", "Exam Title", "Score", "Total", "Percentage", "Status", "Date"];
+                  const rows = filteredMcqResults.map(r => [
+                    r.resultId || '',
+                    `"${r.candidateName || ''}"`,
+                    `"${r.candidatePhone || ''}"`,
+                    `"${r.candidateEmail || ''}"`,
+                    `"${r.examTitle || ''}"`,
+                    r.score || 0,
+                    r.totalMarks || 40,
+                    `${r.percentage || 0}%`,
+                    (r.passed || r.percentage >= 50) ? 'PASSED' : 'FAILED',
+                    `"${new Date(r.submittedAt || Date.now()).toLocaleString()}"`
+                  ]);
+                  const csvContent = "data:text/csv;charset=utf-8," + [header.join(","), ...rows.map(e => e.join(","))].join("\n");
+                  const encodedUri = encodeURI(csvContent);
+                  const link = document.createElement("a");
+                  link.setAttribute("href", encodedUri);
+                  link.setAttribute("download", `MCQ_Exam_Results_Audit_${Date.now()}.csv`);
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  showToast('✓ MCQ রেজাল্ট এক্সেল/CSV ফাইল ডাউনলোড হয়েছে!', 'success');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+              >
+                📥 এক্সপোর্ট রেজাল্ট Sheet (CSV)
+              </button>
+            </div>
+          </div>
+
+          {/* Audit Metric Stat Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800/90 shadow-sm">
+              <p className="text-[11px] text-slate-400 font-semibold">মোট পরীক্ষা জমা (Total Attempts)</p>
+              <h4 className="text-xl font-extrabold text-amber-400 mt-1">{filteredMcqResults.length} জন</h4>
+            </div>
+            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800/90 shadow-sm">
+              <p className="text-[11px] text-slate-400 font-semibold">পাশ করেছে (Passed Candidates)</p>
+              <h4 className="text-xl font-extrabold text-emerald-400 mt-1">
+                {filteredMcqResults.filter(r => r.passed || (r.percentage >= 50)).length} জন
+              </h4>
+            </div>
+            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800/90 shadow-sm">
+              <p className="text-[11px] text-slate-400 font-semibold">গড় নম্বর (Average Score)</p>
+              <h4 className="text-xl font-extrabold text-cyan-400 mt-1">
+                {filteredMcqResults.length > 0
+                  ? (filteredMcqResults.reduce((acc, r) => acc + Number(r.score || 0), 0) / filteredMcqResults.length).toFixed(1)
+                  : 0} মার্কস
+              </h4>
+            </div>
+            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800/90 shadow-sm">
+              <p className="text-[11px] text-slate-400 font-semibold">সর্বোচ্চ নম্বর (Peak Score)</p>
+              <h4 className="text-xl font-extrabold text-purple-400 mt-1 truncate">
+                {filteredMcqResults.length > 0
+                  ? Math.max(...filteredMcqResults.map(r => Number(r.score || 0)))
+                  : 0} মার্কস
+              </h4>
+            </div>
+          </div>
+
+          {/* Filter & Search Controls Toolbar */}
+          <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Course Filter Dropdown */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">🎓 কোর্স অনুযায়ী ফিল্টার (Select Course)</label>
+              <select
+                value={selectedMcqCourseFilter}
+                onChange={(e) => setSelectedMcqCourseFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:border-amber-500 focus:outline-none"
+              >
+                <option value="">-- 🌐 সকল কোর্স (All Courses) --</option>
+                {(courses || []).map(c => (
+                  <option key={c.id || c._id} value={c.id || c.title}>{c.title}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Exam Filter Dropdown */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">📝 পরীক্ষা সিলেক্ট করুন (Select MCQ Exam)</label>
+              <select
+                value={selectedMcqExamFilter}
+                onChange={(e) => setSelectedMcqExamFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:border-amber-500 focus:outline-none"
+              >
+                <option value="">-- 📝 সকল পরীক্ষা (All MCQ Exams) --</option>
+                {(mcqExams || []).map(ex => (
+                  <option key={ex.id} value={ex.id}>{ex.title}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Candidate Search Box */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">🔍 স্টুডেন্ট সার্চ করুন (Search Student)</label>
+              <input
+                type="text"
+                placeholder="শিক্ষার্থীর নাম, ফোন বা ইমেইল লিখুন..."
+                value={mcqResultSearch}
+                onChange={(e) => setMcqResultSearch(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:border-amber-500 focus:outline-none font-sans"
+              />
+            </div>
+          </div>
+
+          {/* Results Table */}
+          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="bg-slate-900 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                <tr>
+                  <th className="p-3">পরীক্ষার্থী (Student Name / Contact)</th>
+                  <th className="p-3">পরীক্ষার শিরোনাম (Exam Title)</th>
+                  <th className="p-3 text-center">প্রাপ্ত নম্বর (Score)</th>
+                  <th className="p-3 text-center">শতকরা হার (Percentage)</th>
+                  <th className="p-3 text-center">ফলাফল (Pass / Fail)</th>
+                  <th className="p-3 text-right">জমাদানের সময় (Date & Time)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {filteredMcqResults.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-500 text-xs">
+                      এখনো কোনো শিক্ষার্থী এই ফিল্টারের অধীনে পরীক্ষা জমা দেয়নি। (No MCQ exam results match your filter)
+                    </td>
+                  </tr>
+                ) : (
+                  filteredMcqResults.map((r, idx) => (
+                    <tr key={r.resultId || r._id || idx} className="hover:bg-slate-900/50 transition-colors">
+                      <td className="p-3">
+                        <div className="font-bold text-white text-xs">{r.candidateName || 'Unknown Student'}</div>
+                        <div className="text-[10px] text-amber-400 font-mono">📱 {r.candidatePhone || 'N/A'} {r.candidateEmail ? `| 📧 ${r.candidateEmail}` : ''}</div>
+                        {r.candidateUniversity && (
+                          <div className="text-[10px] text-slate-400">🏫 {r.candidateUniversity}</div>
+                        )}
+                      </td>
+
+                      <td className="p-3">
+                        <div className="font-bold text-slate-200">{r.examTitle || 'MCQ Exam'}</div>
+                        {r.courseTitle && <span className="text-[10px] text-cyan-400">🎓 {r.courseTitle}</span>}
+                      </td>
+
+                      <td className="p-3 text-center font-bold font-mono text-sm text-amber-300">
+                        {r.score} / {r.totalMarks}
+                      </td>
+
+                      <td className="p-3 text-center font-mono">
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                          (r.passed || r.percentage >= 50) ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                        }`}>
+                          {r.percentage !== undefined ? r.percentage : ((r.score / r.totalMarks) * 100).toFixed(1)}%
+                        </span>
+                      </td>
+
+                      <td className="p-3 text-center">
+                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase ${
+                          r.passed || (r.percentage >= 50)
+                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/40'
+                            : 'bg-rose-950 text-rose-400 border border-rose-500/40'
+                        }`}>
+                          {r.passed || (r.percentage >= 50) ? '✓ PASSED' : '✕ FAILED'}
+                        </span>
+                      </td>
+
+                      <td className="p-3 text-right text-[11px] text-slate-400 font-mono">
+                        {formatBangladeshTime(r.submittedAt || Date.now())}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
       )}
 
@@ -4707,12 +4961,12 @@ return (
                       type="checkbox"
                       checked={
                         filteredDueStudents.length > 0 &&
-                        filteredDueStudents.filter(s => !s.paymentInfo.isPaid).length > 0 &&
+                        filteredDueStudents.filter(s => s.paymentInfo.isDue).length > 0 &&
                         filteredDueStudents
-                          .filter(s => !s.paymentInfo.isPaid)
+                          .filter(s => s.paymentInfo.isDue)
                           .every(s => selectedDueStudentIds.includes(s.id))
                       }
-                      onChange={() => toggleSelectAllDueStudents(filteredDueStudents.filter(s => !s.paymentInfo.isPaid))}
+                      onChange={() => toggleSelectAllDueStudents(filteredDueStudents.filter(s => s.paymentInfo.isDue))}
                       className="rounded accent-emerald-500 cursor-pointer"
                       title="বকেয়া সবাইকে সিলেক্ট করুন"
                     />
@@ -4782,6 +5036,10 @@ return (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-[11px]">
                               <span>✓</span> পরিশোধিত (৳{totalPaidInMonth.toLocaleString()})
                             </span>
+                          ) : !s.paymentInfo.isEnrolledThisMonth ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-bold text-[10px]" title={`ভর্তি মাস: ${s.paymentInfo.admissionMonth}`}>
+                              <span>⚪</span> ভর্তি হননি
+                            </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold text-[11px]">
                               <span>⚠️</span> বকেয়া (Due)
@@ -4816,8 +5074,8 @@ return (
                             ➕ রিসিট
                           </button>
 
-                          {/* Individual Reminder Email Button (for unpaid) */}
-                          {!isPaid && (
+                          {/* Individual Reminder Email Button (for genuine due students) */}
+                          {s.paymentInfo.isDue && (
                             <button
                               type="button"
                               onClick={() => handleOpenDueReminderModal(s.id)}
@@ -5331,205 +5589,7 @@ return (
               </div>
             </div>
           </div>
-        
-        {/* 📊 MCQ Exam Candidate Results Audit & Student Performance Tracker */}
-        <div className="pt-8 border-t border-slate-800 space-y-5">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-base font-extrabold text-white flex items-center gap-2">
-                <span>📊</span> পরীক্ষার্থীদের MCQ পরীক্ষার ফলাফল ও পারফরম্যান্স অডিট ট্র্যাকার
-              </h3>
-              <p className="text-xs text-slate-400">
-                কোন শিক্ষার্থী কোন এমসিকিউ পরীক্ষায় কত পয়েন্ট ও মার্কস পেয়েছে তা ব্যাচ/কোর্স এবং পরীক্ষা সিলেক্ট করে সরাসরি অডিট করুন।
-              </p>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (filteredMcqResults.length === 0) {
-                    showToast('⚠️ কোনো ফলাফল ডাটা নেই।', 'error');
-                    return;
-                  }
-                  const header = ["Result ID", "Candidate Name", "Phone", "Email", "Exam Title", "Score", "Total", "Percentage", "Status", "Date"];
-                  const rows = filteredMcqResults.map(r => [
-                    r.resultId || '',
-                    `"${r.candidateName || ''}"`,
-                    `"${r.candidatePhone || ''}"`,
-                    `"${r.candidateEmail || ''}"`,
-                    `"${r.examTitle || ''}"`,
-                    r.score || 0,
-                    r.totalMarks || 40,
-                    `${r.percentage || 0}%`,
-                    (r.passed || r.percentage >= 50) ? 'PASSED' : 'FAILED',
-                    `"${new Date(r.submittedAt || Date.now()).toLocaleString()}"`
-                  ]);
-                  const csvContent = "data:text/csv;charset=utf-8," + [header.join(","), ...rows.map(e => e.join(","))].join("\n");
-                  const encodedUri = encodeURI(csvContent);
-                  const link = document.createElement("a");
-                  link.setAttribute("href", encodedUri);
-                  link.setAttribute("download", `MCQ_Exam_Results_Audit_${Date.now()}.csv`);
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-                  showToast('✓ MCQ রেজাল্ট এক্সেল/CSV ফাইল ডাউনলোড হয়েছে!', 'success');
-                }}
-                className="px-3.5 py-2 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
-              >
-                📥 এক্সপোর্ট রেজাল্ট Sheet (CSV)
-              </button>
-            </div>
-          </div>
-
-          {/* Audit Metric Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800/90 shadow-sm">
-              <p className="text-[11px] text-slate-400 font-semibold">মোট পরীক্ষা জমা (Total Attempts)</p>
-              <h4 className="text-xl font-extrabold text-amber-400 mt-1">{filteredMcqResults.length} জন</h4>
-            </div>
-            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800/90 shadow-sm">
-              <p className="text-[11px] text-slate-400 font-semibold">পাশ করেছে (Passed Candidates)</p>
-              <h4 className="text-xl font-extrabold text-emerald-400 mt-1">
-                {filteredMcqResults.filter(r => r.passed || (r.percentage >= 50)).length} জন
-              </h4>
-            </div>
-            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800/90 shadow-sm">
-              <p className="text-[11px] text-slate-400 font-semibold">গড় নম্বর (Average Score)</p>
-              <h4 className="text-xl font-extrabold text-cyan-400 mt-1">
-                {filteredMcqResults.length > 0
-                  ? (filteredMcqResults.reduce((acc, r) => acc + Number(r.score || 0), 0) / filteredMcqResults.length).toFixed(1)
-                  : 0} মার্কস
-              </h4>
-            </div>
-            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800/90 shadow-sm">
-              <p className="text-[11px] text-slate-400 font-semibold">সর্বোচ্চ নম্বর (Peak Score)</p>
-              <h4 className="text-xl font-extrabold text-purple-400 mt-1 truncate">
-                {filteredMcqResults.length > 0
-                  ? Math.max(...filteredMcqResults.map(r => Number(r.score || 0)))
-                  : 0} মার্কস
-              </h4>
-            </div>
-          </div>
-
-          {/* Filter & Search Controls Toolbar */}
-          <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* Course Filter Dropdown */}
-            <div>
-              <label className="block text-[11px] font-bold text-slate-300 mb-1">🎓 কোর্স অনুযায়ী ফিল্টার (Select Course)</label>
-              <select
-                value={selectedMcqCourseFilter}
-                onChange={(e) => setSelectedMcqCourseFilter(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:border-amber-500 focus:outline-none"
-              >
-                <option value="">-- 🌐 সকল কোর্স (All Courses) --</option>
-                {(courses || []).map(c => (
-                  <option key={c.id || c._id} value={c.id || c.title}>{c.title}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Exam Filter Dropdown */}
-            <div>
-              <label className="block text-[11px] font-bold text-slate-300 mb-1">📝 পরীক্ষা সিলেক্ট করুন (Select MCQ Exam)</label>
-              <select
-                value={selectedMcqExamFilter}
-                onChange={(e) => setSelectedMcqExamFilter(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:border-amber-500 focus:outline-none"
-              >
-                <option value="">-- 📝 সকল পরীক্ষা (All MCQ Exams) --</option>
-                {(mcqExams || []).map(ex => (
-                  <option key={ex.id} value={ex.id}>{ex.title}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Candidate Search Box */}
-            <div>
-              <label className="block text-[11px] font-bold text-slate-300 mb-1">🔍 স্টুডেন্ট সার্চ করুন (Search Student)</label>
-              <input
-                type="text"
-                placeholder="শিক্ষার্থীর নাম, ফোন বা ইমেইল লিখুন..."
-                value={mcqResultSearch}
-                onChange={(e) => setMcqResultSearch(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:border-amber-500 focus:outline-none font-sans"
-              />
-            </div>
-          </div>
-
-          {/* Results Table */}
-          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-900 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="p-3">পরীক্ষার্থী (Student Name / Contact)</th>
-                  <th className="p-3">পরীক্ষার শিরোনাম (Exam Title)</th>
-                  <th className="p-3 text-center">প্রাপ্ত নম্বর (Score)</th>
-                  <th className="p-3 text-center">শতকরা হার (Percentage)</th>
-                  <th className="p-3 text-center">ফলাফল (Pass / Fail)</th>
-                  <th className="p-3 text-right">জমাদানের সময় (Date & Time)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {filteredMcqResults.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-8 text-center text-slate-500 text-xs">
-                      এখনো কোনো শিক্ষার্থী এই ফিল্টারের অধীনে পরীক্ষা জমা দেয়নি। (No MCQ exam results match your filter)
-                    </td>
-                  </tr>
-                ) : (
-                  filteredMcqResults.map((r, idx) => (
-                    <tr key={r.resultId || r._id || idx} className="hover:bg-slate-900/50 transition-colors">
-                      <td className="p-3">
-                        <div className="font-bold text-white text-xs">{r.candidateName || 'Unknown Student'}</div>
-                        <div className="text-[10px] text-amber-400 font-mono">📱 {r.candidatePhone || 'N/A'} {r.candidateEmail ? `| 📧 ${r.candidateEmail}` : ''}</div>
-                        {r.candidateUniversity && (
-                          <div className="text-[10px] text-slate-400">🏫 {r.candidateUniversity}</div>
-                        )}
-                      </td>
-
-                      <td className="p-3">
-                        <div className="font-bold text-slate-200">{r.examTitle || 'MCQ Exam'}</div>
-                        {r.courseTitle && <span className="text-[10px] text-cyan-400">🎓 {r.courseTitle}</span>}
-                      </td>
-
-                      <td className="p-3 text-center font-bold font-mono text-sm text-amber-300">
-                        {r.score} / {r.totalMarks}
-                      </td>
-
-                      <td className="p-3 text-center font-mono">
-                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                          (r.passed || r.percentage >= 50) ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                        }`}>
-                          {r.percentage !== undefined ? r.percentage : ((r.score / r.totalMarks) * 100).toFixed(1)}%
-                        </span>
-                      </td>
-
-                      <td className="p-3 text-center">
-                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase ${
-                          r.passed || (r.percentage >= 50)
-                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/40'
-                            : 'bg-rose-950 text-rose-400 border border-rose-500/40'
-                        }`}>
-                          {r.passed || (r.percentage >= 50) ? '✓ PASSED' : '✕ FAILED'}
-                        </span>
-                      </td>
-
-                      <td className="p-3 text-right text-[11px] text-slate-400 font-mono">
-                        {new Date(r.submittedAt || Date.now()).toLocaleString('en-US', {
-                          dateStyle: 'medium',
-                          timeStyle: 'short'
-                        })}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
         </div>
-
-</div>
       )}
 
       {/* Student Payment Profile & Receipts History Modal */}
@@ -5562,7 +5622,11 @@ return (
               <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div className="flex items-center gap-3">
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-black shrink-0 ${
-                    summary.isPaid ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                    summary.isPaid
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      : !summary.isEnrolledThisMonth
+                      ? 'bg-slate-800 text-slate-400 border border-slate-700'
+                      : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                   }`}>
                     {stu.name ? stu.name.substring(0, 1).toUpperCase() : 'S'}
                   </div>
@@ -5578,6 +5642,10 @@ return (
                   {summary.isPaid ? (
                     <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-xs mt-1">
                       <span>✓</span> {summary.targetMonthLabel}-এ পরিশোধিত (৳{summary.totalPaidInMonth.toLocaleString()})
+                    </span>
+                  ) : !summary.isEnrolledThisMonth ? (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-bold text-xs mt-1">
+                      <span>⚪</span> {summary.targetMonthLabel}-এ ভর্তি হননি
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold text-xs mt-1">
