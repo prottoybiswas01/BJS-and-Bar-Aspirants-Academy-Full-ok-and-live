@@ -218,7 +218,7 @@ export default function ProfileModal({ isOpen, onClose }) {
             </div>
             <div>
               <h3 className="font-extrabold text-white text-sm sm:text-base tracking-wide flex items-center gap-2">
-                <span>BJS & Bar Aspirants Academy</span>
+                <span>আমার প্রোফাইল</span>
                 <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
                   {user.isMentor ? 'মেন্টর পোর্টাল' : 'স্টুডেন্ট পোর্টাল'}
                 </span>
@@ -238,11 +238,16 @@ export default function ProfileModal({ isOpen, onClose }) {
           </button>
         </div>
 
+        <nav aria-label="প্রোফাইলের বিভাগ" className="profile-index">
+          {[['identity','পরিচিতি'], ['contact','যোগাযোগ'], ['security','নিরাপত্তা'], ['support','সহায়তা']].map(([id,label]) =>
+            <button type="button" key={id} onClick={() => document.getElementById('profile-'+id)?.scrollIntoView({block:'start'})}>{label}</button>
+          )}
+        </nav>
         {/* Modal Scrollable Body */}
         <div className="profile-body p-5 sm:p-7 space-y-6 max-h-[82vh] overflow-y-auto custom-scrollbar">
 
           {/* Student Hero Identity Card */}
-          <div className="profile-identity relative p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-amber-500/25 shadow-xl overflow-hidden">
+          <div id="profile-identity" className="profile-identity relative p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-amber-500/25 shadow-xl overflow-hidden">
             {/* Background Watermark Pattern */}
             <div className="absolute -right-6 -bottom-6 text-slate-800/20 text-8xl font-black pointer-events-none select-none font-serif">
               BJS
@@ -357,7 +362,7 @@ export default function ProfileModal({ isOpen, onClose }) {
           )}
 
           {/* SECTION 1: ব্যক্তিগত ও যোগাযোগ তথ্য */}
-          <div className="space-y-3">
+          <div id="profile-contact" className="space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-xs sm:text-sm font-extrabold text-white flex items-center gap-2">
                 <User className="w-4 h-4 text-amber-400" />
@@ -631,7 +636,7 @@ export default function ProfileModal({ isOpen, onClose }) {
           </div>
 
           {/* SECTION 2: একাডেমি এনরোলমেন্ট ও সিকিউরিটি স্ট্যাটাস */}
-          <div className="space-y-3">
+          <div id="profile-security" className="space-y-3">
             <h4 className="text-xs sm:text-sm font-extrabold text-white flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
               <span>ডিজিটাল নিরাপত্তা ও ডিভাইস গভর্ন্যান্স</span>
@@ -671,7 +676,7 @@ export default function ProfileModal({ isOpen, onClose }) {
           </div>
 
           {/* SECTION 3: প্রশাসনিক সংশোধন সহায়তা ও হেল্পলাইন */}
-          <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div id="profile-support" className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
             <div className="space-y-1">
               <p className="font-bold text-slate-200 flex items-center gap-1.5">
                 <HelpCircle className="w-3.5 h-3.5 text-amber-400" />

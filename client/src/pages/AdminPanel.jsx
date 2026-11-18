@@ -1,3 +1,4 @@
+import { Settings2 as NavSettings2, UsersRound as NavUsersRound, ContactRound as NavContactRound, LibraryBig as NavLibraryBig, ReceiptText as NavReceiptText, ListChecks as NavListChecks, Trophy as NavTrophy } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 
@@ -2184,7 +2185,7 @@ BJS & Bar Aspirants Academy
     : receipts;
 
 return (
-    <div className="min-h-screen bg-[#070d19] text-slate-100 font-sans flex flex-col lg:flex-row gap-6 p-2 sm:p-4 animate-fadeIn relative">
+    <div className="admin-workspace min-h-screen bg-[#070d19] text-slate-100 font-sans flex flex-col lg:flex-row gap-6 p-2 sm:p-4 animate-fadeIn relative">
       {/* Floating Toast Notification Banner */}
       {msg && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[100] animate-bounce-short max-w-md w-[90%] shadow-2xl">
@@ -2234,152 +2235,23 @@ return (
             </button>
           </div>
 
-          {/* Navigation Group: MANAGEMENT */}
-          <div className={`space-y-1.5 ${isMobileMenuOpen ? 'block' : 'hidden lg:block'}`}>
-            <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase block px-3">
-              ব্যবস্থাপনা
-            </span>
-
-            {/* 1. Site Settings & Banner */}
-            <button
-              type="button"
-              aria-current={adminTab === 'settings' ? 'page' : undefined}
-              onClick={() => { setAdminTab('settings'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'settings'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">⚙️</span>
-                <span>সাইট সেটিংস ও ব্যানার</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                Edit
-              </span>
-            </button>
-
-            {/* 2. Student Control */}
-            <button
-              type="button"
-              aria-current={adminTab === 'students' ? 'page' : undefined}
-              onClick={() => { setAdminTab('students'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'students'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">👨‍🎓</span>
-                <span>স্টুডেন্ট কন্ট্রোল</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {students.length}
-              </span>
-            </button>
-
-            {/* 3. Mentor & Faculty Control */}
-            <button
-              type="button"
-              aria-current={adminTab === 'mentors' ? 'page' : undefined}
-              onClick={() => { setAdminTab('mentors'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'mentors'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">👨‍🏫</span>
-                <span>মেন্টর ও ফ্যাকাল্টি</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {mentors.length}
-              </span>
-            </button>
-
-            {/* 4. Course Launch Manager */}
-            <button
-              type="button"
-              aria-current={adminTab === 'courses' ? 'page' : undefined}
-              onClick={() => { setAdminTab('courses'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'courses'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">📚</span>
-                <span>কোর্স লঞ্চ ম্যানেজার</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {courses.length}
-              </span>
-            </button>
-
-            {/* 5. Payment & Receipts */}
-            <button
-              type="button"
-              aria-current={adminTab === 'payments' ? 'page' : undefined}
-              onClick={() => { setAdminTab('payments'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'payments'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">💳</span>
-                <span>পেমেন্ট ও মানি রিসিট</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {receipts.length}
-              </span>
-            </button>
-
-            {/* 6. MCQ Exam Engine */}
-            <button
-              type="button"
-              aria-current={adminTab === 'mcq' ? 'page' : undefined}
-              onClick={() => { setAdminTab('mcq'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'mcq'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">📝</span>
-                <span>অনলাইন এমসিকিউ</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {mcqExams.length}
-              </span>
-            </button>
-
-            {/* 7. Merit List & PDF Generator */}
-            <button
-              type="button"
-              aria-current={adminTab === 'merit' ? 'page' : undefined}
-              onClick={() => { setAdminTab('merit'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'merit'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">🏆</span>
-                <span>মেধা তালিকা ও রেজাল্ট</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                PDF
-              </span>
-            </button>
-          </div>
+          <nav aria-label="অ্যাডমিনের কাজ" className={isMobileMenuOpen ? 'work-nav' : 'work-nav hidden lg:grid'}>
+            {[
+                { key: 'settings', label: 'সাইট সেটিংস ও ব্যানার', icon: NavSettings2 },
+                { key: 'students', label: 'স্টুডেন্ট কন্ট্রোল', icon: NavUsersRound, count: students.length },
+                { key: 'mentors', label: 'মেন্টর ও ফ্যাকাল্টি', icon: NavContactRound, count: mentors.length },
+                { key: 'courses', label: 'কোর্স লঞ্চ ম্যানেজার', icon: NavLibraryBig, count: courses.length },
+                { key: 'payments', label: 'পেমেন্ট ও মানি রসিদ', icon: NavReceiptText, count: receipts.length },
+                { key: 'mcq', label: 'অনলাইন এমসিকিউ', icon: NavListChecks, count: mcqExams.length },
+                { key: 'merit', label: 'মেধা তালিকা ও রেজাল্ট', icon: NavTrophy }
+            ].map(({key, label, icon: Icon, count}) => (
+              <button type="button" key={key} aria-current={adminTab === key ? 'page' : undefined}
+                onClick={() => { setAdminTab(key); setIsMobileMenuOpen(false); }}>
+                <Icon size={18} aria-hidden="true" /><span>{label}</span>
+                {count != null && <small>{count}</small>}
+              </button>
+            ))}
+          </nav>
         </div>
 
         {/* Sidebar Bottom Footer */}

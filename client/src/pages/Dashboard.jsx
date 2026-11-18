@@ -552,7 +552,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       {/* Top Welcome Banner */}
       <section className="student-welcome glass-card rounded-2xl p-6 sm:p-8 border border-amber-500/20 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div className="space-y-2">
+          <div className="learner-heading space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold border border-emerald-500/30">
                 ● STATUS: {user?.status || 'Active'}
@@ -615,34 +615,34 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       {/* Section Tab Navigation: Video Lectures vs Assignments vs MCQ Exams */}
       <div className="student-actions flex flex-wrap sm:flex-nowrap bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-2">
         <button
-          onClick={() => setSelectedTab('lectures')}
+          aria-pressed={selectedTab === 'lectures'} onClick={() => setSelectedTab('lectures')}
           className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center ${
             selectedTab === 'lectures'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          📹 ভিডিও ক্লাসসমূহ (Lectures)
+          ভিডিও ক্লাস
         </button>
         <button
-          onClick={() => setSelectedTab('assignments')}
+          aria-pressed={selectedTab === 'assignments'} onClick={() => setSelectedTab('assignments')}
           className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center ${
             selectedTab === 'assignments'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          <span>📝 লিখিত অ্যাসাইনমেন্ট ({studentAssignments.length})</span>
+          <span>লিখিত অ্যাসাইনমেন্ট ({studentAssignments.length})</span>
         </button>
         <button
-          onClick={() => setSelectedTab('exams')}
+          aria-pressed={selectedTab === 'exams'} onClick={() => setSelectedTab('exams')}
           className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center ${
             selectedTab === 'exams'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          <span>🎯 অনলাইন এমসিকিউ পরীক্ষা ({studentExams.length})</span>
+          <span>এমসিকিউ পরীক্ষা ({studentExams.length})</span>
         </button>
       </div>
 

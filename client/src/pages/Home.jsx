@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BookOpen, Landmark, Scale, ArrowUpRight } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -272,6 +273,19 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
           </div>
 
           </div>
+          <div className="law-library" aria-hidden="true">
+            <div className="cover-back"><BookOpen strokeWidth={1} /></div>
+            <div className="cover-front"><span>BJS &amp; BAR</span><Landmark strokeWidth={1.15} /><strong>আইন পাঠ</strong></div>
+            <div className="cover-spine"><Scale size={20} />জুডিশিয়ারি ও বার কাউন্সিল</div>
+          </div>
+        </div>
+        <div className="academy-directory">
+          <a href="#courses"><BookOpen size={20} />কোর্স দেখুন <ArrowUpRight size={16} /></a>
+          <button type="button" onClick={() => setIsMentorsModalOpen(true)}><Landmark size={20} />মেন্টর পরিচিতি <ArrowUpRight size={16} /></button>
+          {stats.studentsCount > 0 && <span>{stats.studentsCount.toLocaleString('bn-BD')} জন নিবন্ধিত শিক্ষার্থী</span>}
+        </div>
+      </section>
+      <section aria-label="আইন সহকারী" className="assistant-search-section">
           {/* AI Instant Legal & Section Search Bar */}
           <div className="hero-search w-full max-w-2xl mx-auto my-6 p-2 rounded-2xl bg-gradient-to-r from-slate-900/95 via-[#0d1c38]/95 to-slate-900/95 border border-cyan-500/35 shadow-2xl shadow-cyan-950/40 backdrop-blur-md text-left">
             <h2 className="mb-4 text-xl font-bold text-white">আইন সহকারীকে প্রশ্ন করুন</h2>
@@ -304,8 +318,8 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
             </form>
 
             {/* Clickable Quick Keyword & Section Chips */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-2 px-2 border-t border-slate-800/80 mt-2">
-              <span className="text-slate-400 text-[10px] font-mono shrink-0">জনপ্রিয় শর্টকাট:</span>
+            <details className="query-shortcuts"><summary>প্রশ্নের বিষয় বেছে নিন</summary><div className="flex flex-wrap gap-2 pt-3">
+
               {[
                 { label: '🏛️ BJS প্রস্তুতি', q: 'সহকারী জজ (BJS) পরীক্ষার প্রিলিমিনারি ও লিখিত সিলেবাস এবং প্রস্তুতি কৌশল' },
                 { label: '📋 বার কাউন্সিল MCQ', q: 'বার কাউন্সিল অ্যাডভোকেটশিপ এমসিকিউ পরীক্ষার পাস মার্কস ও গুরুত্বপূর্ণ বিষয়' },
@@ -327,54 +341,18 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                   {chip.label}
                 </button>
               ))}
-            </div>
+            </div></details>
           </div>
 
-          {/* Dynamic 4 Stat Badges */}
-          <div className="hero-stats grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 border-t border-slate-800/80 max-w-3xl mx-auto">
-            <div>
-              <p className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">
-                {stats.studentsCount > 0 ? `${stats.studentsCount}+` : '0'}
-              </p>
-              <p className="text-xs text-slate-400 font-medium">নিবন্ধিত শিক্ষার্থী</p>
-            </div>
-
-            {/* Clickable Mentors Stat Card */}
-            <div
-              onClick={() => setIsMentorsModalOpen(true)}
-              className="p-2 rounded-xl bg-purple-950/20 border border-purple-500/30 hover:border-purple-400/60 hover:bg-purple-900/30 transition-all cursor-pointer group shadow-lg"
-              title="মাননীয় বিচারক ও মেন্টরদের প্রোফাইল দেখতে ক্লিক করুন"
-            >
-              <p className="text-2xl sm:text-3xl font-black text-purple-400 font-mono group-hover:scale-105 transition-transform flex items-center justify-center gap-1">
-                <span>{mentors.length > 0 ? `${mentors.length}+` : (stats.mentorsCount > 0 ? `${stats.mentorsCount}+` : '1+')}</span>
-                <span className="text-xs opacity-75">🔍</span>
-              </p>
-              <p className="text-xs text-purple-300 font-bold group-hover:text-white transition-colors">
-                অভিজ্ঞ মেন্টর ও শিক্ষক
-              </p>
-              <span className="text-[9px] text-purple-400/80 block mt-0.5 font-mono">
-                (প্রোফাইল দেখতে ক্লিক করুন)
-              </span>
-            </div>
-
-            <div>
-              <p className="text-2xl sm:text-3xl font-black text-cyan-400 font-mono">100%</p>
-              <p className="text-xs text-slate-400 font-medium">নিরাপদ ভিডিও লেকচার</p>
-            </div>
-            <div>
-              <p className="text-2xl sm:text-3xl font-black text-emerald-400 font-mono">24/7</p>
-              <p className="text-xs text-slate-400 font-medium">Gemini AI Legal Helper</p>
-            </div>
-          </div>
-        </div>
       </section>
+
 
       {/* Courses Showcase Section */}
       <section id="courses" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center space-y-3 mb-12">
-          <h2 className="text-2xl sm:text-4xl font-extrabold text-white">আমাদের প্রিমিয়াম কোর্সসমূহ</h2>
+          <h2 className="text-2xl sm:text-4xl font-extrabold text-white">কোর্সসমূহ</h2>
           <p className="text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
-            আপনার লক্ষ্য অনুযায়ী কোর্স নির্বাচন করুন এবং সেরা প্রস্তুতি সম্পন্ন করুন
+            ক্লাসের সময়সূচি, মেন্টর ও কোর্স ফি দেখে বেছে নিন।
           </p>
         </div>
 
