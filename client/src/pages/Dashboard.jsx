@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
+import Modal from '../components/ui/Modal';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import QuestionFormattedView from '../components/QuestionFormattedView';
 import { formatBangladeshTime, toBangladeshDigits } from '../utils/dateUtils';
 import { sortLessons } from '../utils/lessonUtils';
 
 export default function Dashboard({ openVideoModal, openProfileModal }) {
   const { user, updateUserProfile } = useAuth();
+  const { showToast, showSuccess, showError, showWarning, showInfo } = useToast();
   const [courses, setCourses] = useState([]);
   const [lessons, setLessons] = useState([]);
   const [selectedCourse, setSelectedCourse] = useState(null);
@@ -23,8 +26,6 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
   const [subDocUrl, setSubDocUrl] = useState('');
   const [subImages, setSubImages] = useState([]); // Array of base64 image strings or URLs
   const [subLoading, setSubLoading] = useState(false);
-  const [toast, setToast] = useState(null);
-
   // Student MCQ Exams & Performance States
   const [studentExams, setStudentExams] = useState([]);
   const [studentResults, setStudentResults] = useState([]);
@@ -35,15 +36,15 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     loading: false
   });
 
+  // Close review modal on tab change
+  useEffect(() => {
+    setReviewModal({ isOpen: false, result: null, review: [], loading: false });
+  }, [selectedTab]);
+
   // Request sequence, active course reference, and in-memory tab/course cache to prevent race conditions
   const currentReqSeqRef = useRef(0);
   const selectedCourseIdRef = useRef(null);
   const courseLessonsCacheRef = useRef({});
-
-  const showToast = (msg, type = 'success') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 4500);
-  };
 
   useEffect(() => {
     // Immediate state reset on user change or logout to guarantee zero data leakage
@@ -771,7 +772,6 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass}`}>
                                       {badgeText}
                                     </span>
-                                    <span className="font-mono text-[11px] text-slate-400">⏱️ {l.duration}</span>
                                     <span className="font-mono text-[10px] text-slate-500">Released: {l.releaseDate}</span>
                                   </div>
                                   <h4 className="font-bold text-white text-sm">{l.title}</h4>
@@ -892,7 +892,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                           <div className="flex items-center justify-between text-emerald-400 font-bold">
                             <span>✓ আপনি অ্যাসাইনমেন্টটি জমা দিয়েছেন</span>
                             <span className="font-mono text-[10px] text-slate-400">
-                              {new Date(sub.createdAt).toLocaleDateString('bn-BD', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              {formatBangladeshTime(sub.createdAt)}
                             </span>
                           </div>
 
@@ -1374,50 +1374,49 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
       {/* DETAILED MCQ RESULT REVIEW MODAL */}
       {reviewModal.isOpen && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fadeIn">
-          <div className="w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col max-h-[90vh] text-xs">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-              <div>
-                <h3 className="font-black text-white text-base flex items-center gap-2">
-                  <span>📝 পরীক্ষার পূর্ণাঙ্গ উত্তরপত্র ও আইনি ব্যাখ্যা</span>
-                </h3>
-                <p className="text-xs text-amber-400 font-mono mt-0.5">
-                  {reviewModal.result?.examTitle}
-                </p>
-              </div>
+        <Modal
+          isOpen={reviewModal.isOpen}
+          onClose={() => setReviewModal({ isOpen: false, result: null, review: [], loading: false })}
+          title="পরীক্ষার পূর্ণাঙ্গ উত্তরপত্র ও আইনি ব্যাখ্যা"
+          subtitle={reviewModal.result?.examTitle}
+          icon="📝"
+          maxWidth="max-w-3xl"
+          footer={
+            <div className="w-full flex justify-end">
               <button
+                type="button"
                 onClick={() => setReviewModal({ isOpen: false, result: null, review: [], loading: false })}
-                className="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold text-sm cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer"
               >
-                ✕
+                বন্ধ করুন (Close Review)
               </button>
             </div>
-
-            {/* Scorecard Strip */}
-            <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-950 border border-slate-800 mb-4 text-center">
-              <div>
-                <span className="text-[10px] text-slate-400 block font-bold">প্রাপ্ত স্কোর (Score)</span>
-                <span className="text-lg font-black text-amber-400 font-mono">
-                  {reviewModal.result?.score} <span className="text-xs text-slate-500">/ {reviewModal.result?.totalMarks}</span>
-                </span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block font-bold">শতকরা হার (Percentage)</span>
-                <span className="text-lg font-black text-emerald-400 font-mono">
-                  {reviewModal.result?.percentage}%
-                </span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block font-bold">ফলাফল গ্রেড</span>
-                <span className="text-sm font-extrabold text-cyan-300">
-                  {reviewModal.result?.grade || 'Passed'}
-                </span>
-              </div>
+          }
+        >
+          {/* Scorecard Strip */}
+          <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-950 border border-slate-800 mb-4 text-center">
+            <div>
+              <span className="text-[10px] text-slate-400 block font-bold">প্রাপ্ত স্কোর (Score)</span>
+              <span className="text-lg font-black text-amber-400 font-mono">
+                {reviewModal.result?.score} <span className="text-xs text-slate-500">/ {reviewModal.result?.totalMarks}</span>
+              </span>
             </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block font-bold">শতকরা হার (Percentage)</span>
+              <span className="text-lg font-black text-emerald-400 font-mono">
+                {reviewModal.result?.percentage}%
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block font-bold">ফলাফল গ্রেড</span>
+              <span className="text-sm font-extrabold text-cyan-300">
+                {reviewModal.result?.grade || 'Passed'}
+              </span>
+            </div>
+          </div>
 
-            {/* Questions Review List */}
-            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+          {/* Questions Review List */}
+          <div className="space-y-4 pr-1">
               {reviewModal.loading ? (
                 <div className="p-12 text-center text-amber-400 font-bold">
                   ⏳ উত্তরপত্রের বিস্তারিত রিভিউ লোড হচ্ছে...
@@ -1500,17 +1499,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                 })
               )}
             </div>
-
-            <div className="pt-3 border-t border-slate-800 flex justify-end mt-3">
-              <button
-                onClick={() => setReviewModal({ isOpen: false, result: null, review: [], loading: false })}
-                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer"
-              >
-                বন্ধ করুন (Close Review)
-              </button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

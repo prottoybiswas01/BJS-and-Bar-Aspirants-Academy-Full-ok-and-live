@@ -2700,29 +2700,47 @@ async function notifyStudentsNewLesson(courseId, lessonData) {
     // Find enrolled/allowed active students STRICTLY for this specific course
     let enrolledStudents = [];
     if (isMongoConnected) {
-      const orConditions = [
-        { allowedCourseIds: courseId },
-        { enrolledCourseIds: courseId },
-        { "courseRules.courseId": courseId }
-      ];
-      if (courseBatch) {
-        orConditions.push({ batch: courseBatch });
-      }
-
-      enrolledStudents = await Student.find({
+      // Find candidate students with matching allowedCourseIds, enrolledCourseIds, or courseRules
+      const candidates = await Student.find({
         status: { $in: ["Active", "Pending"] },
-        $or: orConditions
+        $or: [
+          { allowedCourseIds: courseId },
+          { enrolledCourseIds: courseId },
+          { "courseRules.courseId": courseId },
+          { batch: courseBatch }
+        ]
       }).lean();
+
+      // STRICT authorization check: preserve all enrollment restrictions
+      enrolledStudents = candidates.filter(student => {
+        const hasExplicitList = (Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0) ||
+                                (Array.isArray(student.enrolledCourseIds) && student.enrolledCourseIds.length > 0);
+        if (hasExplicitList) {
+          const inAllowed = Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.includes(courseId);
+          const inEnrolled = Array.isArray(student.enrolledCourseIds) && student.enrolledCourseIds.includes(courseId);
+          return inAllowed || inEnrolled;
+        }
+        // Legacy fallback only if explicit list is not set
+        if (Array.isArray(student.courseRules) && student.courseRules.some(r => r && r.courseId === courseId && r.enrollmentStatus !== 'Suspended')) {
+          return true;
+        }
+        return courseBatch && student.batch && student.batch.trim().toLowerCase() === courseBatch.trim().toLowerCase();
+      });
     }
 
     if (!enrolledStudents || enrolledStudents.length === 0) {
       enrolledStudents = (memoryDb.students || []).filter(s => {
         if (s.status === 'Blocked' || s.status === 'Inactive') return false;
-        const inAllowed = Array.isArray(s.allowedCourseIds) && s.allowedCourseIds.includes(courseId);
-        const inEnrolled = Array.isArray(s.enrolledCourseIds) && s.enrolledCourseIds.includes(courseId);
+        const hasExplicitList = (Array.isArray(s.allowedCourseIds) && s.allowedCourseIds.length > 0) ||
+                                (Array.isArray(s.enrolledCourseIds) && s.enrolledCourseIds.length > 0);
+        if (hasExplicitList) {
+          const inAllowed = Array.isArray(s.allowedCourseIds) && s.allowedCourseIds.includes(courseId);
+          const inEnrolled = Array.isArray(s.enrolledCourseIds) && s.enrolledCourseIds.includes(courseId);
+          return inAllowed || inEnrolled;
+        }
         const inRules = Array.isArray(s.courseRules) && s.courseRules.some(r => r && r.courseId === courseId && r.enrollmentStatus !== 'Suspended');
         const inBatch = courseBatch && s.batch && s.batch.trim().toLowerCase() === courseBatch.trim().toLowerCase();
-        return inAllowed || inEnrolled || inRules || inBatch;
+        return inRules || inBatch;
       });
     }
 
@@ -2776,10 +2794,6 @@ async function notifyStudentsNewLesson(courseId, lessonData) {
                 <tr>
                   <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">📖 অধ্যায় / মডিউল:</td>
                   <td style="padding: 6px 0; color: #cbd5e1;">${lessonData.chapter || lessonData.module || 'সাধারণ বিষয়সূচি'}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">⏱️ ভিডিও সময়কাল:</td>
-                  <td style="padding: 6px 0; color: #34d399; font-weight: 700;">${lessonData.duration || '56min'}</td>
                 </tr>
               </table>
             </div>
@@ -3729,189 +3743,398 @@ app.get(["/api/admin/courses", "/api/courses", "/admin/courses", "/courses"], as
   return res.json({ ok: true, courses: fallback, source: "memory", dbNotice });
 });
 
-// SAVE / CREATE / UPDATE Course (Robust Match by _id, oldId, or id)
+// Universal Course Resolver (Single Source of Truth, backward-compatible with legacy IDs and aliases)
+async function resolveCourseByIdOrAlias(identifier) {
+  if (!identifier) return null;
+  const cleanId = String(identifier).trim();
+  if (!cleanId) return null;
+  const lower = cleanId.toLowerCase();
+  const norm = lower.replace(/[-_]/g, ' ');
+
+  // 1. Check in memoryDb
+  let found = (memoryDb.courses || []).find(c => {
+    if (!c) return false;
+    const cId = String(c.id || '').trim().toLowerCase();
+    const cMongo = String(c._id || '').trim();
+    const cLegacy = Array.isArray(c.legacyIds) ? c.legacyIds.map(x => String(x).toLowerCase()) : [];
+    return cId === lower ||
+           cMongo === cleanId ||
+           cLegacy.includes(lower) ||
+           cId.replace(/[-_]/g, ' ') === norm ||
+           String(c.title || '').trim().toLowerCase() === lower;
+  });
+  if (found) return found;
+
+  // 2. Check in MongoDB
+  if (isMongoConnected) {
+    try {
+      const orClauses = [
+        { id: cleanId },
+        { legacyIds: cleanId },
+        { id: new RegExp(`^${cleanId.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '[-_ ]?')}$`, 'i') }
+      ];
+      if (mongoose.Types.ObjectId.isValid(cleanId)) {
+        orClauses.push({ _id: cleanId });
+      }
+      found = await Course.findOne({ $or: orClauses }).lean();
+      if (found) return found;
+    } catch (e) {}
+  }
+  return null;
+}
+
+// SAVE / CREATE / UPDATE Course (Robust Match by _id, oldId, or id with Universal Sync & Single Source of Truth)
 app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) => {
+  let session = null;
   try {
     await ensureDbConnected();
-    const body = req.body;
-    const oldId = body.oldId || body.id;
-    const courseId = body.id || oldId || ("course-" + Date.now());
+    const body = req.body || {};
+    const title = (body.title || "").trim();
+    if (!title) {
+      return res.status(400).json({ ok: false, message: "Course title is required." });
+    }
 
-    const courseData = {
-      id: courseId,
-      title: body.title || "New Legal Course",
-      shortTitle: body.shortTitle || body.title,
-      faculty: body.faculty || "Shanto Deb Roy Arno",
-      category: body.category || "CIVIL LAW",
-      schedule: body.schedule || "Wed,Sat",
-      batchRegText: body.batchRegText || "Wed,Sat",
-      sessionRegText: body.sessionRegText || "2026-04-01",
-      nextLive: body.nextLive || "Wed,Sat 8:30 PM",
-      price: body.price || "1000",
-      paymentType: body.paymentType || "One-time Lifetime Access",
-      description: body.description || "",
-      schedulePdfUrl: body.schedulePdfUrl || body.classScheduleUrl || body.schedulePdf || "",
-      status: body.status || "Active"
-    };
+    const oldId = (body.oldId || "").trim();
+    const incomingId = (body.id || "").trim();
+    const oldTitle = (body.oldTitle || "").trim();
 
-    let saved = courseData;
-    const oldAliases = new Set();
-    if (oldId) oldAliases.add(oldId);
-    if (courseId) oldAliases.add(courseId);
-    if (body.oldTitle) oldAliases.add(body.oldTitle);
-
+    let existing = null;
     if (isMongoConnected) {
-      let existing = null;
       if (body._id && mongoose.Types.ObjectId.isValid(body._id)) {
         existing = await Course.findById(body._id);
       }
       if (!existing && oldId) {
         existing = await Course.findOne({ id: oldId });
       }
-      if (!existing && courseId) {
-        existing = await Course.findOne({ id: courseId });
+      if (!existing && incomingId) {
+        existing = await Course.findOne({ id: incomingId });
       }
-
-      if (existing) {
-        if (existing.id) oldAliases.add(existing.id);
-        if (existing.title) oldAliases.add(existing.title);
-        if (existing.shortTitle) oldAliases.add(existing.shortTitle);
-        if (existing.batchRegText) oldAliases.add(existing.batchRegText);
-        Object.assign(existing, courseData);
-        saved = await existing.save();
-      } else {
-        saved = await Course.create(courseData);
-      }
-      if (saved && saved.toObject) saved = saved.toObject();
     }
 
-    // Match in memoryDb by _id, oldId, or id
-    const idx = (memoryDb.courses || []).findIndex(c =>
+    if (!existing) {
+      const memCourse = (memoryDb.courses || []).find(c =>
+        (body._id && String(c._id) === String(body._id)) ||
+        (oldId && c.id === oldId) ||
+        (incomingId && c.id === incomingId)
+      );
+      if (memCourse) existing = memCourse;
+    }
+
+    const courseId = incomingId || (existing ? existing.id : ("course-" + Date.now()));
+
+    // Validate ID uniqueness before saving to prevent duplicate courses or collision
+    if (isMongoConnected) {
+      const conflictQuery = existing && existing._id
+        ? { id: courseId, _id: { $ne: existing._id } }
+        : { id: courseId };
+      const conflict = await Course.findOne(conflictQuery).lean();
+      if (conflict) {
+        return res.status(400).json({
+          ok: false,
+          message: `কোর্স আইডি "${courseId}" ইতিমধ্যে অন্য কোর্সে ব্যবহৃত হচ্ছে। অনুগ্রহ করে একটি ভিন্ন আইডি দিন।`
+        });
+      }
+    }
+
+    // Collect all historical and current identifiers/aliases for this course
+    const oldIdSet = new Set();
+    const oldTitleSet = new Set();
+
+    if (existing) {
+      if (existing.id) oldIdSet.add(existing.id);
+      if (Array.isArray(existing.legacyIds)) existing.legacyIds.forEach(lid => oldIdSet.add(lid));
+      if (existing.title) oldTitleSet.add(existing.title);
+      if (existing.shortTitle) oldTitleSet.add(existing.shortTitle);
+      if (existing.batchRegText) oldTitleSet.add(existing.batchRegText);
+    }
+    if (oldId) oldIdSet.add(oldId);
+    if (oldTitle) oldTitleSet.add(oldTitle);
+
+    const oldIdList = Array.from(oldIdSet).filter(Boolean);
+    const oldTitleList = Array.from(oldTitleSet).filter(Boolean);
+
+    const newCourseId = courseId;
+    const newCourseTitle = title;
+    const idChanged = oldIdList.length > 0 && oldIdList.some(id => id !== newCourseId);
+    const titleChanged = oldTitleList.length > 0 && oldTitleList.some(t => t !== newCourseTitle);
+
+    // Update legacyIds list on the course document
+    const currentLegacy = (existing && Array.isArray(existing.legacyIds)) ? existing.legacyIds : [];
+    const mergedLegacyIds = Array.from(new Set([
+      ...currentLegacy,
+      ...oldIdList.filter(id => id !== newCourseId)
+    ]));
+
+    const courseData = {
+      id: newCourseId,
+      legacyIds: mergedLegacyIds,
+      title: newCourseTitle,
+      shortTitle: (body.shortTitle || newCourseTitle).trim(),
+      faculty: (body.faculty || "Shanto Deb Roy Arno").trim(),
+      category: (body.category || "CIVIL LAW").trim(),
+      schedule: (body.schedule || "Wed,Sat").trim(),
+      batchRegText: (body.batchRegText || "Wed,Sat").trim(),
+      sessionRegText: (body.sessionRegText || "2026-04-01").trim(),
+      nextLive: (body.nextLive || "Wed,Sat 8:30 PM").trim(),
+      price: String(body.price || "1000").trim(),
+      paymentType: (body.paymentType || "One-time Lifetime Access").trim(),
+      description: (body.description || "").trim(),
+      schedulePdfUrl: (body.schedulePdfUrl || body.classScheduleUrl || body.schedulePdf || "").trim(),
+      status: (body.status || "Active").trim()
+    };
+
+    let saved = courseData;
+
+    // Use MongoDB Transaction where replica set is available
+    if (isMongoConnected) {
+      try {
+        session = await mongoose.startSession();
+        session.startTransaction();
+      } catch (sessErr) {
+        session = null;
+      }
+
+      if (existing && existing._id) {
+        Object.assign(existing, courseData);
+        saved = await existing.save(session ? { session } : undefined);
+      } else {
+        const created = await Course.create([courseData], session ? { session } : undefined);
+        saved = Array.isArray(created) ? created[0] : created;
+      }
+      if (saved && saved.toObject) saved = saved.toObject();
+
+      // Universal Course Synchronization across all collections
+      if (idChanged || titleChanged) {
+        // 1. Lessons: Update courseId
+        if (idChanged) {
+          await Lesson.updateMany(
+            { courseId: { $in: oldIdList } },
+            { $set: { courseId: newCourseId } },
+            session ? { session } : undefined
+          );
+        }
+
+        // 2. MCQ Exams: Update courseId & courseTitle (Fixed McqExam reference)
+        if (idChanged) {
+          await McqExam.updateMany(
+            { courseId: { $in: oldIdList } },
+            { $set: { courseId: newCourseId, courseTitle: newCourseTitle } },
+            session ? { session } : undefined
+          );
+        }
+        if (titleChanged) {
+          await McqExam.updateMany(
+            { courseTitle: { $in: oldTitleList } },
+            { $set: { courseTitle: newCourseTitle } },
+            session ? { session } : undefined
+          );
+        }
+
+        // 3. Assignments: Update courseId
+        if (idChanged) {
+          await Assignment.updateMany(
+            { courseId: { $in: oldIdList } },
+            { $set: { courseId: newCourseId } },
+            session ? { session } : undefined
+          );
+        }
+
+        // 4. Submissions: Update courseId
+        if (idChanged) {
+          await Submission.updateMany(
+            { courseId: { $in: oldIdList } },
+            { $set: { courseId: newCourseId } },
+            session ? { session } : undefined
+          );
+        }
+
+        // 5. Mentors: Update assignedCourseIds
+        if (idChanged) {
+          const affectedMentors = await Mentor.find(
+            { assignedCourseIds: { $in: oldIdList } },
+            null,
+            session ? { session } : undefined
+          );
+          for (const m of affectedMentors) {
+            if (Array.isArray(m.assignedCourseIds)) {
+              m.assignedCourseIds = Array.from(new Set(
+                m.assignedCourseIds.map(cid => oldIdList.includes(cid) ? newCourseId : cid).filter(Boolean)
+              ));
+              await m.save(session ? { session } : undefined);
+            }
+          }
+        }
+
+        // 6. Students: Synchronize allowedCourseIds, enrolledCourseIds, courseRules, and batch
+        const affectedStudents = await Student.find({
+          $or: [
+            { allowedCourseIds: { $in: oldIdList } },
+            { enrolledCourseIds: { $in: oldIdList } },
+            { "courseRules.courseId": { $in: oldIdList } },
+            { batch: { $in: oldTitleList } }
+          ]
+        }, null, session ? { session } : undefined);
+
+        for (const st of affectedStudents) {
+          let changed = false;
+
+          // Replace old course ID in allowedCourseIds (NO unauthorized auto-grant)
+          if (Array.isArray(st.allowedCourseIds) && st.allowedCourseIds.some(id => oldIdList.includes(id))) {
+            st.allowedCourseIds = Array.from(new Set(
+              st.allowedCourseIds.map(id => oldIdList.includes(id) ? newCourseId : id).filter(Boolean)
+            ));
+            changed = true;
+          }
+
+          // Replace old course ID in enrolledCourseIds
+          if (Array.isArray(st.enrolledCourseIds) && st.enrolledCourseIds.some(id => oldIdList.includes(id))) {
+            st.enrolledCourseIds = Array.from(new Set(
+              st.enrolledCourseIds.map(id => oldIdList.includes(id) ? newCourseId : id).filter(Boolean)
+            ));
+            changed = true;
+          }
+
+          // Preserve and update courseRules (dates, fee, paymentDueDate, suspension state)
+          if (Array.isArray(st.courseRules)) {
+            st.courseRules.forEach(rule => {
+              if (rule && rule.courseId && oldIdList.includes(rule.courseId)) {
+                rule.courseId = newCourseId;
+                changed = true;
+              }
+            });
+          }
+
+          // Update student batch label ONLY if it genuinely matched old course titles (NO access auto-grant)
+          if (st.batch && oldTitleList.includes(st.batch)) {
+            st.batch = newCourseTitle;
+            changed = true;
+          }
+
+          // Clean up any dangling placeholders
+          if (Array.isArray(st.allowedCourseIds)) {
+            const cleaned = st.allowedCourseIds.filter(id => id && !["-------", "----", "---"].includes(id));
+            if (cleaned.length !== st.allowedCourseIds.length) {
+              st.allowedCourseIds = cleaned;
+              changed = true;
+            }
+          }
+          if (Array.isArray(st.enrolledCourseIds)) {
+            const cleaned = st.enrolledCourseIds.filter(id => id && !["-------", "----", "---"].includes(id));
+            if (cleaned.length !== st.enrolledCourseIds.length) {
+              st.enrolledCourseIds = cleaned;
+              changed = true;
+            }
+          }
+
+          if (changed) {
+            st.accessVersion = Date.now();
+            await st.save(session ? { session } : undefined);
+          }
+        }
+
+        // 7. Registrations: Update batch if genuinely matched old course titles
+        if (titleChanged) {
+          await Registration.updateMany(
+            { batch: { $in: oldTitleList } },
+            { $set: { batch: newCourseTitle } },
+            session ? { session } : undefined
+          );
+        }
+
+        // Historical Receipts: Strictly untouched to protect payment data immutability
+      }
+
+      if (session) {
+        await session.commitTransaction();
+        session.endSession();
+        session = null;
+      }
+    }
+
+    // Synchronize In-Memory DB
+    const memIdx = (memoryDb.courses || []).findIndex(c =>
       (body._id && String(c._id) === String(body._id)) ||
       (oldId && c.id === oldId) ||
-      (courseId && c.id === courseId)
+      (newCourseId && c.id === newCourseId)
     );
-
-    if (idx > -1) {
-      const prevMem = memoryDb.courses[idx];
-      if (prevMem.id) oldAliases.add(prevMem.id);
-      if (prevMem.title) oldAliases.add(prevMem.title);
-      if (prevMem.shortTitle) oldAliases.add(prevMem.shortTitle);
-      if (prevMem.batchRegText) oldAliases.add(prevMem.batchRegText);
-      memoryDb.courses[idx] = { ...memoryDb.courses[idx], ...courseData };
+    if (memIdx > -1) {
+      memoryDb.courses[memIdx] = { ...memoryDb.courses[memIdx], ...courseData };
     } else {
       (memoryDb.courses = memoryDb.courses || []).unshift(courseData);
     }
 
-    const oldAliasList = Array.from(oldAliases).filter(Boolean);
-    const newCourseTitle = courseData.title;
-    const newCourseId = courseData.id;
-
-    // Synchronize renamed course / changed course ID across all students, registrations, lessons, exams
-    if (isMongoConnected) {
-      // 1. Update Lessons
-      await Lesson.updateMany(
-        { courseId: { $in: oldAliasList } },
-        { $set: { courseId: newCourseId } }
-      ).catch(() => { });
-
-      // 2. Update Student Batch
-      await Student.updateMany(
-        { batch: { $in: oldAliasList } },
-        { $set: { batch: newCourseTitle } }
-      ).catch(() => { });
-
-      // 3. Update Registration Batch
-      await Registration.updateMany(
-        { batch: { $in: oldAliasList } },
-        { $set: { batch: newCourseTitle } }
-      ).catch(() => { });
-
-      // 4. Update MCQ Exams
-      await MCQExam.updateMany(
-        { courseId: { $in: oldAliasList } },
-        { $set: { courseId: newCourseId } }
-      ).catch(() => { });
-
-      // 5. Update Student allowedCourseIds & enrolledCourseIds
-      const affectedStudents = await Student.find({
-        $or: [
-          { allowedCourseIds: { $in: oldAliasList } },
-          { enrolledCourseIds: { $in: oldAliasList } },
-          { batch: newCourseTitle }
-        ]
+    if (idChanged || titleChanged) {
+      (memoryDb.lessons || []).forEach(l => {
+        if (oldIdList.includes(l.courseId)) l.courseId = newCourseId;
       });
-
-      for (const st of affectedStudents) {
-        let changed = false;
-        let allowed = Array.isArray(st.allowedCourseIds) ? [...st.allowedCourseIds] : [];
-        let enrolled = Array.isArray(st.enrolledCourseIds) ? [...st.enrolledCourseIds] : [];
-
-        if (allowed.some(a => oldAliasList.includes(a))) {
-          allowed = allowed.map(a => oldAliasList.includes(a) ? newCourseId : a);
-          changed = true;
-        } else if (st.batch === newCourseTitle && (st.loginApproval === 'Approved' || st.status === 'Active') && !allowed.includes(newCourseId)) {
-          allowed.push(newCourseId);
-          changed = true;
+      (memoryDb.mcqExams || []).forEach(e => {
+        if (oldIdList.includes(e.courseId)) {
+          e.courseId = newCourseId;
+          e.courseTitle = newCourseTitle;
+        } else if (oldTitleList.includes(e.courseTitle)) {
+          e.courseTitle = newCourseTitle;
         }
-
-        if (enrolled.some(e => oldAliasList.includes(e))) {
-          enrolled = enrolled.map(e => oldAliasList.includes(e) ? newCourseId : e);
-          changed = true;
-        } else if (st.batch === newCourseTitle && !enrolled.includes(newCourseId)) {
-          enrolled.push(newCourseId);
-          changed = true;
+      });
+      (memoryDb.assignments || []).forEach(a => {
+        if (oldIdList.includes(a.courseId)) a.courseId = newCourseId;
+      });
+      (memoryDb.submissions || []).forEach(s => {
+        if (oldIdList.includes(s.courseId)) s.courseId = newCourseId;
+      });
+      (memoryDb.mentors || []).forEach(m => {
+        if (Array.isArray(m.assignedCourseIds)) {
+          m.assignedCourseIds = Array.from(new Set(
+            m.assignedCourseIds.map(cid => oldIdList.includes(cid) ? newCourseId : cid).filter(Boolean)
+          ));
         }
-
-        if (changed) {
-          st.allowedCourseIds = Array.from(new Set(allowed.filter(Boolean)));
-          st.enrolledCourseIds = Array.from(new Set(enrolled.filter(Boolean)));
-          if (st.batch !== newCourseTitle && oldAliasList.includes(st.batch)) {
-            st.batch = newCourseTitle;
-          }
-          await st.save().catch(() => { });
+      });
+      (memoryDb.registrations || []).forEach(r => {
+        if (oldTitleList.includes(r.batch)) r.batch = newCourseTitle;
+      });
+      (memoryDb.students || []).forEach(s => {
+        if (Array.isArray(s.allowedCourseIds)) {
+          s.allowedCourseIds = Array.from(new Set(
+            s.allowedCourseIds.map(cid => oldIdList.includes(cid) ? newCourseId : cid).filter(Boolean)
+          ));
         }
-      }
-
-      // Always clean up dangling placeholder course IDs (like '-------')
-      await Student.updateMany(
-        {},
-        { $pull: { allowedCourseIds: { $in: ["-------", "----", "---", "", null] }, enrolledCourseIds: { $in: ["-------", "----", "---", "", null] } } }
-      ).catch(() => { });
+        if (Array.isArray(s.enrolledCourseIds)) {
+          s.enrolledCourseIds = Array.from(new Set(
+            s.enrolledCourseIds.map(cid => oldIdList.includes(cid) ? newCourseId : cid).filter(Boolean)
+          ));
+        }
+        if (Array.isArray(s.courseRules)) {
+          s.courseRules.forEach(rule => {
+            if (rule && rule.courseId && oldIdList.includes(rule.courseId)) {
+              rule.courseId = newCourseId;
+            }
+          });
+        }
+        if (oldTitleList.includes(s.batch)) s.batch = newCourseTitle;
+        s.accessVersion = Date.now();
+      });
     }
 
-    // Synchronize memoryDb
-    (memoryDb.lessons || []).forEach(l => {
-      if (oldAliasList.includes(l.courseId)) l.courseId = newCourseId;
-    });
-    (memoryDb.registrations || []).forEach(r => {
-      if (oldAliasList.includes(r.batch)) r.batch = newCourseTitle;
-    });
-    (memoryDb.students || []).forEach(s => {
-      if (oldAliasList.includes(s.batch)) s.batch = newCourseTitle;
-      if (Array.isArray(s.allowedCourseIds)) {
-        s.allowedCourseIds = Array.from(new Set(s.allowedCourseIds.map(a => oldAliasList.includes(a) ? newCourseId : a).filter(Boolean)));
-        if ((s.loginApproval === 'Approved' || s.status === 'Active') && s.batch === newCourseTitle && !s.allowedCourseIds.includes(newCourseId)) {
-          s.allowedCourseIds.push(newCourseId);
-        }
-      }
-      if (Array.isArray(s.enrolledCourseIds)) {
-        s.enrolledCourseIds = Array.from(new Set(s.enrolledCourseIds.map(e => oldAliasList.includes(e) ? newCourseId : e).filter(Boolean)));
-        if (s.batch === newCourseTitle && !s.enrolledCourseIds.includes(newCourseId)) {
-          s.enrolledCourseIds.push(newCourseId);
-        }
-      }
-    });
-
-    // Instant cache invalidation
+    // Invalidate All Relevant Caches
     fastCache.del("courses");
     fastCache.del("courses_public");
     fastCache.del("courses_all");
     fastCache.del("home_data");
-    fastCache.del("student_dash_");
+    fastCache.del("lessons");
+    fastCache.flushAll();
 
-    return res.json({ ok: true, message: `কোর্স "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং শিক্ষার্থীদের তথ্য আপডেট হয়েছে!`, course: saved });
+    return res.json({
+      ok: true,
+      message: `কোর্স "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং সম্পর্কিত সমস্ত লেকচার ও শিক্ষার্থীদের তথ্য সিঙ্ক হয়েছে!`,
+      course: saved
+    });
   } catch (err) {
+    if (session) {
+      try {
+        await session.abortTransaction();
+        session.endSession();
+      } catch (e) {}
+    }
+    console.error("Course save error:", err);
     return res.status(500).json({ ok: false, message: "কোর্স সেভ করতে সমস্যা হয়েছে: " + err.message });
   }
 });
@@ -3965,10 +4188,16 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
     let query = {};
     if (courseId) {
       const cleanCourse = String(courseId).trim();
+      const resolvedC = await resolveCourseByIdOrAlias(cleanCourse);
+      const targetIds = [cleanCourse];
+      if (resolvedC) {
+        if (resolvedC.id) targetIds.push(resolvedC.id);
+        if (Array.isArray(resolvedC.legacyIds)) targetIds.push(...resolvedC.legacyIds);
+      }
       const courseRegex = new RegExp(`^${cleanCourse.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '[-_ ]?')}$`, 'i');
       query = {
         $or: [
-          { courseId: cleanCourse },
+          { courseId: { $in: Array.from(new Set(targetIds)) } },
           { courseId: courseRegex },
           { module: courseRegex }
         ]
@@ -4027,9 +4256,29 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
 app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admin/lessons/save", "/admin/lessons"], async (req, res) => {
   try {
     await ensureDbConnected();
-    const body = req.body;
-    const lessonId = body.id || body._id || (`les-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`);
+    const body = req.body || {};
+    const incomingId = (body.id || body._id || '').trim();
     const youtubeId = extractYoutubeId(body.youtubeUrl || body.youtubeId || "");
+
+    // 1. Determine CREATE vs UPDATE by inspecting database existence (never rely on frontend flag alone)
+    let isNewLesson = false;
+    let existing = null;
+    if (isMongoConnected && incomingId) {
+      existing = await Lesson.findOne({
+        $or: [
+          { id: incomingId },
+          ...(mongoose.Types.ObjectId.isValid(incomingId) ? [{ _id: incomingId }] : [])
+        ]
+      });
+    }
+    if (!existing && incomingId) {
+      existing = (memoryDb.lessons || []).find(l => l.id === incomingId || l._id === incomingId);
+    }
+    if (!existing) {
+      isNewLesson = true;
+    }
+
+    const lessonId = existing ? existing.id : (incomingId || (`les-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`));
 
     let orderNum = (body.order !== undefined && body.order !== null && !isNaN(Number(body.order)) && Number(body.order) > 0)
       ? Number(body.order)
@@ -4047,7 +4296,7 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       module: body.module || "General Module",
       chapter: body.chapter || "",
       title: body.title || body.chapter || body.module || "Class Video",
-      duration: body.duration || "56min",
+      duration: body.duration || "", // Duration completely optional, zero 56min placeholder
       youtubeUrl: body.youtubeUrl || (youtubeId ? `https://youtu.be/${youtubeId}` : ""),
       youtubeId: youtubeId,
       releaseDate: body.releaseDate || new Date().toISOString().split("T")[0],
@@ -4059,7 +4308,6 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
 
     let saved = lessonData;
     if (isMongoConnected) {
-      let existing = await Lesson.findOne({ $or: [{ id: lessonId }, ...(mongoose.Types.ObjectId.isValid(lessonId) ? [{ _id: lessonId }] : [])] });
       if (existing) {
         if (!lessonData.transcript && existing.transcript) {
           lessonData.transcript = existing.transcript;
@@ -4136,13 +4384,24 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       }
     }
 
-    // Trigger automated email notification to enrolled batch students in background
-    notifyStudentsNewLesson(saved.courseId, saved).catch(err => {
-      console.warn("Notice sending new lesson upload email:", err.message);
-    });
+    // CRITICAL: Send email notification ONLY for genuinely NEW published videos (never on edit)
+    if (isNewLesson) {
+      if (!saved.notifiedAt) {
+        saved.notifiedAt = new Date();
+        if (isMongoConnected) {
+          await Lesson.updateOne({ id: lessonId }, { notifiedAt: new Date() });
+        }
+        notifyStudentsNewLesson(saved.courseId, saved).catch(err => {
+          console.warn("Notice sending new lesson upload email:", err.message);
+        });
+      }
+    } else {
+      console.log(`[Video Manager] Lesson "${saved.title}" (${saved.id}) updated. No notification email sent.`);
+    }
 
     // Instant cache invalidation
     fastCache.del("lessons");
+    fastCache.flushAll();
 
     const responseMsg = transcriptSynced
       ? `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং সাবটাইটেল সিঙ্ক হয়েছে!`
@@ -4636,7 +4895,7 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       ? { $or: [{ status: { $nin: ["Inactive", "Hidden"] } }, { id: { $in: candidateIds } }, { id: { $in: idRegexes } }] }
       : { status: { $nin: ["Inactive", "Hidden"] } };
 
-    const courseProjection = 'id title shortTitle category faculty status batchRegText sessionRegText';
+    const courseProjection = 'id legacyIds title shortTitle category faculty status batchRegText sessionRegText';
     const allCourses = isMongoConnected
       ? await Course.find(courseQuery, courseProjection).sort({ createdAt: -1 }).lean().catch(() => [])
       : (memoryDb.courses || []).filter(c => {
@@ -4645,7 +4904,8 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
           return candidateIds.some(cid => {
             const c1 = String(cid).toLowerCase().trim();
             const c2 = String(c.id).toLowerCase().trim();
-            return c1 === c2 || c1.replace(/[-_]/g, ' ') === c2.replace(/[-_]/g, ' ');
+            const cLegacy = Array.isArray(c.legacyIds) ? c.legacyIds.map(x => String(x).toLowerCase()) : [];
+            return c1 === c2 || c1.replace(/[-_]/g, ' ') === c2.replace(/[-_]/g, ' ') || cLegacy.includes(c1);
           });
         });
 
@@ -4672,7 +4932,7 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
     const enrolledIds = enrolledCourses.map(c => c.id);
 
     // 3. Resolve selected course:
-    // If student explicitly requested a course, match flexibly (case-insensitive, slug-tolerant, plural-tolerant)
+    // If student explicitly requested a course, match flexibly (case-insensitive, slug-tolerant, plural-tolerant, and legacy ID-tolerant)
     let selectedCourse = null;
     if (requestedCourseId) {
       const reqClean = String(requestedCourseId).trim().toLowerCase();
@@ -4684,11 +4944,14 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
         const cTitle = String(c.title || '').trim().toLowerCase();
         const cShort = String(c.shortTitle || '').trim().toLowerCase();
         const mongoId = String(c._id || '').trim().toLowerCase();
+        const legacy = Array.isArray(c.legacyIds) ? c.legacyIds.map(x => String(x).toLowerCase()) : [];
         return cId === reqClean ||
                cIdNorm === reqNorm ||
                mongoId === reqClean ||
                cTitle === reqClean ||
                cShort === reqClean ||
+               legacy.includes(reqClean) ||
+               legacy.some(l => l.replace(/[-_]/g, ' ') === reqNorm) ||
                cId.replace(/s$/, '') === reqClean.replace(/s$/, '') ||
                cIdNorm.replace(/s$/, '') === reqNorm.replace(/s$/, '');
       }) || null;
