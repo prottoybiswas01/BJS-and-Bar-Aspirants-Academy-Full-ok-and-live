@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import Modal from '../components/ui/Modal';
+import { lockBodyScroll, unlockBodyScroll } from '../components/ui/scrollLock';
+import { formatBangladeshTime } from '../utils/dateUtils';
 import api from '../services/api';
 import QuestionFormattedView from '../components/QuestionFormattedView';
 
 export default function MentorDashboard() {
   const { user } = useAuth();
+  const { showToast, showSuccess, showError, showWarning, showInfo } = useToast();
   const [activeTab, setActiveTab] = useState('students'); // 'students' | 'assignments' | 'evaluations'
 
   // Data states
@@ -84,12 +90,27 @@ export default function MentorDashboard() {
 
   const handleTouchEnd = () => setIsDragging(false);
 
-  const [toast, setToast] = useState(null);
+  // Close modals on tab change
+  useEffect(() => {
+    setGradingModal({ isOpen: false, submission: null });
+    setIsFullScreenModal(false);
+  }, [activeTab]);
 
-  const showToast = (msg, type = 'success') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 4000);
-  };
+  // Handle FullScreen inspector scroll lock and Escape key
+  useEffect(() => {
+    if (!isFullScreenModal) return;
+    lockBodyScroll();
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setIsFullScreenModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      unlockBodyScroll();
+    };
+  }, [isFullScreenModal]);
 
   const handleDownloadMeritPdf = async (assignmentId, title) => {
     try {
@@ -251,19 +272,6 @@ export default function MentorDashboard() {
 
   return (
     <div className="space-y-6 pb-12 animate-fadeIn">
-      
-      {/* Toast Notification */}
-      {toast && (
-        <div className={`fixed bottom-5 right-5 z-50 px-5 py-3.5 rounded-2xl shadow-2xl border text-sm font-bold flex items-center gap-2 animate-bounce ${
-          toast.type === 'error'
-            ? 'bg-rose-950/95 border-rose-500/50 text-rose-200'
-            : 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200'
-        }`}>
-          <span>{toast.type === 'error' ? '⚠️' : '✓'}</span>
-          <span>{toast.msg}</span>
-        </div>
-      )}
-
       {/* Mentor Profile Header Banner */}
       <div className="glass-card rounded-3xl p-6 sm:p-8 border border-slate-800 bg-gradient-to-r from-slate-950 via-[#0b1325] to-amber-950/30 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
@@ -680,9 +688,7 @@ export default function MentorDashboard() {
                             )}
                           </td>
                           <td className="p-3.5 font-mono text-[11px] text-slate-400">
-                            {new Date(sub.createdAt).toLocaleDateString('bn-BD', {
-                              month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                            })}
+                            {formatBangladeshTime(sub.createdAt)}
                           </td>
                           <td className="p-3.5">
                             {isGraded ? (
@@ -731,29 +737,16 @@ export default function MentorDashboard() {
 
       {/* ADVANCED EXAM SCRIPT INSPECTOR & GRADING MODAL */}
       {gradingModal.isOpen && gradingModal.submission && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/90 backdrop-blur-md animate-fadeIn overflow-y-auto">
-          <div className="glass-card max-w-5xl w-full rounded-3xl p-5 sm:p-7 border border-slate-800 shadow-2xl space-y-5 my-auto max-h-[92vh] flex flex-col">
-            
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
-              <div>
-                <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">
-                  HANDWRITTEN EXAM SCRIPT INSPECTOR
-                </span>
-                <h3 className="text-lg font-black text-white mt-1">
-                  শিক্ষার্থী খাতা মূল্যায়ন ও মার্কিং প্যানেল
-                </h3>
-              </div>
-              <button
-                onClick={() => setGradingModal({ isOpen: false, submission: null })}
-                className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-lg font-bold transition-all"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Modal Body: Grid Split View */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-y-auto flex-1 pr-1">
+        <Modal
+          isOpen={gradingModal.isOpen}
+          onClose={() => setGradingModal({ isOpen: false, submission: null })}
+          title="শিক্ষার্থী খাতা মূল্যায়ন ও মার্কিং প্যানেল"
+          subtitle="HANDWRITTEN EXAM SCRIPT INSPECTOR"
+          icon="📝"
+          maxWidth="max-w-5xl"
+        >
+          {/* Modal Body: Grid Split View */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-y-auto flex-1 pr-1">
               
               {/* Left Column (8 cols): Exam Paper Handwritten Photos & Script Viewer */}
               <div className="lg:col-span-7 space-y-4">
@@ -1013,14 +1006,12 @@ export default function MentorDashboard() {
 
               </div>
             </div>
-
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* FULL-SCREEN INTERACTIVE EXAM SCRIPT INSPECTOR MODAL */}
-      {isFullScreenModal && gradingModal.submission && gradingModal.submission.imageUrls && (
-        <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col p-4 animate-fadeIn">
+      {isFullScreenModal && gradingModal.submission && gradingModal.submission.imageUrls && createPortal(
+        <div className="fixed inset-0 z-[9995] bg-slate-950 flex flex-col p-4 animate-fadeIn" role="dialog" aria-modal="true" aria-label="ফুলস্ক্রিন খাতা প্রিভিউ">
           {/* Header Controls */}
           <div className="flex items-center justify-between bg-slate-900/90 p-3 rounded-2xl border border-slate-800 backdrop-blur-md mb-3">
             <div className="flex items-center gap-3">
@@ -1103,7 +1094,8 @@ export default function MentorDashboard() {
               />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
     </div>

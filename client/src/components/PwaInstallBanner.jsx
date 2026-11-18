@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Smartphone, Download, X, Share, PlusSquare, CheckCircle2 } from 'lucide-react';
+import Modal from './ui/Modal';
 
 export default function PwaInstallBanner() {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -136,63 +137,53 @@ export default function PwaInstallBanner() {
 
       {/* iOS Instructions Modal */}
       {showIOSModal && (
-        <div className="fixed inset-0 z-[1000] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 text-slate-100 relative shadow-2xl animate-scale-in">
-            <button
-              onClick={() => setShowIOSModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="text-center mb-5">
-              <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-3 text-amber-400">
-                <Smartphone className="w-8 h-8" />
+        <Modal
+          isOpen={showIOSModal}
+          onClose={() => setShowIOSModal(false)}
+          title="iPhone/iPad এ ইনস্টল করার উপায়"
+          subtitle="Safari ব্রাউজার দিয়ে খুব সহজেই আপনার ফোনে সেভ করুন"
+          icon={<Smartphone className="w-5 h-5 text-amber-400" />}
+          maxWidth="max-w-sm"
+        >
+          <div className="space-y-4 text-sm text-slate-300">
+            <div className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-800">
+              <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg shrink-0">
+                <Share className="w-5 h-5" />
               </div>
-              <h3 className="text-lg font-bold text-slate-100">iPhone/iPad এ ইনস্টল করার উপায়</h3>
-              <p className="text-xs text-slate-400 mt-1">Safari ব্রাউজার দিয়ে খুব সহজেই আপনার ফোনে সেভ করুন</p>
+              <div>
+                <span className="font-semibold text-white block">১. শেয়ার বাটনে চাপ দিন</span>
+                Safari ব্রাউজারের নিচে থাকা <span className="text-amber-400 font-medium">Share</span> আইকনে চাপ দিন।
+              </div>
             </div>
 
-            <div className="space-y-4 text-sm text-slate-300">
-              <div className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-800">
-                <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg shrink-0">
-                  <Share className="w-5 h-5" />
-                </div>
-                <div>
-                  <span className="font-semibold text-white block">১. শেয়ার বাটনে চাপ দিন</span>
-                  Safari ব্রাউজারের নিচে থাকা <span className="text-amber-400 font-medium">Share</span> আইকনে চাপ দিন।
-                </div>
+            <div className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-800">
+              <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg shrink-0">
+                <PlusSquare className="w-5 h-5" />
               </div>
-
-              <div className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-800">
-                <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg shrink-0">
-                  <PlusSquare className="w-5 h-5" />
-                </div>
-                <div>
-                  <span className="font-semibold text-white block">২. 'Add to Home Screen' বেছে নিন</span>
-                  স্ক্রোল করে নিচে নামুন এবং <span className="text-amber-400 font-medium">Add to Home Screen</span> অপশনটি বেছে নিন।
-                </div>
+              <div>
+                <span className="font-semibold text-white block">২. 'Add to Home Screen' বেছে নিন</span>
+                স্ক্রোল করে নিচে নামুন এবং <span className="text-amber-400 font-medium">Add to Home Screen</span> অপশনটি বেছে নিন।
               </div>
+            </div>
 
-              <div className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-800">
-                <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg shrink-0">
-                  <CheckCircle2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <span className="font-semibold text-white block">৩. 'Add' অপশনে চাপ দিন</span>
-                  উপরে ডানপাশে <span className="text-emerald-400 font-medium">Add</span> এ চাপ দিলেই ফোনের হোম স্ক্রিনে অ্যাপ চলে আসবে!
-                </div>
+            <div className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-800">
+              <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="font-semibold text-white block">৩. 'Add' অপশনে চাপ দিন</span>
+                উপরে ডানপাশে <span className="text-emerald-400 font-medium">Add</span> এ চাপ দিলেই ফোনের হোম স্ক্রিনে অ্যাপ চলে আসবে!
               </div>
             </div>
 
             <button
               onClick={() => setShowIOSModal(false)}
-              className="w-full mt-6 py-3 bg-slate-800 hover:bg-slate-700 font-semibold text-sm rounded-xl text-slate-200 transition-colors"
+              className="w-full mt-2 py-3 bg-slate-800 hover:bg-slate-700 font-semibold text-sm rounded-xl text-slate-200 transition-colors"
             >
               বুঝেছি (Got It)
             </button>
           </div>
-        </div>
+        </Modal>
       )}
     </>
   );

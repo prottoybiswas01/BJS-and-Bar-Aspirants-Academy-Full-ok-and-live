@@ -1,9 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { lockBodyScroll, unlockBodyScroll } from './ui/scrollLock';
 
 export default function MentorProfileModal({ mentor, isOpen, onClose, setActivePage }) {
   if (!isOpen || !mentor) return null;
 
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    lockBodyScroll();
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      unlockBodyScroll();
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
 
   // Generate unique shareable link for this mentor
   const shareUrl = `${window.location.origin}${window.location.pathname}#mentor-${mentor.id}`;
@@ -26,8 +40,13 @@ export default function MentorProfileModal({ mentor, isOpen, onClose, setActiveP
     window.open(fbUrl, '_blank');
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn font-sans">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9990] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn font-sans"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="glass-card rounded-3xl p-6 sm:p-8 border border-amber-500/40 shadow-2xl max-w-2xl w-full max-h-[92vh] overflow-y-auto space-y-6 bg-[#0b1325] text-slate-100 relative">
         
         {/* Floating Close & Home Navigation Buttons */}
@@ -223,6 +242,7 @@ export default function MentorProfileModal({ mentor, isOpen, onClose, setActiveP
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

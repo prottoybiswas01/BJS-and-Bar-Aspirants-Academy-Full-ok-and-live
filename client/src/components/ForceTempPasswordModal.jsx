@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { lockBodyScroll, unlockBodyScroll } from './ui/scrollLock';
 
 export default function ForceTempPasswordModal() {
   const { user, setUser } = useAuth();
@@ -9,6 +11,12 @@ export default function ForceTempPasswordModal() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+
+  useEffect(() => {
+    if (!user || !user.isTemporaryPassword) return;
+    lockBodyScroll();
+    return () => unlockBodyScroll();
+  }, [user]);
 
   if (!user || !user.isTemporaryPassword) return null;
 
@@ -56,8 +64,8 @@ export default function ForceTempPasswordModal() {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[99999] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 font-sans select-none animate-fadeIn">
+  return createPortal(
+    <div className="fixed inset-0 z-[9990] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 font-sans select-none animate-fadeIn">
       <div className="bg-[#0c1629] border border-amber-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-5 text-left border-t-4 border-t-amber-500">
         <div className="text-center space-y-2">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-bold flex items-center justify-center text-2xl mx-auto shadow-lg shadow-amber-500/20">
@@ -119,6 +127,7 @@ export default function ForceTempPasswordModal() {
           </button>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

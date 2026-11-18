@@ -1,5 +1,6 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider, useToast } from './context/ToastContext';
 import SecurityGuard from './components/SecurityGuard';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -137,6 +138,7 @@ function resolveRoute(user) {
 
 function MainApp() {
   const { user } = useAuth();
+  const { showWarning, showError } = useToast();
   const [mcqExamId, setMcqExamId] = useState('');
   const [activePage, setActivePage] = useState(() => resolveRoute(null));
 
@@ -206,7 +208,7 @@ function MainApp() {
         if (!currentUser || (!currentUser.id && !currentUser.regId)) {
           setActivePage('login');
           setTimeout(() => {
-            alert('🔐 ভিডিও ক্লাসটি দেখতে অনুগ্রহ করে প্রথমে আপনার স্টুডেন্ট অ্যাকাউন্টে লগইন করুন।');
+            showWarning('🔐 ভিডিও ক্লাসটি দেখতে অনুগ্রহ করে প্রথমে আপনার স্টুডেন্ট অ্যাকাউন্টে লগইন করুন।');
           }, 400);
           return;
         }
@@ -219,7 +221,7 @@ function MainApp() {
               if (!found.isUnlocked && !found.youtubeId) {
                 setActivePage('home');
                 setTimeout(() => {
-                  alert('🔒 আপনার এই ভিডিও ক্লাসে অ্যাক্সেস নেই। এই কোর্সটিতে আপনার ভর্তি বা অনুমোদন সক্রিয় নেই।');
+                  showError('🔒 আপনার এই ভিডিও ক্লাসে অ্যাক্সেস নেই। এই কোর্সটিতে আপনার ভর্তি বা অনুমোদন সক্রিয় নেই।');
                   const el = document.getElementById('courses') || document.getElementById('course-section');
                   if (el) el.scrollIntoView({ behavior: 'smooth' });
                 }, 400);
@@ -233,7 +235,7 @@ function MainApp() {
           } else {
             setActivePage('home');
             setTimeout(() => {
-              alert('🔒 ভিডিও ক্লাসটি খুঁজে পাওয়া যায়নি বা আপনার এতে অনুমতি নেই।');
+              showError('🔒 ভিডিও ক্লাসটি খুঁজে পাওয়া যায়নি বা আপনার এতে অনুমতি নেই।');
             }, 400);
           }
         }).catch(() => {
@@ -301,6 +303,15 @@ function MainApp() {
   const [lessonManagerModal, setLessonManagerModal] = useState({ isOpen: false, course: null });
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
   const [aiInitialQuery, setAiInitialQuery] = useState('');
+
+  // Close modals on page navigation
+  useEffect(() => {
+    setVideoModal({ isOpen: false, lesson: null });
+    setMentorModal({ isOpen: false, mentor: null });
+    setLessonManagerModal({ isOpen: false, course: null });
+    setProfileModalOpen(false);
+    setAiDrawerOpen(false);
+  }, [activePage]);
 
   // Professional Clean SPA Navigation (updates browser URL without reloading)
   const navigatePage = (targetPage, customPath = null) => {
@@ -488,7 +499,9 @@ export default function App() {
   return (
     <SecurityGuard>
       <AuthProvider>
-        <MainApp />
+        <ToastProvider>
+          <MainApp />
+        </ToastProvider>
       </AuthProvider>
     </SecurityGuard>
   );

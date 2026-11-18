@@ -1,9 +1,16 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Maximize2, Minimize2, Smartphone, ShieldCheck, X } from 'lucide-react';
+import { lockBodyScroll, unlockBodyScroll } from './ui/scrollLock';
 
 export default function VideoPlayerModal({ videoId, title, student, onClose }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef(null);
+
+  useEffect(() => {
+    lockBodyScroll();
+    return () => unlockBodyScroll();
+  }, []);
 
   useEffect(() => {
     // Prevent right-click & DevTools shortcuts
@@ -17,6 +24,9 @@ export default function VideoPlayerModal({ videoId, title, student, onClose }) {
       ) {
         e.preventDefault();
         return false;
+      }
+      if (e.key === 'Escape' && !document.fullscreenElement && !document.webkitFullscreenElement) {
+        onClose?.();
       }
     };
 
@@ -67,8 +77,13 @@ export default function VideoPlayerModal({ videoId, title, student, onClose }) {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 backdrop-blur-md p-1 sm:p-4 animate-fadeIn select-none">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/90 backdrop-blur-md p-1 sm:p-4 animate-fadeIn select-none"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose?.();
+      }}
+    >
       <div 
         ref={containerRef}
         id="video-modal-container"
@@ -162,6 +177,7 @@ export default function VideoPlayerModal({ videoId, title, student, onClose }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

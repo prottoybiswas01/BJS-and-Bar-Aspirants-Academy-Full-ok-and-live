@@ -9,7 +9,7 @@
     "client": "npm run dev --prefix client",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "build": "npm run build --prefix client",
-    "test": "node test_regression_suite.js"
+    "test": "node test_modal_toast.js && node test_regression_suite.js"
   },
   "keywords": [
     "bjs",

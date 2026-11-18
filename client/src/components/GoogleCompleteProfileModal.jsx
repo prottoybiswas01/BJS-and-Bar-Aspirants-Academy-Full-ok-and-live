@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../services/api';
+import { lockBodyScroll, unlockBodyScroll } from './ui/scrollLock';
 
 export default function GoogleCompleteProfileModal({
   isOpen,
@@ -16,6 +18,12 @@ export default function GoogleCompleteProfileModal({
 
   useEffect(() => {
     if (!isOpen) return;
+
+    lockBodyScroll();
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', handleKeyDown);
 
     let isMounted = true;
     api.get('/courses')
@@ -36,8 +44,10 @@ export default function GoogleCompleteProfileModal({
 
     return () => {
       isMounted = false;
+      unlockBodyScroll();
+      window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   if (!isOpen || !googleData) return null;
 
@@ -67,8 +77,13 @@ export default function GoogleCompleteProfileModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fadeIn">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fadeIn"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose?.();
+      }}
+    >
       <div className="relative w-full max-w-lg rounded-2xl bg-slate-900 border border-amber-500/30 shadow-2xl shadow-amber-500/10 p-6 sm:p-8 space-y-6 text-slate-100 overflow-hidden">
         {/* Glowing Decorative Background Accent */}
         <div className="absolute -top-16 -right-16 w-36 h-36 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
@@ -211,6 +226,7 @@ export default function GoogleCompleteProfileModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

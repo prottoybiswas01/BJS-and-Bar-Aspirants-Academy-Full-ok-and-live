@@ -45,8 +45,8 @@ function generateReceiptPdf(receipt, outputStream) {
 
       doc.y = boxY + 46;
 
-      // Bangladesh Standard Time formatted date
-      const paymentTimeFormatted = formatBangladeshTime(receipt.paymentTime || receipt.createdAt, 'bn-BD');
+      // Bangladesh Standard Time formatted date (Clean English)
+      const paymentTimeFormatted = formatBangladeshTime(receipt.paymentTime || receipt.createdAt);
       const amountVal = Number(receipt.amount || 0);
 
       // Info Table Grid (Row by Row)

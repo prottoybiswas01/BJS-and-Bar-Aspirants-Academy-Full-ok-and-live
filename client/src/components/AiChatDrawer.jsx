@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { lockBodyScroll, unlockBodyScroll } from './ui/scrollLock';
 
 export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActivePage, initialQuery, onQueryHandled }) {
   const { user } = useAuth();
@@ -35,10 +37,9 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
   // Lock body scroll when drawer is open
   useEffect(() => {
     if (isOpen) {
-      const originalOverflow = document.body.style.overflow;
-      document.body.style.overflow = 'hidden';
+      lockBodyScroll();
       return () => {
-        document.body.style.overflow = originalOverflow;
+        unlockBodyScroll();
       };
     }
   }, [isOpen]);
@@ -262,8 +263,10 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
     triggerQuery(text);
   };
 
-  return (
-    <div className="fixed inset-0 z-[99999] overflow-hidden flex justify-end">
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9990] overflow-hidden flex justify-end">
       {/* Semi-transparent backdrop overlay - clicking it closes drawer */}
       <div
         className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300 animate-fadeIn cursor-pointer"
@@ -684,6 +687,7 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
         </button>
       </form>
     </div>
-  </div>
+  </div>,
+  document.body
   );
 }

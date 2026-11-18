@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
+import Modal from '../components/ui/Modal';
+import { useToast } from '../context/ToastContext';
 import { formatBangladeshTime, toBangladeshDigits } from '../utils/dateUtils';
 
 export default function AdminPanel({ openLessonManager, openVideoModal, openMentorProfile }) {
@@ -76,14 +78,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   };
 
   const [loading, setLoading] = useState(true);
-  const [msg, setMsg] = useState(null);
-
-  const showToast = (text, type = 'success') => {
-    setMsg({ type, text });
-    setTimeout(() => {
-      setMsg((current) => (current?.text === text ? null : current));
-    }, 4500);
-  };
+  const { showToast, showSuccess, showError, showWarning, showInfo } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
 
@@ -126,6 +121,17 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   // Admin Modular Tab Navigation State
   const [adminTab, setAdminTab] = useState('settings'); // 'settings' | 'students' | 'mentors' | 'courses' | 'payments' | 'mcq' | 'merit'
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Close open modals when switching admin tabs
+  useEffect(() => {
+    setReceiptPreviewModal({ isOpen: false, receipt: null });
+    setStudentPaymentProfileModal({ isOpen: false, student: null });
+    setDueReminderEmailModal({ isOpen: false, subject: '', body: '', sending: false, targetIds: [] });
+    setPreviewStudentModal({ isOpen: false, student: null });
+    setTempPasswordModal({ isOpen: false, student: null, tempPassword: '', generatedPass: '', copied: false });
+    setMergeMentorModal({ isOpen: false, targetMentor: null, sourceMentorId: '' });
+    setNoteModal({ isOpen: false, student: null, noteText: '', loading: false });
+  }, [adminTab]);
 
   // Messaging State
   const [popupTitle, setPopupTitle] = useState('');
@@ -2267,29 +2273,6 @@ BJS & Bar Aspirants Academy
 
 return (
     <div className="min-h-screen bg-[#070d19] text-slate-100 font-sans flex flex-col lg:flex-row gap-6 p-2 sm:p-4 animate-fadeIn relative">
-      {/* Floating Toast Notification Banner */}
-      {msg && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[100] animate-bounce-short max-w-md w-[90%] shadow-2xl">
-          <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 text-xs font-bold backdrop-blur-xl transition-all ${
-            msg.type === 'success'
-              ? 'bg-emerald-950/95 text-emerald-200 border-emerald-500/50 shadow-emerald-950/50'
-              : 'bg-rose-950/95 text-rose-200 border-rose-500/50 shadow-rose-950/50'
-          }`}>
-            <div className="flex items-center gap-2.5">
-              <span className="text-base">{msg.type === 'success' ? '✅' : '⚠️'}</span>
-              <span>{msg.text}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setMsg(null)}
-              className="text-slate-400 hover:text-white px-2 py-0.5 text-xs font-mono"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* LEFT EXECUTIVE NAVIGATION SIDEBAR */}
       <aside className="w-full lg:w-72 glass-card rounded-3xl p-4 sm:p-5 border border-slate-800 shrink-0 space-y-4 lg:space-y-6 flex flex-col justify-between self-start relative lg:sticky lg:top-24 z-20 bg-[#0b1325]/95 backdrop-blur-xl shadow-2xl">
         <div className="space-y-4 lg:space-y-6">
@@ -5477,93 +5460,19 @@ return (
 
       {/* Printable Money Receipt Slip Modal */}
       {receiptPreviewModal.isOpen && receiptPreviewModal.receipt && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div className="glass-card rounded-2xl p-6 border border-emerald-500/40 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto space-y-5 bg-[#0b1325] text-slate-100 font-sans">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">🧾</span>
-                <h3 className="font-extrabold text-white text-base">অফিশিয়াল মানি রিসিট (Paid Slip)</h3>
-              </div>
+        <Modal
+          isOpen={receiptPreviewModal.isOpen}
+          onClose={() => setReceiptPreviewModal({ isOpen: false, receipt: null })}
+          title="অফিশিয়াল মানি রিসিট (Paid Slip)"
+          icon="🧾"
+          maxWidth="max-w-lg"
+          ariaLabel="Official Money Receipt Slip"
+          footer={
+            <div className="w-full flex justify-between items-center gap-2">
               <button
                 type="button"
                 onClick={() => setReceiptPreviewModal({ isOpen: false, receipt: null })}
-                className="text-slate-400 hover:text-white p-1 font-bold text-lg"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Slip Printable Body */}
-            <div id="printable-receipt-slip" className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4 relative">
-              <div className="text-center border-b border-slate-800 pb-3">
-                <h2 className="text-lg font-black text-amber-400">⚖️ BJS & Bar Aspirants Academy</h2>
-                <p className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Official Money Receipt & Payment Voucher</p>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-xs text-slate-400 font-mono">Receipt Ref: <span className="font-bold text-amber-400">{receiptPreviewModal.receipt.receiptId}</span></p>
-                  <p className="text-[11px] text-slate-300 font-mono">{formatBangladeshTime(receiptPreviewModal.receipt.paymentTime || receiptPreviewModal.receipt.createdAt)}</p>
-                </div>
-                <span className="px-3 py-1 rounded-md border border-emerald-500 text-emerald-400 font-bold text-xs uppercase tracking-widest bg-emerald-500/10">
-                  ✓ OFFICIAL PAID
-                </span>
-              </div>
-
-              <div className="space-y-2 text-xs bg-slate-950 p-3.5 rounded-xl border border-slate-800">
-                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                  <span className="text-slate-400">Student Name:</span>
-                  <span className="font-bold text-white">{receiptPreviewModal.receipt.studentName}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                  <span className="text-slate-400">Student ID:</span>
-                  <span className="font-mono font-bold text-amber-400">{receiptPreviewModal.receipt.studentId}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                  <span className="text-slate-400">Registered Email:</span>
-                  <span className="text-slate-200">{receiptPreviewModal.receipt.studentEmail}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                  <span className="text-slate-400">Phone Number:</span>
-                  <span className="text-slate-200">{receiptPreviewModal.receipt.studentPhone}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                  <span className="text-slate-400">Course / Batch:</span>
-                  <span className="text-cyan-300 font-bold">{receiptPreviewModal.receipt.batch || 'BJS & Bar Masterclass'}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                  <span className="text-slate-400">Payment Method:</span>
-                  <span className="text-amber-400 font-bold">{receiptPreviewModal.receipt.paymentMethod}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                  <span className="text-slate-400">TrxID:</span>
-                  <span className="font-mono text-emerald-400 font-bold">{receiptPreviewModal.receipt.trxId || 'N/A'}</span>
-                </div>
-                {receiptPreviewModal.receipt.note && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Description:</span>
-                    <span className="text-slate-300">{receiptPreviewModal.receipt.note}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-950 border border-emerald-500/40 text-center space-y-0.5">
-                <span className="text-[10px] text-slate-400 font-mono uppercase font-bold">TOTAL AMOUNT RECEIVED</span>
-                <p className="text-2xl font-black text-emerald-400 font-mono">
-                  ৳ {Number(receiptPreviewModal.receipt.amount || 0).toLocaleString()} BDT
-                </p>
-              </div>
-
-              <div className="pt-2 text-center text-[10px] text-slate-500 font-mono border-t border-slate-800">
-                Issued & Verified By: Academic Accounts Department | অনলাইন কোচিং সেন্টার
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center pt-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setReceiptPreviewModal({ isOpen: false, receipt: null })}
-                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-colors cursor-pointer"
               >
                 বন্ধ করুন (Close)
               </button>
@@ -5572,7 +5481,7 @@ return (
                 <button
                   type="button"
                   onClick={() => handleCopyReceiptDetails(receiptPreviewModal.receipt)}
-                  className={`px-3.5 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  className={`px-3.5 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                     copiedReceiptId === receiptPreviewModal.receipt.receiptId
                       ? 'bg-emerald-600 text-white border-emerald-400'
                       : 'bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border-cyan-500/30'
@@ -5590,8 +5499,74 @@ return (
                 </button>
               </div>
             </div>
+          }
+        >
+          {/* Slip Printable Body */}
+          <div id="printable-receipt-slip" className="p-4 sm:p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4 relative">
+            <div className="text-center border-b border-slate-800 pb-3">
+              <h2 className="text-lg font-black text-amber-400">⚖️ BJS & Bar Aspirants Academy</h2>
+              <p className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Official Money Receipt & Payment Voucher</p>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <div>
+                <p className="text-xs text-slate-400 font-mono">Receipt Ref: <span className="font-bold text-amber-400">{receiptPreviewModal.receipt.receiptId}</span></p>
+                <p className="text-[11px] text-slate-300 font-mono">{formatBangladeshTime(receiptPreviewModal.receipt.paymentTime || receiptPreviewModal.receipt.createdAt)}</p>
+              </div>
+              <span className="px-3 py-1 rounded-md border border-emerald-500 text-emerald-400 font-bold text-xs uppercase tracking-widest bg-emerald-500/10">
+                ✓ OFFICIAL PAID
+              </span>
+            </div>
+
+            <div className="space-y-2 text-xs bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                <span className="text-slate-400">Student Name:</span>
+                <span className="font-bold text-white">{receiptPreviewModal.receipt.studentName}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                <span className="text-slate-400">Student ID:</span>
+                <span className="font-mono font-bold text-amber-400">{receiptPreviewModal.receipt.studentId}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                <span className="text-slate-400">Registered Email:</span>
+                <span className="text-slate-200">{receiptPreviewModal.receipt.studentEmail}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                <span className="text-slate-400">Phone Number:</span>
+                <span className="text-slate-200">{receiptPreviewModal.receipt.studentPhone}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                <span className="text-slate-400">Course / Batch:</span>
+                <span className="text-cyan-300 font-bold">{receiptPreviewModal.receipt.batch || 'BJS & Bar Masterclass'}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                <span className="text-slate-400">Payment Method:</span>
+                <span className="text-amber-400 font-bold">{receiptPreviewModal.receipt.paymentMethod}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
+                <span className="text-slate-400">TrxID:</span>
+                <span className="font-mono text-emerald-400 font-bold">{receiptPreviewModal.receipt.trxId || 'N/A'}</span>
+              </div>
+              {receiptPreviewModal.receipt.note && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Description:</span>
+                  <span className="text-slate-300">{receiptPreviewModal.receipt.note}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-emerald-500/40 text-center space-y-0.5">
+              <span className="text-[10px] text-slate-400 font-mono uppercase font-bold">TOTAL AMOUNT RECEIVED</span>
+              <p className="text-2xl font-black text-emerald-400 font-mono">
+                ৳ {Number(receiptPreviewModal.receipt.amount || 0).toLocaleString()} BDT
+              </p>
+            </div>
+
+            <div className="pt-2 text-center text-[10px] text-slate-500 font-mono border-t border-slate-800">
+              Issued & Verified By: Academic Accounts Department | অনলাইন কোচিং সেন্টার
+            </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Student Payment Profile & Receipts History Modal */}
@@ -5600,25 +5575,52 @@ return (
         const summary = getStudentPaymentSummary(stu, selectedPaymentMonth);
         const stuReceipts = summary.allTimeReceipts || [];
         return (
-          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-            <div className="glass-card rounded-2xl p-6 border border-indigo-500/40 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto space-y-5 bg-[#0b1325] text-slate-100 font-sans">
-              {/* Header */}
-              <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-2xl">💳</span>
-                  <div>
-                    <h3 className="font-extrabold text-white text-base">স্টুডেন্ট পেমেন্ট প্রোফাইল ও রিসিট হিস্ট্রি</h3>
-                    <p className="text-[11px] text-slate-400">এই শিক্ষার্থীর সকল ফি ও ট্রানজেকশন অডিট</p>
-                  </div>
-                </div>
+          <Modal
+            isOpen={studentPaymentProfileModal.isOpen}
+            onClose={() => setStudentPaymentProfileModal({ isOpen: false, student: null })}
+            title="স্টুডেন্ট পেমেন্ট প্রোফাইল ও রিসিট হিস্ট্রি"
+            subtitle="এই শিক্ষার্থীর সকল ফি ও ট্রানজেকশন অডিট"
+            icon="💳"
+            maxWidth="max-w-2xl"
+            footer={
+              <div className="w-full flex justify-between items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setStudentPaymentProfileModal({ isOpen: false, student: null })}
-                  className="text-slate-400 hover:text-white p-1 font-bold text-lg cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
                 >
-                  ✕
+                  বন্ধ করুন (Close)
                 </button>
+
+                <div className="flex items-center gap-2">
+                  {!summary.isPaid && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStudentPaymentProfileModal({ isOpen: false, student: null });
+                        handleOpenDueReminderModal(stu.id);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <span>✉️</span> বকেয়া নোটিশ পাঠান
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudentPaymentProfileModal({ isOpen: false, student: null });
+                      handleSelectStudentForReceipt(stu);
+                      document.getElementById('payment-form-section')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span>➕</span> নতুন মানি রিসিট অ্যান্ট্রি দিন
+                  </button>
+                </div>
               </div>
+            }
+          >
 
               {/* Student Summary Banner */}
               <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -5745,111 +5747,21 @@ return (
                   </div>
                 )}
               </div>
-
-              {/* Modal Footer */}
-              <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setStudentPaymentProfileModal({ isOpen: false, student: null })}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
-                >
-                  বন্ধ করুন (Close)
-                </button>
-
-                <div className="flex items-center gap-2">
-                  {!summary.isPaid && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStudentPaymentProfileModal({ isOpen: false, student: null });
-                        handleOpenDueReminderModal(stu.id);
-                      }}
-                      className="px-4 py-2 rounded-xl bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <span>✉️</span> বকেয়া নোটিশ পাঠান
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setStudentPaymentProfileModal({ isOpen: false, student: null });
-                      handleSelectStudentForReceipt(stu);
-                      document.getElementById('payment-form-section')?.scrollIntoView({ behavior: 'smooth' });
-                    }}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <span>➕</span> নতুন মানি রিসিট অ্যান্ট্রি দিন
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          </Modal>
         );
       })()}
 
       {/* Due Reminder Email Modal */}
       {dueReminderEmailModal.isOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div className="glass-card rounded-2xl p-6 border border-rose-500/40 shadow-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto space-y-4 bg-[#0b1325] text-slate-100 font-sans">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="text-2xl">✉️</span>
-                <div>
-                  <h3 className="font-extrabold text-white text-base">বকেয়া কোর্স ফি পরিশোধের নোটিশ ইমেইল</h3>
-                  <p className="text-[11px] text-slate-400">
-                    {formatMonthLabel(selectedPaymentMonth)} মাসের বকেয়া শিক্ষার্থীদের সরাসরি ইমেইল রিমাইন্ডার পাঠান
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDueReminderEmailModal({ isOpen: false, subject: '', body: '', sending: false, targetIds: [] })}
-                className="text-slate-400 hover:text-white p-1 font-bold text-lg cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Safety & Count Notice */}
-            <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-300 font-bold">চিহ্নিত বকেয়া শিক্ষার্থী:</span>
-                <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-mono font-bold">
-                  {dueReminderEmailModal.targetIds.length} জন শিক্ষার্থী
-                </span>
-              </div>
-              <p className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
-                <span>🛡️</span>
-                <span>স্বয়ংক্রিয় সুরক্ষা: যারা ইতিপূর্বে {formatMonthLabel(selectedPaymentMonth)}-এ পেমেন্ট করেছেন, তাদের কাছে এই ইমেইল কোনোভাবেই যাবে না।</span>
-              </p>
-            </div>
-
-            {/* Email Form */}
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">ইমেইল সাবজেক্ট (Email Subject):</label>
-                <input
-                  type="text"
-                  value={dueReminderEmailModal.subject}
-                  onChange={(e) => setDueReminderEmailModal(prev => ({ ...prev, subject: e.target.value }))}
-                  className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-white font-medium focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">ইমেইল মেসেজ বডি (Email Message Body):</label>
-                <textarea
-                  rows={9}
-                  value={dueReminderEmailModal.body}
-                  onChange={(e) => setDueReminderEmailModal(prev => ({ ...prev, body: e.target.value }))}
-                  className="w-full rounded-xl bg-slate-950 border border-slate-700 p-3.5 text-slate-200 font-sans focus:outline-none focus:border-emerald-500 text-xs leading-relaxed"
-                />
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex justify-between items-center pt-2 border-t border-slate-800">
+        <Modal
+          isOpen={dueReminderEmailModal.isOpen}
+          onClose={() => setDueReminderEmailModal({ isOpen: false, subject: '', body: '', sending: false, targetIds: [] })}
+          title="বকেয়া কোর্স ফি পরিশোধের নোটিশ ইমেইল"
+          subtitle={`${formatMonthLabel(selectedPaymentMonth)} মাসের বকেয়া শিক্ষার্থীদের সরাসরি ইমেইল রিমাইন্ডার পাঠান`}
+          icon="✉️"
+          maxWidth="max-w-xl"
+          footer={
+            <div className="w-full flex justify-between items-center gap-2">
               <button
                 type="button"
                 disabled={dueReminderEmailModal.sending}
@@ -5873,41 +5785,76 @@ return (
                 </span>
               </button>
             </div>
+          }
+        >
+          {/* Safety & Count Notice */}
+          <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5">
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-slate-300 font-bold">চিহ্নিত বকেয়া শিক্ষার্থী:</span>
+              <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-mono font-bold">
+                {dueReminderEmailModal.targetIds.length} জন শিক্ষার্থী
+              </span>
+            </div>
+            <p className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
+              <span>🛡️</span>
+              <span>স্বয়ংক্রিয় সুরক্ষা: যারা ইতিপূর্বে {formatMonthLabel(selectedPaymentMonth)}-এ পেমেন্ট করেছেন, তাদের কাছে এই ইমেইল কোনোভাবেই যাবে না।</span>
+            </p>
           </div>
-        </div>
+
+          {/* Email Form */}
+          <div className="space-y-3 text-xs">
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">ইমেইল সাবজেক্ট (Email Subject):</label>
+              <input
+                type="text"
+                value={dueReminderEmailModal.subject}
+                onChange={(e) => setDueReminderEmailModal(prev => ({ ...prev, subject: e.target.value }))}
+                className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-white font-medium focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">ইমেইল মেসেজ বডি (Email Message Body):</label>
+              <textarea
+                rows={9}
+                value={dueReminderEmailModal.body}
+                onChange={(e) => setDueReminderEmailModal(prev => ({ ...prev, body: e.target.value }))}
+                className="w-full rounded-xl bg-slate-950 border border-slate-700 p-3.5 text-slate-200 font-sans focus:outline-none focus:border-emerald-500 text-xs leading-relaxed"
+              />
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Student Portal Live Preview Modal */}
       {previewStudentModal.isOpen && previewStudentModal.student && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div className="glass-card rounded-2xl p-6 border border-cyan-500/30 shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto space-y-6 bg-[#0b1325] text-slate-100 font-sans">
-            {/* Modal Header */}
-            <div className="flex justify-between items-start border-b border-slate-800 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-slate-950 font-bold flex items-center justify-center text-xl shadow-lg">
-                  🎓
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-extrabold text-white">{previewStudentModal.student?.name}</h2>
-                    <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-mono text-xs border border-amber-500/30">
-                      {previewStudentModal.student?.id}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400">
-                    {previewStudentModal.student?.phone} • {previewStudentModal.student?.email} • {previewStudentModal.student?.batch || 'Judiciary 2026'}
-                    {previewStudentModal.student?.session ? ` • সেশন: ${previewStudentModal.student.session}` : ''}
-                  </p>
-                </div>
-              </div>
+        <Modal
+          isOpen={previewStudentModal.isOpen}
+          onClose={() => {
+            setPreviewStudentModal({ isOpen: false, student: null });
+            setPreviewLessons([]);
+            setPreviewSelectedCourseId(null);
+          }}
+          title={previewStudentModal.student?.name}
+          subtitle={`${previewStudentModal.student?.phone} • ${previewStudentModal.student?.email} • ${previewStudentModal.student?.batch || 'Judiciary 2026'}${previewStudentModal.student?.session ? ` • সেশন: ${previewStudentModal.student.session}` : ''}`}
+          icon="🎓"
+          maxWidth="max-w-3xl"
+          footer={
+            <div className="w-full flex justify-end">
               <button
                 type="button"
-                onClick={() => setPreviewStudentModal({ isOpen: false, student: null })}
-                className="text-slate-400 hover:text-white p-1 rounded-lg text-lg font-bold transition-colors"
+                onClick={() => {
+                  setPreviewStudentModal({ isOpen: false, student: null });
+                  setPreviewLessons([]);
+                  setPreviewSelectedCourseId(null);
+                }}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all cursor-pointer"
               >
-                ✕
+                বন্ধ করুন (Close Portal Preview)
               </button>
             </div>
+          }
+        >
 
             {/* Account & Authorization Status Badges */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-slate-900/80 p-3 rounded-xl border border-slate-800">
@@ -6115,287 +6062,167 @@ return (
                 </>
               );
             })()}
-
-            <div className="pt-2 flex justify-end border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setPreviewStudentModal({ isOpen: false, student: null });
-                  setPreviewLessons([]);
-                  setPreviewSelectedCourseId(null);
-                }}
-                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all"
-              >
-                বন্ধ করুন (Close Portal Preview)
-              </button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Set Temporary Password Modal for Admin */}
       {tempPasswordModal.isOpen && tempPasswordModal.student && (
-        <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#0b1325] border border-amber-500/40 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 font-sans animate-scaleUp text-left">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-300 font-bold flex items-center justify-center text-base border border-amber-500/30">
-                  🔑
-                </span>
-                <div>
-                  <h3 className="font-extrabold text-white text-sm">টেম্পোরারি পাসওয়ার্ড সেট করুন</h3>
-                  <p className="text-[11px] text-amber-400 font-mono">{tempPasswordModal.student.name} ({tempPasswordModal.student.id})</p>
-                </div>
-              </div>
+        <Modal
+          isOpen={tempPasswordModal.isOpen}
+          onClose={() => setTempPasswordModal({ isOpen: false, student: null, tempPassword: '', generatedPass: '', copied: false })}
+          title="টেম্পোরারি পাসওয়ার্ড সেট করুন"
+          subtitle={`${tempPasswordModal.student.name} (${tempPasswordModal.student.id})`}
+          icon="🔑"
+          maxWidth="max-w-md"
+          footer={
+            <div className="w-full flex justify-end gap-2">
               <button
+                type="button"
                 onClick={() => setTempPasswordModal({ isOpen: false, student: null, tempPassword: '', generatedPass: '', copied: false })}
-                className="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm font-bold"
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
               >
-                ✕
+                বন্ধ করুন (Close)
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveTempPassword}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer"
+              >
+                💾 Save Temp Password
               </button>
             </div>
+          }
+        >
+          <div className="space-y-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 space-y-1">
+              <p className="font-bold text-amber-400">ℹ️ এডমিন প্রাইভেসি নোটিশ:</p>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                এডমিন প্যানেল থেকে কোনো ইউজারের আসল পাসওয়ার্ড দেখা যাবে না। স্টুডেন্ট ইমেইলে ঢুকতে না পারলে তার জন্য ১-বার ব্যবহারযোগ্য একটি <strong>টেম্পোরারি পাসওয়ার্ড (Temporary Password)</strong> সেট করে দেওয়া যাবে। স্টুডেন্ট প্রথমবার লগইন করলেই নতুন স্থায়ী পাসওয়ার্ড সেটের পপআপ চলে আসবে।
+              </p>
+            </div>
 
-            <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 space-y-1">
-                <p className="font-bold text-amber-400">ℹ️ এডমিন প্রাইভেসি নোটিশ:</p>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  এডমিন প্যানেল থেকে কোনো ইউজারের আসল পাসওয়ার্ড দেখা যাবে না। স্টুডেন্ট ইমেইলে ঢুকতে না পারলে তার জন্য ১-বার ব্যবহারযোগ্য একটি <strong>টেম্পোরারি পাসওয়ার্ড (Temporary Password)</strong> সেট করে দেওয়া যাবে। স্টুডেন্ট প্রথমবার লগইন করলেই নতুন স্থায়ী পাসওয়ার্ড সেটের পপআপ চলে আসবে।
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">
-                  টেম্পোরারি পাসওয়ার্ড (যেকোনো পাসওয়ার্ড টাইপ বা অটো-জেনারেট করুন):
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={tempPasswordModal.tempPassword}
-                    onChange={(e) => setTempPasswordModal((prev) => ({ ...prev, tempPassword: e.target.value }))}
-                    placeholder="e.g. BJS@2026Temp"
-                    className="flex-1 rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-white font-mono font-bold focus:outline-none focus:border-amber-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setTempPasswordModal((prev) => ({ ...prev, tempPassword: 'BJS' + Math.floor(100000 + Math.random() * 900000) }))}
-                    className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold border border-slate-700"
-                  >
-                    🔄 Auto
-                  </button>
-                </div>
-              </div>
-
-              {tempPasswordModal.generatedPass && (
-                <div className="p-3.5 rounded-xl bg-emerald-950/80 border border-emerald-500/50 space-y-2 text-xs">
-                  <p className="font-extrabold text-emerald-300">✓ টেম্পোরারি পাসওয়ার্ড সফলভাবে সেট করা হয়েছে!</p>
-                  <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-emerald-500/30">
-                    <span className="font-mono text-sm font-black text-amber-400 tracking-wider">
-                      {tempPasswordModal.generatedPass}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(tempPasswordModal.generatedPass);
-                        setTempPasswordModal((prev) => ({ ...prev, copied: true }));
-                        setTimeout(() => setTempPasswordModal((prev) => ({ ...prev, copied: false })), 3000);
-                      }}
-                      className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-950 font-extrabold text-[11px] transition-all cursor-pointer"
-                    >
-                      {tempPasswordModal.copied ? '✓ Copied!' : '📋 Copy Temp Password'}
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-slate-400">এই পাসওয়ার্ডটি কপি করে স্টুডেন্টকে SMS বা WhatsApp এ পাঠিয়ে দিন।</p>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            <div>
+              <label className="block text-slate-300 font-medium mb-1">
+                টেম্পোরারি পাসওয়ার্ড (যেকোনো পাসওয়ার্ড টাইপ বা অটো-জেনারেট করুন):
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={tempPasswordModal.tempPassword}
+                  onChange={(e) => setTempPasswordModal((prev) => ({ ...prev, tempPassword: e.target.value }))}
+                  placeholder="e.g. BJS@2026Temp"
+                  className="flex-1 rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-white font-mono font-bold focus:outline-none focus:border-amber-500"
+                />
                 <button
                   type="button"
-                  onClick={() => setTempPasswordModal({ isOpen: false, student: null, tempPassword: '', generatedPass: '', copied: false })}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white text-xs font-bold"
+                  onClick={() => setTempPasswordModal((prev) => ({ ...prev, tempPassword: 'BJS' + Math.floor(100000 + Math.random() * 900000) }))}
+                  className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold border border-slate-700 cursor-pointer"
                 >
-                  বন্ধ করুন (Close)
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveTempPassword}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer"
-                >
-                  💾 Save Temp Password
+                  🔄 Auto
                 </button>
               </div>
             </div>
+
+            {tempPasswordModal.generatedPass && (
+              <div className="p-3.5 rounded-xl bg-emerald-950/80 border border-emerald-500/50 space-y-2 text-xs">
+                <p className="font-extrabold text-emerald-300">✓ টেম্পোরারি পাসওয়ার্ড সফলভাবে সেট করা হয়েছে!</p>
+                <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-emerald-500/30">
+                  <span className="font-mono text-sm font-black text-amber-400 tracking-wider">
+                    {tempPasswordModal.generatedPass}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(tempPasswordModal.generatedPass);
+                      setTempPasswordModal((prev) => ({ ...prev, copied: true }));
+                      setTimeout(() => setTempPasswordModal((prev) => ({ ...prev, copied: false })), 3000);
+                    }}
+                    className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-950 font-extrabold text-[11px] transition-all cursor-pointer"
+                  >
+                    {tempPasswordModal.copied ? '✓ Copied!' : '📋 Copy Temp Password'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400">এই পাসওয়ার্ডটি কপি করে স্টুডেন্টকে SMS বা WhatsApp এ পাঠিয়ে দিন।</p>
+              </div>
+            )}
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* MERGE MENTOR PROFILES MODAL */}
       {mergeMentorModal.isOpen && mergeMentorModal.targetMentor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
-          <div className="glass-card max-w-lg w-full rounded-2xl p-6 border border-slate-800 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">🔗</span>
-                <div>
-                  <h3 className="font-extrabold text-white text-base">মেন্টর প্রফাইল একাউন্ট কানেক্ট / মার্জ করুন</h3>
-                  <p className="text-xs text-amber-400 font-mono">মূল প্রফাইল: {mergeMentorModal.targetMentor.name}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setMergeMentorModal({ isOpen: false, targetMentor: null, sourceMentorId: '' })}
-                className="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="p-3.5 rounded-xl bg-purple-950/40 border border-purple-500/30 text-purple-200 leading-relaxed">
-                💡 <strong>কানেক্ট / মার্জ নির্দেশিকা:</strong> রেজিস্ট্রেশন করা মেন্টর একাউন্টটি (যেমন: {mergeMentorModal.targetMentor.email || 'নতুন মেন্টর একাউন্ট'}) পূর্বে তৈরি করা বিস্তারিত মেন্টর প্রফাইলের সাথে একসূত্রে সংযুক্ত করুন। এর ফলে ডুপ্লিকেট কার্ড মুছে যাবে এবং মেন্টর তার নিজস্ব ইমেইল দিয়ে মূল প্রফাইলে লগইন করতে পারবেন।
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-bold mb-1">
-                  যে প্রফাইলটির সাথে সংযুক্ত/একত্রিত (Merge) করতে চান নির্বাচন করুন *
-                </label>
-                <select
-                  value={mergeMentorModal.sourceMentorId}
-                  onChange={(e) => setMergeMentorModal(prev => ({ ...prev, sourceMentorId: e.target.value }))}
-                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-3 text-white focus:outline-none focus:border-amber-500 text-xs"
-                >
-                  <option value="">-- মেন্টর প্রফাইল নির্বাচন করুন --</option>
-                  {mentors
-                    .filter(m => m.id !== mergeMentorModal.targetMentor.id)
-                    .map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.name} ({m.designation || 'মেন্টর'}) - {m.email || 'Email missing'}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setMergeMentorModal({ isOpen: false, targetMentor: null, sourceMentorId: '' })}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white text-xs font-bold"
-                >
-                  বাতিল (Cancel)
-                </button>
-                <button
-                  type="button"
-                  onClick={handleMergeMentors}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
-                >
-                  🔗 প্রফাইল মার্জ ও কানেক্ট করুন
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* Admin Private Student Note Modal */}
-      {/* ========================================================================= */}
-      {noteModal.isOpen && noteModal.student && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className="bg-slate-900 border border-amber-500/40 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-            {/* Modal Header */}
-            <div className="p-4 bg-gradient-to-r from-amber-950/70 via-slate-900 to-slate-900 border-b border-amber-500/30 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 text-lg shadow-inner">
-                  📝
-                </div>
-                <div>
-                  <h3 className="font-bold text-white text-base flex items-center gap-2">
-                    স্টুডেন্ট ব্যক্তিগত নোট (Admin Only)
-                  </h3>
-                  <p className="text-xs text-amber-300/80 font-mono">
-                    {noteModal.student.name} • {noteModal.student.id}
-                  </p>
-                </div>
-              </div>
+        <Modal
+          isOpen={mergeMentorModal.isOpen}
+          onClose={() => setMergeMentorModal({ isOpen: false, targetMentor: null, sourceMentorId: '' })}
+          title="মেন্টর প্রফাইল একাউন্ট কানেক্ট / মার্জ করুন"
+          subtitle={`মূল প্রফাইল: ${mergeMentorModal.targetMentor.name}`}
+          icon="🔗"
+          maxWidth="max-w-lg"
+          footer={
+            <div className="w-full flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setNoteModal({ isOpen: false, student: null, noteText: '', loading: false })}
-                className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-sm transition"
+                onClick={() => setMergeMentorModal({ isOpen: false, targetMentor: null, sourceMentorId: '' })}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
               >
-                ✕
+                বাতিল (Cancel)
+              </button>
+              <button
+                type="button"
+                onClick={handleMergeMentors}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
+              >
+                🔗 প্রফাইল মার্জ ও কানেক্ট করুন
               </button>
             </div>
-
-            {/* Modal Body */}
-            <div className="p-5 space-y-4">
-              {/* Privacy Notice Banner */}
-              <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2.5">
-                <span className="text-base leading-none">🔒</span>
-                <div>
-                  <p className="font-bold">১০০% সম্পূর্ণ গোপনীয় ও সুরক্ষিত</p>
-                  <p className="text-[11px] text-emerald-200/80 mt-0.5">
-                    এই নোটটি শুধুমাত্র এডমিন দেখতে, এডিট ও ডিলিট করতে পারবেন। স্টুডেন্ট বা মেন্টররা কখনোই এটি দেখতে পাবেন না এবং এটি সেভ বা ডিলিট করলে <strong>কোনো ইমেইল বা নোটিফিকেশন যাবে না</strong>।
-                  </p>
-                </div>
-              </div>
-
-              {/* Quick Template Chips */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
-                  কুইক টেমপ্লেট (ক্লিক করে সহজে যুক্ত করুন):
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    '💰 বকেয়া ফি আগামী সপ্তাহে পরিশোধ করবে',
-                    '⭐ স্পেশাল স্কলারশিপ স্টুডেন্ট',
-                    '⚠️ ডিভাইসের সমস্যা রিপোর্ট করেছিল',
-                    '✅ বিশেষ অনুমতিপ্রাপ্ত শিক্ষার্থী'
-                  ].map((phrase, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        setNoteModal(prev => ({
-                          ...prev,
-                          noteText: prev.noteText ? `${prev.noteText}\n${phrase}` : phrase
-                        }));
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-amber-500/20 border border-slate-700 hover:border-amber-500/40 text-slate-300 hover:text-amber-200 text-[11px] transition"
-                    >
-                      + {phrase}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Note Textarea */}
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  নোটের বিবরণ:
-                </label>
-                <textarea
-                  rows={4}
-                  value={noteModal.noteText}
-                  onChange={(e) => setNoteModal(prev => ({ ...prev, noteText: e.target.value }))}
-                  placeholder="যেমন: বকেয়া ফি ২০ তারিখে পরিশোধ করবে, বিশেষ ছাড় প্রদান করা হয়েছে ইত্যাদি..."
-                  className="w-full rounded-xl bg-slate-950 border border-slate-700/80 focus:border-amber-500 p-3 text-sm text-slate-100 placeholder-slate-500 outline-none transition"
-                  autoFocus
-                />
-                <p className="text-[10px] text-slate-500 mt-1 flex justify-between">
-                  <span>স্টুডেন্ট ইমেইল: {noteModal.student.email}</span>
-                  <span>{noteModal.noteText.length} অক্ষর</span>
-                </p>
-              </div>
+          }
+        >
+          <div className="space-y-3 text-xs">
+            <div className="p-3.5 rounded-xl bg-purple-950/40 border border-purple-500/30 text-purple-200 leading-relaxed">
+              💡 <strong>কানেক্ট / মার্জ নির্দেশিকা:</strong> রেজিস্ট্রেশন করা মেন্টর একাউন্টটি (যেমন: {mergeMentorModal.targetMentor.email || 'নতুন মেন্টর একাউন্ট'}) পূর্বে তৈরি করা বিস্তারিত মেন্টর প্রফাইলের সাথে একসূত্রে সংযুক্ত করুন। এর ফলে ডুপ্লিকেট কার্ড মুছে যাবে এবং মেন্টর তার নিজস্ব ইমেইল দিয়ে মূল প্রফাইলে লগইন করতে পারবেন।
             </div>
 
-            {/* Modal Footer */}
-            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-2">
+            <div>
+              <label className="block text-slate-300 font-bold mb-1">
+                যে প্রফাইলটির সাথে সংযুক্ত/একত্রিত (Merge) করতে চান নির্বাচন করুন *
+              </label>
+              <select
+                value={mergeMentorModal.sourceMentorId}
+                onChange={(e) => setMergeMentorModal(prev => ({ ...prev, sourceMentorId: e.target.value }))}
+                className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-3 text-white focus:outline-none focus:border-amber-500 text-xs"
+              >
+                <option value="">-- মেন্টর প্রফাইল নির্বাচন করুন --</option>
+                {mentors
+                  .filter(m => m.id !== mergeMentorModal.targetMentor.id)
+                  .map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.designation || 'মেন্টর'}) - {m.email || 'Email missing'}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Admin Private Student Note Modal */}
+      {noteModal.isOpen && noteModal.student && (
+        <Modal
+          isOpen={noteModal.isOpen}
+          onClose={() => setNoteModal({ isOpen: false, student: null, noteText: '', loading: false })}
+          title="স্টুডেন্ট ব্যক্তিগত নোট (Admin Only)"
+          subtitle={`${noteModal.student.name} • ${noteModal.student.id}`}
+          icon="📝"
+          maxWidth="max-w-lg"
+          footer={
+            <div className="w-full flex items-center justify-between gap-2">
               <div>
                 {(noteModal.student.adminNote || noteModal.student.highlight) && (
                   <button
                     type="button"
                     disabled={noteModal.loading}
                     onClick={() => handleDeleteStudentNote(noteModal.student)}
-                    className="px-3 py-2 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-500/40 text-rose-300 hover:text-rose-200 font-bold text-xs transition flex items-center gap-1.5"
+                    className="px-3 py-2 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-500/40 text-rose-300 hover:text-rose-200 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer"
                   >
                     🗑️ নোট মুছে ফেলুন
                   </button>
@@ -6406,7 +6233,7 @@ return (
                   type="button"
                   disabled={noteModal.loading}
                   onClick={() => setNoteModal({ isOpen: false, student: null, noteText: '', loading: false })}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition"
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
                 >
                   বাতিল
                 </button>
@@ -6414,14 +6241,75 @@ return (
                   type="button"
                   disabled={noteModal.loading}
                   onClick={handleSaveStudentNote}
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center gap-1.5 disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
                   {noteModal.loading ? 'সেভ হচ্ছে...' : '💾 নোট সেভ করুন'}
                 </button>
               </div>
             </div>
+          }
+        >
+          <div className="space-y-4">
+            {/* Privacy Notice Banner */}
+            <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2.5">
+              <span className="text-base leading-none">🔒</span>
+              <div>
+                <p className="font-bold">১০০% সম্পূর্ণ গোপনীয় ও সুরক্ষিত</p>
+                <p className="text-[11px] text-emerald-200/80 mt-0.5">
+                  এই নোটটি শুধুমাত্র এডমিন দেখতে, এডিট ও ডিলিট করতে পারবেন। স্টুডেন্ট বা মেন্টররা কখনোই এটি দেখতে পাবেন না এবং এটি সেভ বা ডিলিট করলে <strong>কোনো ইমেইল বা নোটিফিকেশন যাবে না</strong>।
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Template Chips */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+                কুইক টেমপ্লেট (ক্লিক করে সহজে যুক্ত করুন):
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  '💰 বকেয়া ফি আগামী সপ্তাহে পরিশোধ করবে',
+                  '⭐ স্পেশাল স্কলারশিপ স্টুডেন্ট',
+                  '⚠️ ডিভাইসের সমস্যা রিপোর্ট করেছিল',
+                  '✅ বিশেষ অনুমতিপ্রাপ্ত শিক্ষার্থী'
+                ].map((phrase, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setNoteModal(prev => ({
+                        ...prev,
+                        noteText: prev.noteText ? `${prev.noteText}\n${phrase}` : phrase
+                      }));
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-amber-500/20 border border-slate-700 hover:border-amber-500/40 text-slate-300 hover:text-amber-200 text-[11px] transition cursor-pointer"
+                  >
+                    + {phrase}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Note Textarea */}
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                নোটের বিবরণ:
+              </label>
+              <textarea
+                rows={4}
+                value={noteModal.noteText}
+                onChange={(e) => setNoteModal(prev => ({ ...prev, noteText: e.target.value }))}
+                placeholder="যেমন: বকেয়া ফি ২০ তারিখে পরিশোধ করবে, বিশেষ ছাড় প্রদান করা হয়েছে ইত্যাদি..."
+                className="w-full rounded-xl bg-slate-950 border border-slate-700/80 focus:border-amber-500 p-3 text-sm text-slate-100 placeholder-slate-500 outline-none transition"
+                autoFocus
+              />
+              <p className="text-[10px] text-slate-500 mt-1 flex justify-between">
+                <span>স্টুডেন্ট ইমেইল: {noteModal.student.email}</span>
+                <span>{noteModal.noteText.length} অক্ষর</span>
+              </p>
+            </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../services/api';
+import { useToast } from '../context/ToastContext';
+import { lockBodyScroll, unlockBodyScroll } from './ui/scrollLock';
 import { getLessonNum, sortLessons, getNextSerial } from '../utils/lessonUtils';
 
 export default function LessonManagerModal({ course, isOpen, onClose }) {
+  const { showToast, showError, showSuccess } = useToast();
   const [lessons, setLessons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState(null);
@@ -71,6 +75,25 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    lockBodyScroll();
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (subtitleModal.isOpen) {
+          setSubtitleModal(prev => ({ ...prev, isOpen: false }));
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      unlockBodyScroll();
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, subtitleModal.isOpen, onClose]);
 
   if (!isOpen || !course) return null;
 
@@ -296,17 +319,22 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
         setMsg({ type: 'success', text: res.data.message || '✓ সাবটাইটেল সফলভাবে রি-ফেচ করা হয়েছে!' });
         await loadLessons();
       } else {
-        alert(res.data.message || 'ইউটিউব থেকে সাবটাইটেল পাওয়া যায়নি।');
+        showError(res.data.message || 'ইউটিউব থেকে সাবটাইটেল পাওয়া যায়নি।');
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'সাবটাইটেল রি-ফেচ করতে সমস্যা হয়েছে।');
+      showError(err.response?.data?.message || 'সাবটাইটেল রি-ফেচ করতে সমস্যা হয়েছে।');
     } finally {
       setSubtitleModal(prev => ({ ...prev, loading: false }));
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[9995] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-fadeIn">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-fadeIn"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !subtitleModal.isOpen) onClose();
+      }}
+    >
       <div className="relative w-full max-w-5xl max-h-[92vh] rounded-2xl bg-slate-900 border border-slate-800 p-6 shadow-2xl flex flex-col overflow-hidden text-xs">
         {/* Modal Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 mb-4 gap-3">
@@ -666,6 +694,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

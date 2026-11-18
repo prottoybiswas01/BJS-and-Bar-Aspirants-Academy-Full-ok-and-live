@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
+import { lockBodyScroll, unlockBodyScroll } from './ui/scrollLock';
 import api from '../services/api';
 import {
   User,
@@ -40,6 +42,21 @@ export default function ProfileModal({ isOpen, onClose }) {
   const [copiedDevId, setCopiedDevId] = useState(false);
 
   const cooldownTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    lockBodyScroll();
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      unlockBodyScroll();
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (user?.email) {
@@ -197,14 +214,14 @@ export default function ProfileModal({ isOpen, onClose }) {
     setErrorMsg('');
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[9995] flex items-center justify-center p-3 sm:p-5 bg-slate-950/85 backdrop-blur-md overflow-y-auto animate-fadeIn"
+      className="fixed inset-0 z-[9990] flex items-center justify-center p-3 sm:p-5 bg-slate-950/85 backdrop-blur-md overflow-y-auto animate-fadeIn"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-2xl rounded-3xl bg-gradient-to-b from-slate-900 via-[#0d1627] to-slate-950 border border-slate-700/60 shadow-[0_25px_80px_rgba(0,0,0,0.85)] overflow-hidden my-auto">
+      <div className="relative w-full max-w-2xl max-h-[calc(100dvh-2rem)] rounded-3xl bg-gradient-to-b from-slate-900 via-[#0d1627] to-slate-950 border border-slate-700/60 shadow-[0_25px_80px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden my-auto">
         
         {/* Top Brand Banner Strip */}
         <div className="h-2 w-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600"></div>
@@ -709,6 +726,7 @@ export default function ProfileModal({ isOpen, onClose }) {
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
