@@ -265,7 +265,7 @@ export default function MentorDashboard() {
       )}
 
       {/* Mentor Profile Header Banner */}
-      <div className="glass-card rounded-3xl p-6 sm:p-8 border border-slate-800 bg-gradient-to-r from-slate-950 via-[#0b1325] to-amber-950/30 relative overflow-hidden">
+      <div className="mentor-heading glass-card rounded-3xl p-6 sm:p-8 border border-slate-800 bg-gradient-to-r from-slate-950 via-[#0b1325] to-amber-950/30 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
           <div className="flex items-center gap-4">

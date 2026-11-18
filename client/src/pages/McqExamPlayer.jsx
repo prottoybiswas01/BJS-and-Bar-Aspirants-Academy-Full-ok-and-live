@@ -103,7 +103,7 @@ export default function McqExamPlayer({ examId, onBack }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#070d19] text-white flex items-center justify-center p-6">
+      <div className="exam-workspace min-h-screen text-white flex items-center justify-center p-6">
         <div className="text-amber-400 font-bold text-sm">⏳ অনলাইন এমসিকিউ পরীক্ষা লোড হচ্ছে...</div>
       </div>
     );

@@ -1,3 +1,4 @@
+import { Settings2 as NavSettings2, UsersRound as NavUsersRound, ContactRound as NavContactRound, LibraryBig as NavLibraryBig, ReceiptText as NavReceiptText, ListChecks as NavListChecks, Trophy as NavTrophy } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 
@@ -2184,7 +2185,7 @@ BJS & Bar Aspirants Academy
     : receipts;
 
 return (
-    <div className="min-h-screen bg-[#070d19] text-slate-100 font-sans flex flex-col lg:flex-row gap-6 p-2 sm:p-4 animate-fadeIn relative">
+    <div className="admin-workspace min-h-screen bg-[#070d19] text-slate-100 font-sans flex flex-col lg:flex-row gap-6 p-2 sm:p-4 animate-fadeIn relative">
       {/* Floating Toast Notification Banner */}
       {msg && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[100] animate-bounce-short max-w-md w-[90%] shadow-2xl">
@@ -2209,169 +2210,48 @@ return (
       )}
 
       {/* LEFT EXECUTIVE NAVIGATION SIDEBAR */}
-      <aside className="w-full lg:w-72 glass-card rounded-3xl p-4 sm:p-5 border border-slate-800 shrink-0 space-y-4 lg:space-y-6 flex flex-col justify-between self-start relative lg:sticky lg:top-24 z-20 bg-[#0b1325]/95 backdrop-blur-xl shadow-2xl">
+      <aside aria-label="অ্যাডমিন বিভাগ" className="academy-sidebar w-full lg:w-72 glass-card rounded-3xl p-4 sm:p-5 border border-slate-800 shrink-0 space-y-4 lg:space-y-6 flex flex-col justify-between self-start relative lg:sticky lg:top-24 z-20 bg-[#0b1325]/95 backdrop-blur-xl shadow-2xl">
         <div className="space-y-4 lg:space-y-6">
           {/* Brand Profile Header & Mobile Toggle */}
           <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-black text-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
-                PN
+                §
               </div>
               <div>
-                <h3 className="font-extrabold text-white text-sm">আইন পাঠশালা বিডি</h3>
-                <p className="text-[11px] text-amber-400 font-mono font-bold">Admin Control Panel</p>
+                <h3 className="font-extrabold text-white text-sm">BJS & Bar Academy</h3>
+                <p className="text-[11px] text-amber-400 font-mono font-bold">অ্যাডমিন প্যানেল</p>
               </div>
             </div>
 
             {/* Mobile Expand / Collapse Menu Toggle */}
             <button
               type="button"
+              aria-expanded={isMobileMenuOpen}
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="lg:hidden px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-amber-400 text-xs font-bold flex items-center gap-1.5 hover:bg-slate-800 transition-all cursor-pointer"
             >
-              <span>{isMobileMenuOpen ? '📂 অপশনস গুটান' : '📋 অপশনস টগল ▾'}</span>
+              <span>{isMobileMenuOpen ? 'মেনু গুটান' : 'বিভাগ নির্বাচন ▾'}</span>
             </button>
           </div>
 
-          {/* Navigation Group: MANAGEMENT */}
-          <div className={`space-y-1.5 ${isMobileMenuOpen ? 'block' : 'hidden lg:block'}`}>
-            <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase block px-3">
-              MANAGEMENT
-            </span>
-
-            {/* 1. Site Settings & Banner */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('settings'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'settings'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">⚙️</span>
-                <span>সাইট সেটিংস ও ব্যানার</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                Edit
-              </span>
-            </button>
-
-            {/* 2. Student Control */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('students'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'students'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">👨‍🎓</span>
-                <span>স্টুডেন্ট কন্ট্রোল</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {students.length}
-              </span>
-            </button>
-
-            {/* 3. Mentor & Faculty Control */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('mentors'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'mentors'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">👨‍🏫</span>
-                <span>মেন্টর ও ফ্যাকাল্টি</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {mentors.length}
-              </span>
-            </button>
-
-            {/* 4. Course Launch Manager */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('courses'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'courses'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">📚</span>
-                <span>কোর্স লঞ্চ ম্যানেজার</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {courses.length}
-              </span>
-            </button>
-
-            {/* 5. Payment & Receipts */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('payments'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'payments'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">💳</span>
-                <span>পেমেন্ট ও মানি রিসিট</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {receipts.length}
-              </span>
-            </button>
-
-            {/* 6. MCQ Exam Engine */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('mcq'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'mcq'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">📝</span>
-                <span>অনলাইন এমসিকিউ</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {mcqExams.length}
-              </span>
-            </button>
-
-            {/* 7. Merit List & PDF Generator */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('merit'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'merit'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">🏆</span>
-                <span>মেধা তালিকা ও রেজাল্ট</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                PDF
-              </span>
-            </button>
-          </div>
+          <nav aria-label="অ্যাডমিনের কাজ" className={isMobileMenuOpen ? 'work-nav' : 'work-nav hidden lg:grid'}>
+            {[
+                { key: 'settings', label: 'সাইট সেটিংস ও ব্যানার', icon: NavSettings2 },
+                { key: 'students', label: 'স্টুডেন্ট কন্ট্রোল', icon: NavUsersRound, count: students.length },
+                { key: 'mentors', label: 'মেন্টর ও ফ্যাকাল্টি', icon: NavContactRound, count: mentors.length },
+                { key: 'courses', label: 'কোর্স লঞ্চ ম্যানেজার', icon: NavLibraryBig, count: courses.length },
+                { key: 'payments', label: 'পেমেন্ট ও মানি রসিদ', icon: NavReceiptText, count: receipts.length },
+                { key: 'mcq', label: 'অনলাইন এমসিকিউ', icon: NavListChecks, count: mcqExams.length },
+                { key: 'merit', label: 'মেধা তালিকা ও রেজাল্ট', icon: NavTrophy }
+            ].map(({key, label, icon: Icon, count}) => (
+              <button type="button" key={key} aria-current={adminTab === key ? 'page' : undefined}
+                onClick={() => { setAdminTab(key); setIsMobileMenuOpen(false); }}>
+                <Icon size={18} aria-hidden="true" /><span>{label}</span>
+                {count != null && <small>{count}</small>}
+              </button>
+            ))}
+          </nav>
         </div>
 
         {/* Sidebar Bottom Footer */}
@@ -2402,10 +2282,10 @@ return (
         <div className="glass-card rounded-3xl p-5 sm:p-6 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-950/80">
           <div>
             <h1 className="text-xl font-black text-white flex items-center gap-2">
-              <span>Welcome Dashboard</span>
+              <span>{({settings: 'সাইট সেটিংস ও ব্যানার', students: 'শিক্ষার্থী ব্যবস্থাপনা', mentors: 'মেন্টর ও ফ্যাকাল্টি', courses: 'কোর্স ব্যবস্থাপনা', payments: 'পেমেন্ট ও রসিদ', mcq: 'অনলাইন এমসিকিউ', merit: 'মেধা তালিকা ও ফলাফল'})[adminTab] || 'অ্যাডমিন ড্যাশবোর্ড'}</span>
             </h1>
             <p className="text-xs text-slate-400 mt-0.5">
-              Hello, Executive Admin 👋 Welcome to BJS & Bar Aspirants Academy Control Panel
+              BJS &amp; Bar Aspirants Academy
             </p>
           </div>
 

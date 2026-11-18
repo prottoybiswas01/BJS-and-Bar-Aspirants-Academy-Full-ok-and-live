@@ -55,7 +55,7 @@ export default function Footer({ setActivePage, activePage }) {
   };
 
   return (
-    <footer className="w-full bg-[#070d1a] border-t border-slate-800/80 pt-12 pb-8 text-slate-400 text-sm">
+    <footer className="academy-footer w-full border-t border-slate-800/80 pt-12 pb-8 text-slate-400 text-sm">
       <div
         className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 ${
           showCoursesAndLinks ? 'md:grid-cols-4' : 'md:grid-cols-2'

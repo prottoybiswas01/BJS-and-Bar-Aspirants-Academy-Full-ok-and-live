@@ -80,7 +80,7 @@ export default function MentorLogin({ setActivePage }) {
 
   return (
     <div className="max-w-md w-full mx-auto py-8 px-4 animate-fadeIn select-none">
-      <div className="glass-card rounded-2xl p-6 sm:p-8 border border-slate-800 shadow-2xl space-y-6">
+      <div className="auth-card glass-card rounded-2xl p-6 sm:p-8 border border-slate-800 shadow-2xl space-y-6">
         
         {/* Header Branding */}
         <div className="text-center space-y-2">

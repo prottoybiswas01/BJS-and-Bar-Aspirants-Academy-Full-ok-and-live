@@ -199,12 +199,13 @@ export default function ProfileModal({ isOpen, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-[9995] flex items-center justify-center p-3 sm:p-5 bg-slate-950/85 backdrop-blur-md overflow-y-auto animate-fadeIn"
+      role="dialog" aria-modal="true" aria-label="আমার প্রোফাইল"
+      className="profile-overlay fixed inset-0 z-[9995] flex items-center justify-center p-3 sm:p-5 bg-slate-950/85 backdrop-blur-md overflow-y-auto animate-fadeIn"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-2xl rounded-3xl bg-gradient-to-b from-slate-900 via-[#0d1627] to-slate-950 border border-slate-700/60 shadow-[0_25px_80px_rgba(0,0,0,0.85)] overflow-hidden my-auto">
+      <div className="profile-sheet relative w-full max-w-2xl rounded-3xl bg-gradient-to-b from-slate-900 via-[#0d1627] to-slate-950 border border-slate-700/60 shadow-[0_25px_80px_rgba(0,0,0,0.85)] overflow-hidden my-auto">
         
         {/* Top Brand Banner Strip */}
         <div className="h-2 w-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600"></div>
@@ -217,7 +218,7 @@ export default function ProfileModal({ isOpen, onClose }) {
             </div>
             <div>
               <h3 className="font-extrabold text-white text-sm sm:text-base tracking-wide flex items-center gap-2">
-                <span>BJS & Bar Aspirants Academy</span>
+                <span>আমার প্রোফাইল</span>
                 <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
                   {user.isMentor ? 'মেন্টর পোর্টাল' : 'স্টুডেন্ট পোর্টাল'}
                 </span>
@@ -229,7 +230,7 @@ export default function ProfileModal({ isOpen, onClose }) {
           </div>
 
           <button
-            onClick={onClose}
+            onClick={onClose} aria-label="প্রোফাইল বন্ধ করুন"
             className="w-9 h-9 rounded-xl bg-slate-800/80 hover:bg-rose-950/60 border border-slate-700/60 hover:border-rose-500/40 text-slate-400 hover:text-rose-300 flex items-center justify-center transition-all cursor-pointer shadow-sm"
             title="বন্ধ করুন (Esc)"
           >
@@ -237,11 +238,16 @@ export default function ProfileModal({ isOpen, onClose }) {
           </button>
         </div>
 
+        <nav aria-label="প্রোফাইলের বিভাগ" className="profile-index">
+          {[['identity','পরিচিতি'], ['contact','যোগাযোগ'], ['security','নিরাপত্তা'], ['support','সহায়তা']].map(([id,label]) =>
+            <button type="button" key={id} onClick={() => document.getElementById('profile-'+id)?.scrollIntoView({block:'start'})}>{label}</button>
+          )}
+        </nav>
         {/* Modal Scrollable Body */}
-        <div className="p-5 sm:p-7 space-y-6 max-h-[82vh] overflow-y-auto custom-scrollbar">
+        <div className="profile-body p-5 sm:p-7 space-y-6 max-h-[82vh] overflow-y-auto custom-scrollbar">
 
           {/* Student Hero Identity Card */}
-          <div className="relative p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-amber-500/25 shadow-xl overflow-hidden">
+          <div id="profile-identity" className="profile-identity relative p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-amber-500/25 shadow-xl overflow-hidden">
             {/* Background Watermark Pattern */}
             <div className="absolute -right-6 -bottom-6 text-slate-800/20 text-8xl font-black pointer-events-none select-none font-serif">
               BJS
@@ -356,7 +362,7 @@ export default function ProfileModal({ isOpen, onClose }) {
           )}
 
           {/* SECTION 1: ব্যক্তিগত ও যোগাযোগ তথ্য */}
-          <div className="space-y-3">
+          <div id="profile-contact" className="space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-xs sm:text-sm font-extrabold text-white flex items-center gap-2">
                 <User className="w-4 h-4 text-amber-400" />
@@ -630,7 +636,7 @@ export default function ProfileModal({ isOpen, onClose }) {
           </div>
 
           {/* SECTION 2: একাডেমি এনরোলমেন্ট ও সিকিউরিটি স্ট্যাটাস */}
-          <div className="space-y-3">
+          <div id="profile-security" className="space-y-3">
             <h4 className="text-xs sm:text-sm font-extrabold text-white flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
               <span>ডিজিটাল নিরাপত্তা ও ডিভাইস গভর্ন্যান্স</span>
@@ -670,7 +676,7 @@ export default function ProfileModal({ isOpen, onClose }) {
           </div>
 
           {/* SECTION 3: প্রশাসনিক সংশোধন সহায়তা ও হেল্পলাইন */}
-          <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div id="profile-support" className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
             <div className="space-y-1">
               <p className="font-bold text-slate-200 flex items-center gap-1.5">
                 <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
