@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 
 const courseSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true, index: true }, // e.g. civil-laws-intensive
+  legacyIds: [{ type: String, index: true }], // Historical / legacy course IDs before rename
   title: { type: String, required: true },
   shortTitle: { type: String, default: "" },
   faculty: { type: String, default: "Shanto Deb Roy Arno" },

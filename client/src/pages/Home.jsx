@@ -727,7 +727,6 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                             }`}>
                               {isOrientation ? '🎁 Orientation Class (Free Demo)' : isFirstVideo ? '🎁 Class #1 (Free Demo Unlocked)' : `🔒 Class #${regularClassNum} (Locked)`}
                             </span>
-                            {l.duration && <span className="font-mono text-[10px] text-slate-400">⏱️ {l.duration}</span>}
                           </div>
                           <h4 className="font-bold text-white text-sm">{l.title}</h4>
                           {l.description && <p className="text-xs text-slate-400">{l.description}</p>}

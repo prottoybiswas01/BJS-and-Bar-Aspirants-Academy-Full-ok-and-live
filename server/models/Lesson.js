@@ -15,7 +15,8 @@ const lessonSchema = new mongoose.Schema({
   order: { type: Number, default: 0 },
   transcript: { type: String, default: "" }, // Extracted or manually saved full transcript text
   transcriptStatus: { type: String, default: "none" }, // none | ready | failed | manual
-  transcriptUpdatedAt: { type: Date, default: null }
+  transcriptUpdatedAt: { type: Date, default: null },
+  notifiedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 module.exports = mongoose.model("Lesson", lessonSchema);

@@ -1395,6 +1395,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     setCourseForm({
       _id: c._id,
       oldId: c.id,
+      oldTitle: c.title,
       id: c.id,
       title: c.title,
       shortTitle: c.shortTitle || c.title,
@@ -1422,6 +1423,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     setCourseForm({
       _id: undefined,
       oldId: undefined,
+      oldTitle: undefined,
       id: '',
       title: '',
       shortTitle: '',
@@ -6093,7 +6095,7 @@ return (
                                       {l?.courseId || 'General'}
                                     </span>
                                     <p className="font-bold text-white">{l?.title}</p>
-                                    <p className="text-[10px] text-slate-400">{l?.duration || '56min'} • {l?.releaseDate || 'Recent'}</p>
+                                    <p className="text-[10px] text-slate-400">{l?.releaseDate || 'Recent'}</p>
                                   </div>
                                   <button
                                     type="button"

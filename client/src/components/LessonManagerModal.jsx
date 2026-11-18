@@ -37,7 +37,6 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       module: defaultModule,
       chapter: '',
       title: generateTitle(defaultModule, nextNum),
-      duration: '56min',
       youtubeUrl: '',
       releaseDate: new Date().toISOString().split('T')[0],
       description: '',
@@ -110,7 +109,6 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       module: l.module || course?.title || '',
       chapter: l.chapter || '',
       title: l.title || '',
-      duration: l.duration || '56min',
       youtubeUrl: l.youtubeUrl || (l.youtubeId ? `https://youtu.be/${l.youtubeId}` : ''),
       releaseDate: l.releaseDate || new Date().toISOString().split('T')[0],
       description: l.description || '',
@@ -416,16 +414,6 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-slate-400 mb-1 font-bold">Duration</label>
-                <input
-                  type="text"
-                  value={form.duration}
-                  onChange={(e) => setForm({ ...form, duration: e.target.value })}
-                  placeholder="56min"
-                  className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-                />
-              </div>
-              <div>
                 <label className="block text-amber-300 mb-1 font-bold">Class Serial # (ক্রমিক — অপশনাল)</label>
                 <input
                   type="number"
@@ -437,16 +425,15 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                   title="ভিডিওর ক্রমিক নম্বর (খালি রাখলেও স্বয়ংক্রিয়ভাবে পরবর্তী সিরিয়াল যুক্ত হবে)"
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="block text-slate-400 mb-1 font-bold">Release Date</label>
-              <input
-                type="date"
-                value={form.releaseDate}
-                onChange={(e) => setForm({ ...form, releaseDate: e.target.value })}
-                className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
-              />
+              <div>
+                <label className="block text-slate-400 mb-1 font-bold">Release Date</label>
+                <input
+                  type="date"
+                  value={form.releaseDate}
+                  onChange={(e) => setForm({ ...form, releaseDate: e.target.value })}
+                  className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-white font-mono"
+                />
+              </div>
             </div>
 
             <button type="submit" className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs shadow-lg transition-all hover:scale-[1.02] mt-2">
@@ -480,7 +467,6 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                       <th className="p-2.5 w-8 text-center">#</th>
                       <th className="p-2.5">Module</th>
                       <th className="p-2.5">Title</th>
-                      <th className="p-2.5">Duration</th>
                       <th className="p-2.5">YouTube URL</th>
                       <th className="p-2.5 text-right">Action</th>
                     </tr>
@@ -544,7 +530,6 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                             </div>
                           )}
                         </td>
-                        <td className="p-2.5 text-slate-300 font-mono">{l.duration || '56min'}</td>
                         <td className="p-2.5 font-mono text-cyan-400 max-w-[130px] truncate">
                           {l.youtubeUrl || `https://youtu.be/${l.youtubeId}`}
                         </td>

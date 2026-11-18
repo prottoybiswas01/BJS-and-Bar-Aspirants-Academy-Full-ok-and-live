@@ -8,7 +8,8 @@
     "server": "node server/server.js",
     "client": "npm run dev --prefix client",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "build": "npm run build --prefix client"
+    "build": "npm run build --prefix client",
+    "test": "node test_regression_suite.js"
   },
   "keywords": [
     "bjs",

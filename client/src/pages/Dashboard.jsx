@@ -771,7 +771,6 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass}`}>
                                       {badgeText}
                                     </span>
-                                    <span className="font-mono text-[11px] text-slate-400">⏱️ {l.duration}</span>
                                     <span className="font-mono text-[10px] text-slate-500">Released: {l.releaseDate}</span>
                                   </div>
                                   <h4 className="font-bold text-white text-sm">{l.title}</h4>
