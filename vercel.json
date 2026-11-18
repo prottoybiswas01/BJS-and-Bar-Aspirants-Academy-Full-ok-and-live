@@ -11,6 +11,12 @@
       "config": { "distDir": "dist" }
     }
   ],
+  "crons": [
+    {
+      "path": "/api/admin/transcripts/process-jobs",
+      "schedule": "*/10 * * * *"
+    }
+  ],
   "routes": [
     {
       "src": "/api/(.*)",
