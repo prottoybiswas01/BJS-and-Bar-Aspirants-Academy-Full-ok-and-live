@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 
 export default function AdminPanel({ openLessonManager, openVideoModal, openMentorProfile }) {
@@ -29,6 +29,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   const [previewStudentModal, setPreviewStudentModal] = useState({ isOpen: false, student: null });
   const [previewLessons, setPreviewLessons] = useState([]);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewSelectedCourseId, setPreviewSelectedCourseId] = useState(null);
+  const previewReqSeqRef = useRef(0);
 
   // Temporary Password Modal State
   const [tempPasswordModal, setTempPasswordModal] = useState({
@@ -895,45 +897,51 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
 
   const handleOpenStudentPreview = async (student) => {
-    setPreviewStudentModal({ isOpen: true, student });
+    const seq = ++previewReqSeqRef.current;
+    // Immediately clear previous state to prevent cross-student or cross-course leaks
+    setPreviewLessons([]);
     setPreviewLoading(true);
+
+    const rawAllowed = [
+      ...(Array.isArray(student?.allowedCourseIds) ? student.allowedCourseIds : []),
+      ...(Array.isArray(student?.enrolledCourseIds) ? student.enrolledCourseIds : []),
+      ...(student?.course ? [student.course] : [])
+    ].filter(Boolean);
+
+    const distinctAllowed = Array.from(new Set(rawAllowed)).filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
+    const isUnlimited = student?.unlimitedAccess === true || distinctAllowed.some(id => String(id).toLowerCase() === 'all');
+
+    const matchedCourses = courses.filter(c => {
+      if (isUnlimited) return true;
+      const cId = String(c?.id || '').toLowerCase().trim();
+      const cTitle = String(c?.title || '').toLowerCase().trim();
+      const cShort = String(c?.shortTitle || '').toLowerCase().trim();
+      return distinctAllowed.some(id => {
+        const cleanId = String(id).toLowerCase().trim();
+        return cleanId === cId || cleanId === cTitle || cleanId === cShort ||
+               cleanId.replace(/[-_]/g, ' ') === cId.replace(/[-_]/g, ' ') ||
+               cleanId.replace(/s$/, '') === cId.replace(/s$/, '');
+      });
+    });
+
+    const initialCourseId = matchedCourses[0]?.id || (distinctAllowed[0] || null);
+    setPreviewSelectedCourseId(initialCourseId);
+    setPreviewStudentModal({ isOpen: true, student });
+
     try {
       const res = await api.get('/lessons');
+      if (seq !== previewReqSeqRef.current) return;
       if (res.data?.ok) {
         const allLessons = Array.isArray(res.data.lessons) ? res.data.lessons : [];
-        const rawAllowed = [
-          ...(Array.isArray(student?.allowedCourseIds) ? student.allowedCourseIds : []),
-          ...(Array.isArray(student?.enrolledCourseIds) ? student.enrolledCourseIds : []),
-          ...(student?.course ? [student.course] : [])
-        ].filter(Boolean);
-
-        const isUnlimited = student?.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase() === 'all');
-
-        let studentLessons = [];
-        if (isUnlimited) {
-          studentLessons = allLessons;
-        } else if (rawAllowed.length > 0) {
-          studentLessons = allLessons.filter(l => {
-            const lCourse = String(l?.courseId || '').toLowerCase().trim();
-            const lMod = String(l?.module || '').toLowerCase().trim();
-            return rawAllowed.some(id => {
-              const cleanId = String(id).toLowerCase().trim();
-              return (
-                cleanId === lCourse ||
-                cleanId === lMod ||
-                cleanId.replace(/[-_]/g, ' ') === lCourse.replace(/[-_]/g, ' ') ||
-                cleanId.replace(/[-_]/g, ' ') === lMod.replace(/[-_]/g, ' ')
-              );
-            });
-          });
-        }
-
-        setPreviewLessons(studentLessons);
+        setPreviewLessons(allLessons);
       }
     } catch (err) {
+      if (seq !== previewReqSeqRef.current) return;
       console.log('Error loading preview lessons:', err);
     } finally {
-      setPreviewLoading(false);
+      if (seq === previewReqSeqRef.current) {
+        setPreviewLoading(false);
+      }
     }
   };
 
@@ -5832,9 +5840,24 @@ return (
                     ...(Array.isArray(previewStudentModal.student?.enrolledCourseIds) ? previewStudentModal.student.enrolledCourseIds : []),
                     ...(previewStudentModal.student?.course ? [previewStudentModal.student.course] : [])
                   ].filter(Boolean);
-                  const isUnlimited = previewStudentModal.student?.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase() === 'all');
+                  const distinctAllowed = Array.from(new Set(rawAllowed)).filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
+                  const isUnlimited = previewStudentModal.student?.unlimitedAccess === true || distinctAllowed.some(id => String(id).toLowerCase() === 'all');
                   if (isUnlimited) return <p className="font-bold text-purple-300">Unlimited Access</p>;
-                  if (rawAllowed.length > 0) return <p className="font-bold text-emerald-400">{rawAllowed.length} Course(s) Active</p>;
+
+                  const enrolledCards = courses.filter(c => {
+                    const cId = String(c?.id || '').toLowerCase().trim();
+                    const cTitle = String(c?.title || '').toLowerCase().trim();
+                    const cShort = String(c?.shortTitle || '').toLowerCase().trim();
+                    return distinctAllowed.some(id => {
+                      const cleanId = String(id).toLowerCase().trim();
+                      return cleanId === cId || cleanId === cTitle || cleanId === cShort ||
+                             cleanId.replace(/[-_]/g, ' ') === cId.replace(/[-_]/g, ' ') ||
+                             cleanId.replace(/s$/, '') === cId.replace(/s$/, '');
+                    });
+                  });
+
+                  if (enrolledCards.length > 0) return <p className="font-bold text-emerald-400">{enrolledCards.length} Course(s) Active</p>;
+                  if (distinctAllowed.length > 0) return <p className="font-bold text-emerald-400">{distinctAllowed.length} Course(s) Active</p>;
                   if (previewStudentModal.student?.batch || previewStudentModal.student?.session) {
                     return <p className="font-bold text-emerald-400">Batch/Session Active</p>;
                   }
@@ -5847,118 +5870,173 @@ return (
               </div>
             </div>
 
-            {/* Section 1: Enrolled Courses */}
-            <div className="space-y-3">
-              <h3 className="font-bold text-white text-sm flex items-center gap-2">
-                <span>📚</span> এনরোলকৃত কোর্সসমূহ (Enrolled Courses)
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {courses
-                  .filter(c => {
-                    const rawAllowed = [
-                      ...(Array.isArray(previewStudentModal.student?.allowedCourseIds) ? previewStudentModal.student.allowedCourseIds : []),
-                      ...(Array.isArray(previewStudentModal.student?.enrolledCourseIds) ? previewStudentModal.student.enrolledCourseIds : []),
-                      ...(previewStudentModal.student?.course ? [previewStudentModal.student.course] : [])
-                    ].filter(Boolean);
-                    const isUnlimited = previewStudentModal.student?.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase() === 'all');
-                    if (isUnlimited) return true;
-                    const cId = String(c?.id || '').toLowerCase().trim();
-                    const cTitle = String(c?.title || '').toLowerCase().trim();
+            {/* Section 1 & 2: Interactive Enrolled Courses & Course-Specific Videos */}
+            {(() => {
+              const rawAllowed = [
+                ...(Array.isArray(previewStudentModal.student?.allowedCourseIds) ? previewStudentModal.student.allowedCourseIds : []),
+                ...(Array.isArray(previewStudentModal.student?.enrolledCourseIds) ? previewStudentModal.student.enrolledCourseIds : []),
+                ...(previewStudentModal.student?.course ? [previewStudentModal.student.course] : [])
+              ].filter(Boolean);
+              const distinctAllowed = Array.from(new Set(rawAllowed)).filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
+              const isUnlimited = previewStudentModal.student?.unlimitedAccess === true || distinctAllowed.some(id => String(id).toLowerCase() === 'all');
 
-                    return rawAllowed.some(id => {
-                      const cleanId = String(id).toLowerCase().trim();
-                      return (
-                        cleanId === cId ||
-                        cleanId === cTitle ||
-                        cleanId.replace(/[-_]/g, ' ') === cId.replace(/[-_]/g, ' ') ||
-                        cleanId.replace(/[-_]/g, ' ') === cTitle.replace(/[-_]/g, ' ')
-                      );
-                    });
-                  })
-                  .map(c => (
-                    <div key={c?.id || c?._id} className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1 text-xs">
-                      <p className="font-extrabold text-amber-300">{c?.title}</p>
-                      <p className="text-slate-400 text-[11px]">ফ্যাকাল্টি: {c?.faculty}</p>
-                      <p className="text-slate-400 text-[11px]">সিডিউল: <span className="font-mono text-slate-200">{c?.schedule}</span></p>
-                      <div className="pt-1 flex items-center justify-between text-[10px]">
-                        <span className="text-emerald-400 font-bold">✓ Access Granted</span>
-                        <span className="text-slate-500 font-mono">৳{c?.price} BDT</span>
-                      </div>
+              const enrolledCourseCards = courses.filter(c => {
+                if (isUnlimited) return true;
+                const cId = String(c?.id || '').toLowerCase().trim();
+                const cTitle = String(c?.title || '').toLowerCase().trim();
+                const cShort = String(c?.shortTitle || '').toLowerCase().trim();
+                return distinctAllowed.some(id => {
+                  const cleanId = String(id).toLowerCase().trim();
+                  return cleanId === cId || cleanId === cTitle || cleanId === cShort ||
+                         cleanId.replace(/[-_]/g, ' ') === cId.replace(/[-_]/g, ' ') ||
+                         cleanId.replace(/s$/, '') === cId.replace(/s$/, '');
+                });
+              });
+
+              const activeCourseId = previewSelectedCourseId || enrolledCourseCards[0]?.id;
+              const activeCourseObj = courses.find(c => c.id === activeCourseId) || { id: activeCourseId, title: activeCourseId };
+
+              const activeClean = String(activeCourseId || '').toLowerCase().trim();
+              const activeTitle = String(activeCourseObj?.title || '').toLowerCase().trim();
+              const activeShort = String(activeCourseObj?.shortTitle || '').toLowerCase().trim();
+
+              const currentCourseLessons = previewLessons.filter(l => {
+                if (!activeClean) return false;
+                const lCourse = String(l?.courseId || '').toLowerCase().trim();
+                const lMod = String(l?.module || '').toLowerCase().trim();
+                return lCourse === activeClean ||
+                       lCourse === activeTitle ||
+                       lCourse === activeShort ||
+                       lCourse.replace(/[-_]/g, ' ') === activeClean.replace(/[-_]/g, ' ') ||
+                       lCourse.replace(/s$/, '') === activeClean.replace(/s$/, '') ||
+                       lMod === activeClean ||
+                       lMod === activeTitle ||
+                       lMod.replace(/[-_]/g, ' ') === activeClean.replace(/[-_]/g, ' ');
+              });
+
+              // Group lessons by Chapter or Module
+              const groupedPreviewLessons = currentCourseLessons.reduce((acc, l) => {
+                const group = l.chapter && l.chapter.trim() !== '' ? l.chapter : (l.module || 'সাধারণ বিষয়সূচি (General Module)');
+                if (!acc[group]) acc[group] = [];
+                acc[group].push(l);
+                return acc;
+              }, {});
+
+              return (
+                <>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                        <span>📚</span> এনরোলকৃত কোর্সসমূহ ({enrolledCourseCards.length})
+                      </h3>
+                      <span className="text-[11px] text-amber-400 font-mono">
+                        যেকোনো কার্ডে ক্লিক করে তার লেসন দেখুন
+                      </span>
                     </div>
-                  ))}
-                {courses.filter(c => {
-                  const rawAllowed = [
-                    ...(Array.isArray(previewStudentModal.student?.allowedCourseIds) ? previewStudentModal.student.allowedCourseIds : []),
-                    ...(Array.isArray(previewStudentModal.student?.enrolledCourseIds) ? previewStudentModal.student.enrolledCourseIds : []),
-                    ...(previewStudentModal.student?.course ? [previewStudentModal.student.course] : [])
-                  ].filter(Boolean);
-                  const isUnlimited = previewStudentModal.student?.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase() === 'all');
-                  if (isUnlimited) return true;
-                  const cId = String(c?.id || '').toLowerCase().trim();
-                  const cTitle = String(c?.title || '').toLowerCase().trim();
 
-                  return rawAllowed.some(id => {
-                    const cleanId = String(id).toLowerCase().trim();
-                    return (
-                      cleanId === cId ||
-                      cleanId === cTitle ||
-                      cleanId.replace(/[-_]/g, ' ') === cId.replace(/[-_]/g, ' ') ||
-                      cleanId.replace(/[-_]/g, ' ') === cTitle.replace(/[-_]/g, ' ')
-                    );
-                  });
-                }).length === 0 && (
-                  <div className="col-span-1 sm:col-span-2 p-4 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs text-center font-medium">
-                    🔒 কোনো নির্দিষ্ট কোর্স অ্যাসাইন করা হয়নি (Locked - 0 Courses Assigned)
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {enrolledCourseCards.map(c => {
+                        const isSelected = activeCourseId === c.id;
+                        return (
+                          <div
+                            key={c?.id || c?._id}
+                            onClick={() => setPreviewSelectedCourseId(c.id)}
+                            className={`p-3.5 rounded-xl border space-y-1 text-xs cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-amber-500/15 border-amber-500 shadow-lg ring-1 ring-amber-500/50'
+                                : 'bg-slate-900/90 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <p className="font-extrabold text-amber-300 line-clamp-1">{c?.title}</p>
+                              {isSelected ? (
+                                <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-mono text-[9px] font-extrabold shrink-0">
+                                  ✓ SELECTED
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 text-[10px] hover:text-slate-300">ক্লিক করুন</span>
+                              )}
+                            </div>
+                            <p className="text-slate-400 text-[11px]">ফ্যাকাল্টি: {c?.faculty}</p>
+                            <p className="text-slate-400 text-[11px]">সিডিউল: <span className="font-mono text-slate-200">{c?.schedule}</span></p>
+                            <div className="pt-1 flex items-center justify-between text-[10px]">
+                              <span className="text-emerald-400 font-bold">✓ Access Granted</span>
+                              <span className="text-slate-500 font-mono">৳{c?.price} BDT</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {enrolledCourseCards.length === 0 && (
+                        <div className="col-span-1 sm:col-span-2 p-4 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs text-center font-medium">
+                          🔒 কোনো নির্দিষ্ট কোর্স অ্যাসাইন করা হয়নি (Locked - 0 Courses Assigned)
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
 
-            {/* Section 2: Available Video Lectures */}
-            <div className="space-y-3 border-t border-slate-800 pt-4">
-              <div className="flex justify-between items-center">
-                <h3 className="font-bold text-white text-sm flex items-center gap-2">
-                  <span>🎥</span> ভিডিও লেকচার ও লাইভ ক্লাস প্লে ব্যাক ({previewLessons.length})
-                </h3>
-                <span className="text-[11px] text-slate-400 font-mono">Student Portal Preview</span>
-              </div>
-
-              {previewLoading ? (
-                <div className="text-center py-6 text-cyan-400 font-mono animate-pulse text-xs">
-                  স্টুডেন্ট পোর্টালের ভিডিও ডেটা লোড হচ্ছে...
-                </div>
-              ) : previewLessons.length === 0 ? (
-                <div className="text-center py-6 text-slate-500 text-xs bg-slate-900/50 rounded-xl">
-                  এই স্টুডেন্টের জন্য কোনো ভিডিও লেকচার পাওয়া যায়নি।
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {previewLessons.map(l => (
-                    <div key={l?.id || l?._id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3 text-xs hover:border-cyan-500/40 transition-all">
-                      <div className="space-y-0.5">
-                        <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 text-[10px] font-bold">
-                          {l?.courseId || 'General'}
-                        </span>
-                        <p className="font-bold text-white">{l?.title}</p>
-                        <p className="text-[10px] text-slate-400">{l?.duration || '56min'} • {l?.releaseDate || 'Recent'}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => openVideoModal && openVideoModal(l)}
-                        className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-[11px] shadow-md transition-all flex items-center gap-1 shrink-0"
-                      >
-                        <span>▶️</span> টেস্ট ভিডিও প্লে
-                      </button>
+                  {/* Section 2: Available Video Lectures */}
+                  <div className="space-y-3 border-t border-slate-800 pt-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                        <span>🎥</span> {activeCourseObj?.title || 'নির্বাচিত কোর্স'}-এর ভিডিও লেকচার ({currentCourseLessons.length})
+                      </h3>
+                      <span className="text-[11px] text-slate-400 font-mono">Student Portal Preview</span>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+
+                    {previewLoading ? (
+                      <div className="text-center py-6 text-cyan-400 font-mono animate-pulse text-xs">
+                        স্টুডেন্ট পোর্টালের ভিডিও ডেটা লোড হচ্ছে...
+                      </div>
+                    ) : currentCourseLessons.length === 0 ? (
+                      <div className="text-center py-6 text-slate-500 text-xs bg-slate-900/50 rounded-xl">
+                        এই কোর্সে এখনো কোনো লেসন যোগ করা হয়নি।
+                      </div>
+                    ) : (
+                      <div className="space-y-4 max-h-72 overflow-y-auto pr-1">
+                        {Object.entries(groupedPreviewLessons).map(([groupTitle, groupLessons]) => (
+                          <div key={groupTitle} className="space-y-2">
+                            <div className="text-xs font-bold text-amber-300/90 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                              <span>📖 {groupTitle}</span>
+                              <span className="text-[10px] font-mono text-slate-400">{groupLessons.length} টি ক্লাস</span>
+                            </div>
+                            <div className="space-y-1.5 pl-1">
+                              {groupLessons.map(l => (
+                                <div key={l?.id || l?._id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3 text-xs hover:border-cyan-500/40 transition-all">
+                                  <div className="space-y-0.5">
+                                    <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 text-[10px] font-bold">
+                                      {l?.courseId || 'General'}
+                                    </span>
+                                    <p className="font-bold text-white">{l?.title}</p>
+                                    <p className="text-[10px] text-slate-400">{l?.duration || '56min'} • {l?.releaseDate || 'Recent'}</p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => openVideoModal && openVideoModal(l)}
+                                    className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-[11px] shadow-md transition-all flex items-center gap-1 shrink-0"
+                                  >
+                                    <span>▶️</span> টেস্ট ভিডিও প্লে
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
 
             <div className="pt-2 flex justify-end border-t border-slate-800">
               <button
                 type="button"
-                onClick={() => setPreviewStudentModal({ isOpen: false, student: null })}
+                onClick={() => {
+                  setPreviewStudentModal({ isOpen: false, student: null });
+                  setPreviewLessons([]);
+                  setPreviewSelectedCourseId(null);
+                }}
                 className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all"
               >
                 বন্ধ করুন (Close Portal Preview)
