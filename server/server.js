@@ -3905,6 +3905,7 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
     fastCache.del("courses_public");
     fastCache.del("courses_all");
     fastCache.del("home_data");
+    fastCache.del("student_dash_");
 
     return res.json({ ok: true, message: `কোর্স "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং শিক্ষার্থীদের তথ্য আপডেট হয়েছে!`, course: saved });
   } catch (err) {
@@ -3924,6 +3925,7 @@ app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], async (req, res) =>
     // Instant cache invalidation
     fastCache.del("courses");
     fastCache.del("home_data");
+    fastCache.del("student_dash_");
 
     return res.json({ ok: true, message: "কোর্স সফলভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
@@ -4698,70 +4700,137 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
     const { courseId: requestedCourseId } = req.query;
     const studentUniqueKey = student.id || student.phone || 'student';
     const accessVer = student.accessVersion || (student.updatedAt ? new Date(student.updatedAt).getTime() : 0);
-    const cacheKey = `student_dash_${studentUniqueKey}_v${accessVer}_${requestedCourseId || 'auto'}`;
+    const reqCourseKey = requestedCourseId ? String(requestedCourseId).trim().toLowerCase().replace(/[-_]/g, ' ') : 'auto';
+    const cacheKey = `student_dash_${studentUniqueKey}_v${accessVer}_${reqCourseKey}`;
     const cached = fastCache.get(cacheKey);
     if (cached) {
       return res.json({ ok: true, ...cached, source: "fast-cache" });
     }
 
     // 1. Fetch courses with database-level status filter and lightweight field projection
-    // Enrolled courses are always included for the student even if not publicly active on homepage
+    // Enrolled courses are always included for the student even if Deactivated / Inactive on public homepage
     const enrolledFilter = (Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0)
       ? student.allowedCourseIds
       : (Array.isArray(student.enrolledCourseIds) ? student.enrolledCourseIds : []);
 
-    const courseQuery = enrolledFilter.length > 0
-      ? { $or: [{ status: { $ne: "Inactive" } }, { id: { $in: enrolledFilter } }] }
-      : { status: { $ne: "Inactive" } };
+    const candidateIds = [...enrolledFilter];
+    if (student.course && !candidateIds.includes(student.course)) {
+      candidateIds.push(student.course);
+    }
+    if (Array.isArray(student.courseRules)) {
+      student.courseRules.forEach(r => {
+        if (r && r.courseId && r.enrollmentStatus !== 'Suspended' && !candidateIds.includes(r.courseId)) {
+          candidateIds.push(r.courseId);
+        }
+      });
+    }
+
+    const idRegexes = candidateIds.map(id => {
+      const escaped = String(id).trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '[-_ ]?');
+      return new RegExp(`^${escaped}$`, 'i');
+    });
+
+    const courseQuery = idRegexes.length > 0
+      ? { $or: [{ status: { $nin: ["Inactive", "Hidden"] } }, { id: { $in: candidateIds } }, { id: { $in: idRegexes } }] }
+      : { status: { $nin: ["Inactive", "Hidden"] } };
 
     const courseProjection = 'id title shortTitle category faculty status batchRegText sessionRegText';
     const allCourses = isMongoConnected
       ? await Course.find(courseQuery, courseProjection).sort({ createdAt: -1 }).lean().catch(() => [])
-      : (memoryDb.courses || []).filter(c => c && (c.status !== "Inactive" || enrolledFilter.includes(c.id)));
+      : (memoryDb.courses || []).filter(c => {
+          if (!c) return false;
+          if (c.status !== "Inactive" && c.status !== "Hidden") return true;
+          return candidateIds.some(cid => {
+            const c1 = String(cid).toLowerCase().trim();
+            const c2 = String(c.id).toLowerCase().trim();
+            return c1 === c2 || c1.replace(/[-_]/g, ' ') === c2.replace(/[-_]/g, ' ');
+          });
+        });
 
     // 2. Backend-processed course enrollment annotation
-    const processedCourses = (allCourses || []).map(c => {
-      const access = checkStudentCourseAccess(student, c.id);
-      return {
-        ...c,
-        isEnrolled: access.allowed,
-        isLocked: !access.allowed
-      };
-    });
+    // Public/Active courses are visible in the catalog (marked locked if not enrolled).
+    // Inactive/Deactivated courses are ONLY visible if the admin has explicitly assigned/enrolled this student!
+    const processedCourses = (allCourses || [])
+      .map(c => {
+        const access = checkStudentCourseAccess(student, c.id);
+        return {
+          ...c,
+          isEnrolled: access.allowed,
+          isLocked: !access.allowed
+        };
+      })
+      .filter(c => {
+        if (c.status === "Inactive" || c.status === "Hidden") {
+          return c.isEnrolled;
+        }
+        return true;
+      });
 
     const enrolledCourses = processedCourses.filter(c => c.isEnrolled);
     const enrolledIds = enrolledCourses.map(c => c.id);
 
     // 3. Resolve selected course:
-    // If student has no enrolled courses and didn't request a specific course, selectedCourse is null!
-    // Prevents accidental leakage of unassigned course contents when enrolled list is empty!
+    // If student explicitly requested a course, match flexibly (case-insensitive, slug-tolerant, plural-tolerant)
     let selectedCourse = null;
     if (requestedCourseId) {
-      selectedCourse = processedCourses.find(c => c.id === requestedCourseId || String(c._id) === String(requestedCourseId)) || null;
+      const reqClean = String(requestedCourseId).trim().toLowerCase();
+      const reqNorm = reqClean.replace(/[-_]/g, ' ');
+      selectedCourse = processedCourses.find(c => {
+        if (!c) return false;
+        const cId = String(c.id || '').trim().toLowerCase();
+        const cIdNorm = cId.replace(/[-_]/g, ' ');
+        const cTitle = String(c.title || '').trim().toLowerCase();
+        const cShort = String(c.shortTitle || '').trim().toLowerCase();
+        const mongoId = String(c._id || '').trim().toLowerCase();
+        return cId === reqClean ||
+               cIdNorm === reqNorm ||
+               mongoId === reqClean ||
+               cTitle === reqClean ||
+               cShort === reqClean ||
+               cId.replace(/s$/, '') === reqClean.replace(/s$/, '') ||
+               cIdNorm.replace(/s$/, '') === reqNorm.replace(/s$/, '');
+      }) || null;
     }
-    if (!selectedCourse) {
+
+    // ONLY fallback to default if student did NOT request a specific course, or if the requested course does not exist for this student
+    if (!selectedCourse && !requestedCourseId) {
+      selectedCourse = enrolledCourses.length > 0 ? enrolledCourses[0] : null;
+    } else if (!selectedCourse && requestedCourseId) {
+      // The requested course is no longer accessible to student; safely fallback to first enrolled
       selectedCourse = enrolledCourses.length > 0 ? enrolledCourses[0] : null;
     }
 
     // 4. Fetch and process lessons for selected course directly from DB with field projection
+    // Even if selectedCourse has 0 lessons, we KEEP selectedCourse intact! We do NOT switch to another course!
     let lessonsList = [];
     if (selectedCourse) {
       const cId = selectedCourse.id;
       const cleanCourse = String(cId).trim();
       const courseRegex = new RegExp(`^${cleanCourse.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '[-_ ]?')}$`, 'i');
       const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree createdAt';
+      
+      const orClauses = [
+        { courseId: cleanCourse },
+        { courseId: courseRegex },
+        { module: courseRegex }
+      ];
+      if (selectedCourse.title) orClauses.push({ courseId: selectedCourse.title });
+      if (selectedCourse.shortTitle) orClauses.push({ courseId: selectedCourse.shortTitle });
+
       if (isMongoConnected) {
-        lessonsList = await Lesson.find({
-          $or: [
-            { courseId: cleanCourse },
-            { courseId: courseRegex },
-            { module: courseRegex }
-          ]
-        }, lessonProjection).lean().catch(() => []);
+        lessonsList = await Lesson.find({ $or: orClauses }, lessonProjection).lean().catch(() => []);
       }
       if (!lessonsList || lessonsList.length === 0) {
+        const cNorm = cleanCourse.toLowerCase().replace(/[-_]/g, ' ');
         lessonsList = (memoryDb.lessons || [])
-          .filter(l => l.courseId === cId || l.courseId === String(cId))
+          .filter(l => {
+            if (!l) return false;
+            const lCId = String(l.courseId || '').trim().toLowerCase();
+            return lCId === cleanCourse.toLowerCase() ||
+                   lCId.replace(/[-_]/g, ' ') === cNorm ||
+                   (selectedCourse.title && lCId === String(selectedCourse.title).toLowerCase().trim()) ||
+                   (selectedCourse.shortTitle && lCId === String(selectedCourse.shortTitle).toLowerCase().trim());
+          })
           .map(l => ({
             id: l.id,
             courseId: l.courseId,
@@ -6469,6 +6538,9 @@ app.post("/api/admin/courses/toggle", async (req, res) => {
       c.status = c.status === "Active" ? "Inactive" : "Active";
       newStatus = c.status;
     }
+
+    fastCache.del("courses_");
+    fastCache.del("student_dash_");
 
     return res.json({ ok: true, message: `Course "${c?.title || courseId}" is now ${newStatus}`, status: newStatus });
   } catch (e) {

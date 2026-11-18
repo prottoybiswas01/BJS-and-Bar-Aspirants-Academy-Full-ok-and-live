@@ -87,6 +87,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   // Selected Active Student for Per-Course Access Rules Panel & Editor Toggle
   const [selectedStudentForRules, setSelectedStudentForRules] = useState(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [courseSearchInModal, setCourseSearchInModal] = useState('');
   const [activeRuleCourseId, setActiveRuleCourseId] = useState('civil-laws-intensive');
 
   const [perCourseRule, setPerCourseRule] = useState({
@@ -3307,39 +3308,81 @@ return (
                       {(studentForm.allowedCourseIds || []).length} Course(s) Granted Access
                     </span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                    {(courses || []).map((c) => {
-                      const isAssigned = (studentForm.allowedCourseIds || []).includes(c.id);
-                      return (
-                        <div
-                          key={c.id}
-                          onClick={() => handleToggleCourseAssignment(c.id, !isAssigned)}
-                          className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-all cursor-pointer ${
-                            isAssigned
-                              ? 'bg-amber-500/15 border-amber-500 text-white shadow-lg ring-1 ring-amber-500/50'
-                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                          }`}
-                        >
-                          <label className="flex items-center gap-2 cursor-pointer flex-1" onClick={(e) => e.stopPropagation()}>
-                            <input
-                              type="checkbox"
-                              checked={isAssigned}
-                              onChange={(e) => handleToggleCourseAssignment(c.id, e.target.checked)}
-                              className="rounded bg-slate-900 border-slate-700 text-amber-500 w-4 h-4 cursor-pointer"
-                            />
-                            <div>
-                              <p className="font-bold text-white line-clamp-1">{c.title}</p>
-                              <p className="text-[9px] font-mono text-slate-400">{c.category || 'COURSE'} • {c.faculty}</p>
-                            </div>
-                          </label>
-                          {isAssigned && (
-                            <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[9px] font-extrabold border border-emerald-500/30 shrink-0">
-                              ✓ ACCESS GRANTED
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
+
+                  {/* Course Search / Filter Input */}
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="কোর্স খুঁজুন (নাম, ক্যাটাগরি বা ডিঅ্যাক্টিভেটেড দিয়ে ফিল্টার করুন)..."
+                      value={courseSearchInModal}
+                      onChange={(e) => setCourseSearchInModal(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-all"
+                    />
+                    {courseSearchInModal && (
+                      <button
+                        type="button"
+                        onClick={() => setCourseSearchInModal('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] max-h-64 overflow-y-auto pr-1">
+                    {(courses || [])
+                      .filter((c) => {
+                        if (!courseSearchInModal || !courseSearchInModal.trim()) return true;
+                        const q = courseSearchInModal.toLowerCase().trim();
+                        const isInactive = c.status === 'Inactive' || c.status === 'Hidden';
+                        return (
+                          String(c.title || '').toLowerCase().includes(q) ||
+                          String(c.shortTitle || '').toLowerCase().includes(q) ||
+                          String(c.category || '').toLowerCase().includes(q) ||
+                          String(c.id || '').toLowerCase().includes(q) ||
+                          (isInactive && ('deactivated'.includes(q) || 'inactive'.includes(q) || 'নিষ্ক্রিয়'.includes(q)))
+                        );
+                      })
+                      .map((c) => {
+                        const isAssigned = (studentForm.allowedCourseIds || []).includes(c.id);
+                        const isInactive = c.status === 'Inactive' || c.status === 'Hidden';
+                        return (
+                          <div
+                            key={c.id}
+                            onClick={() => handleToggleCourseAssignment(c.id, !isAssigned)}
+                            className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                              isAssigned
+                                ? 'bg-amber-500/15 border-amber-500 text-white shadow-lg ring-1 ring-amber-500/50'
+                                : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                            }`}
+                          >
+                            <label className="flex items-center gap-2 cursor-pointer flex-1" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={isAssigned}
+                                onChange={(e) => handleToggleCourseAssignment(c.id, e.target.checked)}
+                                className="rounded bg-slate-900 border-slate-700 text-amber-500 w-4 h-4 cursor-pointer"
+                              />
+                              <div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="font-bold text-white line-clamp-1">{c.title}</p>
+                                  {isInactive && (
+                                    <span className="px-1.5 py-0.2 rounded text-[8px] bg-rose-500/20 text-rose-300 font-mono font-bold border border-rose-500/30 shrink-0">
+                                      Deactivated
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[9px] font-mono text-slate-400">{c.category || 'COURSE'} • {c.faculty}</p>
+                              </div>
+                            </label>
+                            {isAssigned && (
+                              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[9px] font-extrabold border border-emerald-500/30 shrink-0">
+                                ✓ ACCESS GRANTED
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
 

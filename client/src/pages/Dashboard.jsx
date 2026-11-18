@@ -32,8 +32,9 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     loading: false
   });
 
-  // Request sequence and in-memory tab/course cache to prevent race conditions
+  // Request sequence, active course reference, and in-memory tab/course cache to prevent race conditions
   const currentReqSeqRef = useRef(0);
+  const selectedCourseIdRef = useRef(null);
   const courseLessonsCacheRef = useRef({});
 
   const showToast = (msg, type = 'success') => {
@@ -53,21 +54,30 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     courseLessonsCacheRef.current = {};
 
     if (!user?.id) {
+      selectedCourseIdRef.current = null;
       setLoading(false);
       return;
     }
 
-    fetchData(true);
+    // Restore previously selected course from localStorage if available
+    const savedCourseId = localStorage.getItem('bjs_selected_course_' + user.id);
+    if (savedCourseId) {
+      selectedCourseIdRef.current = savedCourseId;
+    } else {
+      selectedCourseIdRef.current = null;
+    }
+
+    fetchData(true, savedCourseId || null);
 
     // Dynamic refetch when tab is refocused or becomes visible
     const onVisibilityChange = () => {
       if (!document.hidden && user?.id) {
-        fetchData(false);
+        fetchData(false, selectedCourseIdRef.current);
       }
     };
     const onFocus = () => {
       if (user?.id) {
-        fetchData(false);
+        fetchData(false, selectedCourseIdRef.current);
       }
     };
 
@@ -77,9 +87,9 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     // Fast background sync interval
     const interval = setInterval(() => {
       if (user?.id && !document.hidden) {
-        fetchData(false);
+        fetchData(false, selectedCourseIdRef.current);
       }
-    }, 8000);
+    }, 10000);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -227,12 +237,12 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     const seq = ++currentReqSeqRef.current;
     if (isInitial) setLoading(true);
     try {
-      const targetCourseId = courseIdOverride || selectedCourse?.id;
+      const targetCourseId = courseIdOverride || selectedCourseIdRef.current || (user?.id ? localStorage.getItem('bjs_selected_course_' + user.id) : null);
       // High-Speed Backend-Processed & Fast-Cached Student Dashboard API
       const res = await api.get('/student/dashboard-data', {
         params: {
           studentId: user?.id || user?.regId,
-          courseId: targetCourseId
+          courseId: targetCourseId || undefined
         }
       });
 
@@ -241,21 +251,64 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
       if (res.data?.ok) {
         if (Array.isArray(res.data.courses)) setCourses(res.data.courses);
-        if (res.data.selectedCourse) {
-          setSelectedCourse(prev => {
-            if (courseIdOverride) return res.data.selectedCourse;
-            return prev ? { ...prev, ...res.data.selectedCourse } : res.data.selectedCourse;
-          });
+
+        const serverCourse = res.data.selectedCourse;
+        const currentTarget = selectedCourseIdRef.current;
+
+        if (serverCourse) {
+          const isTargetMatch = currentTarget && (
+            String(serverCourse.id).toLowerCase().trim() === String(currentTarget).toLowerCase().trim() ||
+            String(serverCourse._id) === String(currentTarget) ||
+            String(serverCourse.id).toLowerCase().trim().replace(/s$/, '') === String(currentTarget).toLowerCase().trim().replace(/s$/, '')
+          );
+
+          if (!currentTarget || isTargetMatch) {
+            setSelectedCourse(serverCourse);
+            selectedCourseIdRef.current = serverCourse.id;
+            if (user?.id) localStorage.setItem('bjs_selected_course_' + user.id, serverCourse.id);
+          } else {
+            // Check if currentTarget is still enrolled in res.data.courses
+            const targetCourseObj = (res.data.courses || []).find(c =>
+              c.isEnrolled && (
+                String(c.id).toLowerCase().trim() === String(currentTarget).toLowerCase().trim() ||
+                String(c.id).toLowerCase().trim().replace(/s$/, '') === String(currentTarget).toLowerCase().trim().replace(/s$/, '')
+              )
+            );
+
+            if (targetCourseObj) {
+              // User has deliberately selected currentTarget and still has access to it.
+              // Keep currentTarget selected; do not let an out-of-order default course override it!
+              setSelectedCourse(targetCourseObj);
+              selectedCourseIdRef.current = targetCourseObj.id;
+            } else {
+              // Access to currentTarget was revoked by admin: gracefully fall back to server's selectedCourse
+              setSelectedCourse(serverCourse);
+              selectedCourseIdRef.current = serverCourse.id;
+              if (user?.id) localStorage.setItem('bjs_selected_course_' + user.id, serverCourse.id);
+            }
+          }
         } else if (res.data.courses && res.data.courses.every(c => !c.isEnrolled)) {
           setSelectedCourse(null);
+          selectedCourseIdRef.current = null;
+          if (user?.id) localStorage.removeItem('bjs_selected_course_' + user.id);
         }
 
+        // Only update lessons if the lessons in this response belong to the active course
         if (Array.isArray(res.data.lessons)) {
-          setLessons(res.data.lessons);
-          if (res.data.selectedCourse?.id) {
-            courseLessonsCacheRef.current[res.data.selectedCourse.id] = res.data.lessons;
+          const activeCourseId = selectedCourseIdRef.current;
+          const returnedCourseId = res.data.selectedCourse?.id;
+          const isCourseMatch = !activeCourseId || !returnedCourseId ||
+            String(returnedCourseId).toLowerCase().trim() === String(activeCourseId).toLowerCase().trim() ||
+            String(returnedCourseId).toLowerCase().trim().replace(/s$/, '') === String(activeCourseId).toLowerCase().trim().replace(/s$/, '');
+
+          if (isCourseMatch) {
+            setLessons(res.data.lessons);
+          }
+          if (returnedCourseId) {
+            courseLessonsCacheRef.current[returnedCourseId] = res.data.lessons;
           }
         }
+
         if (Array.isArray(res.data.assignments)) setStudentAssignments(res.data.assignments);
         if (Array.isArray(res.data.submissions)) setMySubmissions(res.data.submissions);
         if (Array.isArray(res.data.exams)) setStudentExams(res.data.exams);
@@ -298,10 +351,17 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
   const handleSelectCourse = (course) => {
     if (!course) return;
+    selectedCourseIdRef.current = course.id;
+    if (user?.id) {
+      localStorage.setItem('bjs_selected_course_' + user.id, course.id);
+    }
     setSelectedCourse(course);
+
     // Instant cache-hit: immediately populate screen with cached lessons if already viewed
     if (course.id && courseLessonsCacheRef.current[course.id]) {
       setLessons(courseLessonsCacheRef.current[course.id]);
+    } else {
+      setLessons([]); // Clear previous course's lessons immediately so they don't linger
     }
     fetchData(false, course.id);
   };
@@ -680,7 +740,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                 <div className="space-y-6 pt-2">
                   {Object.keys(groupedLessons).length === 0 ? (
                     <p className="text-center py-8 text-slate-500 text-xs">
-                      এই কোর্সের কোনো লেকচার ভিডিও পাওয়া যায়নি।
+                      এই কোর্সে এখনো কোনো লেসন যোগ করা হয়নি।
                     </p>
                   ) : (
                     Object.entries(groupedLessons).map(([groupTitle, groupLessons]) => (
