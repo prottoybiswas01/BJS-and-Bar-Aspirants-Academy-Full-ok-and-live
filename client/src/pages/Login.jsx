@@ -213,7 +213,7 @@ export default function Login({ setActivePage }) {
 
   return (
     <div className="max-w-md w-full mx-auto py-6 sm:py-12 px-3 sm:px-4 animate-fadeIn select-none">
-      <div className="glass-card rounded-2xl p-5 sm:p-8 border border-slate-800 shadow-2xl space-y-5">
+      <div className="auth-card glass-card rounded-2xl p-5 sm:p-8 border border-slate-800 shadow-2xl space-y-5">
         {mode === 'login' ? (
           <>
             <div className="text-center space-y-2">

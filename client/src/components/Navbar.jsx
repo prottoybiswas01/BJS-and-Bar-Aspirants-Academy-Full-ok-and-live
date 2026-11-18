@@ -5,16 +5,16 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
   const { user, logout } = useAuth();
 
   return (
-    <nav className="sticky top-0 z-40 w-full bg-[#0b1325]/95 backdrop-blur-md border-b border-slate-800/80">
+    <nav aria-label="প্রধান নেভিগেশন" className="academy-nav sticky top-0 z-40 w-full bg-[#0b1325]/95 backdrop-blur-md border-b border-slate-800/80">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Brand Logo & Name */}
-          <div 
+          <button type="button" aria-label="একাডেমির হোমপেজ"
             onClick={() => setActivePage('home')} 
             className="flex items-center space-x-2 sm:space-x-3 cursor-pointer group shrink-0"
           >
-            <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-tr from-amber-600 via-amber-400 to-amber-200 flex items-center justify-center shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform">
-              <span className="text-lg sm:text-2xl font-bold text-slate-950 font-serif">⚖️</span>
+            <div className="academy-mark w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-tr from-amber-600 via-amber-400 to-amber-200 flex items-center justify-center shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform">
+              <span className="text-lg sm:text-2xl font-bold text-slate-950 font-serif">§</span>
             </div>
             <div>
               <div className="text-xs sm:text-xl font-extrabold tracking-tight text-white flex items-center gap-1.5">
@@ -23,9 +23,9 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
                   আইন পাঠশালা
                 </span>
               </div>
-              <p className="hidden sm:block text-xs text-slate-400 font-medium">Judiciary & Advocacy Excellence Portal</p>
+              <p className="hidden sm:block text-xs text-slate-400 font-medium">বিজেএস ও বার কাউন্সিল প্রস্তুতি</p>
             </div>
-          </div>
+          </button>
 
           {/* Navigation Links */}
           <div className="hidden md:flex items-center space-x-2">

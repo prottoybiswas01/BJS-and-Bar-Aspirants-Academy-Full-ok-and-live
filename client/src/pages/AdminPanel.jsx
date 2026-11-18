@@ -2209,39 +2209,41 @@ return (
       )}
 
       {/* LEFT EXECUTIVE NAVIGATION SIDEBAR */}
-      <aside className="w-full lg:w-72 glass-card rounded-3xl p-4 sm:p-5 border border-slate-800 shrink-0 space-y-4 lg:space-y-6 flex flex-col justify-between self-start relative lg:sticky lg:top-24 z-20 bg-[#0b1325]/95 backdrop-blur-xl shadow-2xl">
+      <aside aria-label="অ্যাডমিন বিভাগ" className="academy-sidebar w-full lg:w-72 glass-card rounded-3xl p-4 sm:p-5 border border-slate-800 shrink-0 space-y-4 lg:space-y-6 flex flex-col justify-between self-start relative lg:sticky lg:top-24 z-20 bg-[#0b1325]/95 backdrop-blur-xl shadow-2xl">
         <div className="space-y-4 lg:space-y-6">
           {/* Brand Profile Header & Mobile Toggle */}
           <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-black text-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
-                PN
+                §
               </div>
               <div>
-                <h3 className="font-extrabold text-white text-sm">আইন পাঠশালা বিডি</h3>
-                <p className="text-[11px] text-amber-400 font-mono font-bold">Admin Control Panel</p>
+                <h3 className="font-extrabold text-white text-sm">BJS & Bar Academy</h3>
+                <p className="text-[11px] text-amber-400 font-mono font-bold">অ্যাডমিন প্যানেল</p>
               </div>
             </div>
 
             {/* Mobile Expand / Collapse Menu Toggle */}
             <button
               type="button"
+              aria-expanded={isMobileMenuOpen}
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="lg:hidden px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-amber-400 text-xs font-bold flex items-center gap-1.5 hover:bg-slate-800 transition-all cursor-pointer"
             >
-              <span>{isMobileMenuOpen ? '📂 অপশনস গুটান' : '📋 অপশনস টগল ▾'}</span>
+              <span>{isMobileMenuOpen ? 'মেনু গুটান' : 'বিভাগ নির্বাচন ▾'}</span>
             </button>
           </div>
 
           {/* Navigation Group: MANAGEMENT */}
           <div className={`space-y-1.5 ${isMobileMenuOpen ? 'block' : 'hidden lg:block'}`}>
             <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase block px-3">
-              MANAGEMENT
+              ব্যবস্থাপনা
             </span>
 
             {/* 1. Site Settings & Banner */}
             <button
               type="button"
+              aria-current={adminTab === 'settings' ? 'page' : undefined}
               onClick={() => { setAdminTab('settings'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'settings'
@@ -2261,6 +2263,7 @@ return (
             {/* 2. Student Control */}
             <button
               type="button"
+              aria-current={adminTab === 'students' ? 'page' : undefined}
               onClick={() => { setAdminTab('students'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'students'
@@ -2280,6 +2283,7 @@ return (
             {/* 3. Mentor & Faculty Control */}
             <button
               type="button"
+              aria-current={adminTab === 'mentors' ? 'page' : undefined}
               onClick={() => { setAdminTab('mentors'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'mentors'
@@ -2299,6 +2303,7 @@ return (
             {/* 4. Course Launch Manager */}
             <button
               type="button"
+              aria-current={adminTab === 'courses' ? 'page' : undefined}
               onClick={() => { setAdminTab('courses'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'courses'
@@ -2318,6 +2323,7 @@ return (
             {/* 5. Payment & Receipts */}
             <button
               type="button"
+              aria-current={adminTab === 'payments' ? 'page' : undefined}
               onClick={() => { setAdminTab('payments'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'payments'
@@ -2337,6 +2343,7 @@ return (
             {/* 6. MCQ Exam Engine */}
             <button
               type="button"
+              aria-current={adminTab === 'mcq' ? 'page' : undefined}
               onClick={() => { setAdminTab('mcq'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'mcq'
@@ -2356,6 +2363,7 @@ return (
             {/* 7. Merit List & PDF Generator */}
             <button
               type="button"
+              aria-current={adminTab === 'merit' ? 'page' : undefined}
               onClick={() => { setAdminTab('merit'); setIsMobileMenuOpen(false); }}
               className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
                 adminTab === 'merit'
@@ -2402,10 +2410,10 @@ return (
         <div className="glass-card rounded-3xl p-5 sm:p-6 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-950/80">
           <div>
             <h1 className="text-xl font-black text-white flex items-center gap-2">
-              <span>Welcome Dashboard</span>
+              <span>{({settings: 'সাইট সেটিংস ও ব্যানার', students: 'শিক্ষার্থী ব্যবস্থাপনা', mentors: 'মেন্টর ও ফ্যাকাল্টি', courses: 'কোর্স ব্যবস্থাপনা', payments: 'পেমেন্ট ও রসিদ', mcq: 'অনলাইন এমসিকিউ', merit: 'মেধা তালিকা ও ফলাফল'})[adminTab] || 'অ্যাডমিন ড্যাশবোর্ড'}</span>
             </h1>
             <p className="text-xs text-slate-400 mt-0.5">
-              Hello, Executive Admin 👋 Welcome to BJS & Bar Aspirants Academy Control Panel
+              BJS &amp; Bar Aspirants Academy
             </p>
           </div>
 

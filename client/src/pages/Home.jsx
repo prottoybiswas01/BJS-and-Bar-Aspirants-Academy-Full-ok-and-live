@@ -202,11 +202,12 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
         </div>
       )}
       {/* Hero Section */}
-      <section className="relative overflow-hidden pt-12 pb-20 border-b border-slate-800/80 bg-gradient-to-b from-slate-950 via-[#0b1325] to-[#0d172a]">
+      <section className="academy-hero relative overflow-hidden pt-12 pb-20 border-b border-slate-800/80 bg-gradient-to-b from-slate-950 via-[#0b1325] to-[#0d172a]">
         <div className="absolute top-0 right-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center space-y-6">
+        <div className="hero-layout max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center space-y-6">
+          <div className="hero-intro space-y-5">
           {(siteSettings.badgeText || '🔥 ১৮তম বিজিএস ও বার কাউন্সিল স্পেশাল ব্যাচে ভর্তি চলছে') && (
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] sm:text-xs font-semibold max-w-full text-center leading-snug">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0"></span>
@@ -258,20 +259,22 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                   onClick={() => setActivePage('register')}
                   className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/25 transition-all active:scale-95"
                 >
-                  📝 এখনই ভর্তি হোন (Register Batch)
+                  এখনই ভর্তি হোন
                 </button>
                 <button
                   onClick={() => setActivePage('login')}
                   className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-sm transition-all"
                 >
-                  🔑 স্টুডেন্ট লগইন (Login)
+                  স্টুডেন্ট লগইন
                 </button>
               </>
             )}
           </div>
 
+          </div>
           {/* AI Instant Legal & Section Search Bar */}
-          <div className="w-full max-w-2xl mx-auto my-6 p-2 rounded-2xl bg-gradient-to-r from-slate-900/95 via-[#0d1c38]/95 to-slate-900/95 border border-cyan-500/35 shadow-2xl shadow-cyan-950/40 backdrop-blur-md text-left">
+          <div className="hero-search w-full max-w-2xl mx-auto my-6 p-2 rounded-2xl bg-gradient-to-r from-slate-900/95 via-[#0d1c38]/95 to-slate-900/95 border border-cyan-500/35 shadow-2xl shadow-cyan-950/40 backdrop-blur-md text-left">
+            <h2 className="mb-4 text-xl font-bold text-white">আইন সহকারীকে প্রশ্ন করুন</h2>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -328,7 +331,7 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
           </div>
 
           {/* Dynamic 4 Stat Badges */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 border-t border-slate-800/80 max-w-3xl mx-auto">
+          <div className="hero-stats grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 border-t border-slate-800/80 max-w-3xl mx-auto">
             <div>
               <p className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">
                 {stats.studentsCount > 0 ? `${stats.studentsCount}+` : '0'}

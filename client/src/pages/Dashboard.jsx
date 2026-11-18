@@ -550,7 +550,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       )}
 
       {/* Top Welcome Banner */}
-      <section className="glass-card rounded-2xl p-6 sm:p-8 border border-amber-500/20 shadow-2xl relative overflow-hidden">
+      <section className="student-welcome glass-card rounded-2xl p-6 sm:p-8 border border-amber-500/20 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -613,7 +613,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       </section>
 
       {/* Section Tab Navigation: Video Lectures vs Assignments vs MCQ Exams */}
-      <div className="flex flex-wrap sm:flex-nowrap bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-2">
+      <div className="student-actions flex flex-wrap sm:flex-nowrap bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-2">
         <button
           onClick={() => setSelectedTab('lectures')}
           className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center ${

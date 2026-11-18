@@ -253,7 +253,7 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
       {/* Slide-out Drawer Panel on Right Side */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-md sm:max-w-lg h-full bg-[#0d172a] border-l border-slate-800 shadow-2xl flex flex-col font-sans z-10 overflow-hidden animate-slide-in-right"
+        className="assistant-panel relative w-full max-w-md sm:max-w-lg h-full bg-[#0d172a] border-l border-slate-800 shadow-2xl flex flex-col font-sans z-10 overflow-hidden animate-slide-in-right"
         style={{
           boxShadow: '-15px 0 45px rgba(0, 0, 0, 0.85), 0 0 25px rgba(6, 182, 212, 0.15)'
         }}
