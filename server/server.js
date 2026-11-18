@@ -184,8 +184,10 @@ const Assignment = require("./models/Assignment");
 const Submission = require("./models/Submission");
 const McqExam = require("./models/McqExam");
 const McqResult = require("./models/McqResult");
-const { fetchYoutubeTranscript, searchLessonsForQuery } = require("./services/transcriptService");
+const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt } = require("./services/transcriptService");
 const { processLegalAiQuery } = require("./services/legalAiService");
+const { generateReceiptPdf } = require("./services/receiptPdfService");
+const { parseBangladeshTimeToUtc, formatBangladeshTime } = require("./utils/dateUtils");
 
 // Configure Mongoose options for Serverless environment
 // // mongoose.set("bufferCommands", false);
@@ -4360,14 +4362,14 @@ app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
       : allLessons;
 
     const totalInScope = targetLessons.length;
-    const alreadyReadyBefore = targetLessons.filter(l => l.transcript && l.transcript.length > 20).length;
+    const alreadyReadyBefore = targetLessons.filter(l => l.transcript && l.transcript.length > 20 && l.transcriptStatus === 'ready').length;
 
     // Determine which lessons need fetching
     const eligible = targetLessons.filter(l => {
-      const yId = l.youtubeId || extractYoutubeId(l.youtubeUrl);
-      if (!yId) return false;
+      const yId = lsn => lsn.youtubeId || extractYoutubeId(lsn.youtubeUrl);
+      if (!yId(l)) return false;
       if (force) return true;
-      return !l.transcript || l.transcript.length < 20;
+      return !l.transcript || l.transcript.length < 20 || l.transcriptStatus !== 'ready';
     });
 
     if (eligible.length === 0) {
@@ -4377,13 +4379,17 @@ app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
         totalChecked: totalInScope,
         alreadySynced: alreadyReadyBefore,
         eligibleCount: 0,
-        updated: 0,
-        failed: 0
+        synced: 0,
+        noCaptions: 0,
+        failed: 0,
+        items: []
       });
     }
 
-    let updated = 0;
+    let synced = 0;
+    let noCaptions = 0;
     let failed = 0;
+    const items = [];
 
     for (const lsn of eligible) {
       const yId = lsn.youtubeId || extractYoutubeId(lsn.youtubeUrl);
@@ -4405,42 +4411,39 @@ app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
             m.transcriptStatus = 'ready';
             m.transcriptUpdatedAt = new Date();
           }
-          updated++;
-        } else {
-          // If YouTube captions are disabled on this video, provide an automatic topic fallback so it doesn't stay empty
-          const fallbackNote = `${lsn.module || lsn.courseId || 'আইন'} ক্লাস: ${lsn.title || ''} ${lsn.chapter || ''} সম্পর্কিত আইনি বিষয়বস্তুর বিস্তারিত আলোচনা।`;
+          synced++;
+          items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'ready', wordCount: trRes.wordCount });
+        } else if (trRes && trRes.status === 'no_captions') {
+          // Strictly mark as no_captions - do not save fake fallback notes
           if (isMongoConnected) {
             await Lesson.updateOne({ _id: lsn._id }, {
-              transcript: fallbackNote,
-              transcriptStatus: 'manual',
+              transcriptStatus: 'no_captions',
               transcriptUpdatedAt: new Date()
             });
           }
           const m = (memoryDb.lessons || []).find(x => x.id === lsn.id || String(x._id) === String(lsn._id));
           if (m) {
-            m.transcript = fallbackNote;
-            m.transcriptStatus = 'manual';
+            m.transcriptStatus = 'no_captions';
             m.transcriptUpdatedAt = new Date();
           }
+          noCaptions++;
+          items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'no_captions', message: trRes.message });
+        } else {
           failed++;
+          items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'failed', message: trRes?.message || 'সিঙ্ক ব্যর্থ' });
         }
       } catch (err) {
         failed++;
+        items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'failed', message: err.message });
       }
       // Small pause to avoid hitting YouTube rate limits
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 150));
     }
 
     fastCache.del("lessons");
 
-    const totalActiveNow = alreadyReadyBefore + updated;
-
-    let successMsg = "";
-    if (updated > 0) {
-      successMsg = `✓ মোট ${totalInScope}টি ক্লাসের মধ্যে ${totalActiveNow}টি ক্লাসের সাবটাইটেল ডেটাবেজে সফলভাবে সংরক্ষিত আছে! (নতুন সিঙ্ক: ${updated}টি)`;
-    } else {
-      successMsg = `✓ এই কোর্সের মোট ${totalInScope}টি ক্লাসের সবগুলোর (${alreadyReadyBefore}টি) সাবটাইটেল ইতিমধ্যে ডেটাবেজে সম্পূর্ণ সংরক্ষিত আছে!`;
-    }
+    const totalActiveNow = alreadyReadyBefore + synced;
+    const successMsg = `✓ সাবটাইটেল সিঙ্ক সম্পন্ন: মোট ${totalInScope}টির মধ্যে ${totalActiveNow}টি ক্লাসে প্রকৃত সাবটাইটেল সংরক্ষিত রয়েছে। (নতুন সিঙ্কড: ${synced}টি, ক্যাপশন পাওয়া যায়নি: ${noCaptions}টি, ত্রুটি: ${failed}টি)`;
 
     return res.json({
       ok: true,
@@ -4448,12 +4451,14 @@ app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
       totalChecked: totalInScope,
       alreadySynced: alreadyReadyBefore,
       eligibleCount: eligible.length,
-      updated,
-      failed
+      synced,
+      noCaptions,
+      failed,
+      items
     });
   } catch (err) {
     console.error("Batch sync transcripts error:", err);
-    return res.status(500).json({ ok: false, message: "Error syncing transcripts: " + err.message });
+    return res.status(500).json({ ok: false, message: "সাবটাইটেল সিঙ্ক করতে সমস্যা হয়েছে: " + err.message });
   }
 });
 
@@ -4491,7 +4496,7 @@ app.get("/api/admin/lessons/:id/transcript", async (req, res) => {
 app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
   try {
     const { id } = req.params;
-    const { transcript, action } = req.body; // 'save' or 'refetch'
+    const { transcript, action, isSrtOrVtt } = req.body; // 'save' or 'refetch'
 
     let lsn = null;
     if (isMongoConnected) {
@@ -4518,6 +4523,7 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
           mem.transcriptStatus = 'ready';
           mem.transcriptUpdatedAt = new Date();
         }
+        fastCache.del("lessons");
         return res.json({
           ok: true,
           message: `✓ ইউটিউব থেকে ${trRes.wordCount} শব্দের সাবটাইটেল সফলভাবে রি-ফেচ ও সেভ করা হয়েছে!`,
@@ -4526,25 +4532,36 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
           wordCount: trRes.wordCount
         });
       } else {
-        return res.status(400).json({ ok: false, message: trRes.message || "ইউটিউব ক্যাপশন ফেচ করা যায়নি।" });
+        lsn.transcriptStatus = 'no_captions';
+        if (isMongoConnected) await lsn.save();
+        return res.status(400).json({ ok: false, message: trRes?.message || "ইউটিউব ক্যাপশন পাওয়া যায়নি।" });
       }
     } else {
-      // Manual Save/Edit by Admin
-      lsn.transcript = transcript || "";
-      lsn.transcriptStatus = 'manual';
+      // Manual Save/Edit by Admin (supports SRT / VTT auto-parsing)
+      let cleanText = transcript || "";
+      if (cleanText.includes('-->') || isSrtOrVtt) {
+        const parsed = parseSrtOrVtt(cleanText);
+        if (parsed.ok && parsed.transcript) {
+          cleanText = parsed.transcript;
+        }
+      }
+
+      lsn.transcript = cleanText;
+      lsn.transcriptStatus = cleanText.length > 10 ? 'ready' : 'none';
       lsn.transcriptUpdatedAt = new Date();
       if (isMongoConnected) await lsn.save();
       const mem = (memoryDb.lessons || []).find(l => l.id === lsn.id);
       if (mem) {
-        mem.transcript = transcript || "";
-        mem.transcriptStatus = 'manual';
+        mem.transcript = cleanText;
+        mem.transcriptStatus = cleanText.length > 10 ? 'ready' : 'none';
         mem.transcriptUpdatedAt = new Date();
       }
+      fastCache.del("lessons");
       return res.json({
         ok: true,
         message: "✓ সাবটাইটেল সফলভাবে সংরক্ষণ করা হয়েছে!",
         transcript: lsn.transcript,
-        transcriptStatus: 'manual',
+        transcriptStatus: lsn.transcriptStatus,
         wordCount: lsn.transcript.split(/\s+/).filter(Boolean).length
       });
     }
@@ -4879,8 +4896,8 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       };
     });
 
-    // 5. Optimized parallel query for assignments, submissions, exams, results using DB filtering & strict projections
-    const [dbAssignments, dbSubmissions, dbExams, dbResults] = await Promise.all([
+    // 5. Optimized parallel query for assignments, submissions, exams, results, receipts using DB filtering & strict projections
+    const [dbAssignments, dbSubmissions, dbExams, dbResults, dbReceipts] = await Promise.all([
       isMongoConnected
         ? Assignment.find(
             enrolledIds.length > 0 ? { courseId: { $in: enrolledIds } } : { id: '__none__' },
@@ -4907,7 +4924,18 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
             { studentId: student.id },
             'id examId examTitle score totalMarks percentage grade submittedAt'
           ).sort({ submittedAt: -1 }).limit(20).lean().catch(() => [])
-        : (memoryDb.mcqResults || []).filter(r => r.studentId === student.id)
+        : (memoryDb.mcqResults || []).filter(r => r.studentId === student.id),
+      isMongoConnected
+        ? Receipt.find(
+            {
+              $or: [
+                { studentId: student.id },
+                { studentEmail: student.email },
+                { studentPhone: student.phone }
+              ]
+            }
+          ).sort({ paymentTime: -1, createdAt: -1 }).limit(50).lean().catch(() => [])
+        : (memoryDb.receipts || []).filter(r => r.studentId === student.id || r.studentEmail === student.email || r.studentPhone === student.phone)
     ]);
 
     // Backend-calculate progress
@@ -4942,6 +4970,7 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       submissions: dbSubmissions || [],
       exams: dbExams || [],
       results: dbResults || [],
+      receipts: dbReceipts || [],
       source: "mongodb-backend-processed"
     };
 
@@ -7758,7 +7787,7 @@ app.post("/api/admin/receipts/save", async (req, res) => {
     }
 
     body.amount = Number(body.amount);
-    body.paymentTime = body.paymentTime ? new Date(body.paymentTime) : new Date();
+    body.paymentTime = parseBangladeshTimeToUtc(body.paymentTime);
 
     let savedReceipt = body;
 
@@ -7793,6 +7822,95 @@ app.post("/api/admin/receipts/save", async (req, res) => {
   } catch (e) {
     console.error("Error saving receipt:", e);
     return res.status(500).json({ ok: false, message: e.message || "Error saving money receipt." });
+  }
+});
+
+// GET /api/student/receipts (Student Payment History)
+app.get("/api/student/receipts", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const student = await getAuthUserFromRequest(req);
+    if (!student) {
+      return res.status(401).json({ ok: false, message: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" });
+    }
+
+    const receipts = isMongoConnected
+      ? await Receipt.find({
+          $or: [
+            { studentId: student.id },
+            { studentEmail: student.email },
+            { studentPhone: student.phone }
+          ]
+        }).sort({ paymentTime: -1, createdAt: -1 }).lean().catch(() => [])
+      : (memoryDb.receipts || []).filter(r => r.studentId === student.id || r.studentEmail === student.email || r.studentPhone === student.phone);
+
+    return res.json({ ok: true, receipts: receipts || [] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// GET /api/student/receipts/:receiptId/pdf (Direct PDF Receipt Download for Student)
+app.get("/api/student/receipts/:receiptId/pdf", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const student = await getAuthUserFromRequest(req);
+    if (!student) {
+      return res.status(401).json({ ok: false, message: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" });
+    }
+
+    const { receiptId } = req.params;
+    let receipt = null;
+    if (isMongoConnected) {
+      receipt = await Receipt.findOne({ receiptId }).lean();
+    }
+    if (!receipt) {
+      receipt = (memoryDb.receipts || []).find(r => r.receiptId === receiptId);
+    }
+    if (!receipt) {
+      return res.status(404).json({ ok: false, message: "মানি রিসিট খুঁজে পাওয়া যায়নি।" });
+    }
+
+    // Ownership verification (unless admin)
+    if (!student.isAdmin && receipt.studentId !== student.id && receipt.studentEmail !== student.email && receipt.studentPhone !== student.phone) {
+      return res.status(403).json({ ok: false, message: "এই রসিদ দেখার অনুমতি আপনার নেই।" });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Receipt-${receipt.receiptId || receiptId}.pdf"`);
+    await generateReceiptPdf(receipt, res);
+  } catch (err) {
+    console.error("Student Receipt PDF error:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({ ok: false, message: "রসিদ PDF তৈরি করতে সমস্যা হয়েছে: " + err.message });
+    }
+  }
+});
+
+// GET /api/admin/receipts/:receiptId/pdf (Direct PDF Receipt Download for Admin)
+app.get("/api/admin/receipts/:receiptId/pdf", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { receiptId } = req.params;
+    let receipt = null;
+    if (isMongoConnected) {
+      receipt = await Receipt.findOne({ receiptId }).lean();
+    }
+    if (!receipt) {
+      receipt = (memoryDb.receipts || []).find(r => r.receiptId === receiptId);
+    }
+    if (!receipt) {
+      return res.status(404).json({ ok: false, message: "মানি রিসিট খুঁজে পাওয়া যায়নি।" });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Receipt-${receipt.receiptId || receiptId}.pdf"`);
+    await generateReceiptPdf(receipt, res);
+  } catch (err) {
+    console.error("Admin Receipt PDF error:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({ ok: false, message: "রসিদ PDF তৈরি করতে সমস্যা হয়েছে: " + err.message });
+    }
   }
 });
 
@@ -7886,6 +8004,10 @@ app.post("/api/ai/chat", async (req, res) => {
       allLessons: activeLessons
     });
 
+    if (!aiResult.ok) {
+      return res.status(aiResult.errorCode === 'PROVIDER_ERROR' ? 503 : 400).json(aiResult);
+    }
+
     let recommendation = null;
     if (aiResult.matchedLessons && aiResult.matchedLessons.length > 0) {
       const topMatch = aiResult.matchedLessons[0];
@@ -7931,14 +8053,30 @@ app.post("/api/ai/chat", async (req, res) => {
         }
       }
 
+      // Secure Lesson Payload: Never expose raw YouTube URL or streaming payload to unauthorized users
+      let sanitizedLesson = null;
+      if (accessCheck.allowed) {
+        sanitizedLesson = topMatch;
+      } else {
+        sanitizedLesson = {
+          id: topMatch.id,
+          title: topMatch.title,
+          courseId: resolvedCourseId,
+          chapter: topMatch.chapter,
+          duration: topMatch.duration,
+          timestamp: topMatch.timestamp || '00:00'
+        };
+      }
+
       recommendation = {
         type: "MATCHED_LESSON",
         courseId: resolvedCourseId,
         courseTitle: resolvedCourseTitle,
-        lesson: topMatch,
+        lesson: sanitizedLesson,
+        timestamp: topMatch.timestamp || '00:00',
         snippet: topMatch.snippet,
         matchedKeywords: topMatch.matchedKeywords,
-        note: `আমাদের একাডেমির মেন্টরের ভিডিও ক্লাসে এই বিষয়ে সরাসরি আলোচনা রয়েছে!`,
+        note: `আমাদের একাডেমি মেন্টরের ভিডিও ক্লাসে এই বিষয়ে সরাসরি আলোচনা রয়েছে!`,
         access: {
           canPlay: accessCheck.allowed,
           actionRequired,
@@ -7954,6 +8092,8 @@ app.post("/api/ai/chat", async (req, res) => {
 
     const responsePayload = {
       reply: aiResult.answer,
+      verifiedSources: aiResult.verifiedSources || [],
+      isAmbiguous: aiResult.isAmbiguous || false,
       matchedLessons: aiResult.matchedLessons || [],
       recommendation,
       source: "mongodb-backend-processed"
@@ -7975,14 +8115,13 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
 }
 
 
-// Universal Fail-Safe Express Error Catch-All Middleware
+// Universal Express Error Catch-All Middleware
 app.use((err, req, res, next) => {
   console.error("❌ Unhandled Express Request Exception:", err.stack || err.message || err);
   if (!res.headersSent) {
-    return res.status(200).json({
-      ok: true,
-      message: "Request processed using fail-safe system fallback.",
-      fallback: true
+    return res.status(500).json({
+      ok: false,
+      message: "সার্ভারে অনাকাঙ্ক্ষিত সমস্যা দেখা দিয়েছে। কিছুক্ষণ পর আবার চেষ্টা করুন।"
     });
   }
 });

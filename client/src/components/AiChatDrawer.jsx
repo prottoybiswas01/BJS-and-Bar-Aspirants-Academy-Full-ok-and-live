@@ -13,7 +13,15 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [accessModal, setAccessModal] = useState(null);
+  const [expandedSources, setExpandedSources] = useState({});
   const messagesEndRef = useRef(null);
+
+  const toggleSourceExpand = (msgIdx) => {
+    setExpandedSources((prev) => ({
+      ...prev,
+      [msgIdx]: !prev[msgIdx]
+    }));
+  };
 
   // Auto-trigger question when opened via URL parameter or quick search
   useEffect(() => {
@@ -215,19 +223,32 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
             sender: 'ai',
             reply: res.data.reply,
             text: res.data.reply,
+            verifiedSources: res.data.verifiedSources || [],
+            isAmbiguous: res.data.isAmbiguous || false,
             recommendation: res.data.recommendation
           }
         ]);
       } else {
         setMessages((prev) => [
           ...prev,
-          { sender: 'ai', text: res.data?.message || 'দুঃখিত, কোনো ত্রুটি ঘটেছে। অনুগ্রহ করে আবার চেষ্টা করুন।' },
+          {
+            sender: 'ai',
+            isError: true,
+            failedQuery: trimmed,
+            text: res.data?.message || 'দুঃখিত, এই মুহূর্তে AI সার্ভিসের সাথে সংযোগ স্থাপন করা সম্ভব হয়নি। অনুগ্রহ করে পুনরায় চেষ্টা করুন।'
+          },
         ]);
       }
     } catch (err) {
+      const errMsg = err.response?.data?.message || 'AI সার্ভিস কানেকশনে ত্রুটি ঘটেছে। অনুগ্রহ করে আবার চেষ্টা করুন।';
       setMessages((prev) => [
         ...prev,
-        { sender: 'ai', text: 'AI সার্ভিস কানেকশনে ত্রুটি ঘটেছে। অনুগ্রহ করে আবার চেষ্টা করুন।' },
+        {
+          sender: 'ai',
+          isError: true,
+          failedQuery: trimmed,
+          text: errMsg
+        },
       ]);
     } finally {
       setLoading(false);
@@ -419,6 +440,76 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
             >
               {msg.text}
 
+              {/* Verified Legal Source Excerpt & Provenance Card */}
+              {msg.verifiedSources && msg.verifiedSources.length > 0 && (
+                <div className="mt-3 pt-2.5 border-t border-slate-700/80">
+                  <button
+                    type="button"
+                    onClick={() => toggleSourceExpand(idx)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 text-[11px] font-bold cursor-pointer transition-all shadow-sm"
+                  >
+                    <span>{expandedSources[idx] ? '🔼' : '🔍'}</span>
+                    <span>{expandedSources[idx] ? 'মূল উৎস লুকান' : 'মূল উৎস দেখুন (Verifiable Source)'}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-cyan-900 border border-cyan-500/30">
+                      {msg.verifiedSources.length}টি নথি
+                    </span>
+                  </button>
+
+                  {expandedSources[idx] && (
+                    <div className="mt-2.5 space-y-2 animate-fadeIn">
+                      {msg.verifiedSources.map((src, sIdx) => (
+                        <div key={sIdx} className="p-3 rounded-xl bg-slate-900 border border-cyan-500/30 space-y-2 text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-extrabold text-cyan-300 flex items-center gap-1">
+                              <span>🏛️</span> {src.actTitleBn}
+                            </span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              {src.statusBn || 'কার্যকর আইন'}
+                            </span>
+                          </div>
+
+                          <div className="text-amber-300 font-bold text-[11px]">
+                            📜 {src.sectionType} {src.sectionNumBn || src.sectionNum}: {src.titleBn}
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 italic text-[11px] leading-relaxed">
+                            <span className="text-amber-400 font-bold not-italic">সরকারি বিধিবদ্ধ পাঠ্য: </span>
+                            "{src.excerptBn}"
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[10px] pt-1.5 border-t border-slate-800/80 gap-1">
+                            <a
+                              href={src.directUrl || src.sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-cyan-400 hover:text-cyan-300 underline font-mono flex items-center gap-1"
+                            >
+                              <span>🔗</span> সরকারি লেজিসলেটিভ নথি সরাসরি খুলুন
+                            </a>
+                            <span className="text-slate-400 font-mono text-[10px]">
+                              যাচাইকৃত: {new Date(src.lastVerifiedAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Error and Retry Action */}
+              {msg.isError && (
+                <div className="mt-2.5 pt-2 border-t border-rose-500/30">
+                  <button
+                    type="button"
+                    onClick={() => triggerQuery(msg.failedQuery)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-500/40 text-xs font-bold cursor-pointer transition-all shadow-md"
+                  >
+                    <span>🔄</span> পুনরায় চেষ্টা করুন (Retry)
+                  </button>
+                </div>
+              )}
+
               {/* Dynamic Course & Video Recommendation Action Cards */}
               {msg.recommendation && (
                 <div className="mt-3 pt-2.5 border-t border-slate-700/80 space-y-2">
@@ -450,11 +541,18 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
                           <p className="text-xs text-white font-extrabold line-clamp-2">
                             {msg.recommendation.lesson?.title}
                           </p>
-                          {msg.recommendation.courseTitle && (
-                            <span className="text-[10px] text-amber-300 font-mono">
-                              📚 {msg.recommendation.courseTitle}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            {msg.recommendation.courseTitle && (
+                              <span className="text-[10px] text-amber-300 font-mono">
+                                📚 {msg.recommendation.courseTitle}
+                              </span>
+                            )}
+                            {msg.recommendation.timestamp && msg.recommendation.timestamp !== '00:00' && (
+                              <span className="text-[10px] text-cyan-300 font-mono bg-cyan-950 px-1.5 py-0.5 rounded border border-cyan-500/30 font-bold">
+                                ⏱️ আলোচনার অংশ: {msg.recommendation.timestamp} মিনিট
+                              </span>
+                            )}
+                          </div>
                         </div>
                         {msg.recommendation.snippet && (
                           <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300 italic leading-relaxed">

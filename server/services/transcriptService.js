@@ -32,7 +32,123 @@ function extractYoutubeId(input) {
 }
 
 /**
- * Fetch YouTube transcript for a video ID or URL (100% Free)
+ * Convert seconds into MM:SS format
+ */
+function formatSecondsToTimestamp(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  const m = Math.floor(s / 60);
+  const remainingSec = s % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(m)}:${pad(remainingSec)}`;
+}
+
+/**
+ * Parse Bengali or English SRT/VTT file or timestamped text
+ */
+function parseSrtOrVtt(content) {
+  if (!content || !String(content).trim()) {
+    return { ok: false, message: 'ফাইলটিতে কোনো সাবটাইটেল টেক্সট পাওয়া যায়নি।' };
+  }
+
+  const raw = String(content).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = raw.split('\n');
+  const segments = [];
+  let currentTimestamp = '00:00';
+  let currentOffsetSec = 0;
+  let currentTextLines = [];
+
+  const timeRegex = /(?:(\d{2}):)?(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(?:(\d{2}):)?(\d{2}):(\d{2})[,.](\d{3})/;
+  const bracketTimeRegex = /\[(\d{1,2}):(\d{2})\]/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) {
+      if (currentTextLines.length > 0) {
+        segments.push({
+          timestamp: currentTimestamp,
+          offsetSeconds: currentOffsetSec,
+          text: currentTextLines.join(' ')
+        });
+        currentTextLines = [];
+      }
+      continue;
+    }
+
+    // Skip pure numbering in SRT
+    if (/^\d+$/.test(line) && i + 1 < lines.length && timeRegex.test(lines[i + 1])) {
+      continue;
+    }
+
+    // Check SRT / VTT timecode: 00:01:23,000 --> 00:01:28,000
+    const timeMatch = line.match(timeRegex);
+    if (timeMatch) {
+      if (currentTextLines.length > 0) {
+        segments.push({
+          timestamp: currentTimestamp,
+          offsetSeconds: currentOffsetSec,
+          text: currentTextLines.join(' ')
+        });
+        currentTextLines = [];
+      }
+      const hours = parseInt(timeMatch[1] || '0', 10);
+      const minutes = parseInt(timeMatch[2] || '0', 10);
+      const seconds = parseInt(timeMatch[3] || '0', 10);
+      currentOffsetSec = hours * 3600 + minutes * 60 + seconds;
+      currentTimestamp = formatSecondsToTimestamp(currentOffsetSec);
+      continue;
+    }
+
+    // Check bracketed manual format: [01:25] or [12:30]
+    const bracketMatch = line.match(bracketTimeRegex);
+    if (bracketMatch) {
+      if (currentTextLines.length > 0) {
+        segments.push({
+          timestamp: currentTimestamp,
+          offsetSeconds: currentOffsetSec,
+          text: currentTextLines.join(' ')
+        });
+        currentTextLines = [];
+      }
+      const minutes = parseInt(bracketMatch[1], 10);
+      const seconds = parseInt(bracketMatch[2], 10);
+      currentOffsetSec = minutes * 60 + seconds;
+      currentTimestamp = formatSecondsToTimestamp(currentOffsetSec);
+      const textAfter = line.replace(bracketTimeRegex, '').trim();
+      if (textAfter) currentTextLines.push(textAfter);
+      continue;
+    }
+
+    // Skip WEBVTT header
+    if (line.startsWith('WEBVTT') || line.startsWith('NOTE')) continue;
+
+    currentTextLines.push(line);
+  }
+
+  if (currentTextLines.length > 0) {
+    segments.push({
+      timestamp: currentTimestamp,
+      offsetSeconds: currentOffsetSec,
+      text: currentTextLines.join(' ')
+    });
+  }
+
+  // Combine full text
+  const fullText = segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n');
+  const pureText = segments.map(s => s.text).join(' ');
+  const wordCount = pureText.split(/\s+/).filter(Boolean).length;
+
+  return {
+    ok: true,
+    transcript: fullText || pureText,
+    pureText,
+    segments,
+    wordCount
+  };
+}
+
+/**
+ * Fetch YouTube transcript for a video ID or URL
+ * STRICT: Only marks as ready if actual captions exist. Never substitutes titles or notes.
  */
 async function fetchYoutubeTranscript(videoIdOrUrl) {
   const youtubeId = extractYoutubeId(videoIdOrUrl);
@@ -43,7 +159,7 @@ async function fetchYoutubeTranscript(videoIdOrUrl) {
   let rawLines = null;
   let lastError = null;
 
-  // Try 1: Default fetch (auto-detects language, works for Bengali & English)
+  // Try 1: Default fetch (auto-detects language)
   try {
     rawLines = await YoutubeTranscript.fetchTranscript(youtubeId);
   } catch (err) {
@@ -68,21 +184,34 @@ async function fetchYoutubeTranscript(videoIdOrUrl) {
     }
   }
 
+  // STRICT: If no caption track found, DO NOT invent transcript.
   if (!rawLines || rawLines.length === 0) {
     return {
       ok: false,
-      status: 'failed',
+      status: 'no_captions',
       youtubeId,
-      message: lastError ? lastError.message : 'এই ভিডিওর জন্য ইউটিউবে কোনো ক্যাপশন বা সাবটাইটেল খুঁজে পাওয়া যায়নি।'
+      message: 'এই ভিডিওর জন্য ইউটিউবে কোনো ক্যাপশন বা সাবটাইটেল ট্র্যাক পাওয়া যায়নি।'
     };
   }
 
-  // Assemble clean full transcript text
-  const cleanedLines = rawLines
-    .map(line => decodeHtmlEntities(line.text))
-    .filter(text => text.length > 0);
+  // Clean lines with timestamp preservation
+  const segments = [];
+  const cleanedTextParts = [];
 
-  const fullText = cleanedLines.join(' ');
+  for (const line of rawLines) {
+    const text = decodeHtmlEntities(line.text);
+    if (!text) continue;
+    const offsetSec = Math.floor(line.offset || 0);
+    const ts = formatSecondsToTimestamp(offsetSec);
+    segments.push({
+      timestamp: ts,
+      offsetSeconds: offsetSec,
+      text
+    });
+    cleanedTextParts.push(`[${ts}] ${text}`);
+  }
+
+  const fullText = cleanedTextParts.join('\n');
   const wordCount = fullText.split(/\s+/).filter(Boolean).length;
 
   return {
@@ -90,14 +219,15 @@ async function fetchYoutubeTranscript(videoIdOrUrl) {
     status: 'ready',
     youtubeId,
     transcript: fullText,
-    lineCount: cleanedLines.length,
+    segments,
+    lineCount: segments.length,
     wordCount,
     updatedAt: new Date()
   };
 }
 
 /**
- * Bengali Stopwords to filter out of search queries
+ * Bengali Stopwords
  */
 const BANGLA_STOPWORDS = new Set([
   'কী', 'কি', 'কে', 'কাকে', 'কোথায়', 'কখন', 'কেন', 'কিভাবে', 'হলে', 'হলে কী', 'হবে',
@@ -106,9 +236,6 @@ const BANGLA_STOPWORDS = new Set([
   'আইন', 'আইনের', 'ধারা', 'অনুচ্ছেদ'
 ]);
 
-/**
- * Bengali Stemmer / Root-word extractor for inflectional suffixes (-এর, -কে, -তে, -দের, etc.)
- */
 function getBengaliRoot(word) {
   if (!word || word.length <= 3) return word;
   const suffixes = ['গুলো', 'গুলি', 'দেরকে', 'দের', 'সমূহ', 'ের', 'তে', 'কে', 'র', 'ে'];
@@ -121,13 +248,11 @@ function getBengaliRoot(word) {
 }
 
 /**
- * Search lessons by keywords in their transcript, title, chapter, or description
- * Returns top matching lessons with contextual snippet
+ * Search lessons by keywords in their real subtitle transcript
  */
 function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
   if (!query || !Array.isArray(lessons) || lessons.length === 0) return [];
 
-  // Extract clean keywords from query (both Bengali & English)
   const rawTokens = query
     .toLowerCase()
     .replace(/[^\w\u0980-\u09FF\s]/g, ' ')
@@ -137,7 +262,6 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
 
   if (rawTokens.length === 0) return [];
 
-  // Build tokens with Bengali root variations for high-precision semantic matching
   const cleanTokens = [];
   for (const t of rawTokens) {
     if (!cleanTokens.includes(t)) cleanTokens.push(t);
@@ -154,58 +278,50 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
     const title = (lesson.title || '').toLowerCase();
     const chapter = (lesson.chapter || '').toLowerCase();
     const moduleName = (lesson.module || '').toLowerCase();
-    const description = (lesson.description || '').toLowerCase();
+
+    // Skip lessons with no valid transcript
+    if (!transcript || transcript.length < 15) continue;
 
     let score = 0;
     const matchedTokens = [];
+    let bestTimestamp = '00:00';
     let bestSnippet = '';
 
     for (const token of cleanTokens) {
-      let tokenMatches = 0;
-
-      // Heavy weight for title or chapter match
       if (title.includes(token)) {
-        score += 25;
-        tokenMatches += 1;
+        score += 20;
+        if (!matchedTokens.includes(token)) matchedTokens.push(token);
       }
       if (chapter.includes(token)) {
-        score += 20;
-        tokenMatches += 1;
+        score += 15;
+        if (!matchedTokens.includes(token)) matchedTokens.push(token);
       }
       if (moduleName.includes(token)) {
-        score += 15;
-        tokenMatches += 1;
-      }
-      if (description.includes(token)) {
-        score += 15;
-        tokenMatches += 1;
+        score += 10;
+        if (!matchedTokens.includes(token)) matchedTokens.push(token);
       }
 
-      // Transcript search
-      if (transcript.includes(token)) {
-        // Count occurrences (capped at 5 to avoid skew)
-        const regex = new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-        const matches = transcript.match(regex);
-        const count = matches ? Math.min(matches.length, 5) : 0;
-        score += count * 8;
-        tokenMatches += count;
+      const tIdx = transcript.indexOf(token);
+      if (tIdx !== -1) {
+        score += 25;
+        if (!matchedTokens.includes(token)) matchedTokens.push(token);
 
-        // Extract a nice preview snippet around first occurrence
-        if (!bestSnippet) {
-          const idx = transcript.indexOf(token);
-          const start = Math.max(0, idx - 60);
-          const end = Math.min(transcript.length, idx + 140);
-          bestSnippet = '...' + (lesson.transcript || '').substring(start, end).trim() + '...';
+        // Find the closest preceding timestamp before the keyword occurrence
+        const textBefore = transcript.substring(0, tIdx + token.length);
+        const allTimestamps = [...textBefore.matchAll(/\[(\d{1,2}:\d{2})\]/g)];
+        if (allTimestamps.length > 0 && bestTimestamp === '00:00') {
+          bestTimestamp = allTimestamps[allTimestamps.length - 1][1];
         }
-      }
 
-      if (tokenMatches > 0 && !matchedTokens.includes(token)) {
-        matchedTokens.push(token);
+        if (!bestSnippet) {
+          const start = Math.max(0, tIdx - 60);
+          const end = Math.min(transcript.length, tIdx + 120);
+          bestSnippet = '...' + (lesson.transcript || '').substring(start, end).replace(/\n/g, ' ').trim() + '...';
+        }
       }
     }
 
-    // Minimum match threshold
-    if (score >= 12 && matchedTokens.length >= 1) {
+    if (score >= 20 && matchedTokens.length >= 1) {
       scoredLessons.push({
         id: lesson.id || lesson._id,
         title: lesson.title,
@@ -213,23 +329,24 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
         chapter: lesson.chapter || lesson.module || '',
         duration: lesson.duration || '',
         youtubeId: lesson.youtubeId,
-        youtubeUrl: lesson.youtubeUrl || (lesson.youtubeId ? `https://youtu.be/${lesson.youtubeId}` : ''),
+        youtubeUrl: lesson.youtubeUrl,
         score,
+        timestamp: bestTimestamp,
         matchedKeywords: matchedTokens,
-        snippet: bestSnippet || (lesson.description ? lesson.description.substring(0, 150) + '...' : '')
+        snippet: bestSnippet
       });
     }
   }
 
-  // Sort descending by score
   scoredLessons.sort((a, b) => b.score - a.score);
-
   return scoredLessons.slice(0, maxResults);
 }
 
 module.exports = {
   fetchYoutubeTranscript,
+  parseSrtOrVtt,
   extractYoutubeId,
   searchLessonsForQuery,
+  formatSecondsToTimestamp,
   decodeHtmlEntities
 };

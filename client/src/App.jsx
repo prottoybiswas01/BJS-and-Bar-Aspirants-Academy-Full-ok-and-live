@@ -101,7 +101,17 @@ function resolveRoute(user) {
   if (path === '/register' || hash === '#register' || hash === '#/register') {
     return 'register';
   }
-  if (path === '/dashboard' || hash === '#dashboard' || hash === '#/dashboard') {
+  if (
+    path === '/dashboard' ||
+    path === '/student/portal' ||
+    path === '/student-portal' ||
+    path === '/portal' ||
+    hash === '#dashboard' ||
+    hash === '#/dashboard' ||
+    hash === '#student/portal' ||
+    hash === '#/student/portal' ||
+    hash === '#student-portal'
+  ) {
     return 'dashboard';
   }
   if (path === '/' || path === '/home' || hash === '#home' || hash === '#/home' || hash === '') {

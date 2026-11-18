@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
+import { formatBangladeshTime, toBangladeshDigits } from '../utils/dateUtils';
 
 export default function AdminPanel({ openLessonManager, openVideoModal, openMentorProfile }) {
   const [stats, setStats] = useState({
@@ -1605,6 +1606,25 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
+  const handleDownloadReceiptPdf = async (receiptId) => {
+    try {
+      showToast('⏳ রসিদ PDF তৈরি হচ্ছে...', 'success');
+      const response = await api.get(`/admin/receipts/${receiptId}/pdf`, { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Receipt-${receiptId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      showToast(`✓ Receipt-${receiptId}.pdf ডাউনলোড সম্পন্ন!`, 'success');
+    } catch (err) {
+      showToast('রসিদ PDF ডাউনলোড করতে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
   const handleDeleteReceipt = async (receiptId) => {
     if (!window.confirm(`আপনি কি সত্যিই মানি রিসিট ${receiptId} স্থায়ীভাবে ডিলিট করতে চান?`)) return;
     setReceipts(prev => prev.filter(r => r && r.receiptId !== receiptId && String(r._id) !== receiptId));
@@ -1644,7 +1664,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   const handleCopyReceiptDetails = (r) => {
     if (!r) return;
-    const formattedDate = new Date(r.paymentTime || r.createdAt).toLocaleString();
+    const formattedDate = formatBangladeshTime(r.paymentTime || r.createdAt);
     const formattedAmount = Number(r.amount || 0).toLocaleString();
 
     const lines = [
@@ -2233,13 +2253,93 @@ return (
             </button>
           </div>
 
-          {/* Navigation Group: MANAGEMENT */}
+          {/* Navigation Group: 4 PRIMARY MANAGEMENT PILLARS */}
           <div className={`space-y-1.5 ${isMobileMenuOpen ? 'block' : 'hidden lg:block'}`}>
             <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase block px-3">
-              MANAGEMENT
+              মূল ব্যবস্থাপনা (CORE MODULES)
             </span>
 
-            {/* 1. Site Settings & Banner */}
+            {/* (ক) স্টুডেন্ট ব্যবস্থাপনা */}
+            <button
+              type="button"
+              onClick={() => { setAdminTab('students'); setIsMobileMenuOpen(false); }}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'students'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">👨‍🎓</span>
+                <span>(ক) স্টুডেন্ট ব্যবস্থাপনা</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                {students.length}
+              </span>
+            </button>
+
+            {/* (খ) কোর্স ও লেসন ব্যবস্থাপনা */}
+            <button
+              type="button"
+              onClick={() => { setAdminTab('courses'); setIsMobileMenuOpen(false); }}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'courses'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">📚</span>
+                <span>(খ) কোর্স ও লেসন ব্যবস্থাপনা</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                {courses.length}
+              </span>
+            </button>
+
+            {/* (গ) পরীক্ষা ও ফলাফল */}
+            <button
+              type="button"
+              onClick={() => { setAdminTab('mcq'); setIsMobileMenuOpen(false); }}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'mcq'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">📝</span>
+                <span>(গ) পরীক্ষা ও ফলাফল</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                {mcqExams.length}
+              </span>
+            </button>
+
+            {/* (ঘ) পেমেন্ট ও মানি রিসিট */}
+            <button
+              type="button"
+              onClick={() => { setAdminTab('payments'); setIsMobileMenuOpen(false); }}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'payments'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">💳</span>
+                <span>(ঘ) পেমেন্ট ও মানি রিসিট</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                {receipts.length}
+              </span>
+            </button>
+
+            <span className="text-[10px] font-mono tracking-widest text-slate-500 font-bold uppercase block px-3 pt-3">
+              অতিরিক্ত ও সেটিংস
+            </span>
+
+            {/* Site Settings & Banner */}
             <button
               type="button"
               onClick={() => { setAdminTab('settings'); setIsMobileMenuOpen(false); }}
@@ -2258,26 +2358,7 @@ return (
               </span>
             </button>
 
-            {/* 2. Student Control */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('students'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'students'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">👨‍🎓</span>
-                <span>স্টুডেন্ট কন্ট্রোল</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {students.length}
-              </span>
-            </button>
-
-            {/* 3. Mentor & Faculty Control */}
+            {/* Mentor & Faculty Control */}
             <button
               type="button"
               onClick={() => { setAdminTab('mentors'); setIsMobileMenuOpen(false); }}
@@ -2296,64 +2377,7 @@ return (
               </span>
             </button>
 
-            {/* 4. Course Launch Manager */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('courses'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'courses'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">📚</span>
-                <span>কোর্স লঞ্চ ম্যানেজার</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {courses.length}
-              </span>
-            </button>
-
-            {/* 5. Payment & Receipts */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('payments'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'payments'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">💳</span>
-                <span>পেমেন্ট ও মানি রিসিট</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {receipts.length}
-              </span>
-            </button>
-
-            {/* 6. MCQ Exam Engine */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('mcq'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'mcq'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">📝</span>
-                <span>অনলাইন এমসিকিউ</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {mcqExams.length}
-              </span>
-            </button>
-
-            {/* 7. Merit List & PDF Generator */}
+            {/* Merit List */}
             <button
               type="button"
               onClick={() => { setAdminTab('merit'); setIsMobileMenuOpen(false); }}
@@ -2365,10 +2389,10 @@ return (
             >
               <div className="flex items-center gap-2.5">
                 <span className="text-base">🏆</span>
-                <span>মেধা তালিকা ও রেজাল্ট</span>
+                <span>মেধা তালিকা অডিট</span>
               </div>
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                PDF
+                Audit
               </span>
             </button>
           </div>
@@ -5109,8 +5133,8 @@ return (
                       <td className="p-3 font-mono font-bold text-amber-400">
                         {r.receiptId}
                       </td>
-                      <td className="p-3 text-slate-400 font-mono text-[11px]">
-                        {new Date(r.paymentTime || r.createdAt).toLocaleString()}
+                      <td className="p-3 text-slate-300 font-mono text-[11px] whitespace-nowrap">
+                        {formatBangladeshTime(r.paymentTime || r.createdAt)}
                       </td>
                       <td className="p-3">
                         <p className="font-bold text-white">{r.studentName}</p>
@@ -5151,11 +5175,19 @@ return (
                         </button>
                         <button
                           type="button"
+                          onClick={() => handleDownloadReceiptPdf(r.receiptId)}
+                          className="px-2.5 py-1 rounded-lg bg-teal-950 hover:bg-teal-900 text-teal-300 border border-teal-500/40 text-[11px] font-bold transition-all shadow-sm flex-inline items-center gap-1 cursor-pointer"
+                          title="সরাসরি PDF রসিদ ডাউনলোড করুন"
+                        >
+                          📥 PDF
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => setReceiptPreviewModal({ isOpen: true, receipt: r })}
                           className="px-2.5 py-1 rounded-lg bg-blue-950 hover:bg-blue-900 text-blue-300 border border-blue-500/30 text-[11px] font-bold transition-all"
                           title="Print / View Money Receipt Slip"
                         >
-                          📥 Slip
+                          👁️ Slip
                         </button>
                         <button
                           type="button"
@@ -5211,7 +5243,7 @@ return (
               <div className="flex justify-between items-center">
                 <div>
                   <p className="text-xs text-slate-400 font-mono">Receipt Ref: <span className="font-bold text-amber-400">{receiptPreviewModal.receipt.receiptId}</span></p>
-                  <p className="text-[11px] text-slate-500 font-mono">{new Date(receiptPreviewModal.receipt.paymentTime || receiptPreviewModal.receipt.createdAt).toLocaleString()}</p>
+                  <p className="text-[11px] text-slate-300 font-mono">{formatBangladeshTime(receiptPreviewModal.receipt.paymentTime || receiptPreviewModal.receipt.createdAt)}</p>
                 </div>
                 <span className="px-3 py-1 rounded-md border border-emerald-500 text-emerald-400 font-bold text-xs uppercase tracking-widest bg-emerald-500/10">
                   ✓ OFFICIAL PAID
@@ -5291,34 +5323,11 @@ return (
                 </button>
                 <button
                   type="button"
-                onClick={() => {
-                  const content = document.getElementById('printable-receipt-slip')?.innerHTML;
-                  const win = window.open('', '_blank');
-                  win.document.write(`
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                      <title>Money Receipt Slip - ${receiptPreviewModal.receipt.receiptId}</title>
-                      <style>
-                        body { font-family: Arial, sans-serif; padding: 25px; color: #020617; }
-                        .p-5 { border: 2px solid #10b981; padding: 20px; border-radius: 12px; max-width: 480px; margin: auto; }
-                        h2 { color: #d97706; margin-bottom: 2px; }
-                        table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 12px; }
-                        td { padding: 6px 0; border-bottom: 1px solid #e2e8f0; }
-                      </style>
-                    </head>
-                    <body>
-                      ${content}
-                      <script>window.print();</script>
-                    </body>
-                    </html>
-                  `);
-                  win.document.close();
-                }}
-                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5"
-              >
-                <span>🖨️</span> স্লিপ প্রিন্ট করুন (Print Slip)
-              </button>
+                  onClick={() => handleDownloadReceiptPdf(receiptPreviewModal.receipt.receiptId)}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <span>📥</span> রসিদ ডাউনলোড (PDF)
+                </button>
               </div>
             </div>
           </div>
@@ -5620,8 +5629,8 @@ return (
                         {stuReceipts.map(r => (
                           <tr key={r.receiptId} className="hover:bg-slate-800/50">
                             <td className="p-2.5 font-mono font-bold text-amber-400 text-[11px]">{r.receiptId}</td>
-                            <td className="p-2.5 text-slate-400 font-mono text-[10px]">
-                              {new Date(r.paymentTime || r.createdAt).toLocaleDateString()}
+                            <td className="p-2.5 text-slate-300 font-mono text-[10px] whitespace-nowrap">
+                              {formatBangladeshTime(r.paymentTime || r.createdAt)}
                             </td>
                             <td className="p-2.5">
                               <span className="font-bold text-slate-200">{r.paymentMethod}</span>
@@ -5631,6 +5640,14 @@ return (
                               ৳ {Number(r.amount || 0).toLocaleString()}
                             </td>
                             <td className="p-2.5 text-right space-x-1 whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadReceiptPdf(r.receiptId)}
+                                className="px-2 py-0.5 rounded bg-teal-950 hover:bg-teal-900 text-teal-300 text-[10px] font-bold border border-teal-500/30"
+                                title="রসিদ PDF ডাউনলোড করুন"
+                              >
+                                📥 PDF
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleCopyReceiptDetails(r)}

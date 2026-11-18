@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import QuestionFormattedView from '../components/QuestionFormattedView';
+import { formatBangladeshTime, toBangladeshDigits } from '../utils/dateUtils';
 
 export default function Dashboard({ openVideoModal, openProfileModal }) {
   const { user, updateUserProfile } = useAuth();
@@ -10,11 +11,12 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Tab state: 'lectures' | 'assignments' | 'exams'
+  // Tab state: 'lectures' | 'assignments' | 'exams' | 'payments'
   const [selectedTab, setSelectedTab] = useState('lectures');
   const [showCoursesSection, setShowCoursesSection] = useState(true);
   const [studentAssignments, setStudentAssignments] = useState([]);
   const [mySubmissions, setMySubmissions] = useState([]);
+  const [studentReceipts, setStudentReceipts] = useState([]);
   const [submittingAsnId, setSubmittingAsnId] = useState(null);
   const [subText, setSubText] = useState('');
   const [subDocUrl, setSubDocUrl] = useState('');
@@ -139,6 +141,25 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       console.log('Error loading result review:', err);
     } finally {
       setReviewModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleDownloadReceiptPdf = async (receiptId) => {
+    try {
+      showToast('⏳ রসিদ PDF তৈরি ও ডাউনলোড হচ্ছে...', 'success');
+      const response = await api.get(`/student/receipts/${receiptId}/pdf`, { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Receipt-${receiptId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      showToast(`✓ Receipt-${receiptId}.pdf ডাউনলোড সম্পন্ন!`, 'success');
+    } catch (err) {
+      showToast('রসিদ PDF ডাউনলোড করতে সমস্যা হয়েছে।', 'error');
     }
   };
 
@@ -313,6 +334,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         if (Array.isArray(res.data.submissions)) setMySubmissions(res.data.submissions);
         if (Array.isArray(res.data.exams)) setStudentExams(res.data.exams);
         if (Array.isArray(res.data.results)) setStudentResults(res.data.results);
+        if (Array.isArray(res.data.receipts)) setStudentReceipts(res.data.receipts);
         return;
       }
     } catch (err) {
@@ -643,6 +665,16 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           }`}
         >
           <span>🎯 অনলাইন এমসিকিউ পরীক্ষা ({studentExams.length})</span>
+        </button>
+        <button
+          onClick={() => setSelectedTab('payments')}
+          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center ${
+            selectedTab === 'payments'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <span>💳 পেমেন্ট ও মানি রিসিট ({studentReceipts.length})</span>
         </button>
       </div>
 
@@ -1253,6 +1285,143 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                             className="px-3 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 font-bold text-xs transition-all shadow-sm cursor-pointer"
                           >
                             🔍 উত্তর রিভিউ দেখুন
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* PAYMENTS & MONEY RECEIPTS TAB */}
+      {selectedTab === 'payments' && (
+        <section className="space-y-6 animate-fadeIn">
+          {/* Header Card */}
+          <div className="glass-card rounded-2xl p-6 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-br from-slate-900/90 to-slate-950/90 shadow-xl">
+            <div>
+              <h2 className="text-lg sm:text-xl font-extrabold text-white flex items-center gap-2">
+                <span>💳</span> আমার পেমেন্ট ও মানি রিসিট হিস্ট্রি
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">
+                আপনার পরিশোধিত কোর্স ফি, পেমেন্ট মেথড ও ভেরিফায়েড ডিজিটাল মানি রিসিট (বাংলাদেশ সময় / BST অনুযায়ী)।
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                ✓ সেন্ট্রাল ভেরিফায়েড অ্যাকাউন্ট
+              </span>
+            </div>
+          </div>
+
+          {/* Quick Metrics */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="glass-card rounded-2xl p-4 border border-slate-800 bg-slate-900/60 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-lg font-bold">
+                ৳
+              </div>
+              <div>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">মোট পরিশোধিত ফি</p>
+                <p className="text-xl font-black text-emerald-400 font-mono">
+                  ৳{toBangladeshDigits((studentReceipts.reduce((acc, r) => acc + (Number(r.amount) || 0), 0)).toLocaleString('en-IN'))}
+                </p>
+              </div>
+            </div>
+
+            <div className="glass-card rounded-2xl p-4 border border-slate-800 bg-slate-900/60 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 text-lg font-bold">
+                📜
+              </div>
+              <div>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">ইস্যুকৃত মানি রিসিট</p>
+                <p className="text-xl font-black text-cyan-400 font-mono">
+                  {toBangladeshDigits(studentReceipts.length)} টি
+                </p>
+              </div>
+            </div>
+
+            <div className="glass-card rounded-2xl p-4 border border-slate-800 bg-slate-900/60 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 text-lg font-bold">
+                🇧🇩
+              </div>
+              <div>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">সময় জোন (টাইমস্ট্যাম্প)</p>
+                <p className="text-xs font-bold text-amber-300">
+                  বাংলাদেশ সময় (BST, UTC+6)
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Receipts Table */}
+          <div className="glass-card rounded-2xl border border-slate-800 overflow-hidden shadow-2xl bg-slate-950/80">
+            <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between">
+              <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
+                <span>📑</span> মানি রিসিটের পূর্ণাঙ্গ তালিকা ({studentReceipts.length})
+              </h3>
+              <span className="text-[11px] text-slate-400 font-mono">Official PDF Slips</span>
+            </div>
+
+            {studentReceipts.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 space-y-2">
+                <span className="text-3xl block">📜</span>
+                <p className="text-sm font-bold text-slate-400">এখনো কোনো মানি রিসিট ইস্যু করা হয়নি।</p>
+                <p className="text-xs text-slate-500">আপনার ভর্তি বা কোর্স ফি জমা হওয়ার পর অ্যাডমিন প্যানেল থেকে এখানে ডিজিটাল রিসিট ইস্যু করা হবে।</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 bg-slate-900/60 text-slate-400 font-mono text-[11px]">
+                      <th className="p-3.5">রসিদ নম্বর</th>
+                      <th className="p-3.5">কোর্স / ব্যাচ</th>
+                      <th className="p-3.5">ফি (পরিমাণ)</th>
+                      <th className="p-3.5">মেথড</th>
+                      <th className="p-3.5">ট্রানজেকশন আইডি</th>
+                      <th className="p-3.5">পরিশোধের সময় (BST)</th>
+                      <th className="p-3.5">স্ট্যাটাস</th>
+                      <th className="p-3.5 text-right">ডাউনলোড</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {studentReceipts.map((r, rIdx) => (
+                      <tr key={r.receiptId || rIdx} className="hover:bg-slate-900/40 transition-colors">
+                        <td className="p-3.5 font-mono font-black text-amber-400 text-xs">
+                          {r.receiptId}
+                        </td>
+                        <td className="p-3.5 font-bold text-white max-w-[180px] truncate">
+                          {r.batch || 'BJS & Bar Masterclass'}
+                        </td>
+                        <td className="p-3.5 font-mono font-bold text-emerald-400">
+                          ৳{toBangladeshDigits(Number(r.amount || 0).toLocaleString('en-IN'))}
+                        </td>
+                        <td className="p-3.5 font-bold text-cyan-300">
+                          {r.paymentMethod || 'bKash'}
+                        </td>
+                        <td className="p-3.5 font-mono text-slate-400 text-[11px]">
+                          {r.trxId || 'N/A'}
+                        </td>
+                        <td className="p-3.5 font-mono text-slate-300 text-[11px] whitespace-nowrap">
+                          {formatBangladeshTime(r.paymentTime || r.createdAt)}
+                        </td>
+                        <td className="p-3.5">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                            ✓ পরিশোধিত
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadReceiptPdf(r.receiptId)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-md shadow-emerald-900/30 cursor-pointer transition-all active:scale-95"
+                            title="সরাসরি ক্লিন PDF মানি রিসিট ডাউনলোড করুন"
+                          >
+                            <span>📥</span>
+                            <span>রসিদ ডাউনলোড (PDF)</span>
                           </button>
                         </td>
                       </tr>
