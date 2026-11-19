@@ -1,0 +1,60 @@
+name: Telegram Remote Auto-Coder Engine
+
+on:
+  repository_dispatch:
+    types: [telegram_autofix]
+  workflow_dispatch:
+    inputs:
+      action_type:
+        description: 'Action Type (fix or feature)'
+        required: true
+        default: 'fix'
+      prompt:
+        description: 'Instruction or issue description'
+        required: true
+        default: 'Verify codebase health and optimize'
+
+jobs:
+  autocode:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: |
+          npm install --no-audit
+          npm install --prefix client --no-audit
+
+      - name: Run Cloud Auto-Coder AI
+        env:
+          REMOTE_GEMINI_API_KEY: ${{ secrets.REMOTE_GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_EVENT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+        run: |
+          node scripts/telegram_auto_coder.js
+
+      - name: Commit & Push Auto-Patches
+        run: |
+          git config --global user.name "BJS Academy Cloud AI"
+          git config --global user.email "autocoder@bjs.kodl.uk"
+          git add -A
+          if git diff-index --quiet HEAD --; then
+            echo "No changes were generated."
+          else
+            git commit -m "feat(remote-ai): apply automated patch from Telegram bot [skip ci]"
+            git push origin main
+          fi

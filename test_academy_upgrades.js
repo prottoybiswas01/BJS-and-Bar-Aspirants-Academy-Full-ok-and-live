@@ -125,7 +125,9 @@ async function runUpgradesTestSuite() {
   console.log('========================================================');
 }
 
-runUpgradesTestSuite().catch(err => {
+runUpgradesTestSuite().then(() => {
+  process.exit(0);
+}).catch(err => {
   console.error('Test Suite Failure:', err);
   process.exit(1);
 });

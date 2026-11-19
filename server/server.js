@@ -225,6 +225,7 @@ const {
   backfillAllExistingSubtitles
 } = require("./services/subtitleScheduler");
 const { generateReceiptPdf } = require("./services/receiptPdfService");
+const { handleTelegramWebhook, setupTelegramWebhook } = require("./services/telegramBotService");
 const { parseBangladeshTimeToUtc, formatBangladeshTime } = require("./utils/dateUtils");
 const { sortLessons, getLessonNum, parseLessonNum, getNextSerial } = require("./utils/lessonUtils");
 
@@ -7884,6 +7885,21 @@ app.post("/api/admin/push/broadcast", async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "পুশ নোটিফিকেশন পাঠাতে সমস্যা: " + err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// TELEGRAM REMOTE AUTO-FIX & CLOUD CODER BOT WEBHOOK
+// -------------------------------------------------------------
+app.post("/api/telegram/webhook", handleTelegramWebhook);
+
+app.get("/api/telegram/webhook-setup", async (req, res) => {
+  try {
+    const appUrl = (process.env.APP_URL || `https://${req.headers.host}`).trim();
+    const result = await setupTelegramWebhook(appUrl);
+    return res.json({ ok: true, appUrl, result });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: err.message });
   }
 });
 
