@@ -1550,6 +1550,23 @@ async function sendResendBatchEmails(batchItems) {
   }
 }
 
+// Dedicated High-Priority Video Notification Email Dispatcher
+async function sendVideoNotificationEmail(to, subject, html) {
+  try {
+    return await sendResendEmail({
+      to,
+      subject,
+      html,
+      emailType: 'video_notification',
+      isExempt: true // Explicit video publishing notifications are always delivered
+    });
+  } catch (err) {
+    console.error("[Video Notification] sendVideoNotificationEmail failed:", err.message);
+    return { ok: false, message: err.message };
+  }
+}
+const sendStudentEmail = sendVideoNotificationEmail; // Fail-safe alias
+
 // Resend Verification & Diagnostic Test Endpoint
 app.post("/api/admin/test-resend", async (req, res) => {
   try {
@@ -4329,6 +4346,30 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
     if (!existing && incomingId) {
       existing = (memoryDb.lessons || []).find(l => l.id === incomingId || l._id === incomingId);
     }
+
+    // Backend De-duplication Guard:
+    // If saving a new video (no incomingId provided) and the identical youtubeId was saved for this course
+    // within the last 30 seconds, reuse the existing lesson to prevent multi-click duplicates!
+    if (!existing && !incomingId && youtubeId) {
+      const recentWindow = new Date(Date.now() - 30000);
+      if (isMongoConnected) {
+        existing = await Lesson.findOne({
+          courseId: body.courseId || "General Class",
+          youtubeId: youtubeId,
+          createdAt: { $gte: recentWindow }
+        });
+      } else {
+        existing = (memoryDb.lessons || []).find(l =>
+          l.courseId === (body.courseId || "General Class") &&
+          l.youtubeId === youtubeId &&
+          l.createdAt && new Date(l.createdAt) >= recentWindow
+        );
+      }
+      if (existing) {
+        console.log(`[De-dup Guard] Reused recent lesson "${existing.title}" (${existing.id}) to eliminate duplicate creation.`);
+      }
+    }
+
     if (!existing) {
       isNewLesson = true;
     }
@@ -4413,7 +4454,7 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
     if (youtubeId && (!saved.transcript || saved.transcript.length < 20 || saved.transcriptStatus !== 'ready') && saved.transcriptStatus !== 'manual') {
       try {
         const trPromise = fetchYoutubeTranscript(youtubeId);
-        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), 4000));
+        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), 1500));
         const trRes = await Promise.race([trPromise, timeoutPromise]);
 
         if (trRes && trRes.ok && trRes.status === 'ready' && trRes.transcript) {
@@ -4504,6 +4545,8 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
           await Lesson.updateOne({ id: lessonId }, { notifiedAt: new Date() });
         }
         const canonicalCourse = await resolveCourseByIdOrAlias(saved.courseId);
+        const targetAdminEmail = (memoryDb?.mailSettings?.fallbackEmail || process.env.EMAIL_USER || "bjsacademy38@gmail.com").trim();
+
         dispatchNewLessonNotifications({
           lesson: saved,
           course: canonicalCourse || { id: saved.courseId, title: saved.module || saved.courseId },
@@ -4511,7 +4554,8 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
           StudentModel: Student,
           isMongoConnected,
           memoryDb,
-          sendEmailFn: sendStudentEmail
+          sendEmailFn: sendVideoNotificationEmail,
+          adminEmail: targetAdminEmail
         }).catch(err => {
           console.warn("[Video Notification] Dispatch notice:", err.message);
         });

@@ -9,6 +9,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
   const { showToast, showError, showSuccess } = useToast();
   const [lessons, setLessons] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [msg, setMsg] = useState(null);
   const [syncingSubtitles, setSyncingSubtitles] = useState(false);
   const [quickSyncingId, setQuickSyncingId] = useState(null);
@@ -146,26 +147,39 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
     try {
       const res = await api.delete(`/admin/lessons/${id}`);
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message || '✓ Video deleted successfully from MongoDB!' });
+        const text = res.data.message || '✓ Video deleted successfully from MongoDB!';
+        setMsg({ type: 'success', text });
+        showSuccess(text);
         loadLessons();
       } else {
-        setMsg({ type: 'error', text: res.data.message || 'Error deleting video.' });
+        const text = res.data.message || 'Error deleting video.';
+        setMsg({ type: 'error', text });
+        showError(text);
         loadLessons();
       }
     } catch (err) {
-      setMsg({ type: 'error', text: 'Error deleting video.' });
+      const text = err.response?.data?.message || 'Error deleting video.';
+      setMsg({ type: 'error', text });
+      showError(text);
       loadLessons();
     }
   };
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.youtubeUrl) {
-      setMsg({ type: 'error', text: 'Please enter YouTube URL or Video ID.' });
+    if (isSaving) return;
+
+    if (!form.youtubeUrl || !form.youtubeUrl.trim()) {
+      const errText = 'দয়া করে ইউটিউব লিংক বা ভিডিও আইডি প্রদান করুন।';
+      setMsg({ type: 'error', text: errText });
+      showError(errText);
       return;
     }
 
     const finalTitle = form.title.trim() || form.chapter.trim() || form.module.trim() || 'Class Video';
+
+    setIsSaving(true);
+    setMsg({ type: 'success', text: '⏳ ভিডিও আপলোড ও সেভ হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...' });
 
     try {
       const res = await api.post('/admin/lessons/save', {
@@ -176,14 +190,38 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       });
 
       if (res.data.ok) {
-        setMsg({ type: 'success', text: res.data.message || '✓ Video saved successfully in MongoDB!' });
-        // Reload fresh lessons and advance form to the next automatic serial
+        const successText = res.data.message || '✓ Video saved successfully in MongoDB!';
+        setMsg({ type: 'success', text: successText });
+        showSuccess(successText);
+
+        // Reset form for next upload and advance order
+        setForm(prev => {
+          const nextNum = (Number(prev.order) || 0) + 1;
+          return {
+            id: '',
+            module: prev.module || course?.title || '',
+            chapter: '',
+            title: generateTitle(prev.module || course?.title, nextNum),
+            youtubeUrl: '',
+            releaseDate: new Date().toISOString().split('T')[0],
+            description: '',
+            order: String(nextNum),
+          };
+        });
+
+        // Reload fresh lessons
         await loadLessons();
       } else {
-        setMsg({ type: 'error', text: res.data.message || 'Error saving video.' });
+        const errText = res.data.message || 'Error saving video.';
+        setMsg({ type: 'error', text: errText });
+        showError(errText);
       }
     } catch (err) {
-      setMsg({ type: 'error', text: err.response?.data?.message || 'Error saving video lesson.' });
+      const errText = err.response?.data?.message || 'Error saving video lesson.';
+      setMsg({ type: 'error', text: errText });
+      showError(errText);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -464,8 +502,21 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
               </div>
             </div>
 
-            <button type="submit" className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs shadow-lg transition-all hover:scale-[1.02] mt-2">
-              {form.id ? '💾 Update Video Details' : '📹 Upload Video to Course'}
+            <button
+              type="submit"
+              disabled={isSaving}
+              className={`w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs shadow-lg transition-all mt-2 flex items-center justify-center gap-2 ${
+                isSaving ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.02] cursor-pointer'
+              }`}
+            >
+              {isSaving ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></span>
+                  <span>{form.id ? 'আপডেট হচ্ছে...' : 'আপলোড হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...'}</span>
+                </>
+              ) : (
+                <span>{form.id ? '💾 Update Video Details' : '📹 Upload Video to Course'}</span>
+              )}
             </button>
           </form>
 
