@@ -189,7 +189,7 @@ const NotificationLog = require("./models/NotificationLog");
 const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId } = require("./services/transcriptService");
 const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
 const { dispatchNewLessonNotifications } = require("./services/videoNotificationService");
-const { processLegalAiQuery, resolveOptimalGeminiModel } = require("./services/legalAiService");
+const { processLegalAiQuery } = require("./services/legalAiService");
 const {
   syncSingleLessonSubtitle,
   syncPendingSubtitlesBatch,
@@ -5721,28 +5721,6 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
   } catch (err) {
     console.error("Student dashboard-data error:", err);
     return res.status(500).json({ ok: false, message: "ড্যাশবোর্ড ডেটা লোড করতে সমস্যা হয়েছে: " + err.message });
-  }
-});
-
-// AI Service Health and Diagnostic Status
-app.get("/api/ai/status", async (req, res) => {
-  try {
-    const hasKey = !!process.env.GEMINI_API_KEY;
-    let keySnippet = 'none';
-    if (hasKey) {
-      const k = process.env.GEMINI_API_KEY.trim();
-      keySnippet = k.substring(0, 4) + '...' + k.substring(k.length - 4);
-    }
-    const resolvedModel = await resolveOptimalGeminiModel(process.env.GEMINI_API_KEY || '');
-    return res.json({
-      ok: true,
-      geminiKeyConfigured: hasKey,
-      keySnippet: hasKey ? keySnippet : 'none',
-      activeModel: resolvedModel,
-      timestamp: new Date().toISOString()
-    });
-  } catch (err) {
-    return res.json({ ok: false, error: err.message });
   }
 });
 
