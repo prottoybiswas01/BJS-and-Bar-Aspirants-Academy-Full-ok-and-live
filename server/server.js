@@ -4613,21 +4613,23 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       });
     }
 
-    // Synchronous with fast-timeout YouTube transcript fetch (Guaranteed on Vercel Serverless)
+    // Synchronous with multi-tier YouTube transcript fetch (Guaranteed on Vercel Serverless)
     let transcriptSynced = false;
-    if (youtubeId && (!saved.transcript || saved.transcript.length < 20 || saved.transcriptStatus !== 'ready') && saved.transcriptStatus !== 'manual') {
+    const currentWords = saved.transcriptWordCount || (saved.transcript ? saved.transcript.split(/\s+/).filter(Boolean).length : 0);
+    if (youtubeId && (!saved.transcript || currentWords < 50 || saved.transcriptStatus !== 'ready') && saved.transcriptStatus !== 'manual') {
       try {
         const trPromise = fetchYoutubeTranscript(youtubeId);
-        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), 1500));
+        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), 4000));
         const trRes = await Promise.race([trPromise, timeoutPromise]);
 
-        if (trRes && trRes.ok && trRes.status === 'ready' && trRes.transcript) {
+        if (trRes && trRes.ok && trRes.status === 'ready' && trRes.transcript && trRes.wordCount >= 50) {
+          saved.hasSubtitles = true;
           saved.transcript = trRes.transcript;
           saved.transcriptStatus = 'ready';
           saved.transcriptSegments = trRes.segments || [];
           saved.transcriptWordCount = trRes.wordCount || 0;
           saved.transcriptLanguage = trRes.language || 'bn';
-          saved.transcriptSource = 'youtube_caption';
+          saved.transcriptSource = trRes.tier || 'youtube_caption';
           saved.transcriptVideoId = youtubeId;
           saved.transcriptUpdatedAt = new Date();
           saved.transcriptLastError = '';
@@ -4641,7 +4643,7 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
               transcriptSegments: trRes.segments || [],
               transcriptWordCount: trRes.wordCount || 0,
               transcriptLanguage: trRes.language || 'bn',
-              transcriptSource: 'youtube_caption',
+              transcriptSource: trRes.tier || 'youtube_caption',
               transcriptVideoId: youtubeId,
               transcriptUpdatedAt: new Date(),
               transcriptLastError: ''
@@ -4789,17 +4791,26 @@ app.post(["/api/admin/lessons/sync-single", "/admin/lessons/sync-single"], async
     }
 
     const trRes = await fetchYoutubeTranscript(yId);
-    if (trRes && trRes.ok && trRes.transcript) {
+    if (trRes && trRes.ok && trRes.transcript && trRes.wordCount >= 50) {
       if (isMongoConnected) {
         await Lesson.updateOne({ id: lesson.id || lessonId }, {
+          hasSubtitles: true,
           transcript: trRes.transcript,
+          transcriptSegments: trRes.segments || [],
+          transcriptWordCount: trRes.wordCount,
+          transcriptLanguage: trRes.language || 'bn',
+          transcriptSource: trRes.tier || 'youtube_caption',
           transcriptStatus: 'ready',
-          transcriptUpdatedAt: new Date()
+          transcriptUpdatedAt: new Date(),
+          transcriptLastError: ''
         });
       }
       const mem = (memoryDb.lessons || []).find(l => l.id === lesson.id || l.id === lessonId);
       if (mem) {
+        mem.hasSubtitles = true;
         mem.transcript = trRes.transcript;
+        mem.transcriptSegments = trRes.segments || [];
+        mem.transcriptWordCount = trRes.wordCount;
         mem.transcriptStatus = 'ready';
         mem.transcriptUpdatedAt = new Date();
       }
@@ -4809,12 +4820,22 @@ app.post(["/api/admin/lessons/sync-single", "/admin/lessons/sync-single"], async
         message: `✓ সাবটাইটেল সফলভাবে সিঙ্ক হয়েছে! (${trRes.wordCount}টি শব্দ পাওয়া গেছে)`,
         transcript: trRes.transcript,
         transcriptStatus: 'ready',
-        wordCount: trRes.wordCount
+        wordCount: trRes.wordCount,
+        tier: trRes.tier
       });
     } else {
-      return res.status(400).json({
+      const finalStatus = trRes?.status || 'no_captions';
+      if (isMongoConnected) {
+        await Lesson.updateOne({ id: lesson.id || lessonId }, {
+          hasSubtitles: false,
+          transcriptStatus: finalStatus,
+          transcriptLastError: trRes?.message || ''
+        });
+      }
+      return res.json({
         ok: false,
-        message: trRes.message || "ইউটিউব এখনও এই ভিডিওর ক্যাপশন তৈরি করেনি। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।"
+        status: finalStatus,
+        message: trRes?.message || "ইউটিউব এখনও এই ভিডিওর ক্যাপশন তৈরি করেনি। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।"
       });
     }
   } catch (err) {
@@ -4842,14 +4863,15 @@ app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
       : allLessons;
 
     const totalInScope = targetLessons.length;
-    const alreadyReadyBefore = targetLessons.filter(l => l.transcript && l.transcript.length > 20 && l.transcriptStatus === 'ready').length;
+    const getWords = l => l.transcriptWordCount || (l.transcript ? l.transcript.split(/\s+/).filter(Boolean).length : 0);
+    const alreadyReadyBefore = targetLessons.filter(l => l.hasSubtitles === true && getWords(l) >= 50 && l.transcriptStatus === 'ready').length;
 
-    // Determine which lessons need fetching
+    // Determine which lessons need fetching or re-fetching
     const eligible = targetLessons.filter(l => {
       const yId = lsn => lsn.youtubeId || extractYoutubeId(lsn.youtubeUrl);
       if (!yId(l)) return false;
       if (force) return true;
-      return !l.transcript || l.transcript.length < 20 || l.transcriptStatus !== 'ready';
+      return !l.transcript || getWords(l) < 50 || l.transcriptStatus !== 'ready';
     });
 
     if (eligible.length === 0) {
@@ -4877,39 +4899,51 @@ app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
 
       try {
         const trRes = await fetchYoutubeTranscript(yId);
-        if (trRes && trRes.ok && trRes.transcript) {
+        if (trRes && trRes.ok && trRes.transcript && trRes.wordCount >= 50) {
           if (isMongoConnected) {
             await Lesson.updateOne({ _id: lsn._id }, {
               hasSubtitles: true,
               transcript: trRes.transcript,
+              transcriptSegments: trRes.segments || [],
+              transcriptWordCount: trRes.wordCount,
+              transcriptLanguage: trRes.language || 'bn',
+              transcriptSource: trRes.tier || 'youtube_caption',
               transcriptStatus: 'ready',
-              transcriptUpdatedAt: new Date()
+              transcriptUpdatedAt: new Date(),
+              transcriptLastError: ''
             });
           }
           const m = (memoryDb.lessons || []).find(x => x.id === lsn.id || String(x._id) === String(lsn._id));
           if (m) {
             m.hasSubtitles = true;
             m.transcript = trRes.transcript;
+            m.transcriptSegments = trRes.segments || [];
+            m.transcriptWordCount = trRes.wordCount;
+            m.transcriptLanguage = trRes.language || 'bn';
             m.transcriptStatus = 'ready';
             m.transcriptUpdatedAt = new Date();
           }
           synced++;
           items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'ready', wordCount: trRes.wordCount });
-        } else if (trRes && trRes.status === 'no_captions') {
-          // Strictly mark as no_captions - do not save fake fallback notes
+        } else if (trRes && (trRes.status === 'no_captions' || trRes.status === 'incomplete')) {
+          // Strictly mark as pending/no_captions without fabricating fake transcripts
           if (isMongoConnected) {
             await Lesson.updateOne({ _id: lsn._id }, {
-              transcriptStatus: 'no_captions',
+              hasSubtitles: false,
+              transcriptStatus: trRes.status,
+              transcriptLastError: trRes.message || '',
               transcriptUpdatedAt: new Date()
             });
           }
           const m = (memoryDb.lessons || []).find(x => x.id === lsn.id || String(x._id) === String(lsn._id));
           if (m) {
-            m.transcriptStatus = 'no_captions';
+            m.hasSubtitles = false;
+            m.transcriptStatus = trRes.status;
+            m.transcriptLastError = trRes.message || '';
             m.transcriptUpdatedAt = new Date();
           }
           noCaptions++;
-          items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'no_captions', message: trRes.message });
+          items.push({ id: lsn.id || lsn._id, title: lsn.title, status: trRes.status, message: trRes.message });
         } else {
           failed++;
           items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'failed', message: trRes?.message || 'সিঙ্ক ব্যর্থ' });
@@ -5000,14 +5034,14 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
     if (action === 'refetch') {
       const yId = lsn.youtubeId || extractYoutubeId(lsn.youtubeUrl);
       const trRes = await fetchYoutubeTranscript(yId);
-      if (trRes && trRes.ok && trRes.transcript) {
+      if (trRes && trRes.ok && trRes.transcript && trRes.wordCount >= 50) {
         lsn.hasSubtitles = true;
         lsn.transcript = trRes.transcript;
         lsn.transcriptStatus = 'ready';
         lsn.transcriptSegments = trRes.segments || [];
         lsn.transcriptWordCount = trRes.wordCount || 0;
         lsn.transcriptLanguage = trRes.language || 'bn';
-        lsn.transcriptSource = 'youtube_caption';
+        lsn.transcriptSource = trRes.tier || 'youtube_caption';
         lsn.transcriptVideoId = yId;
         lsn.transcriptUpdatedAt = new Date();
         lsn.transcriptLastError = '';
@@ -5024,17 +5058,29 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
         fastCache.del("lessons");
         return res.json({
           ok: true,
-          message: `✓ ইউটিউব থেকে ${trRes.wordCount} শব্দের সাবটাইটেল সফলভাবে রি-ফেচ ও সেভ করা হয়েছে!`,
+          message: `✓ ইউটিউব থেকে ${trRes.wordCount} শব্দের সাবটাইটেল সফলভাবে রি-ফেচ ও সেভ করা হয়েছে! (${trRes.tier || 'Multi-Tier Pipeline'})`,
           transcript: trRes.transcript,
           transcriptStatus: 'ready',
           wordCount: trRes.wordCount
         });
       } else {
-        const finalStatus = trRes.status || 'no_captions';
+        const finalStatus = trRes?.status || 'no_captions';
+        lsn.hasSubtitles = false;
         lsn.transcriptStatus = finalStatus;
-        lsn.transcriptLastError = trRes?.message || '';
+        lsn.transcriptLastError = trRes?.message || 'ক্যাপশন পাওয়া যায়নি';
         if (isMongoConnected) await lsn.save();
-        return res.status(400).json({ ok: false, message: trRes?.message || "ইউটিউব ক্যাপশন পাওয়া যায়নি।" });
+        const mem = (memoryDb.lessons || []).find(l => l.id === lsn.id);
+        if (mem) {
+          mem.hasSubtitles = false;
+          mem.transcriptStatus = finalStatus;
+          mem.transcriptLastError = trRes?.message || '';
+        }
+        fastCache.del("lessons");
+        return res.json({
+          ok: false,
+          status: finalStatus,
+          message: trRes?.message || "ইউটিউব ক্যাপশন এখনও তৈরি হয়নি বা অসম্পূর্ণ রয়েছে।"
+        });
       }
     } else {
       // Manual Save/Edit by Admin (supports SRT / VTT auto-parsing) (Phase 9)
@@ -5171,13 +5217,15 @@ app.post("/api/admin/lessons/backfill-transcripts", async (req, res) => {
     }
 
     const totalLessons = allLessons.length;
-    const previouslySynced = allLessons.filter(l => l.transcriptStatus === 'ready' || l.transcriptStatus === 'manual').length;
+    const getWords = l => l.transcriptWordCount || (l.transcript ? l.transcript.split(/\s+/).filter(Boolean).length : 0);
+    const previouslySynced = allLessons.filter(l => (l.transcriptStatus === 'ready' && getWords(l) >= 50) || l.transcriptStatus === 'manual').length;
 
-    // Filter unsynchronized lessons with valid YouTube ID
+    // Filter unsynchronized lessons with valid YouTube ID or lessons with incomplete transcripts (< 50 words)
     const candidates = allLessons.filter(l => {
       const yId = l.youtubeId || extractYoutubeId(l.youtubeUrl);
       if (!yId) return false;
-      return l.transcriptStatus !== 'ready' && l.transcriptStatus !== 'manual';
+      if (l.transcriptStatus === 'manual') return false;
+      return l.transcriptStatus !== 'ready' || getWords(l) < 50 || !l.transcript;
     }).slice(0, batchSize);
 
     let newlySynced = 0;
@@ -5192,15 +5240,16 @@ app.post("/api/admin/lessons/backfill-transcripts", async (req, res) => {
 
       try {
         const trRes = await fetchYoutubeTranscript(yId);
-        if (trRes && trRes.ok && trRes.transcript) {
+        if (trRes && trRes.ok && trRes.transcript && trRes.wordCount >= 50) {
           if (isMongoConnected) {
             await Lesson.updateOne({ _id: lsn._id }, {
+              hasSubtitles: true,
               transcript: trRes.transcript,
               transcriptStatus: 'ready',
               transcriptSegments: trRes.segments || [],
               transcriptWordCount: trRes.wordCount || 0,
               transcriptLanguage: trRes.language || 'bn',
-              transcriptSource: 'youtube_caption',
+              transcriptSource: trRes.tier || 'youtube_caption',
               transcriptVideoId: yId,
               transcriptUpdatedAt: new Date(),
               transcriptLastError: ''
@@ -5208,16 +5257,18 @@ app.post("/api/admin/lessons/backfill-transcripts", async (req, res) => {
           }
           newlySynced++;
           items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'ready', wordCount: trRes.wordCount });
-        } else if (trRes && trRes.status === 'no_captions') {
+        } else if (trRes && (trRes.status === 'no_captions' || trRes.status === 'incomplete')) {
           if (isMongoConnected) {
             await Lesson.updateOne({ _id: lsn._id }, {
-              transcriptStatus: 'no_captions',
+              hasSubtitles: false,
+              transcriptStatus: trRes.status,
               transcriptLastError: trRes.message || '',
               transcriptUpdatedAt: new Date()
             });
           }
-          noCaptions++;
-          items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'no_captions', message: trRes.message });
+          if (trRes.status === 'incomplete') retryScheduled++;
+          else noCaptions++;
+          items.push({ id: lsn.id || lsn._id, title: lsn.title, status: trRes.status, message: trRes.message });
         } else if (trRes && trRes.retryable) {
           retryScheduled++;
           items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'retry_scheduled', message: trRes.message });

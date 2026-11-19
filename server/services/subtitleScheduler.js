@@ -15,9 +15,10 @@ async function syncSingleLessonSubtitle(lessonDoc, LessonModel) {
     return { ok: false, message: 'No valid YouTube ID found', skipped: true };
   }
 
-  // CRITICAL CONDITION: Never re-fetch if already has valid subtitles saved
-  if (lessonDoc.hasSubtitles === true && lessonDoc.transcript && lessonDoc.transcript.length > 20) {
-    return { ok: true, status: 'already_ready', skipped: true, youtubeId: yId };
+  // CRITICAL CONDITION: Check for genuine, complete subtitles (>= 50 words)
+  const existingWordCount = lessonDoc.transcriptWordCount || (lessonDoc.transcript ? lessonDoc.transcript.split(/\s+/).filter(Boolean).length : 0);
+  if (lessonDoc.hasSubtitles === true && existingWordCount >= 50 && lessonDoc.transcriptStatus === 'ready') {
+    return { ok: true, status: 'already_ready', skipped: true, youtubeId: yId, words: existingWordCount };
   }
 
   try {
@@ -97,10 +98,29 @@ async function syncPendingSubtitlesBatch({ limit = 10, LessonModel } = {}) {
 
   try {
     // 1. One-time self-healing audit:
-    // Mark any lesson that already has valid transcript text (> 25 chars) as hasSubtitles: true
+    // Reset any bogus/incomplete transcript (< 50 words) so it gets re-synced
     await LessonModel.updateMany(
       {
-        transcript: { $exists: true, $type: 'string', $regex: /^.{25,}$/ },
+        $or: [
+          { transcriptWordCount: { $lt: 50 } },
+          { transcript: { $exists: false } },
+          { transcript: '' },
+          { transcript: null },
+          { transcript: { $type: 'string', $regex: /^.{0,249}$/ } }
+        ],
+        transcriptStatus: { $ne: 'manual' },
+        hasSubtitles: true
+      },
+      {
+        $set: { hasSubtitles: false, transcriptStatus: 'pending' }
+      }
+    );
+
+    // Mark lessons that genuinely have full transcripts (>= 50 words) as ready
+    await LessonModel.updateMany(
+      {
+        transcript: { $exists: true, $type: 'string', $regex: /^.{250,}$/ },
+        transcriptWordCount: { $gte: 50 },
         hasSubtitles: { $ne: true }
       },
       {
@@ -108,8 +128,7 @@ async function syncPendingSubtitlesBatch({ limit = 10, LessonModel } = {}) {
       }
     );
 
-    // 2. Query ONLY lessons that still lack subtitles
-    // CRITICAL: Strictly filters out hasSubtitles: true
+    // 2. Query lessons that still lack subtitles or have incomplete transcripts (< 50 words)
     const pendingLessons = await LessonModel.find({
       $and: [
         {
@@ -118,14 +137,16 @@ async function syncPendingSubtitlesBatch({ limit = 10, LessonModel } = {}) {
             { youtubeUrl: { $exists: true, $type: 'string', $regex: /youtu/ } }
           ]
         },
-        { hasSubtitles: { $ne: true } },
         { transcriptStatus: { $ne: 'manual' } },
         {
           $or: [
+            { hasSubtitles: { $ne: true } },
+            { transcriptStatus: { $in: ['pending', 'incomplete', 'no_captions', 'none', 'error'] } },
+            { transcriptWordCount: { $lt: 50 } },
             { transcript: { $exists: false } },
             { transcript: '' },
             { transcript: null },
-            { transcript: { $type: 'string', $regex: /^.{0,24}$/ } }
+            { transcript: { $type: 'string', $regex: /^.{0,249}$/ } }
           ]
         }
       ]
@@ -213,17 +234,36 @@ async function backfillAllExistingSubtitles({ LessonModel, maxPerBatch = 10, max
   let remaining = true;
   let batchesCount = 0;
 
-  // 1. Audit and tag existing ready transcripts
+  // 1. Audit and reset any bogus/incomplete transcript (< 50 words)
+  await LessonModel.updateMany(
+    {
+      $or: [
+        { transcriptWordCount: { $lt: 50 } },
+        { transcript: { $exists: false } },
+        { transcript: '' },
+        { transcript: null },
+        { transcript: { $type: 'string', $regex: /^.{0,249}$/ } }
+      ],
+      transcriptStatus: { $ne: 'manual' },
+      hasSubtitles: true
+    },
+    {
+      $set: { hasSubtitles: false, transcriptStatus: 'pending' }
+    }
+  );
+
+  // Tag genuine transcripts (>= 50 words) with hasSubtitles: true
   const taggedResult = await LessonModel.updateMany(
     {
-      transcript: { $exists: true, $type: 'string', $regex: /^.{25,}$/ },
+      transcript: { $exists: true, $type: 'string', $regex: /^.{250,}$/ },
+      transcriptWordCount: { $gte: 50 },
       hasSubtitles: { $ne: true }
     },
     {
       $set: { hasSubtitles: true, transcriptStatus: 'ready' }
     }
   );
-  console.log(`[SubtitleSync] Tagged ${taggedResult.modifiedCount || 0} existing transcripts with hasSubtitles: true`);
+  console.log(`[SubtitleSync] Verified ${taggedResult.modifiedCount || 0} genuine transcripts with hasSubtitles: true`);
 
   // 2. Loop until no more pending or maxTotal reached
   while (remaining && totalChecked < maxTotal) {

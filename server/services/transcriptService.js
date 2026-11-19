@@ -171,15 +171,234 @@ function parseSrtOrVtt(content) {
 }
 
 /**
- * Fetch YouTube transcript with accurate error differentiation
- * Supported Statuses:
- * - ready: transcript successfully extracted & parsed
- * - no_captions: captions disabled or not available on YouTube
- * - invalid_id: video ID is malformed or invalid
- * - private_or_restricted: video is private, geoblocked, or removed
- * - network_error: network timeout or connectivity failure
- * - rate_limited: YouTube rate limit / captcha encountered
- * - unsupported_language: language requested not available
+ * Parse XML Subtitles (supports srv3 format <p t="ms" d="ms"><s>word</s></p>
+ * and classic YouTube format <text start="s" dur="s">word</text>)
+ */
+function parseTranscriptXml(xml, lang = 'bn') {
+  if (!xml || typeof xml !== 'string') return [];
+  const segments = [];
+
+  // 1. Try srv3 format: <p t="ms" d="ms"><s>word</s></p>
+  const pRegex = /<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
+  let pMatch;
+  while ((pMatch = pRegex.exec(xml)) !== null) {
+    const startMs = parseInt(pMatch[1], 10);
+    const durMs = parseInt(pMatch[2], 10);
+    const inner = pMatch[3];
+    let text = '';
+    const sRegex = /<s[^>]*>([^<]*)<\/s>/g;
+    let sMatch;
+    while ((sMatch = sRegex.exec(inner)) !== null) {
+      text += sMatch[1];
+    }
+    if (!text) {
+      text = inner.replace(/<[^>]+>/g, '');
+    }
+    text = decodeHtmlEntities(text).trim();
+    if (text) {
+      const offsetSec = Math.floor(startMs / 1000);
+      segments.push({
+        timestamp: formatSecondsToTimestamp(offsetSec),
+        offsetSeconds: offsetSec,
+        durationSeconds: Math.floor(durMs / 1000),
+        text
+      });
+    }
+  }
+
+  // 2. Fallback to classic format: <text start="s" dur="s">text</text>
+  if (segments.length === 0) {
+    const textRegex = /<text\s+start="([\d.]+)"(?:\s+dur="([\d.]+)")?[^>]*>([\s\S]*?)<\/text>/g;
+    let tMatch;
+    while ((tMatch = textRegex.exec(xml)) !== null) {
+      const startSec = Math.floor(parseFloat(tMatch[1] || '0'));
+      const durSec = Math.floor(parseFloat(tMatch[2] || '0'));
+      const text = decodeHtmlEntities(tMatch[3] || '').trim();
+      if (text) {
+        segments.push({
+          timestamp: formatSecondsToTimestamp(startSec),
+          offsetSeconds: startSec,
+          durationSeconds: durSec,
+          text
+        });
+      }
+    }
+  }
+
+  return segments;
+}
+
+/**
+ * TIER 1: YouTube Innertube Android Client API
+ * Bypasses Vercel/Datacenter IP blocks and retrieves caption tracks (bn, a.bn, etc.)
+ */
+async function fetchViaInnertubeAndroid(youtubeId) {
+  try {
+    const INNERTUBE_API_URL = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
+    const INNERTUBE_CLIENT_VERSION = '20.10.38';
+    const INNERTUBE_CONTEXT = {
+      client: {
+        clientName: 'ANDROID',
+        clientVersion: INNERTUBE_CLIENT_VERSION,
+        hl: 'bn',
+        gl: 'BD'
+      }
+    };
+    const INNERTUBE_USER_AGENT = `com.google.android.youtube/${INNERTUBE_CLIENT_VERSION} (Linux; U; Android 14)`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7500);
+
+    const resp = await fetch(INNERTUBE_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': INNERTUBE_USER_AGENT
+      },
+      body: JSON.stringify({
+        context: INNERTUBE_CONTEXT,
+        videoId: youtubeId
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!Array.isArray(captionTracks) || captionTracks.length === 0) return null;
+
+    // Prioritize Bengali track (uploaded or auto-generated), then any track
+    const track = captionTracks.find(t => t.languageCode === 'bn' || t.languageCode?.startsWith('bn') || t.vssId?.includes('.bn')) || captionTracks[0];
+    if (!track || !track.baseUrl) return null;
+
+    const trController = new AbortController();
+    const trTimer = setTimeout(() => trController.abort(), 6500);
+    const trRes = await fetch(track.baseUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)'
+      },
+      signal: trController.signal
+    });
+    clearTimeout(trTimer);
+
+    if (!trRes.ok) return null;
+    const xml = await trRes.text();
+    const segments = parseTranscriptXml(xml, track.languageCode || 'bn');
+    if (segments.length === 0) return null;
+
+    return {
+      tier: 'tier1_innertube_android',
+      language: track.languageCode || 'bn',
+      segments
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * TIER 2: Web Watch Page HTML Scraper + TimedText XML
+ * Extracts captionTracks directly from ytInitialPlayerResponse inline script
+ */
+async function fetchViaWebWatchPage(youtubeId) {
+  try {
+    const watchUrl = `https://www.youtube.com/watch?v=${youtubeId}&hl=bn`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7500);
+
+    const res = await fetch(watchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Accept-Language': 'bn,en-US;q=0.9,en;q=0.8'
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) return null;
+    const html = await res.text();
+    const match = html.match(/"captionTracks":\s*(\[.+?\])/);
+    if (!match) return null;
+
+    let tracks = [];
+    try {
+      tracks = JSON.parse(match[1]);
+    } catch (e) {
+      return null;
+    }
+
+    if (!Array.isArray(tracks) || tracks.length === 0) return null;
+    const track = tracks.find(t => t.languageCode === 'bn' || t.languageCode?.startsWith('bn') || t.vssId?.includes('.bn')) || tracks[0];
+    if (!track || !track.baseUrl) return null;
+
+    const trController = new AbortController();
+    const trTimer = setTimeout(() => trController.abort(), 6500);
+    const trRes = await fetch(track.baseUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)',
+        'Referer': watchUrl
+      },
+      signal: trController.signal
+    });
+    clearTimeout(trTimer);
+
+    if (!trRes.ok) return null;
+    const xml = await trRes.text();
+    const segments = parseTranscriptXml(xml, track.languageCode || 'bn');
+    if (segments.length === 0) return null;
+
+    return {
+      tier: 'tier2_web_watch_page',
+      language: track.languageCode || 'bn',
+      segments
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * TIER 3: YouTube Transcript Library / Fallback Proxy
+ */
+async function fetchViaFallbackChain(youtubeId) {
+  try {
+    const rawLines = await YoutubeTranscript.fetchTranscript(youtubeId, { lang: 'bn' }).catch(() =>
+      YoutubeTranscript.fetchTranscript(youtubeId).catch(() => null)
+    );
+
+    if (rawLines && Array.isArray(rawLines) && rawLines.length > 0) {
+      const segments = rawLines.map(line => {
+        const text = decodeHtmlEntities(line.text);
+        const offsetSec = Math.floor(line.offset || 0);
+        return {
+          timestamp: formatSecondsToTimestamp(offsetSec),
+          offsetSeconds: offsetSec,
+          durationSeconds: Math.floor(line.duration || 0),
+          text
+        };
+      }).filter(s => !!s.text);
+
+      if (segments.length > 0) {
+        return {
+          tier: 'tier3_library_fallback',
+          language: rawLines[0].lang || 'bn',
+          segments
+        };
+      }
+    }
+  } catch (err) {
+    // Non-fatal, return null
+  }
+  return null;
+}
+
+/**
+ * Permanent Multi-Tier Subtitle Extraction Pipeline with Strict Quality Gate
+ * - Tier 1: YouTube Innertube Android Client API (Bypasses Vercel Cloud IP blocks)
+ * - Tier 2: Web Watch Page HTML Scraper + TimedText XML
+ * - Tier 3: YoutubeTranscript Library / Fallback Chain
+ * - Quality Gate: >= 50 words required (rejects bogus titles/descriptions)
  */
 async function fetchYoutubeTranscript(videoIdOrUrl) {
   const youtubeId = extractYoutubeId(videoIdOrUrl);
@@ -193,146 +412,58 @@ async function fetchYoutubeTranscript(videoIdOrUrl) {
     };
   }
 
-  let rawLines = null;
-  let detectedLang = 'en';
-  let recordedError = null;
-
-  // Attempt 1: Fetch primary caption track (auto-detects language)
-  try {
-    rawLines = await YoutubeTranscript.fetchTranscript(youtubeId);
-    if (rawLines && rawLines.length > 0 && rawLines[0].lang) {
-      detectedLang = rawLines[0].lang;
-    }
-  } catch (err) {
-    recordedError = err;
+  // Execute Multi-Tier Pipeline in Sequence
+  let result = await fetchViaInnertubeAndroid(youtubeId);
+  if (!result) {
+    result = await fetchViaWebWatchPage(youtubeId);
+  }
+  if (!result) {
+    result = await fetchViaFallbackChain(youtubeId);
   }
 
-  // Attempt 2: Explicit Bengali track preference if primary failed
-  if (!rawLines || rawLines.length === 0) {
-    try {
-      rawLines = await YoutubeTranscript.fetchTranscript(youtubeId, { lang: 'bn' });
-      detectedLang = 'bn';
-    } catch (err) {
-      if (!recordedError) recordedError = err;
-    }
-  }
-
-  // Attempt 3: English fallback if Bengali failed
-  if (!rawLines || rawLines.length === 0) {
-    try {
-      rawLines = await YoutubeTranscript.fetchTranscript(youtubeId, { lang: 'en' });
-      detectedLang = 'en';
-    } catch (err) {
-      if (!recordedError) recordedError = err;
-    }
-  }
-
-  // If captions could not be retrieved, categorize the error accurately
-  if (!rawLines || rawLines.length === 0) {
-    const errMsg = recordedError ? String(recordedError.message || recordedError) : '';
-    const errName = recordedError ? String(recordedError.name || recordedError.constructor?.name || '') : '';
-
-    if (errName.includes('TooManyRequest') || errMsg.includes('TooManyRequest') || errMsg.includes('captcha') || errMsg.includes('429')) {
-      return {
-        ok: false,
-        status: 'rate_limited',
-        retryable: true,
-        youtubeId,
-        message: 'ইউটিউব অতিরিক্ত রিকোয়েস্টের কারণে সাময়িকভাবে রেট লিমিট করেছে।'
-      };
-    }
-
-    if (errName.includes('VideoUnavailable') || errMsg.includes('no longer available') || errMsg.includes('private')) {
-      return {
-        ok: false,
-        status: 'private_or_restricted',
-        retryable: false,
-        youtubeId,
-        message: 'ভিডিওটি প্রাইভেট, ব্লকড অথবা ইউটিউবে আর উপলব্ধ নেই।'
-      };
-    }
-
-    if (errName.includes('Disabled') || errMsg.includes('Transcript is disabled')) {
-      return {
-        ok: false,
-        status: 'no_captions',
-        retryable: false,
-        youtubeId,
-        message: 'এই ভিডিওটিতে ক্রিয়েটর কর্তৃক সাবটাইটেল নিষ্ক্রিয় করা রয়েছে।'
-      };
-    }
-
-    if (errName.includes('NotAvailableLanguage') || errMsg.includes('Available languages:')) {
-      return {
-        ok: false,
-        status: 'unsupported_language',
-        retryable: false,
-        youtubeId,
-        message: 'নির্দিষ্ট ভাষায় কোনো সাবটাইটেল পাওয়া যায়নি।'
-      };
-    }
-
-    if (errMsg.includes('fetch failed') || errMsg.includes('ETIMEDOUT') || errMsg.includes('ECONNRESET') || errMsg.includes('ENOTFOUND') || errMsg.includes('network')) {
-      return {
-        ok: false,
-        status: 'network_error',
-        retryable: true,
-        youtubeId,
-        message: 'ইউটিউব সার্ভারের সাথে সংযোগে সাময়িক নেটওয়ার্ক ত্রুটি হয়েছে।'
-      };
-    }
-
-    if (errMsg.includes('Impossible to retrieve') || errMsg.includes('invalid')) {
-      return {
-        ok: false,
-        status: 'invalid_id',
-        retryable: false,
-        youtubeId,
-        message: 'অবৈধ ইউটিউব ভিডিও আইডি।'
-      };
-    }
-
-    // Default: captions truly not available on video
+  // Handle No Captions or Extraction Failure
+  if (!result || !result.segments || result.segments.length === 0) {
     return {
       ok: false,
       status: 'no_captions',
       retryable: false,
       youtubeId,
-      message: 'এই ভিডিওর জন্য ইউটিউবে কোনো ক্যাপশন বা সাবটাইটেল ট্র্যাক পাওয়া যায়নি।'
+      message: 'এই ভিডিওটির জন্য ইউটিউবে কোনো বাংলা বা ইংরেজি সাবটাইটেল ট্র্যাক পাওয়া যায়নি।'
     };
   }
 
-  // Parse clean lines with segment preservation
-  const segments = [];
-  const cleanedTextParts = [];
+  const cleanedParts = result.segments.map(s => `[${s.timestamp}] ${s.text}`);
+  const fullText = cleanedParts.join('\n');
+  const pureText = result.segments.map(s => s.text).join(' ');
+  const wordCount = pureText.split(/\s+/).filter(Boolean).length;
+  const isBangla = /[\u0980-\u09FF]/.test(pureText);
 
-  for (const line of rawLines) {
-    const text = decodeHtmlEntities(line.text);
-    if (!text) continue;
-    const offsetSec = Math.floor(line.offset || 0);
-    const ts = formatSecondsToTimestamp(offsetSec);
-    segments.push({
-      timestamp: ts,
-      offsetSeconds: offsetSec,
-      text
-    });
-    cleanedTextParts.push(`[${ts}] ${text}`);
+  // STRICT QUALITY GATE: Subtitle text MUST have >= 50 words to be considered complete
+  // Prevents saving video title or description as fake subtitles
+  if (wordCount < 50) {
+    return {
+      ok: false,
+      status: 'incomplete',
+      retryable: true,
+      youtubeId,
+      wordCount,
+      tier: result.tier,
+      message: `সাবটাইটেল অসম্পূর্ণ (মাত্র ${wordCount}টি শব্দ, নূন্যতম ৫০ শব্দ প্রয়োজন)। অটো-রিট্রাই জবের জন্য অপেক্ষমাণ রাখা হলো।`
+    };
   }
-
-  const fullText = cleanedTextParts.join('\n');
-  const wordCount = fullText.split(/\s+/).filter(Boolean).length;
-  const isBangla = /[\u0980-\u09FF]/.test(fullText);
 
   return {
     ok: true,
     status: 'ready',
     youtubeId,
     transcript: fullText,
-    segments,
-    lineCount: segments.length,
+    pureText,
+    segments: result.segments,
+    lineCount: result.segments.length,
     wordCount,
-    language: isBangla ? 'bn' : (detectedLang || 'en'),
+    language: isBangla ? 'bn' : (result.language || 'en'),
     source: 'youtube_caption',
+    tier: result.tier,
     updatedAt: new Date()
   };
 }
