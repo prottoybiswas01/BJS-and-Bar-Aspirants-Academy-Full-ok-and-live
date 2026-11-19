@@ -93,121 +93,8 @@ async function dispatchNewLessonNotifications({
     });
   }
 
-  // 4. Send Confirmation Email to Academy Admin (if configured)
-  let adminNotified = false;
-  if (adminEmail && typeof sendEmailFn === 'function') {
-    const cleanAdminEmail = String(adminEmail).trim().toLowerCase();
-    if (cleanAdminEmail.includes('@')) {
-      const adminEventId = `pub-admin-${lessonId}`;
-      let adminAlreadySent = false;
-      if (isMongoConnected && NotificationLogModel) {
-        try {
-          const existingAdminLog = await NotificationLogModel.findOne({ lessonId, recipientEmail: cleanAdminEmail });
-          if (existingAdminLog && existingAdminLog.status === 'sent') {
-            adminAlreadySent = true;
-          }
-        } catch (e) {}
-      } else if (memoryDb) {
-        memoryDb.notificationLogs = memoryDb.notificationLogs || [];
-        const memLog = memoryDb.notificationLogs.find(l => l.lessonId === lessonId && l.recipientEmail === cleanAdminEmail);
-        if (memLog && memLog.status === 'sent') adminAlreadySent = true;
-      }
-
-      if (!adminAlreadySent) {
-        const adminSubject = `🎥 [ভিডিও আপলোড কনফার্মেশন] ${courseTitle}: "${lesson.title}" সফলভাবে আপলোড হয়েছে!`;
-        const adminHtml = `
-          <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #0b1325; color: #f8fafc; border-radius: 16px; overflow: hidden; border: 1px solid #1e293b; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
-            <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 24px; text-align: center; color: #ffffff;">
-              <div style="font-size: 34px; margin-bottom: 4px;">✅</div>
-              <h1 style="margin: 0; font-size: 20px; font-weight: 900; letter-spacing: 0.5px;">
-                BJS & BAR ASPIRANTS ACADEMY
-              </h1>
-              <p style="margin: 4px 0 0 0; font-size: 13px; font-weight: 700; opacity: 0.95;">
-                অ্যাডমিন নোটিশ: নতুন ক্লাস ভিডিও সফলভাবে আপলোড হয়েছে
-              </p>
-            </div>
-            <div style="padding: 24px; line-height: 1.6;">
-              <p style="font-size: 15px; font-weight: 700; color: #34d399; margin-top: 0;">
-                সম্মানিত অ্যাডমিন,
-              </p>
-              <p style="font-size: 13px; color: #cbd5e1; margin-bottom: 20px;">
-                আপনার অ্যাকাডেমির <strong>"${courseTitle}"</strong> কোর্সে একটি নতুন লেকচার ভিডিও সফলভাবে আপলোড ও প্রকাশিত হয়েছে।
-              </p>
-              <div style="background-color: #1e293b; border-radius: 12px; padding: 18px; border-left: 4px solid #10b981; margin-bottom: 24px;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                  <tr>
-                    <td style="padding: 6px 0; color: #94a3b8; font-weight: 600; width: 130px;">📚 কোর্স:</td>
-                    <td style="padding: 6px 0; color: #fbbf24; font-weight: 700;">${courseTitle}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">📖 ক্লাস শিরোনাম:</td>
-                    <td style="padding: 6px 0; color: #ffffff; font-weight: 600;">${lesson.title}</td>
-                  </tr>
-                  ${lesson.chapter ? `
-                  <tr>
-                    <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">📑 অধ্যায় / সেশন:</td>
-                    <td style="padding: 6px 0; color: #e2e8f0;">${lesson.chapter}</td>
-                  </tr>` : ''}
-                  <tr>
-                    <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">🔢 ক্লাস ক্রমিক #:</td>
-                    <td style="padding: 6px 0; color: #e2e8f0; font-family: monospace; font-weight: 700;">${lesson.order || 'N/A'}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">📅 প্রকাশের তারিখ:</td>
-                    <td style="padding: 6px 0; color: #93c5fd;">${lesson.releaseDate || new Date().toISOString().split('T')[0]}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">👥 নোটিফাইড শিক্ষার্থী:</td>
-                    <td style="padding: 6px 0; color: #34d399; font-weight: 700;">${eligibleStudents.length} জন শিক্ষার্থী</td>
-                  </tr>
-                </table>
-              </div>
-              <div style="text-align: center; margin: 30px 0 10px 0;">
-                <a href="https://bjs.kodl.uk/dashboard" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff; font-weight: 800; font-size: 14px; text-decoration: none; padding: 14px 32px; border-radius: 10px; display: inline-block; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
-                  ▶️ ড্যাশবোর্ডে গিয়ে ক্লাসটি দেখুন
-                </a>
-              </div>
-            </div>
-            <div style="background-color: #050b14; padding: 16px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #1e293b;">
-              &copy; ${new Date().getFullYear()} BJS & Bar Aspirants Academy. All rights reserved.
-            </div>
-          </div>
-        `;
-
-        try {
-          const adminRes = await sendEmailFn(cleanAdminEmail, adminSubject, adminHtml);
-          if (adminRes && adminRes.ok) {
-            adminNotified = true;
-            if (isMongoConnected && NotificationLogModel) {
-              await NotificationLogModel.create({
-                eventId: adminEventId,
-                lessonId,
-                courseId,
-                recipientEmail: cleanAdminEmail,
-                recipientName: 'Admin',
-                status: 'sent',
-                sentAt: new Date(),
-                attemptCount: 1
-              }).catch(() => {});
-            } else if (memoryDb) {
-              memoryDb.notificationLogs = memoryDb.notificationLogs || [];
-              memoryDb.notificationLogs.push({
-                eventId: adminEventId,
-                lessonId,
-                courseId,
-                recipientEmail: cleanAdminEmail,
-                status: 'sent',
-                sentAt: new Date()
-              });
-            }
-            console.log(`✓ [Video Notification] Admin upload confirmation delivered to ${cleanAdminEmail}`);
-          }
-        } catch (e) {
-          console.warn(`[Video Notification] Admin notification notice for ${cleanAdminEmail}:`, e.message);
-        }
-      }
-    }
-  }
+  // 4. Admin upload confirmation email is explicitly removed per request to preserve Resend quota
+  const adminNotified = false;
 
   if (eligibleStudents.length === 0) {
     console.log(`[Video Notification] No eligible enrolled students found for course "${courseTitle}" (${courseId}).`);
@@ -220,7 +107,7 @@ async function dispatchNewLessonNotifications({
 
   for (const student of eligibleStudents) {
     const email = (student.email || '').trim().toLowerCase();
-    if (!email || !email.includes('@')) continue;
+    if (!email || !email.includes('@') || email === 'admin@bjs.com' || email.endsWith('@bjs.com') || email.endsWith('@bjs.test')) continue;
 
     // Check Outbox record in MongoDB to guarantee idempotency across concurrent/retry attempts
     let alreadySent = false;

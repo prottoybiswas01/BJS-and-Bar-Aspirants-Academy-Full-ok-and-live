@@ -1544,7 +1544,21 @@ async function sendResendEmail({ from, to, subject, html, attachments, isExempt,
 
   const resendClient = getResendClient();
   const sender = (from && from.includes("bjs.kodl.uk")) ? from : OFFICIAL_RESEND_SENDER;
-  const recipientArray = Array.isArray(to) ? to : [String(to).trim()];
+  const rawArray = Array.isArray(to) ? to : [String(to).trim()];
+  const recipientArray = rawArray.filter(email => {
+    if (!email) return false;
+    const lower = String(email).trim().toLowerCase();
+    // Strictly filter out dummy/blacklisted emails like admin@bjs.com or *.bjs.com to never waste user email quota
+    if (lower === 'admin@bjs.com' || lower.endsWith('@bjs.com') || lower.endsWith('@bjs.test')) {
+      console.log(`🛡️ [Quota Protection] Blocked dummy email dispatch to: ${lower}`);
+      return false;
+    }
+    return true;
+  });
+
+  if (recipientArray.length === 0) {
+    return { ok: true, skipped: true, message: "Recipient is blacklisted dummy address (admin@bjs.com). Dispatch skipped." };
+  }
 
   // 1. Primary Dispatch via Official Resend SDK (Using Verified Domain bjs.kodl.uk)
   try {
@@ -4687,7 +4701,6 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
           await Lesson.updateOne({ id: lessonId }, { notifiedAt: new Date() });
         }
         const canonicalCourse = await resolveCourseByIdOrAlias(saved.courseId);
-        const targetAdminEmail = (memoryDb?.mailSettings?.fallbackEmail || process.env.EMAIL_USER || "bjsacademy38@gmail.com").trim();
 
         dispatchNewLessonNotifications({
           lesson: saved,
@@ -4696,8 +4709,7 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
           StudentModel: Student,
           isMongoConnected,
           memoryDb,
-          sendEmailFn: sendVideoNotificationEmail,
-          adminEmail: targetAdminEmail
+          sendEmailFn: sendVideoNotificationEmail
         }).catch(err => {
           console.warn("[Video Notification] Dispatch notice:", err.message);
         });
