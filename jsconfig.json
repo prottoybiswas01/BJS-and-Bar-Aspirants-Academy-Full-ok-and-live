@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "skipLibCheck": true,
+    "checkJs": false,
+    "types": ["node"]
+  },
+  "exclude": [
+    "node_modules",
+    "client",
+    "dist",
+    ".vercel"
+  ]
+}
