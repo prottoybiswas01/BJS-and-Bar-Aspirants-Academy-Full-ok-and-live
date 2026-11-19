@@ -154,6 +154,10 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       order: resolvedOrder,
     });
     setMsg(null);
+
+    setTimeout(() => {
+      document.getElementById('lesson-edit-form-heading')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 50);
   };
 
   const handleDeleteLesson = async (id, title) => {
@@ -386,9 +390,6 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
   return createPortal(
     <div
       className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-fadeIn"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !subtitleModal.isOpen) onClose();
-      }}
     >
       <div className="relative w-full max-w-5xl max-h-[92vh] rounded-2xl bg-slate-900 border border-slate-800 p-6 shadow-2xl flex flex-col overflow-hidden text-xs">
         {/* Modal Header */}
@@ -415,7 +416,14 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
               <span>{syncingSubtitles ? '⏳' : '🔄'}</span>
               <span>{syncingSubtitles ? 'সিঙ্ক হচ্ছে...' : 'সাবটাইটেল অটো-সিঙ্ক (Batch Sync)'}</span>
             </button>
-            <button onClick={onClose} className="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold text-sm">✕</button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold text-sm cursor-pointer hover:bg-slate-700 transition-colors"
+              title="ভিডিও ম্যানেজার বন্ধ করুন (Close)"
+            >
+              ✕
+            </button>
           </div>
         </div>
 
@@ -431,13 +439,13 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 overflow-y-auto pr-1">
           {/* Add / Edit Form */}
           <form onSubmit={handleSave} className="lg:col-span-5 space-y-3 bg-slate-950 p-4 rounded-xl border border-slate-800 self-start">
-            <h4 className="font-bold text-white border-b border-slate-800/80 pb-2 text-sm flex items-center justify-between">
+            <h4 id="lesson-edit-form-heading" className="font-bold text-white border-b border-slate-800/80 pb-2 text-sm flex items-center justify-between">
               <span>{form.id ? '✏️ Edit Video Details' : '➕ Upload New Class Video'}</span>
               {form.id && (
                 <button
                   type="button"
                   onClick={() => setForm(getDefaultForm(lessons))}
-                  className="text-[10px] text-amber-400 underline font-normal"
+                  className="text-[10px] text-amber-400 underline font-normal cursor-pointer"
                 >
                   Cancel Edit
                 </button>
@@ -652,29 +660,45 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                           <button
                             type="button"
                             disabled={quickSyncingId === (l.id || l._id)}
-                            onClick={() => handleQuickSyncSubtitle(l)}
-                            className="px-2 py-1 rounded bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/40 font-bold transition-all text-[10px] disabled:opacity-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleQuickSyncSubtitle(l);
+                            }}
+                            className="px-2 py-1 rounded bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/40 font-bold transition-all text-[10px] disabled:opacity-50 cursor-pointer"
                             title="ইউটিউব থেকে সরাসরি সাবটাইটেল সিঙ্ক করুন"
                           >
                             {quickSyncingId === (l.id || l._id) ? '...' : '🔄 সিঙ্ক'}
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleOpenSubtitleModal(l)}
-                            className="px-2 py-1 rounded bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/30 font-bold transition-all text-[10px]"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenSubtitleModal(l);
+                            }}
+                            className="px-2 py-1 rounded bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/30 font-bold transition-all text-[10px] cursor-pointer"
                             title="এই ভিডিওর সাবটাইটেল দেখুন বা এডিট করুন"
                           >
                             📝 সাবটাইটেল
                           </button>
                           <button
-                            onClick={() => handleEditLesson(l)}
-                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold transition-all"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditLesson(l);
+                            }}
+                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold transition-all cursor-pointer"
+                            title="এই ভিডিও এডিট করুন"
                           >
                             Edit
                           </button>
                           <button
-                            onClick={() => handleDeleteLesson(l.id, l.title)}
-                            className="px-2 py-1 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold transition-all border border-rose-500/30"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteLesson(l.id, l.title);
+                            }}
+                            className="px-2 py-1 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold transition-all border border-rose-500/30 cursor-pointer"
+                            title="ভিডিও ডিলিট করুন"
                           >
                             Delete
                           </button>

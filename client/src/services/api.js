@@ -33,7 +33,14 @@ api.interceptors.response.use(
 
     if (error.response && (error.response.status === 401 || error.response.data?.deleted)) {
       const storedUser = localStorage.getItem('bjs_user');
+      let isAdminUser = false;
       if (storedUser) {
+        try {
+          const parsed = JSON.parse(storedUser);
+          if (parsed && (parsed.isAdmin || parsed.role === 'admin')) isAdminUser = true;
+        } catch (e) {}
+      }
+      if (!isAdminUser) {
         localStorage.removeItem('bjs_token');
         localStorage.removeItem('bjs_user');
         window.location.href = '/';

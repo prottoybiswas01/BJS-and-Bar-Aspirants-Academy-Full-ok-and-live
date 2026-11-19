@@ -117,9 +117,6 @@ function resolveRoute(user) {
     return 'dashboard';
   }
   if (path === '/' || path === '/home' || hash === '#home' || hash === '#/home' || hash === '') {
-    if (isStudentLoggedIn && (hash === '' || path === '/')) {
-      return 'dashboard';
-    }
     return 'home';
   }
 
