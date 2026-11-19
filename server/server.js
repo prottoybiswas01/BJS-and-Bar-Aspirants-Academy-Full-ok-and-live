@@ -259,6 +259,9 @@ const fastCache = {
       }
     }
   },
+  flushAll() {
+    this._store.clear();
+  },
   clear() {
     this._store.clear();
   }
@@ -3892,13 +3895,23 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
 
     if (existing) {
       if (existing.id) oldIdSet.add(existing.id);
+      if (existing._id) oldIdSet.add(String(existing._id));
       if (Array.isArray(existing.legacyIds)) existing.legacyIds.forEach(lid => oldIdSet.add(lid));
-      if (existing.title) oldTitleSet.add(existing.title);
-      if (existing.shortTitle) oldTitleSet.add(existing.shortTitle);
+      if (existing.title) {
+        oldIdSet.add(existing.title);
+        oldTitleSet.add(existing.title);
+      }
+      if (existing.shortTitle) {
+        oldIdSet.add(existing.shortTitle);
+        oldTitleSet.add(existing.shortTitle);
+      }
       if (existing.batchRegText) oldTitleSet.add(existing.batchRegText);
     }
     if (oldId) oldIdSet.add(oldId);
-    if (oldTitle) oldTitleSet.add(oldTitle);
+    if (oldTitle) {
+      oldIdSet.add(oldTitle);
+      oldTitleSet.add(oldTitle);
+    }
 
     const oldIdList = Array.from(oldIdSet).filter(Boolean);
     const oldTitleList = Array.from(oldTitleSet).filter(Boolean);
@@ -3955,11 +3968,33 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
 
       // Universal Course Synchronization across all collections
       if (idChanged || titleChanged) {
-        // 1. Lessons: Update courseId
-        if (idChanged) {
+        // 1. Lessons: Update courseId AND module across all old aliases and titles
+        await Lesson.updateMany(
+          {
+            $or: [
+              { courseId: { $in: oldIdList } },
+              { courseId: { $in: oldTitleList } }
+            ]
+          },
+          {
+            $set: {
+              courseId: newCourseId,
+              ...(titleChanged ? { module: newCourseTitle } : {})
+            }
+          },
+          session ? { session } : undefined
+        );
+
+        if (titleChanged) {
           await Lesson.updateMany(
-            { courseId: { $in: oldIdList } },
-            { $set: { courseId: newCourseId } },
+            {
+              $or: [
+                { courseId: newCourseId },
+                { courseId: { $in: oldIdList } }
+              ],
+              module: { $in: oldTitleList }
+            },
+            { $set: { module: newCourseTitle } },
             session ? { session } : undefined
           );
         }
@@ -4370,8 +4405,11 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       }
     }
 
-    if (!existing) {
+    const isExplicitEdit = Boolean(body.id || body._id || body.isEdit);
+    if (!existing && !isExplicitEdit && !incomingId) {
       isNewLesson = true;
+    } else {
+      isNewLesson = false;
     }
 
     const lessonId = existing ? existing.id : (incomingId || (`les-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`));
@@ -4537,8 +4575,8 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       }
     }
 
-    // CRITICAL: Send email notification ONLY for genuinely NEW published videos (never on edit or draft) (Phase 2)
-    if (isNewLesson && !saved.isDraft && saved.status !== 'draft') {
+    // CRITICAL: Send email notification ONLY for genuinely NEW published videos (never on edit or update or draft)
+    if (isNewLesson && !isExplicitEdit && !existing && !saved.isDraft && saved.status !== 'draft') {
       if (!saved.notifiedAt) {
         saved.notifiedAt = new Date();
         if (isMongoConnected) {
@@ -4561,7 +4599,7 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
         });
       }
     } else {
-      console.log(`[Video Manager] Lesson "${saved.title}" (${saved.id}) updated. No notification email sent.`);
+      console.log(`[Video Manager] Lesson "${saved.title}" (${saved.id}) updated / edited. No notification email sent.`);
     }
 
     // Instant cache invalidation

@@ -129,7 +129,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       : (inferredOrder > 0 && inferredOrder < 999999 ? String(inferredOrder) : '');
 
     setForm({
-      id: l.id,
+      id: l.id || (l._id ? String(l._id) : ''),
       module: l.module || course?.title || '',
       chapter: l.chapter || '',
       title: l.title || '',
@@ -177,13 +177,15 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
     }
 
     const finalTitle = form.title.trim() || form.chapter.trim() || form.module.trim() || 'Class Video';
+    const isEdit = Boolean(form.id);
 
     setIsSaving(true);
-    setMsg({ type: 'success', text: '⏳ ভিডিও আপলোড ও সেভ হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...' });
+    setMsg({ type: 'success', text: isEdit ? '⏳ ভিডিও আপডেট হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...' : '⏳ ভিডিও আপলোড ও সেভ হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...' });
 
     try {
       const res = await api.post('/admin/lessons/save', {
         ...form,
+        isEdit,
         order: form.order !== '' && !isNaN(Number(form.order)) ? Number(form.order) : 0,
         title: finalTitle,
         courseId: targetCourseId,
