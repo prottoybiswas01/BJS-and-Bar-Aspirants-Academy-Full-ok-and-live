@@ -384,8 +384,8 @@ function MainApp() {
     };
   }, []);
 
-  const openVideoModal = (lesson) => {
-    setVideoModal({ isOpen: true, lesson });
+  const openVideoModal = (lesson, clipOptions = null) => {
+    setVideoModal({ isOpen: true, lesson, clipOptions });
   };
 
   const openLessonManager = (course) => {
@@ -444,7 +444,14 @@ function MainApp() {
           videoId={videoModal.lesson?.youtubeId}
           title={videoModal.lesson?.title}
           student={user}
-          onClose={() => setVideoModal({ isOpen: false, lesson: null })}
+          clipOptions={videoModal.clipOptions}
+          courseTitle={videoModal.clipOptions?.courseTitle || videoModal.lesson?.courseTitle || videoModal.lesson?.module}
+          courseId={videoModal.clipOptions?.courseId || videoModal.lesson?.courseId}
+          onClose={() => setVideoModal({ isOpen: false, lesson: null, clipOptions: null })}
+          onEnrollClick={(cId) => {
+            setVideoModal({ isOpen: false, lesson: null, clipOptions: null });
+            navigatePage('dashboard');
+          }}
         />
       )}
 

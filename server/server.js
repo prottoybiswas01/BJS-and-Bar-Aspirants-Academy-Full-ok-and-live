@@ -189,7 +189,7 @@ const NotificationLog = require("./models/NotificationLog");
 const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId } = require("./services/transcriptService");
 const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
 const { dispatchNewLessonNotifications } = require("./services/videoNotificationService");
-const { processLegalAiQuery } = require("./services/legalAiService");
+const { processLegalAiQuery, resolveOptimalGeminiModel } = require("./services/legalAiService");
 const {
   syncSingleLessonSubtitle,
   syncPendingSubtitlesBatch,
@@ -4979,7 +4979,7 @@ app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
 });
 
 // GET & POST Single Lesson Transcript (Admin Inspector & Editor)
-app.get("/api/admin/lessons/:id/transcript", async (req, res) => {
+app.get(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"], async (req, res) => {
   try {
     const { id } = req.params;
     let lsn = null;
@@ -5015,10 +5015,10 @@ app.get("/api/admin/lessons/:id/transcript", async (req, res) => {
   }
 });
 
-app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
+app.post(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"], async (req, res) => {
   try {
     const { id } = req.params;
-    const { transcript, action, isSrtOrVtt } = req.body; // 'save' or 'refetch'
+    const { transcript, action, isSrtOrVtt } = req.body || {}; // 'save' or 'refetch'
 
     let lsn = null;
     if (isMongoConnected) {
@@ -5033,6 +5033,13 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
 
     if (action === 'refetch') {
       const yId = lsn.youtubeId || extractYoutubeId(lsn.youtubeUrl);
+      if (!yId) {
+        return res.json({
+          ok: false,
+          status: 'invalid_id',
+          message: 'এই ক্লাসে কোনো বৈধ ইউটিউব লিঙ্ক বা ভিডিও আইডি যুক্ত নেই। অনুগ্রহ করে এডিট করে ইউটিউব লিঙ্ক দিন অথবা "📋 ম্যানুয়াল পেস্ট" বাটন দিয়ে সরাসরি সাবটাইটেল সেভ করুন।'
+        });
+      }
       const trRes = await fetchYoutubeTranscript(yId);
       if (trRes && trRes.ok && trRes.transcript && trRes.wordCount >= 50) {
         lsn.hasSubtitles = true;
@@ -5079,56 +5086,44 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
         return res.json({
           ok: false,
           status: finalStatus,
-          message: trRes?.message || "ইউটিউব ক্যাপশন এখনও তৈরি হয়নি বা অসম্পূর্ণ রয়েছে।"
+          message: trRes?.message || "ইউটিউব ক্যাপশন এখনও তৈরি হয়নি। আপনি চাইলে '📋 ম্যানুয়াল পেস্ট' দিয়ে সরাসরি সাবটাইটেল যুক্ত করতে পারেন।"
         });
       }
     } else {
-      // Manual Save/Edit by Admin (supports SRT / VTT auto-parsing) (Phase 9)
+      // Manual Save/Edit by Admin (supports SRT / VTT auto-parsing & YouTube Studio format)
       let cleanText = transcript || "";
-      let segments = [];
-      let parsedWordCount = 0;
-      let lang = 'bn';
-      let src = 'manual_text';
+      const parsed = parseSrtOrVtt(cleanText);
+      const segments = parsed.ok ? (parsed.segments || []) : [];
+      const parsedWordCount = parsed.ok ? parsed.wordCount : cleanText.split(/\s+/).filter(Boolean).length;
+      const lang = parsed.ok ? parsed.language : (/[\u0980-\u09FF]/.test(cleanText) ? 'bn' : 'en');
+      const finalTranscript = (parsed.ok && parsed.transcript) ? parsed.transcript : cleanText;
+      const isManualValid = parsedWordCount >= 5 || cleanText.trim().length >= 10;
 
-      if (cleanText.includes('-->') || isSrtOrVtt) {
-        const parsed = parseSrtOrVtt(cleanText);
-        if (parsed.ok && parsed.transcript) {
-          cleanText = parsed.transcript;
-          segments = parsed.segments || [];
-          parsedWordCount = parsed.wordCount || 0;
-          lang = parsed.language || 'bn';
-          src = 'srt_vtt_upload';
-        }
-      } else {
-        parsedWordCount = cleanText.split(/\s+/).filter(Boolean).length;
-        lang = /[\u0980-\u09FF]/.test(cleanText) ? 'bn' : 'en';
-      }
-
-      lsn.hasSubtitles = cleanText.length > 20;
-      lsn.transcript = cleanText;
+      lsn.hasSubtitles = isManualValid;
+      lsn.transcript = finalTranscript;
       lsn.transcriptSegments = segments;
       lsn.transcriptWordCount = parsedWordCount;
       lsn.transcriptLanguage = lang;
-      lsn.transcriptSource = src;
-      lsn.transcriptStatus = cleanText.length > 10 ? 'manual' : 'none';
+      lsn.transcriptSource = 'manual_paste';
+      lsn.transcriptStatus = isManualValid ? 'manual' : 'none';
       lsn.transcriptUpdatedAt = new Date();
       lsn.transcriptLastError = '';
       if (isMongoConnected) await lsn.save();
       const mem = (memoryDb.lessons || []).find(l => l.id === lsn.id);
       if (mem) {
-        mem.hasSubtitles = cleanText.length > 20;
-        mem.transcript = cleanText;
+        mem.hasSubtitles = isManualValid;
+        mem.transcript = finalTranscript;
         mem.transcriptSegments = segments;
         mem.transcriptWordCount = parsedWordCount;
         mem.transcriptLanguage = lang;
-        mem.transcriptSource = src;
-        mem.transcriptStatus = cleanText.length > 10 ? 'manual' : 'none';
+        mem.transcriptSource = 'manual_paste';
+        mem.transcriptStatus = isManualValid ? 'manual' : 'none';
         mem.transcriptUpdatedAt = new Date();
       }
       fastCache.del("lessons");
       return res.json({
         ok: true,
-        message: "✓ সাবটাইটেল সফলভাবে সংরক্ষণ করা হয়েছে!",
+        message: `✓ সাবটাইটেল সফলভাবে ম্যানুয়ালি সংরক্ষণ করা হয়েছে! (${parsedWordCount} শব্দ)`,
         transcript: lsn.transcript,
         transcriptStatus: lsn.transcriptStatus,
         wordCount: lsn.transcriptWordCount
@@ -5721,6 +5716,28 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
   } catch (err) {
     console.error("Student dashboard-data error:", err);
     return res.status(500).json({ ok: false, message: "ড্যাশবোর্ড ডেটা লোড করতে সমস্যা হয়েছে: " + err.message });
+  }
+});
+
+// AI Service Health and Diagnostic Status
+app.get("/api/ai/status", async (req, res) => {
+  try {
+    const hasKey = !!process.env.GEMINI_API_KEY;
+    let keySnippet = 'none';
+    if (hasKey) {
+      const k = process.env.GEMINI_API_KEY.trim();
+      keySnippet = k.substring(0, 4) + '...' + k.substring(k.length - 4);
+    }
+    const resolvedModel = await resolveOptimalGeminiModel(process.env.GEMINI_API_KEY || '');
+    return res.json({
+      ok: true,
+      geminiKeyConfigured: hasKey,
+      keySnippet: hasKey ? keySnippet : 'none',
+      activeModel: resolvedModel,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    return res.json({ ok: false, error: err.message });
   }
 });
 
@@ -9053,50 +9070,37 @@ app.post("/api/ai/chat", async (req, res) => {
         }
       } catch (ce) { }
 
-      // 5. Backend-processed Access Verification Engine
+      // 5. Backend-processed Access Verification & Course-Specific Clip Engine
       const accessCheck = checkStudentCourseAccess(authUser, resolvedCourseId, topMatch);
+      const isEnrolledInCourse = accessCheck.allowed;
+      const startSec = Number(topMatch.startTime || 0);
+      const endSec = Number(topMatch.endTime || (startSec + 60));
+      const startFmt = topMatch.startFormatted || formatSecondsToTimestamp(startSec);
+      const endFmt = topMatch.endFormatted || formatSecondsToTimestamp(endSec);
 
       let actionRequired = 'PLAY';
-      let badgeText = '✅ আনলক করা';
-      let btnText = '▶️ এই ক্লাসটি সরাসরি প্লে করুন';
-      let promptTitle = '';
-      let promptMessage = '';
+      let badgeText = isEnrolledInCourse ? '✅ ফুল ক্লাস আনলকড' : `🎥 ফ্রি রেফারেন্স ক্লিপ ([${startFmt} - ${endFmt}])`;
+      let btnText = isEnrolledInCourse ? `▶️ সম্পূর্ণ ক্লাসটি দেখুন ([${topMatch.timestamp || '00:00'}])` : `▶️ ফ্রি রেফারেন্স ক্লিপ শুনুন ([${startFmt} - ${endFmt}])`;
+      let promptTitle = isEnrolledInCourse ? '' : 'কোর্সে ভর্তি হোন';
+      let promptMessage = isEnrolledInCourse ? '' : `সম্পূর্ণ ক্লাসটি দেখতে "${resolvedCourseTitle}" কোর্সে ভর্তি হোন।`;
 
-      if (!accessCheck.allowed) {
-        if (accessCheck.reason === 'UNAUTHENTICATED') {
-          actionRequired = 'LOGIN';
-          badgeText = '🔒 লগইন প্রয়োজন';
-          btnText = '🔒 ক্লাসটি দেখতে লগইন করুন';
-          promptTitle = 'প্রথমে রেজিস্ট্রেশন বা লগইন করুন';
-          promptMessage = 'এই প্রিমিয়াম একাডেমি ক্লাসটি দেখার জন্য আপনাকে প্রথমে একটি একাউন্ট রেজিস্ট্রেশন অথবা লগইন করতে হবে।';
-        } else if (accessCheck.reason === 'NOT_ENROLLED') {
-          actionRequired = 'ENROLL';
-          badgeText = '🔒 এনরোল প্রয়োজন';
-          btnText = '🔒 ক্লাসটি দেখতে এনরোল করুন';
-          promptTitle = 'আপনি এই কোর্সে এনরোল করেন';
-          promptMessage = `এই ভিডিও ক্লাসটি "${resolvedCourseTitle}" কোর্সের অন্তর্ভুক্ত। ক্লাসটি সম্পূর্ণ দেখতে হলে অনুগ্রহ করে এই কোর্সে এনরোল সম্পন্ন করুন।`;
-        } else if (accessCheck.reason === 'PENDING_APPROVAL') {
-          actionRequired = 'PENDING';
-          badgeText = '⏳ এপ্রুভাল অপেক্ষমাণ';
-          btnText = '⏳ অ্যাকাউন্ট এপ্রুভাল প্রয়োজন';
-          promptTitle = 'একাউন্ট অনুমোদনের অপেক্ষমাণ';
-          promptMessage = 'আপনার অ্যাকাউন্টটি বর্তমানে অ্যাডমিন অনুমোদনের অপেক্ষায় রয়েছে। অনুমোদন সম্পন্ন হলে এই ক্লাসটি উপভোগ করতে পারবেন।';
-        }
-      }
-
-      // Secure Lesson Payload: Never expose raw YouTube URL or streaming payload to unauthorized users (Phase 11 & 12)
-      let sanitizedLesson = null;
-      if (accessCheck.allowed) {
-        sanitizedLesson = topMatch;
-      } else {
-        sanitizedLesson = {
-          id: topMatch.id,
-          title: topMatch.title,
-          courseId: resolvedCourseId,
-          chapter: topMatch.chapter,
-          timestamp: topMatch.timestamp || '00:00'
-        };
-      }
+      // Smart Lesson Payload: Includes clip boundaries for non-enrolled students and full playback for enrolled
+      const sanitizedLesson = {
+        id: topMatch.id,
+        title: topMatch.title,
+        courseId: resolvedCourseId,
+        courseTitle: resolvedCourseTitle,
+        chapter: topMatch.chapter,
+        youtubeId: topMatch.youtubeId,
+        youtubeUrl: topMatch.youtubeUrl,
+        timestamp: topMatch.timestamp || '00:00',
+        startTime: startSec,
+        endTime: endSec,
+        startFormatted: startFmt,
+        endFormatted: endFmt,
+        canPlayFull: isEnrolledInCourse,
+        isEnrolled: isEnrolledInCourse
+      };
 
       recommendation = {
         type: "MATCHED_LESSON",
@@ -9104,31 +9108,49 @@ app.post("/api/ai/chat", async (req, res) => {
         courseTitle: resolvedCourseTitle,
         lesson: sanitizedLesson,
         timestamp: topMatch.timestamp || '00:00',
+        startTime: startSec,
+        endTime: endSec,
+        startFormatted: startFmt,
+        endFormatted: endFmt,
         snippet: topMatch.snippet,
         matchedKeywords: topMatch.matchedKeywords,
         note: `আমাদের একাডেমি মেন্টরের ভিডিও ক্লাসে এই বিষয়ে সরাসরি আলোচনা রয়েছে!`,
         access: {
-          canPlay: accessCheck.allowed,
+          canPlay: true, // Everyone can play the specific smart preview clip!
+          canPlayFull: isEnrolledInCourse,
+          isEnrolled: isEnrolledInCourse,
+          startTime: startSec,
+          endTime: endSec,
+          startFormatted: startFmt,
+          endFormatted: endFmt,
           actionRequired,
           badgeText,
           btnText,
           promptTitle,
           promptMessage,
-          isLoggedIn: !!authUser,
-          isEnrolled: accessCheck.allowed
+          isLoggedIn: !!authUser
         }
       };
     }
 
     const safeMatchedLessons = (aiResult.matchedLessons || []).map(ml => {
       const access = checkStudentCourseAccess(authUser, ml.courseId, ml);
-      if (access.allowed) return ml;
+      const startSec = Number(ml.startTime || 0);
+      const endSec = Number(ml.endTime || (startSec + 60));
       return {
         id: ml.id,
         title: ml.title,
         courseId: ml.courseId,
         chapter: ml.chapter,
+        youtubeId: ml.youtubeId,
+        youtubeUrl: ml.youtubeUrl,
         timestamp: ml.timestamp || '00:00',
+        startTime: startSec,
+        endTime: endSec,
+        startFormatted: ml.startFormatted || formatSecondsToTimestamp(startSec),
+        endFormatted: ml.endFormatted || formatSecondsToTimestamp(endSec),
+        canPlayFull: access.allowed,
+        isEnrolled: access.allowed,
         matchedKeywords: ml.matchedKeywords,
         snippet: ml.snippet
       };

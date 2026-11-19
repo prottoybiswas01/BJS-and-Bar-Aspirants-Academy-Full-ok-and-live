@@ -58,7 +58,23 @@ function formatSecondsToTimestamp(seconds) {
 }
 
 /**
- * Parse Bengali or English SRT/VTT file or timestamped text
+ * Convert timestamp string (e.g. "01:25" or "01:10:25" or "[01:25]") to integer seconds
+ */
+function parseTimestampToSeconds(ts) {
+  if (!ts) return 0;
+  const clean = String(ts).replace(/[\[\]]/g, '').trim();
+  const parts = clean.split(':').map(Number);
+  if (parts.length === 3) {
+    return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+  }
+  if (parts.length === 2) {
+    return (parts[0] || 0) * 60 + (parts[1] || 0);
+  }
+  return 0;
+}
+
+/**
+ * Parse Bengali or English SRT/VTT file or timestamped text or YouTube Studio transcript
  */
 function parseSrtOrVtt(content) {
   if (!content || !String(content).trim()) {
@@ -74,6 +90,8 @@ function parseSrtOrVtt(content) {
 
   const timeRegex = /(?:(\d{2}):)?(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(?:(\d{2}):)?(\d{2}):(\d{2})[,.](\d{3})/;
   const bracketTimeRegex = /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]/;
+  const ytStandaloneRegex = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
+  const ytInlineRegex = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s+(.+)$/;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -140,6 +158,57 @@ function parseSrtOrVtt(content) {
       continue;
     }
 
+    // Check YouTube Studio standalone timestamp: "0:05" or "1:25" or "01:15:30"
+    const standaloneMatch = line.match(ytStandaloneRegex);
+    if (standaloneMatch) {
+      if (currentTextLines.length > 0) {
+        segments.push({
+          timestamp: currentTimestamp,
+          offsetSeconds: currentOffsetSec,
+          text: currentTextLines.join(' ')
+        });
+        currentTextLines = [];
+      }
+      if (standaloneMatch[3] !== undefined) {
+        const hours = parseInt(standaloneMatch[1], 10);
+        const minutes = parseInt(standaloneMatch[2], 10);
+        const seconds = parseInt(standaloneMatch[3], 10);
+        currentOffsetSec = hours * 3600 + minutes * 60 + seconds;
+      } else {
+        const minutes = parseInt(standaloneMatch[1], 10);
+        const seconds = parseInt(standaloneMatch[2], 10);
+        currentOffsetSec = minutes * 60 + seconds;
+      }
+      currentTimestamp = formatSecondsToTimestamp(currentOffsetSec);
+      continue;
+    }
+
+    // Check YouTube Studio inline timestamp: "0:05 আজকের ক্লাসে..."
+    const inlineMatch = line.match(ytInlineRegex);
+    if (inlineMatch && !line.includes('-->')) {
+      if (currentTextLines.length > 0) {
+        segments.push({
+          timestamp: currentTimestamp,
+          offsetSeconds: currentOffsetSec,
+          text: currentTextLines.join(' ')
+        });
+        currentTextLines = [];
+      }
+      if (inlineMatch[3] !== undefined) {
+        const hours = parseInt(inlineMatch[1], 10);
+        const minutes = parseInt(inlineMatch[2], 10);
+        const seconds = parseInt(inlineMatch[3], 10);
+        currentOffsetSec = hours * 3600 + minutes * 60 + seconds;
+      } else {
+        const minutes = parseInt(inlineMatch[1], 10);
+        const seconds = parseInt(inlineMatch[2], 10);
+        currentOffsetSec = minutes * 60 + seconds;
+      }
+      currentTimestamp = formatSecondsToTimestamp(currentOffsetSec);
+      currentTextLines.push(inlineMatch[4].trim());
+      continue;
+    }
+
     // Skip WEBVTT header
     if (line.startsWith('WEBVTT') || line.startsWith('NOTE')) continue;
 
@@ -154,6 +223,32 @@ function parseSrtOrVtt(content) {
     });
   }
 
+  // Fallback: If no timestamps were detected at all (raw text paste)
+  if (segments.length === 0 && currentTextLines.length > 0) {
+    const allWords = currentTextLines.join(' ').split(/\s+/).filter(Boolean);
+    const chunkSize = 40;
+    for (let c = 0; c < allWords.length; c += chunkSize) {
+      const chunkWords = allWords.slice(c, c + chunkSize);
+      const chunkSec = Math.floor(c / chunkSize) * 45;
+      segments.push({
+        timestamp: formatSecondsToTimestamp(chunkSec),
+        offsetSeconds: chunkSec,
+        durationSeconds: 45,
+        text: chunkWords.join(' ')
+      });
+    }
+  }
+
+  // Calculate segment durations
+  for (let s = 0; s < segments.length; s++) {
+    if (s + 1 < segments.length) {
+      const diff = segments[s + 1].offsetSeconds - segments[s].offsetSeconds;
+      segments[s].durationSeconds = diff > 0 ? diff : 45;
+    } else {
+      segments[s].durationSeconds = 60;
+    }
+  }
+
   const fullText = segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n');
   const pureText = segments.map(s => s.text).join(' ');
   const wordCount = pureText.split(/\s+/).filter(Boolean).length;
@@ -166,7 +261,7 @@ function parseSrtOrVtt(content) {
     segments,
     wordCount,
     language: isBangla ? 'bn' : 'en',
-    source: 'srt_vtt_upload'
+    source: 'manual_paste'
   };
 }
 
@@ -643,9 +738,12 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2, intentMeta =
     // Segment-level analysis for highest precision timestamp extraction
     const rawSegments = [...(lesson.transcript || '').matchAll(/\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*([^\[]+)/g)];
     let bestSegmentScore = 0;
+    let bestStartSec = 0;
+    let bestDuration = 60;
 
     if (rawSegments.length > 0) {
-      for (const seg of rawSegments) {
+      for (let sIdx = 0; sIdx < rawSegments.length; sIdx++) {
+        const seg = rawSegments[sIdx];
         const segTs = seg[1];
         const segText = seg[2].toLowerCase();
         let segHits = 0;
@@ -656,6 +754,14 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2, intentMeta =
           bestSegmentScore = segHits;
           bestTimestamp = segTs;
           bestSnippet = '...' + seg[2].trim().replace(/\n/g, ' ') + '...';
+          bestStartSec = parseTimestampToSeconds(segTs);
+          if (sIdx + 1 < rawSegments.length) {
+            const nextSec = parseTimestampToSeconds(rawSegments[sIdx + 1][1]);
+            const diff = nextSec - bestStartSec;
+            bestDuration = Math.min(Math.max(diff + 15, 30), 120);
+          } else {
+            bestDuration = 60;
+          }
         }
       }
     }
@@ -672,6 +778,7 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2, intentMeta =
           const allTimestamps = [...textBefore.matchAll(/\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g)];
           if (allTimestamps.length > 0) {
             bestTimestamp = allTimestamps[allTimestamps.length - 1][1];
+            bestStartSec = parseTimestampToSeconds(bestTimestamp);
           }
         }
 
@@ -696,6 +803,9 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2, intentMeta =
     // MANDATORY REQUIREMENT: Must have at least 1 genuine hit in transcript/metadata and minimum threshold
     const qualifies = transcriptKeywordHits >= 1 || (isExplicitClassLookup && titleKeywordHits >= 1);
     if (qualifies && score >= 30) {
+      const startSec = bestStartSec || parseTimestampToSeconds(bestTimestamp || '00:00');
+      const endSec = startSec + (bestDuration || 60);
+
       scoredLessons.push({
         id: lesson.id || lesson._id,
         title: lesson.title,
@@ -705,6 +815,10 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2, intentMeta =
         youtubeUrl: lesson.youtubeUrl,
         score,
         timestamp: bestTimestamp || '00:00',
+        startTime: startSec,
+        endTime: endSec,
+        startFormatted: formatSecondsToTimestamp(startSec),
+        endFormatted: formatSecondsToTimestamp(endSec),
         matchedKeywords: matchedTokens,
         snippet: bestSnippet || (lesson.transcript ? lesson.transcript.slice(0, 150) + '...' : '')
       });
@@ -718,6 +832,7 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2, intentMeta =
 module.exports = {
   fetchYoutubeTranscript,
   parseSrtOrVtt,
+  parseTimestampToSeconds,
   extractYoutubeId,
   searchLessonsForQuery,
   formatSecondsToTimestamp,

@@ -133,77 +133,32 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
   };
 
   const handlePlayVideo = (rec) => {
-    // 1. Direct Backend-Processed Access Decision (from MongoDB + Fast-Cache)
-    const backendAccess = rec?.access;
-    if (backendAccess) {
-      if (backendAccess.canPlay) {
-        setAccessModal(null);
-        if (openVideoModal && rec.lesson) {
-          openVideoModal(rec.lesson);
-        } else if (rec.lesson?.youtubeId) {
-          window.open(`https://youtu.be/${rec.lesson.youtubeId}`, '_blank');
-        }
-        return;
-      }
+    if (!rec) return;
+    const lesson = rec.lesson || rec;
+    const access = rec.access || {};
+    const canPlayFull = Boolean(access.canPlayFull || access.isEnrolled);
+    const startTime = Number(rec.startTime ?? lesson.startTime ?? 0);
+    const endTime = Number(rec.endTime ?? lesson.endTime ?? (startTime + 60));
+    const courseTitle = rec.courseTitle || lesson.courseTitle || 'একাডেমি কোর্স';
+    const courseId = rec.courseId || lesson.courseId;
 
-      if (backendAccess.actionRequired === 'LOGIN') {
-        setAccessModal({
-          type: 'LOGIN_REQUIRED',
-          title: backendAccess.promptTitle || 'প্রথমে রেজিস্ট্রেশন বা লগইন করুন',
-          message: backendAccess.promptMessage || 'এই প্রিমিয়াম একাডেমি ক্লাসটি দেখার জন্য আপনাকে প্রথমে একটি একাউন্ট রেজিস্ট্রেশন অথবা লগইন করতে হবে।',
-          lesson: rec.lesson,
-          courseTitle: backendAccess.courseTitle || rec.courseTitle || 'একাডেমি কোর্স'
-        });
-        return;
-      }
+    setAccessModal(null);
 
-      if (backendAccess.actionRequired === 'ENROLL') {
-        setAccessModal({
-          type: 'ENROLL_REQUIRED',
-          title: backendAccess.promptTitle || 'আপনি এই কোর্সে এনরোল করেন',
-          message: backendAccess.promptMessage || `এই ভিডিও ক্লাসটি "${backendAccess.courseTitle || rec.courseTitle || 'একাডেমি কোর্স'}" এর অন্তর্ভুক্ত। ক্লাসটি দেখতে হলে অনুগ্রহ করে কোর্সে এনরোল সম্পন্ন করুন।`,
-          lesson: rec.lesson,
-          courseTitle: backendAccess.courseTitle || rec.courseTitle || 'একাডেমি কোর্স',
-          courseId: rec.courseId || rec.lesson?.courseId
-        });
-        return;
-      }
-    }
-
-    // 2. Fallback Client-side Verification
-    const access = checkLessonAccess(rec);
-
-    if (access.allowed) {
-      setAccessModal(null);
-      if (openVideoModal && rec.lesson) {
-        openVideoModal(rec.lesson);
-      } else if (rec.lesson?.youtubeId) {
-        window.open(`https://youtu.be/${rec.lesson.youtubeId}`, '_blank');
-      }
-      return;
-    }
-
-    if (access.reason === 'LOGIN_REQUIRED') {
-      setAccessModal({
-        type: 'LOGIN_REQUIRED',
-        title: 'প্রথমে রেজিস্ট্রেশন বা লগইন করুন',
-        message: 'এই প্রিমিয়াম একাডেমি ক্লাসটি দেখার জন্য আপনাকে প্রথমে একটি একাউন্ট রেজিস্ট্রেশন অথবা লগইন করতে হবে।',
-        lesson: rec.lesson,
-        courseTitle: rec.courseTitle || 'একাডেমি কোর্স'
+    if (openVideoModal && lesson) {
+      openVideoModal(lesson, {
+        startTime,
+        endTime,
+        canPlayFull,
+        courseTitle,
+        courseId,
+        startFormatted: rec.startFormatted || lesson.startFormatted,
+        endFormatted: rec.endFormatted || lesson.endFormatted
       });
-      return;
-    }
-
-    if (access.reason === 'ENROLL_REQUIRED') {
-      setAccessModal({
-        type: 'ENROLL_REQUIRED',
-        title: 'কোর্সে এনরোল করুন',
-        message: `এই ভিডিও ক্লাসটি "${rec.courseTitle || 'একাডেমি কোর্স'}" এর অন্তর্ভুক্ত। ক্লাসটি দেখতে হলে অনুগ্রহ করে কোর্সে এনরোল সম্পন্ন করুন।`,
-        lesson: rec.lesson,
-        courseTitle: rec.courseTitle || 'একাডেমি কোর্স',
-        courseId: access.courseId
-      });
-      return;
+    } else if (lesson.youtubeId) {
+      const url = canPlayFull
+        ? `https://youtu.be/${lesson.youtubeId}?t=${startTime}`
+        : `https://youtu.be/${lesson.youtubeId}?start=${startTime}&end=${endTime}`;
+      window.open(url, '_blank');
     }
   };
 
@@ -527,14 +482,10 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
                 <div className="mt-3 pt-2.5 border-t border-slate-700/80 space-y-2">
                   {msg.recommendation.type === 'MATCHED_LESSON' && (() => {
                     const bAccess = msg.recommendation.access;
-                    const access = bAccess
-                      ? {
-                          allowed: bAccess.canPlay,
-                          badgeText: bAccess.badgeText,
-                          btnText: bAccess.btnText,
-                          reason: bAccess.actionRequired === 'LOGIN' ? 'LOGIN_REQUIRED' : bAccess.actionRequired === 'ENROLL' ? 'ENROLL_REQUIRED' : ''
-                        }
-                      : checkLessonAccess(msg.recommendation);
+                    const canPlayFull = Boolean(bAccess?.canPlayFull || bAccess?.isEnrolled);
+                    const startFmt = msg.recommendation.startFormatted || bAccess?.startFormatted || msg.recommendation.timestamp || '00:00';
+                    const endFmt = msg.recommendation.endFormatted || bAccess?.endFormatted || '01:00';
+
                     return (
                       <div className="p-3.5 rounded-xl bg-gradient-to-br from-cyan-950/90 to-blue-950/90 border border-cyan-500/50 space-y-2.5 text-xs shadow-lg">
                         <div className="flex items-center justify-between">
@@ -542,11 +493,11 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
                             <span>🎥</span> প্রস্তাবিত ভিডিও লেকচার (Academy Class)
                           </span>
                           <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
-                            access.allowed
+                            canPlayFull
                               ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
                               : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
                           }`}>
-                            {access.badgeText || (access.allowed ? '✅ আনলক করা' : access.reason === 'LOGIN_REQUIRED' ? '🔒 লগইন প্রয়োজন' : '🔒 এনরোল প্রয়োজন')}
+                            {canPlayFull ? '✅ ফুল ক্লাস আনলকড' : `🎥 ফ্রি রেফারেন্স ক্লিপ ([${startFmt} - ${endFmt}])`}
                           </span>
                         </div>
                         <div>
@@ -559,9 +510,14 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
                                 📚 {msg.recommendation.courseTitle}
                               </span>
                             )}
-                            {msg.recommendation.timestamp && msg.recommendation.timestamp !== '00:00' && (
+                            {msg.recommendation.timestamp && (
                               <span className="text-[10px] text-cyan-300 font-mono bg-cyan-950 px-1.5 py-0.5 rounded border border-cyan-500/30 font-bold">
-                                ⏱️ আলোচনার অংশ: {msg.recommendation.timestamp} মিনিট
+                                ⏱️ আলোচনার শুরু: {msg.recommendation.timestamp}
+                              </span>
+                            )}
+                            {!canPlayFull && (
+                              <span className="text-[9px] text-amber-300 font-mono bg-amber-950 px-1.5 py-0.5 rounded border border-amber-500/30 font-bold">
+                                ⏳ ক্লিপ ব্যাপ্তি: {startFmt} - {endFmt}
                               </span>
                             )}
                           </div>
@@ -576,17 +532,15 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
                           type="button"
                           onClick={() => handlePlayVideo(msg.recommendation)}
                           className={`w-full py-2.5 rounded-xl text-slate-950 font-black text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 ${
-                            access.allowed
+                            canPlayFull
                               ? 'bg-gradient-to-r from-emerald-400 to-cyan-500 hover:from-emerald-300 hover:to-cyan-400'
                               : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500'
                           }`}
                         >
-                          <span>{access.allowed ? '▶️' : '🔒'}</span>{' '}
-                          {access.btnText || (access.allowed
-                            ? 'এই ক্লাসটি সরাসরি প্লে করুন'
-                            : access.reason === 'LOGIN_REQUIRED'
-                            ? 'ক্লাসটি দেখতে লগইন করুন'
-                            : 'ক্লাসটি দেখতে এনরোল করুন')}
+                          <span>▶️</span>{' '}
+                          {canPlayFull
+                            ? `এই ক্লাসটি সরাসরি দেখুন ([${msg.recommendation.timestamp || '00:00'}])`
+                            : `ফ্রি রেফারেন্স ক্লিপ শুনুন ([${startFmt} - ${endFmt}])`}
                         </button>
                       </div>
                     );

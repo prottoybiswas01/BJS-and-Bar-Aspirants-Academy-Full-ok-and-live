@@ -345,6 +345,34 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
     }
   };
 
+  const handleOpenManualPaste = (l) => {
+    handleOpenSubtitleModal(l);
+  };
+
+  const handlePasteFromClipboard = async () => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        setMsg({ type: 'error', text: 'ব্রাউজার ক্লিপবোর্ড অনুমতি দেয়নি। অনুগ্রহ করে টেক্সট এরিয়াতে সরাসরি Ctrl+V দিয়ে পেস্ট করুন।' });
+        return;
+      }
+      const clipText = await navigator.clipboard.readText();
+      if (clipText && clipText.trim()) {
+        const words = clipText.trim().split(/\s+/).filter(Boolean).length;
+        setSubtitleModal(prev => ({
+          ...prev,
+          text: clipText.trim(),
+          wordCount: words,
+          status: 'manual'
+        }));
+        setMsg({ type: 'success', text: `📋 ক্লিপবোর্ড থেকে ${words}টি শব্দ পেস্ট করা হয়েছে! এবার নিচে "💾 সাবটাইটেল সেভ করুন" বাটনে ক্লিক করুন।` });
+      } else {
+        setMsg({ type: 'error', text: 'ক্লিপবোর্ডে কোনো টেক্সট পাওয়া যায়নি। প্রথমে ইউটিউব স্টুডিও বা ফাইল থেকে টেক্সট কপি করুন।' });
+      }
+    } catch (err) {
+      setMsg({ type: 'error', text: 'ক্লিপবোর্ড থেকে পড়তে সমস্যা হয়েছে। অনুগ্রহ করে টেক্সট এরিয়াতে সরাসরি Ctrl+V পেস্ট করুন।' });
+    }
+  };
+
   const handleSaveSubtitleText = async () => {
     if (!subtitleModal.lesson) return;
     setSubtitleModal(prev => ({ ...prev, saving: true }));
@@ -594,10 +622,18 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                             </span>
                           ) : l.transcriptStatus === 'no_captions' ? (
                             <div className="flex flex-col gap-0.5 mt-1">
-                              <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-1 flex-wrap">
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium" title={l.transcriptLastError || "YouTube-এ বাংলা ক্যাপশন পাওয়া যায়নি"}>
                                   ⚠️ ক্যাপশন পাওয়া যায়নি
                                 </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenManualPaste(l)}
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-purple-900 hover:bg-purple-800 text-purple-200 font-extrabold cursor-pointer transition-all shadow-sm"
+                                  title="ইউটিউব স্টুডিও থেকে সাবটাইটেল টেক্সট কপি করে পেস্ট করুন"
+                                >
+                                  📋 ম্যানুয়াল পেস্ট
+                                </button>
                                 <button
                                   type="button"
                                   disabled={quickSyncingId === (l.id || l._id)}
@@ -635,10 +671,18 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                             </span>
                           ) : l.transcriptStatus === 'failed' ? (
                             <div className="flex flex-col gap-0.5 mt-1">
-                              <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-1 flex-wrap">
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-rose-500/15 text-rose-300 border border-rose-500/30 font-medium" title={l.transcriptLastError || "সাবটাইটেল সংগ্রহ করা যায়নি"}>
                                   ❌ সিঙ্ক ব্যর্থ
                                 </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenManualPaste(l)}
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-purple-900 hover:bg-purple-800 text-purple-200 font-extrabold cursor-pointer transition-all shadow-sm"
+                                  title="ক্লিপবোর্ড থেকে সাবটাইটেল টেক্সট পেস্ট করুন"
+                                >
+                                  📋 ম্যানুয়াল পেস্ট
+                                </button>
                                 <button
                                   type="button"
                                   disabled={quickSyncingId === (l.id || l._id)}
@@ -656,10 +700,18 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                               )}
                             </div>
                           ) : (
-                            <div className="flex items-center gap-1 mt-1">
+                            <div className="flex items-center gap-1 mt-1 flex-wrap">
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium">
                                 ⏳ পেন্ডিং (অপেক্ষমাণ)
                               </span>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenManualPaste(l)}
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-purple-900 hover:bg-purple-800 text-purple-200 font-extrabold cursor-pointer transition-all shadow-sm"
+                                title="সাবটাইটেল সরাসরি পেস্ট করুন"
+                              >
+                                📋 ম্যানুয়াল পেস্ট
+                              </button>
                               <button
                                 type="button"
                                 disabled={quickSyncingId === (l.id || l._id)}
@@ -676,6 +728,17 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                           {l.youtubeUrl || `https://youtu.be/${l.youtubeId}`}
                         </td>
                         <td className="p-2.5 text-right space-x-1.5 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenManualPaste(l);
+                            }}
+                            className="px-2 py-1 rounded bg-purple-950 hover:bg-purple-900 text-purple-300 border border-purple-500/40 font-bold transition-all text-[10px] cursor-pointer"
+                            title="ইউটিউব স্টুডিও বা ফাইল থেকে সরাসরি সাবটাইটেল পেস্ট করুন"
+                          >
+                            📋 ম্যানুয়াল পেস্ট
+                          </button>
                           <button
                             type="button"
                             disabled={quickSyncingId === (l.id || l._id)}
@@ -752,13 +815,13 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                 </button>
               </div>
 
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                     subtitleModal.text ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'
                   }`}>
                     {subtitleModal.text
-                      ? `✓ সিঙ্কড (${formatWordCount(subtitleModal.wordCount || subtitleModal.text.split(/\s+/).filter(Boolean).length)} শব্দ)`
+                      ? `✓ ${subtitleModal.status === 'manual' ? 'ম্যানুয়াল সাবটাইটেল' : 'সিঙ্কড'} (${formatWordCount(subtitleModal.wordCount || subtitleModal.text.split(/\s+/).filter(Boolean).length)} শব্দ)`
                       : (subtitleModal.loading ? '⏳ তথ্য লোড হচ্ছে...' : '⚠️ কোনো সাবটাইটেল নেই')}
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono">
@@ -766,42 +829,75 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                   </span>
                 </div>
 
-                <button
-                  type="button"
-                  disabled={subtitleModal.loading}
-                  onClick={handleRefetchSubtitle}
-                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold transition-all text-[11px] flex items-center gap-1 border border-slate-700 cursor-pointer"
-                >
-                  <span>{subtitleModal.loading ? '⏳' : '🔄'}</span>
-                  <span>{subtitleModal.loading ? 'ফেচ হচ্ছে...' : 'ইউটিউব থেকে রি-ফেচ'}</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePasteFromClipboard}
+                    className="px-3 py-1 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold transition-all text-[11px] flex items-center gap-1.5 shadow-md shadow-purple-900/30 cursor-pointer active:scale-95"
+                    title="ক্লিপবোর্ডে কপি করা সাবটাইটেল এক ক্লিকে পেস্ট করুন"
+                  >
+                    <span>📋</span>
+                    <span>ক্লিপবোর্ড থেকে পেস্ট</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={subtitleModal.loading}
+                    onClick={handleRefetchSubtitle}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold transition-all text-[11px] flex items-center gap-1 border border-slate-700 cursor-pointer"
+                  >
+                    <span>{subtitleModal.loading ? '⏳' : '🔄'}</span>
+                    <span>{subtitleModal.loading ? 'ফেচ হচ্ছে...' : 'ইউটিউব রি-ফেচ'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* YouTube Studio Guidance Alert Box */}
+              <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-500/30 mb-2.5 space-y-1 text-slate-300">
+                <p className="font-extrabold text-purple-300 text-xs flex items-center gap-1.5">
+                  <span>💡</span> ইউটিউব স্টুডিও (YouTube Studio) থেকে সরাসরি কপি-পেস্ট গাইড:
+                </p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  YouTube Studio &gt; Content &gt; ভিডিও এডিট &gt; <strong>Subtitles</strong> &gt; <strong>Edit as text</strong> থেকে সম্পূর্ণ ক্যাপশন কপি করে উপরের <strong className="text-purple-300">"📋 ক্লিপবোর্ড থেকে পেস্ট"</strong> বাটনে ক্লিক করুন। টাইমস্ট্যাম্পযুক্ত (<code className="text-amber-300">0:05</code> বা <code className="text-amber-300">[01:25]</code>) অথবা সাধারণ বাংলা লেখা—উভয় ফরম্যাটই স্বয়ংক্রিয়ভাবে প্রসেস হয়ে ডাটাবেজে পার্মানেন্ট সেভ হবে।
+                </p>
               </div>
 
               <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                 <p className="text-[11px] text-slate-400">
-                  শিক্ষার্থীরা যখন আইনি প্রশ্ন করবে, এআই এই সাবটাইটেল সার্চ করে ক্লাস ও নির্দিষ্ট টাইমস্ট্যাম্প সাজেস্ট করবে:
+                  শিক্ষার্থীরা আইনি প্রশ্ন করলে 'আইন সহকারী' (AI Legal Assistant) এই লেখার সাথে প্রশ্ন মিলিয়ে নির্দিষ্ট মিনিট-সেকেন্ড প্লে করবে:
                 </p>
-                <label className="px-2.5 py-1 rounded-lg bg-blue-950 hover:bg-blue-900 text-blue-300 font-bold text-[10px] border border-blue-500/40 cursor-pointer flex items-center gap-1.5 transition-all shadow-sm">
-                  <span>📂</span>
-                  <span>SRT / VTT ফাইল আপলোড (.srt, .vtt)</span>
-                  <input
-                    type="file"
-                    accept=".srt,.vtt,.txt"
-                    onChange={handleSrtFileUpload}
-                    className="hidden"
-                  />
-                </label>
+                <div className="flex items-center gap-2">
+                  {subtitleModal.text && (
+                    <button
+                      type="button"
+                      onClick={() => setSubtitleModal(prev => ({ ...prev, text: '', wordCount: 0 }))}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-300 text-[10px] font-bold border border-rose-500/30 cursor-pointer transition-all"
+                      title="টেক্সট মুছে ফেলুন"
+                    >
+                      🗑️ খালি করুন
+                    </button>
+                  )}
+                  <label className="px-2.5 py-1 rounded-lg bg-blue-950 hover:bg-blue-900 text-blue-300 font-bold text-[10px] border border-blue-500/40 cursor-pointer flex items-center gap-1.5 transition-all shadow-sm">
+                    <span>📂</span>
+                    <span>SRT / VTT ফাইল (.srt, .vtt)</span>
+                    <input
+                      type="file"
+                      accept=".srt,.vtt,.txt"
+                      onChange={handleSrtFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
               </div>
 
               <textarea
-                rows={12}
+                rows={11}
                 value={subtitleModal.text}
                 onChange={(e) => setSubtitleModal(prev => ({
                   ...prev,
                   text: e.target.value,
                   wordCount: e.target.value.split(/\s+/).filter(Boolean).length
                 }))}
-                placeholder="[00:00] এখানে ভিডিওর মূল আইনি আলোচনা অথবা SRT/VTT টেক্সট পেস্ট করুন...&#10;উদাহরণ:&#10;[01:25] ফৌজদারি কার্যবিধির ১৬৭ ধারার রিমান্ড পদ্ধতি..."
+                placeholder="[00:00] এখানে ভিডিওর মূল আইনি আলোচনা অথবা YouTube Studio / SRT / VTT টেক্সট পেস্ট করুন...&#10;&#10;উদাহরণ:&#10;0:05 আজকের ক্লাসে আমরা দেওয়ানী কার্যবিধির ৯ ধারা আলোচনা করব।&#10;0:45 সকল দেওয়ানি আদালতের এখতিয়ার ও সুনির্দিষ্ট প্রতিকার..."
                 className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-slate-200 font-sans text-xs leading-relaxed focus:outline-none focus:border-amber-500 flex-1 resize-none font-mono"
               />
 
