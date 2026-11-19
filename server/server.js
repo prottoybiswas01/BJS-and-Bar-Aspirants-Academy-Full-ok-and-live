@@ -372,16 +372,16 @@ async function syncMemoryDbFromMongo() {
   if (!isMongoConnected) return;
   try {
     const [stus, crss, mtrs, lsns, regs, rcpts, mcqs, asns, siteSet, mailSet] = await Promise.all([
-      Student.find().lean().catch(() => []),
-      Course.find().lean().catch(() => []),
-      Mentor.find().lean().catch(() => []),
-      Lesson.find().lean().catch(() => []),
-      Registration.find().lean().catch(() => []),
-      Receipt.find().lean().catch(() => []),
-      McqExam.find().lean().catch(() => []),
-      Assignment.find().lean().catch(() => []),
-      SiteSetting.findOne().lean().catch(() => null),
-      MailSetting.findOne().lean().catch(() => null)
+      Student.find().lean(),
+      Course.find().lean(),
+      Mentor.find().lean(),
+      Lesson.find().lean(),
+      Registration.find().lean(),
+      Receipt.find().lean(),
+      McqExam.find().lean(),
+      Assignment.find().lean(),
+      SiteSetting.findOne().lean(),
+      MailSetting.findOne().lean()
     ]);
     if (stus && stus.length > 0) memoryDb.students = stus;
     if (crss && crss.length > 0) memoryDb.courses = crss;
@@ -424,6 +424,7 @@ mongoose.connection.on("error", (err) => {
 
 let hasRunStudentConsistencyCheck = false;
 async function runStudentConsistencySweep() {
+  if (process.env.ENABLE_STUDENT_SWEEP !== 'true') return;
   if (hasRunStudentConsistencyCheck || !isMongoConnected) return;
   hasRunStudentConsistencyCheck = true;
   try {
@@ -521,8 +522,12 @@ async function ensureDbConnected() {
         if (s) memoryDb.siteSettings = { ...memoryDb.siteSettings, ...s };
       }).catch(() => { });
     }
-    // Background sweep to fix any existing inconsistent student course records
-    runStudentConsistencySweep().catch(() => { });
+    // Sync cache safely if empty without running destructive writes
+    if (!memoryDb.courses || memoryDb.courses.length === 0) {
+      syncMemoryDbFromMongo().catch(err => {
+        console.warn("Notice syncing initial memory cache from Mongo:", err.message);
+      });
+    }
     return cached.conn;
   } catch (err) {
     cached.promise = null;
@@ -542,8 +547,9 @@ app.use(async (req, res, next) => {
   next();
 });
 
-// Automated 15-Day Script Image Garbage Collector
+// Automated 15-Day Script Image Garbage Collector (Gated: Never runs automatically without explicit opt-in)
 async function autoCleanExpiredScriptImages() {
+  if (process.env.ENABLE_AUTO_IMAGE_CLEANUP !== 'true') return;
   const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
   const cutoffDate = new Date(Date.now() - FIFTEEN_DAYS_MS);
 
@@ -563,15 +569,6 @@ async function autoCleanExpiredScriptImages() {
         console.log(`🧹 Auto-cleansed script images for ${result.modifiedCount} expired submissions (>15 days).`);
       }
     }
-
-    if (Array.isArray(memoryDb.submissions)) {
-      memoryDb.submissions.forEach(s => {
-        const subDate = new Date(s.gradedAt || s.createdAt || 0);
-        if (Date.now() - subDate.getTime() > FIFTEEN_DAYS_MS) {
-          s.imageUrls = [];
-        }
-      });
-    }
   } catch (err) {
     console.warn("⚠️ Script image auto-cleanup notice:", err.message);
   }
@@ -580,35 +577,17 @@ async function autoCleanExpiredScriptImages() {
 // Background DB Connection Initiator
 ensureDbConnected();
 
-// Run automated garbage collection every 6 hours
-setInterval(autoCleanExpiredScriptImages, 6 * 60 * 60 * 1000);
-
-// Async Serverless Express Middleware (Guarantees DB connection before route execution)
-app.use(async (req, res, next) => {
-  try {
-    await ensureDbConnected();
-  } catch (e) { }
-  next();
-});
-
-function extractYoutubeId(urlOrId) {
-  if (!urlOrId) return "";
-  if (urlOrId.length === 11 && !urlOrId.includes("/") && !urlOrId.includes(".")) {
-    return urlOrId;
-  }
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = urlOrId.match(regExp);
-  return (match && match[2].length === 11) ? match[2] : urlOrId;
-}
-
 // REST ENDPOINTS
 
-// 1. Health Check
+// 1. Health Check (Strict & Truthful: reports actual MongoDB connection status and database name)
 app.get("/api/health", (req, res) => {
-  res.json({
-    ok: true,
-    status: "BJS & Bar Academy API Service Operational",
-    dbMode: isMongoConnected ? "MongoDB Atlas Connected" : "Fallback High-Speed Engine Active",
+  const currentDbName = mongoose.connection?.name || null;
+  const statusCode = isMongoConnected ? 200 : 503;
+  res.status(statusCode).json({
+    ok: isMongoConnected,
+    status: isMongoConnected ? "BJS & Bar Academy API Service Operational" : "MongoDB Service Disconnected",
+    dbMode: isMongoConnected ? "MongoDB Atlas Connected" : "Disconnected",
+    database: currentDbName,
     atlasIpNotice: isMongoConnected ? null : "Please whitelist 0.0.0.0/0 in MongoDB Atlas Network Access if using live cloud DB."
   });
 });
@@ -3651,6 +3630,14 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
     return res.json({ ok: true, ...cached, source: "fast-cache" });
   }
 
+  if (!isMongoConnected && (!memoryDb.courses || memoryDb.courses.length === 0)) {
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_UNAVAILABLE",
+      message: "Database is currently disconnected. Cannot retrieve home data."
+    });
+  }
+
   try {
     let courses = [];
     let mentors = [];
@@ -3660,14 +3647,14 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
 
     if (isMongoConnected) {
       const [crsList, mtrList, stusCount, dbSettings] = await Promise.all([
-        Course.find({ status: { $ne: "Inactive" } }).sort({ createdAt: -1 }).lean().catch(() => []),
-        Mentor.find({ status: "Active" }).sort({ createdAt: -1 }).lean().catch(() => []),
-        Student.countDocuments().catch(() => (memoryDb.students || []).length),
-        SiteSetting.findOne().lean().catch(() => null)
+        Course.find({ status: { $ne: "Inactive" } }).sort({ createdAt: -1 }).lean(),
+        Mentor.find({ status: "Active" }).sort({ createdAt: -1 }).lean(),
+        Student.countDocuments(),
+        SiteSetting.findOne().lean()
       ]);
       courses = crsList || [];
       mentors = mtrList || [];
-      studentsCount = stusCount || (memoryDb.students || []).length;
+      studentsCount = stusCount || 0;
       mentorsCount = mentors.length;
       if (dbSettings) {
         settings = { ...memoryDb.siteSettings, ...dbSettings };
@@ -3697,18 +3684,26 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
     fastCache.set("home_data", payload, 60);
     return res.json({ ok: true, ...payload, source: "mongodb" });
   } catch (err) {
-    const fallbackPayload = {
-      courses: (memoryDb.courses || []).filter(c => c && c.status !== "Inactive"),
-      mentors: (memoryDb.mentors || []).filter(m => m && m.status === "Active"),
-      stats: {
-        studentsCount: (memoryDb.students || []).length,
-        mentorsCount: (memoryDb.mentors || []).length,
-        coursesCount: (memoryDb.courses || []).length,
-        examsCount: (memoryDb.mcqExams || []).length
-      },
-      settings: memoryDb.siteSettings
-    };
-    return res.json({ ok: true, ...fallbackPayload, source: "memory", notice: err.message });
+    console.error("Home data fetch database error:", err.message);
+    if (memoryDb.courses && memoryDb.courses.length > 0) {
+      const fallbackPayload = {
+        courses: (memoryDb.courses || []).filter(c => c && c.status !== "Inactive"),
+        mentors: (memoryDb.mentors || []).filter(m => m && m.status === "Active"),
+        stats: {
+          studentsCount: (memoryDb.students || []).length,
+          mentorsCount: (memoryDb.mentors || []).length,
+          coursesCount: (memoryDb.courses || []).length,
+          examsCount: (memoryDb.mcqExams || []).length
+        },
+        settings: memoryDb.siteSettings
+      };
+      return res.json({ ok: true, ...fallbackPayload, source: "memory_cache", notice: err.message });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_ERROR",
+      message: "Database query failed while fetching home data: " + err.message
+    });
   }
 });
 
@@ -3721,11 +3716,23 @@ app.get(["/api/admin/courses", "/api/courses", "/admin/courses", "/courses"], as
 
   const cacheKey = isPublic ? "courses_public" : "courses_all";
   const cached = fastCache.get(cacheKey);
-  if (cached) {
+  if (cached && Array.isArray(cached) && cached.length > 0) {
     return res.json({ ok: true, courses: cached, source: "fast-cache" });
   }
 
-  let dbNotice = null;
+  if (!isMongoConnected) {
+    if (memoryDb.courses && memoryDb.courses.length > 0) {
+      const fallback = memoryDb.courses;
+      const activeFallback = isPublic ? fallback.filter(c => c && c.status !== "Inactive") : fallback;
+      return res.json({ ok: true, courses: activeFallback, source: "memory_cache" });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_UNAVAILABLE",
+      message: "Database is currently disconnected. Cannot retrieve courses."
+    });
+  }
+
   try {
     const coursesList = await Course.find().sort({ createdAt: -1 }).lean();
     if (coursesList && coursesList.length > 0) memoryDb.courses = coursesList;
@@ -3738,15 +3745,18 @@ app.get(["/api/admin/courses", "/api/courses", "/admin/courses", "/courses"], as
     fastCache.set("courses_all", coursesList || [], 30);
     return res.json({ ok: true, courses: coursesList || [], source: "mongodb" });
   } catch (err) {
-    dbNotice = err.message;
+    console.error("Course fetch database error:", err.message);
+    if (memoryDb.courses && memoryDb.courses.length > 0) {
+      const fallback = memoryDb.courses;
+      const activeFallback = isPublic ? fallback.filter(c => c && c.status !== "Inactive") : fallback;
+      return res.json({ ok: true, courses: activeFallback, source: "memory_cache", dbNotice: err.message });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_ERROR",
+      message: "Database query failed while fetching courses: " + err.message
+    });
   }
-
-  const fallback = memoryDb.courses || [];
-  if (isPublic) {
-    const activeFallback = fallback.filter(c => c && c.status !== "Inactive");
-    return res.json({ ok: true, courses: activeFallback, source: "memory", dbNotice });
-  }
-  return res.json({ ok: true, courses: fallback, source: "memory", dbNotice });
 });
 
 // Universal Course Resolver (Single Source of Truth, backward-compatible with legacy IDs and aliases)
@@ -4203,8 +4213,16 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
     : ("lessons_u_" + (authUser.id || authUser.phone || 'usr') + "_v" + (authUser.accessVersion || 0) + "_" + (courseId ? String(courseId).trim() : "all"));
 
   const cached = fastCache.get(cacheKey);
-  if (cached) {
+  if (cached && Array.isArray(cached) && cached.length > 0) {
     return res.json({ ok: true, lessons: cached, count: cached.length, source: "fast-cache" });
+  }
+
+  if (!isMongoConnected && (!memoryDb.lessons || memoryDb.lessons.length === 0)) {
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_UNAVAILABLE",
+      message: "Database is currently disconnected. Cannot retrieve lessons."
+    });
   }
 
   try {
@@ -4231,7 +4249,7 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
     // Ordinary Lesson List returns compact metadata without bulky transcript/segments payload (Phase 7)
     const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree status isDraft transcriptStatus transcriptLanguage transcriptSource transcriptWordCount transcriptUpdatedAt transcriptLastAttemptAt transcriptNextRetryAt transcriptAttemptCount transcriptLastError transcriptVideoId notifiedAt createdAt';
     if (isMongoConnected) {
-      lessonsList = await Lesson.find(query, lessonProjection).lean().catch(() => []);
+      lessonsList = await Lesson.find(query, lessonProjection).lean();
     }
 
     if (!lessonsList || lessonsList.length === 0) {
@@ -4277,8 +4295,15 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
     return res.json({ ok: true, lessons: processedLessons || [], count: (processedLessons || []).length });
   } catch (err) {
     console.error("Fetch lessons error:", err);
-    const fallback = (memoryDb.lessons || []).filter(l => !req.query.courseId || l.courseId === req.query.courseId);
-    return res.json({ ok: true, lessons: fallback, count: fallback.length, dbNotice: err.message });
+    if (memoryDb.lessons && memoryDb.lessons.length > 0) {
+      const fallback = (memoryDb.lessons || []).filter(l => !req.query.courseId || l.courseId === req.query.courseId);
+      return res.json({ ok: true, lessons: fallback, count: fallback.length, source: "memory_cache", dbNotice: err.message });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_ERROR",
+      message: "Database query failed while fetching lessons: " + err.message
+    });
   }
 });
 
@@ -5123,6 +5148,14 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       return res.status(401).json({ ok: false, message: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" });
     }
 
+    if (!isMongoConnected && (!memoryDb.courses || memoryDb.courses.length === 0)) {
+      return res.status(503).json({
+        ok: false,
+        error: "DATABASE_UNAVAILABLE",
+        message: "ডাটাবেজ সংযোগে সমস্যা হচ্ছে। কিছুক্ষণ পর আবার চেষ্টা করুন।"
+      });
+    }
+
     const { courseId: requestedCourseId } = req.query;
     const studentUniqueKey = student.id || student.phone || 'student';
     const accessVer = student.accessVersion || (student.updatedAt ? new Date(student.updatedAt).getTime() : 0);
@@ -5162,7 +5195,7 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
 
     const courseProjection = 'id legacyIds title shortTitle category faculty status batchRegText sessionRegText';
     const allCourses = isMongoConnected
-      ? await Course.find(courseQuery, courseProjection).sort({ createdAt: -1 }).lean().catch(() => [])
+      ? await Course.find(courseQuery, courseProjection).sort({ createdAt: -1 }).lean()
       : (memoryDb.courses || []).filter(c => {
           if (!c) return false;
           if (c.status !== "Inactive" && c.status !== "Hidden") return true;
@@ -5248,7 +5281,7 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       if (selectedCourse.shortTitle) orClauses.push({ courseId: selectedCourse.shortTitle });
 
       if (isMongoConnected) {
-        lessonsList = await Lesson.find({ $or: orClauses }, lessonProjection).lean().catch(() => []);
+        lessonsList = await Lesson.find({ $or: orClauses }, lessonProjection).lean();
       }
       if (!lessonsList || lessonsList.length === 0) {
         const cNorm = cleanCourse.toLowerCase().replace(/[-_]/g, ' ');
@@ -5443,11 +5476,23 @@ app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], as
 
   const cacheKey = isPublic ? "mentors_public" : "mentors_all";
   const cached = fastCache.get(cacheKey);
-  if (cached) {
+  if (cached && Array.isArray(cached) && cached.length > 0) {
     return res.json({ ok: true, mentors: cached, source: "fast-cache" });
   }
 
-  let dbNotice = null;
+  if (!isMongoConnected) {
+    if (memoryDb.mentors && memoryDb.mentors.length > 0) {
+      const fallback = memoryDb.mentors;
+      const activeFallback = isPublic ? fallback.filter(m => m && m.status === "Active") : fallback;
+      return res.json({ ok: true, mentors: activeFallback, source: "memory_cache" });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_UNAVAILABLE",
+      message: "Database is currently disconnected. Cannot retrieve mentors."
+    });
+  }
+
   try {
     const mentorsList = await Mentor.find().sort({ createdAt: -1 }).lean();
     if (mentorsList && mentorsList.length > 0) memoryDb.mentors = mentorsList;
@@ -5460,15 +5505,18 @@ app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], as
     fastCache.set("mentors_all", mentorsList || [], 30);
     return res.json({ ok: true, mentors: mentorsList || [], source: "mongodb" });
   } catch (err) {
-    dbNotice = err.message;
+    console.error("Mentor fetch database error:", err.message);
+    if (memoryDb.mentors && memoryDb.mentors.length > 0) {
+      const fallback = memoryDb.mentors;
+      const activeFallback = isPublic ? fallback.filter(m => m && m.status === "Active") : fallback;
+      return res.json({ ok: true, mentors: activeFallback, source: "memory_cache", dbNotice: err.message });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_ERROR",
+      message: "Database query failed while fetching mentors: " + err.message
+    });
   }
-
-  const fallback = memoryDb.mentors || [];
-  if (isPublic) {
-    const activeFallback = fallback.filter(m => m && m.status === "Active");
-    return res.json({ ok: true, mentors: activeFallback, source: "memory", dbNotice });
-  }
-  return res.json({ ok: true, mentors: fallback, source: "memory", dbNotice });
 });
 
 // SAVE Mentor Profile (Admin Control Panel)
@@ -5732,6 +5780,14 @@ app.post(["/api/admin/mentors/merge", "/admin/mentors/merge"], async (req, res) 
 
 // GET All Students & Pending Registrations (Admin Control Panel)
 app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
+  if (!isMongoConnected && (!memoryDb.students || memoryDb.students.length === 0)) {
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_UNAVAILABLE",
+      message: "Database is currently disconnected. Cannot retrieve students list."
+    });
+  }
+
   let dbNotice = null;
   try {
     await ensureDbConnected();
@@ -5739,12 +5795,10 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
     let mongoRegs = [];
 
     if (isMongoConnected) {
-      try {
-        mongoStudents = await Student.find().sort({ createdAt: -1 }).lean();
-      } catch (e) { }
-      try {
-        mongoRegs = await Registration.find().sort({ createdAt: -1 }).lean();
-      } catch (e) { }
+      [mongoStudents, mongoRegs] = await Promise.all([
+        Student.find().sort({ createdAt: -1 }).lean(),
+        Registration.find().sort({ createdAt: -1 }).lean()
+      ]);
     }
 
     const studentMap = new Map();
@@ -5895,9 +5949,16 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
 
     return res.json({ ok: true, students: combinedStudents, source: isMongoConnected ? "mongodb" : "memory" });
   } catch (err) {
-    dbNotice = err.message;
-    const fallbackStudents = memoryDb.students || [];
-    return res.json({ ok: true, students: fallbackStudents, source: "memory", dbNotice });
+    console.error("Student list fetch database error:", err.message);
+    if (memoryDb.students && memoryDb.students.length > 0) {
+      const fallbackStudents = memoryDb.students || [];
+      return res.json({ ok: true, students: fallbackStudents, source: "memory_cache", dbNotice: err.message });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_ERROR",
+      message: "Database query failed while fetching students: " + err.message
+    });
   }
 });
 
@@ -5956,6 +6017,14 @@ app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
 });
 
 app.get(["/api/admin/overview-stats", "/admin/overview-stats"], async (req, res) => {
+  if (!isMongoConnected && (!memoryDb.students || memoryDb.students.length === 0)) {
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_UNAVAILABLE",
+      message: "Database is currently disconnected. Cannot retrieve overview stats."
+    });
+  }
+
   let dbNotice = null;
   let studentsList = [];
   let coursesList = [];
@@ -5975,6 +6044,14 @@ app.get(["/api/admin/overview-stats", "/admin/overview-stats"], async (req, res)
     memoryDb.mentors = mentorsList || [];
     memoryDb.mcqExams = examsList || [];
   } catch (err) {
+    console.error("Overview stats database error:", err.message);
+    if (!memoryDb.students || memoryDb.students.length === 0) {
+      return res.status(503).json({
+        ok: false,
+        error: "DATABASE_ERROR",
+        message: "Database query failed while fetching overview stats: " + err.message
+      });
+    }
     dbNotice = err.message;
     studentsList = memoryDb.students || [];
     coursesList = memoryDb.courses || [];
@@ -6032,30 +6109,58 @@ app.get(["/api/admin/overview-stats", "/admin/overview-stats"], async (req, res)
 
 // GET Receipts (Admin Control Panel)
 app.get(["/api/admin/receipts", "/admin/receipts"], async (req, res) => {
-  let dbNotice = null;
+  if (!isMongoConnected && (!memoryDb.receipts || memoryDb.receipts.length === 0)) {
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_UNAVAILABLE",
+      message: "Database is currently disconnected. Cannot retrieve receipts."
+    });
+  }
+
   try {
     await ensureDbConnected();
     const mongoReceipts = await Receipt.find().sort({ createdAt: -1 }).lean();
     if (mongoReceipts && mongoReceipts.length > 0) memoryDb.receipts = mongoReceipts;
     return res.json({ ok: true, receipts: mongoReceipts || [], source: "mongodb" });
   } catch (err) {
-    dbNotice = err.message;
+    console.error("Receipt fetch database error:", err.message);
+    if (memoryDb.receipts && memoryDb.receipts.length > 0) {
+      return res.json({ ok: true, receipts: memoryDb.receipts, source: "memory_cache", dbNotice: err.message });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_ERROR",
+      message: "Database query failed while fetching receipts: " + err.message
+    });
   }
-  return res.json({ ok: true, receipts: memoryDb.receipts || [], source: "memory", dbNotice });
 });
 
 // GET Assignments (Admin & Student)
 app.get(["/api/admin/assignments", "/api/assignments", "/admin/assignments", "/assignments"], async (req, res) => {
-  let dbNotice = null;
+  if (!isMongoConnected && (!memoryDb.assignments || memoryDb.assignments.length === 0)) {
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_UNAVAILABLE",
+      message: "Database is currently disconnected. Cannot retrieve assignments."
+    });
+  }
+
   try {
     await ensureDbConnected();
     const assignments = await Assignment.find().sort({ createdAt: -1 }).lean();
     if (assignments && assignments.length > 0) memoryDb.assignments = assignments;
     return res.json({ ok: true, assignments: assignments || [], source: "mongodb" });
   } catch (err) {
-    dbNotice = err.message;
+    console.error("Assignment fetch database error:", err.message);
+    if (memoryDb.assignments && memoryDb.assignments.length > 0) {
+      return res.json({ ok: true, assignments: memoryDb.assignments, source: "memory_cache", dbNotice: err.message });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_ERROR",
+      message: "Database query failed while fetching assignments: " + err.message
+    });
   }
-  return res.json({ ok: true, assignments: memoryDb.assignments || [], source: "memory", dbNotice });
 });
 
 // GET Mail Settings (Admin Control Panel)
@@ -6139,19 +6244,30 @@ app.post(["/api/admin/site-settings", "/admin/site-settings"], async (req, res) 
 
 // GET MCQ Exams (Admin & Public Player)
 app.get(["/api/admin/mcq-exams", "/admin/mcq-exams"], async (req, res) => {
-  let dbNotice = null;
+  if (!isMongoConnected && (!memoryDb.mcqExams || memoryDb.mcqExams.length === 0)) {
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_UNAVAILABLE",
+      message: "Database is currently disconnected. Cannot retrieve MCQ exams."
+    });
+  }
+
   try {
     await ensureDbConnected();
-    if (isMongoConnected) {
-      const exams = await McqExam.find().sort({ createdAt: -1 }).lean();
-      if (exams && exams.length > 0) memoryDb.mcqExams = exams;
-      return res.json({ ok: true, exams: exams || [], source: "mongodb" });
-    }
+    const exams = await McqExam.find().sort({ createdAt: -1 }).lean();
+    if (exams && exams.length > 0) memoryDb.mcqExams = exams;
+    return res.json({ ok: true, exams: exams || [], source: "mongodb" });
   } catch (err) {
-    dbNotice = err.message;
-    console.warn("Mongo MCQ Exam fetch notice:", err.message);
+    console.error("Mongo MCQ Exam fetch error:", err.message);
+    if (memoryDb.mcqExams && memoryDb.mcqExams.length > 0) {
+      return res.json({ ok: true, exams: memoryDb.mcqExams, source: "memory_cache", dbNotice: err.message });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "DATABASE_ERROR",
+      message: "Database query failed while fetching MCQ exams: " + err.message
+    });
   }
-  return res.json({ ok: true, exams: memoryDb.mcqExams || [], source: "memory", dbNotice });
 });
 
 // GET Single MCQ Exam by ID (Public Exam Player)
@@ -8493,27 +8609,30 @@ app.post("/api/ai/chat", async (req, res) => {
           isEnrolled: accessCheck.allowed
         }
       };
+    }
 
-      const safeMatchedLessons = accessCheck.allowed
-        ? (aiResult.matchedLessons || [])
-        : (aiResult.matchedLessons || []).map(ml => ({
-            id: ml.id,
-            title: ml.title,
-            courseId: resolvedCourseId,
-            chapter: ml.chapter,
-            timestamp: ml.timestamp || '00:00',
-            matchedKeywords: ml.matchedKeywords,
-            snippet: ml.snippet
-          }));
-
-      const responsePayload = {
-        reply: aiResult.answer,
-        verifiedSources: aiResult.verifiedSources || [],
-        isAmbiguous: aiResult.isAmbiguous || false,
-        matchedLessons: safeMatchedLessons,
-        recommendation,
-        source: "mongodb-backend-processed"
+    const safeMatchedLessons = (aiResult.matchedLessons || []).map(ml => {
+      const access = checkStudentCourseAccess(authUser, ml.courseId, ml);
+      if (access.allowed) return ml;
+      return {
+        id: ml.id,
+        title: ml.title,
+        courseId: ml.courseId,
+        chapter: ml.chapter,
+        timestamp: ml.timestamp || '00:00',
+        matchedKeywords: ml.matchedKeywords,
+        snippet: ml.snippet
       };
+    });
+
+    const responsePayload = {
+      reply: aiResult.answer,
+      verifiedSources: aiResult.verifiedSources || [],
+      isAmbiguous: aiResult.isAmbiguous || false,
+      matchedLessons: safeMatchedLessons,
+      recommendation,
+      source: "mongodb-backend-processed"
+    };
 
     fastCache.set(cacheKey, responsePayload, 120); // 2 minutes query cache
     return res.json({ ok: true, ...responsePayload });

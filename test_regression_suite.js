@@ -126,8 +126,8 @@ async function runTestSuite() {
   const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
   if (mongoUri) {
     try {
-      await mongoose.connect(mongoUri);
-      console.log('✓ Connected to MongoDB for Integration Checks.');
+      await mongoose.connect(mongoUri, { dbName: "bjs_academy_test" });
+      console.log('✓ Connected to MongoDB (isolated test db: bjs_academy_test) for Integration Checks.');
 
       const testCourseOldId = 'test-family-law-' + Date.now();
       const testCourseNewId = 'test-bangladesh-law-' + Date.now();
