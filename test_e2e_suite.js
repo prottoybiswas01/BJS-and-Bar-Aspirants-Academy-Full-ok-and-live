@@ -53,9 +53,9 @@ async function runMasterSuite() {
 
   let isConnected = false;
   try {
-    await mongoose.connect(MONGO_URI, { serverSelectionTimeoutMS: 6000 });
+    await mongoose.connect(MONGO_URI, { dbName: "bjs_academy_test", serverSelectionTimeoutMS: 6000 });
     isConnected = mongoose.connection.readyState === 1;
-    console.log("✓ Connected to MongoDB for E2E Verification.\n");
+    console.log("✓ Connected to MongoDB (isolated test db: bjs_academy_test) for E2E Verification.\n");
   } catch (err) {
     console.warn("⚠️ Notice connecting to MongoDB (testing with in-memory logic):", err.message);
   }
