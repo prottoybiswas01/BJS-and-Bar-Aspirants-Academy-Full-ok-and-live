@@ -25,4 +25,7 @@ const transcriptJobSchema = new mongoose.Schema({
 // Compound index for querying due jobs with concurrency lock
 transcriptJobSchema.index({ status: 1, nextRetryAt: 1, lockedAt: 1 });
 
+// 30-day TTL Auto-cleanup index for old transcript jobs (30 days = 2,592,000s)
+transcriptJobSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 86400 });
+
 module.exports = mongoose.model("TranscriptJob", transcriptJobSchema);

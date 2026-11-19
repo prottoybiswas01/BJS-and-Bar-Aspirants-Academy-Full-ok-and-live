@@ -95,7 +95,7 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // 1. Enterprise Security Headers (Prevents Clickjacking, MIME Sniffing, XSS & Code Injection)
 app.use((req, res, next) => {
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
@@ -109,12 +109,14 @@ app.use((req, res, next) => {
 function sanitizeData(data) {
   if (data === null || data === undefined) return data;
   if (typeof data === "string") {
-    // Strip dangerous script tags and inline event handlers
+    // Strip dangerous script tags, iframes, inline event handlers and malicious executable HTML
     return data
       .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-      .replace(/javascript:/gi, "")
-      .replace(/onload=/gi, "")
-      .replace(/onerror=/gi, "");
+      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, "")
+      .replace(/javascript:[^"']*/gi, "")
+      .replace(/on\w+\s*=\s*["'][^"']*["']/gi, "")
+      .replace(/<\/?(script|iframe|object|embed|applet|meta|link|style)/gi, "")
+      .trim();
   }
   if (Array.isArray(data)) {
     return data.map(item => sanitizeData(item));
@@ -203,6 +205,7 @@ const McqExam = require("./models/McqExam");
 const McqResult = require("./models/McqResult");
 const TranscriptJob = require("./models/TranscriptJob");
 const NotificationLog = require("./models/NotificationLog");
+const AuditLog = require("./models/AuditLog");
 const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId } = require("./services/transcriptService");
 const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
 const { dispatchNewLessonNotifications } = require("./services/videoNotificationService");
@@ -550,10 +553,11 @@ async function ensureDbConnected() {
 
     const opts = {
       dbName: process.env.MONGODB_DB || "bjs_academy",
-      maxPoolSize: 10,
+      maxPoolSize: 5,
+      minPoolSize: 0,
       serverSelectionTimeoutMS: 5000,
       connectTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
+      socketTimeoutMS: 30000,
       family: 4, // Force IPv4 to prevent IPv6 TLS handshake timeouts on Vercel
       bufferCommands: false, // Instant fail-safe without waiting on cold starts
       retryWrites: true,
@@ -839,6 +843,56 @@ const requireAdmin = async (req, res, next) => {
     return res.status(403).json({ ok: false, message: "অবৈধ সিকিউরিটি ক্রেডেনশিয়াল।" });
   }
 };
+
+// -------------------------------------------------------------
+// SECURE AUDIT LOGGING ENGINE (Tracks Admin Actions)
+// -------------------------------------------------------------
+async function logAuditEvent({ adminId = 'ADMIN-001', adminName = 'Super Admin', action, targetType = 'student', targetId = '', details = {}, req }) {
+  try {
+    const rawIp = req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress || '';
+    const ip = Array.isArray(rawIp) ? rawIp[0] : String(rawIp).split(',')[0].trim();
+    const userAgent = String(req?.headers?.['user-agent'] || '').substring(0, 200);
+    if (isMongoConnected) {
+      await AuditLog.create({
+        adminId,
+        adminName,
+        action,
+        targetType,
+        targetId,
+        details,
+        ip,
+        userAgent,
+        timestamp: new Date()
+      }).catch(err => console.warn('AuditLog save notice:', err.message));
+    }
+  } catch (e) {
+    console.warn('AuditLog logging error:', e.message);
+  }
+}
+
+// -------------------------------------------------------------
+// SLIDING WINDOW RATE LIMITER FOR AI LEGAL ASSISTANT (Max 8 req/min)
+// -------------------------------------------------------------
+const aiRateLimitMap = new Map();
+function checkAiRateLimit(key) {
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxRequests = 8;
+  const record = aiRateLimitMap.get(key) || { count: 0, resetAt: now + windowMs };
+  if (now > record.resetAt) {
+    record.count = 1;
+    record.resetAt = now + windowMs;
+    aiRateLimitMap.set(key, record);
+    return { allowed: true, remaining: maxRequests - 1 };
+  }
+  if (record.count >= maxRequests) {
+    const retryAfter = Math.ceil((record.resetAt - now) / 1000);
+    return { allowed: false, retryAfter };
+  }
+  record.count++;
+  aiRateLimitMap.set(key, record);
+  return { allowed: true, remaining: maxRequests - record.count };
+}
 
 // 2. Student Registration Request
 app.post("/api/auth/register", async (req, res) => {
@@ -1160,7 +1214,7 @@ app.post("/api/auth/login", async (req, res) => {
     if (isAdminPortal || (isAdminUsername && isAdminPassword)) {
       if (isAdminUsername || isAdminPortal) {
         if (isAdminPassword) {
-          const token = jwt.sign({ role: "admin", id: "ADMIN-001" }, JWT_SECRET, { expiresIn: "7d" });
+          const token = jwt.sign({ role: "admin", id: "ADMIN-001" }, JWT_SECRET, { expiresIn: "24h" });
           return res.json({
             ok: true,
             isAdmin: true,
@@ -3808,7 +3862,7 @@ ${courseXmlEntries}
 // CONSOLIDATED ULTRA-FAST HOMEPAGE ENDPOINT
 // -------------------------------------------------------------
 app.get(["/api/home-data", "/home-data"], async (req, res) => {
-  res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
+  res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
 
   const cached = fastCache.get("home_data");
   if (cached) {
@@ -3896,7 +3950,7 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
 app.get(["/api/admin/courses", "/api/courses", "/admin/courses", "/courses"], async (req, res) => {
   const isPublic = req.path === "/api/courses" || req.path === "/courses";
   if (isPublic) {
-    res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
+    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
   }
 
   const cacheKey = isPublic ? "courses_public" : "courses_all";
@@ -4392,6 +4446,16 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
     fastCache.del("lessons");
     fastCache.flushAll();
 
+    await logAuditEvent({
+      adminId: req.user?.id || 'ADMIN-001',
+      adminName: req.user?.name || 'Super Admin',
+      action: 'COURSE_SAVE',
+      targetType: 'course',
+      targetId: saved?.id || targetCourseId,
+      details: { title: saved?.title, price: saved?.price, status: saved?.status },
+      req
+    });
+
     return res.json({
       ok: true,
       message: `কোর্স "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং সম্পর্কিত সমস্ত লেকচার ও শিক্ষার্থীদের তথ্য সিঙ্ক হয়েছে!`,
@@ -4441,7 +4505,7 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
   const isPrivileged = authUser && (authUser.isAdmin || authUser.isMentor);
 
   if (!authUser) {
-    res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
+    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
   } else {
     res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
   }
@@ -4539,7 +4603,9 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
       }
       return {
         ...l,
-        isUnlocked: true
+        isUnlocked: true,
+        youtubeId: l.youtubeId ? `bjs_enc_${Buffer.from(l.youtubeId).toString('base64')}` : '',
+        youtubeUrl: '' // Anti-piracy link hiding
       };
     });
 
@@ -5675,7 +5741,9 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       }
       return {
         ...l,
-        isUnlocked: true
+        isUnlocked: true,
+        youtubeId: l.youtubeId ? `bjs_enc_${Buffer.from(l.youtubeId).toString('base64')}` : '',
+        youtubeUrl: '' // Anti-piracy link hiding
       };
     });
 
@@ -5795,6 +5863,22 @@ app.post("/api/ai/legal-assistant", async (req, res) => {
       return res.status(400).json({ ok: false, message: "অনুগ্রহ করে প্রশ্ন লিখুন।" });
     }
 
+    const userQuery = query.trim();
+    if (userQuery.length > 500) {
+      return res.status(400).json({ ok: false, message: "প্রশ্নের দৈর্ঘ্য সর্বোচ্চ ৫০০ অক্ষরের মধ্যে সীমাবদ্ধ রাখুন।" });
+    }
+
+    // AI Quota & Rate Limit: Max 8 requests per minute per IP
+    const clientIp = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "127.0.0.1";
+    const rateLimitKey = `ai_rate_${String(clientIp).split(',')[0].trim()}`;
+    const rateCheck = checkAiRateLimit(rateLimitKey);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        ok: false,
+        message: `AI সার্ভার কোটা সুরক্ষায় মিনিটে সর্বোচ্চ ৮টি প্রশ্ন অনুমোদিত। অনুগ্রহ করে ${rateCheck.retryAfter || 30} সেকেন্ড পর আবার চেষ্টা করুন।`
+      });
+    }
+
     let allLessons = [];
     if (isMongoConnected) {
       allLessons = await Lesson.find().lean().catch(() => []);
@@ -5839,7 +5923,7 @@ app.delete(["/api/admin/lessons/:id", "/api/lessons/:id", "/admin/lessons/:id", 
 app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], async (req, res) => {
   const isPublic = req.path.includes("/mentors") && !req.path.includes("admin");
   if (isPublic) {
-    res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
+    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
   }
 
   const cacheKey = isPublic ? "mentors_public" : "mentors_all";
@@ -6746,7 +6830,7 @@ app.get(["/api/admin/mail-settings", "/admin/mail-settings"], requireAdmin, asyn
 
 // Site Settings Endpoint (Public & Admin with Fast Cache)
 app.get(["/api/site-settings", "/api/admin/site-settings", "/site-settings", "/admin/site-settings"], async (req, res) => {
-  res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
+  res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
   const cached = fastCache.get("site_settings");
   if (cached) {
     return res.json({ ok: true, settings: cached, source: "fast-cache" });
@@ -8312,6 +8396,21 @@ app.get("/api/admin/registrations", async (req, res) => {
   }
 });
 
+// Admin Audit Logs Endpoint (Protected & Sorted with 90-day TTL in DB)
+app.get(["/api/admin/audit-logs", "/admin/audit-logs"], requireAdmin, async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const limit = Math.min(parseInt(req.query.limit || "50", 10), 100);
+    let logs = [];
+    if (isMongoConnected) {
+      logs = await AuditLog.find().sort({ timestamp: -1, createdAt: -1 }).limit(limit).lean();
+    }
+    return res.json({ ok: true, logs, count: logs.length });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error retrieving audit logs: " + err.message });
+  }
+});
+
 app.post("/api/admin/students/save", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
@@ -8475,6 +8574,16 @@ app.post("/api/admin/students/save", requireAdmin, async (req, res) => {
       // Repetitive else block removed: No spam emails on routine profile updates!
     }
 
+    await logAuditEvent({
+      adminId: req.user?.id || 'ADMIN-001',
+      adminName: req.user?.name || 'Super Admin',
+      action: 'STUDENT_SAVE',
+      targetType: 'student',
+      targetId: savedStudent?.id || cleanId,
+      details: { name: savedStudent?.name, phone: savedStudent?.phone, email: savedStudent?.email, batch: savedStudent?.batch },
+      req
+    });
+
     return res.json({ ok: true, message: `শিক্ষার্থী "${savedStudent.name || savedStudent.id}" এর তথ্য সফলভাবে সেভ করা হয়েছে!`, student: savedStudent });
   } catch (e) {
     console.error("Error saving student:", e);
@@ -8625,6 +8734,16 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
       ).catch(err => console.warn("Approval email notice:", err.message));
     }
 
+    await logAuditEvent({
+      adminId: req.user?.id || 'ADMIN-001',
+      adminName: req.user?.name || 'Super Admin',
+      action: 'STUDENT_APPROVE',
+      targetType: 'student',
+      targetId: studentId,
+      details: { name: updatedStudent?.name, phone: updatedStudent?.phone, email: updatedStudent?.email, courses: updatedStudent?.allowedCourseIds },
+      req
+    });
+
     return res.json({
       ok: true,
       message: `শিক্ষার্থী "${updatedStudent?.name || studentId}" এর আবেদন এপ্রুভ ও কোর্সের এক্সেস সক্রিয় করা হয়েছে!`,
@@ -8738,6 +8857,16 @@ app.delete("/api/admin/students/:id", requireAdmin, async (req, res) => {
     memoryDb.submissions = (memoryDb.submissions || []).filter(sub => !isMatch(sub, "studentId"));
     memoryDb.receipts = (memoryDb.receipts || []).filter(rec => !isMatch(rec, "studentId"));
     memoryDb.devices = (memoryDb.devices || []).filter(d => !isMatch(d, "studentId"));
+
+    await logAuditEvent({
+      adminId: req.user?.id || 'ADMIN-001',
+      adminName: req.user?.name || 'Super Admin',
+      action: 'STUDENT_DELETE',
+      targetType: 'student',
+      targetId: studentId,
+      details: { name: targetStudent?.name, phone, email, regId },
+      req
+    });
 
     return res.json({ ok: true, message: "Student and all associated records permanently deleted!" });
   } catch (err) {
@@ -8901,6 +9030,16 @@ app.post("/api/admin/receipts/save", async (req, res) => {
 
     invalidateAdminBundle();
 
+    await logAuditEvent({
+      adminId: req.user?.id || 'ADMIN-001',
+      adminName: req.user?.name || 'Super Admin',
+      action: 'PAYMENT_APPROVE',
+      targetType: 'receipt',
+      targetId: savedReceipt.receiptId,
+      details: { studentId: savedReceipt.studentId, amount: savedReceipt.amount, paymentMethod: savedReceipt.paymentMethod, trxId: savedReceipt.trxId },
+      req
+    });
+
     return res.json({
       ok: true,
       message: `Money Receipt ${savedReceipt.receiptId} saved and email sent to ${savedReceipt.studentEmail}!`,
@@ -9061,6 +9200,24 @@ app.post("/api/ai/chat", async (req, res) => {
     }
 
     const userQuery = String(prompt).trim();
+    if (userQuery.length > 500) {
+      return res.status(400).json({
+        ok: false,
+        message: "প্রশ্নের দৈর্ঘ্য সর্বোচ্চ ৫০০ অক্ষরের মধ্যে সীমাবদ্ধ রাখুন।"
+      });
+    }
+
+    // AI Quota & Rate Limit: Max 8 requests per minute per IP / Student
+    const clientIp = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "127.0.0.1";
+    const rateLimitKey = `ai_rate_${String(clientIp).split(',')[0].trim()}`;
+    const rateCheck = checkAiRateLimit(rateLimitKey);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        ok: false,
+        message: `AI সার্ভার কোটা সুরক্ষায় মিনিটে সর্বোচ্চ ৮টি প্রশ্ন অনুমোদিত। অনুগ্রহ করে ${rateCheck.retryAfter || 30} সেকেন্ড পর আবার চেষ্টা করুন।`
+      });
+    }
+
     const convHist = conversationHistory || history || [];
 
     // 1. Resolve student/user identity on the backend

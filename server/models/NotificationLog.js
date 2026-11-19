@@ -22,4 +22,7 @@ const notificationLogSchema = new mongoose.Schema({
 // Prevent duplicate notifications to the same recipient for the same lesson
 notificationLogSchema.index({ lessonId: 1, recipientEmail: 1 }, { unique: true });
 
+// 30-day TTL Auto-cleanup index to conserve MongoDB 512MB free tier storage (30 days = 2,592,000s)
+notificationLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 86400 });
+
 module.exports = mongoose.model("NotificationLog", notificationLogSchema);

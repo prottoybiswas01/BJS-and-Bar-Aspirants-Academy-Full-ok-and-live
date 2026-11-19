@@ -16,6 +16,23 @@ export default function VideoPlayerModal({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef(null);
 
+  // De-obfuscate protected video ID if encoded with bjs_enc_ prefix
+  const resolveVideoId = (raw) => {
+    if (!raw) return '';
+    const str = String(raw).trim();
+    if (str.startsWith('bjs_enc_')) {
+      try {
+        if (typeof window !== 'undefined' && window.atob) {
+          return window.atob(str.replace('bjs_enc_', ''));
+        }
+      } catch (e) {
+        return str;
+      }
+    }
+    return str;
+  };
+  const activeVideoId = resolveVideoId(videoId);
+
   const canPlayFull = clipOptions ? Boolean(clipOptions.canPlayFull || clipOptions.isEnrolled) : true;
   const startTime = Number(clipOptions?.startTime || 0);
   const endTime = Number(clipOptions?.endTime || (startTime + 60));
@@ -58,8 +75,8 @@ export default function VideoPlayerModal({
   };
 
   const iframeSrc = canPlayFull
-    ? `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&start=${startTime}&rel=0&modestbranding=1&controls=1&showinfo=1&iv_load_policy=3&fs=1&disablekb=0&color=amber&enablejsapi=1`
-    : `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&start=${startTime}&end=${endTime}&rel=0&modestbranding=1&controls=1&showinfo=1&iv_load_policy=3&fs=1&disablekb=1&color=amber&enablejsapi=1`;
+    ? `https://www.youtube-nocookie.com/embed/${activeVideoId}?autoplay=1&start=${startTime}&rel=0&modestbranding=1&controls=1&showinfo=1&iv_load_policy=3&fs=1&disablekb=0&color=amber&enablejsapi=1`
+    : `https://www.youtube-nocookie.com/embed/${activeVideoId}?autoplay=1&start=${startTime}&end=${endTime}&rel=0&modestbranding=1&controls=1&showinfo=1&iv_load_policy=3&fs=1&disablekb=1&color=amber&enablejsapi=1`;
 
   useEffect(() => {
     lockBodyScroll();
@@ -190,8 +207,24 @@ export default function VideoPlayerModal({
         </div>
 
         {/* Video Player Container */}
-        <div className="relative aspect-video w-full bg-black overflow-hidden flex-1">
-          {videoId ? (
+        <div className="relative aspect-video w-full bg-black overflow-hidden flex-1 select-none" onContextMenu={(e) => e.preventDefault()}>
+          {/* Anti-Piracy Top Shield: Blocks YouTube Title, Share, and Copy Link clicks */}
+          <div
+            className="absolute top-0 left-0 right-0 h-14 z-30 pointer-events-auto bg-gradient-to-b from-black/85 via-black/40 to-transparent cursor-default select-none"
+            onContextMenu={(e) => e.preventDefault()}
+            onClick={(e) => e.stopPropagation()}
+            title="BJS Academy Protected Stream"
+          >
+            <div className="flex items-center justify-between px-3 pt-2 text-[10px] text-amber-400/90 font-bold pointer-events-none select-none">
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>🔒 BJS Academy Protected Stream</span>
+              </span>
+              <span className="text-[9px] text-slate-400 font-mono">STU: {student?.id || 'AUTH-SECURE'}</span>
+            </div>
+          </div>
+
+          {activeVideoId ? (
             <iframe
               key={playerKey}
               src={iframeSrc}

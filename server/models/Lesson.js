@@ -43,4 +43,9 @@ const lessonSchema = new mongoose.Schema({
   notifiedAt: { type: Date, default: null } // Video publication notification timestamp
 }, { timestamps: true });
 
+// High-speed compound indexes for course listing, status, and subtitle sync
+lessonSchema.index({ courseId: 1, order: 1 });
+lessonSchema.index({ courseId: 1, status: 1 });
+lessonSchema.index({ hasSubtitles: 1, transcriptStatus: 1 });
+
 module.exports = mongoose.model("Lesson", lessonSchema);

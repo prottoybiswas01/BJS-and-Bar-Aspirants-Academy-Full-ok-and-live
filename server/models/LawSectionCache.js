@@ -28,4 +28,10 @@ const LawSectionCacheSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// High-speed compound index for statute & section querying
+LawSectionCacheSchema.index({ statuteId: 1, sectionNum: 1 });
+
+// 60-day TTL Auto-cleanup index to keep legal cache fresh & prevent 512MB storage bloat
+LawSectionCacheSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 60 * 86400 });
+
 module.exports = mongoose.models.LawSectionCache || mongoose.model('LawSectionCache', LawSectionCacheSchema);

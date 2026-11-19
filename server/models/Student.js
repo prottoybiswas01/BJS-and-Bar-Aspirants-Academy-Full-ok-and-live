@@ -42,4 +42,9 @@ const studentSchema = new mongoose.Schema({
   accessVersion: { type: Number, default: () => Date.now() },
 }, { timestamps: true });
 
+// High-performance compound indexes for student access & admin filtering
+studentSchema.index({ status: 1, loginApproval: 1 });
+studentSchema.index({ allowedCourseIds: 1 });
+studentSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model("Student", studentSchema);
