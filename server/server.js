@@ -68,7 +68,24 @@ try {
 
 const app = express();
 app.use(compression());
-app.use(cors());
+
+// Strict Cross-Origin Resource Sharing (CORS) Whitelist
+const allowedOrigins = [
+  'https://bjs.kodl.uk',
+  'http://localhost:5173',
+  'http://localhost:5000',
+  'http://localhost:3000'
+];
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS policy: Access denied for this origin.'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -770,6 +787,59 @@ function validateRealEmail(email) {
   return { ok: true, cleanEmail: clean };
 }
 
+// -------------------------------------------------------------
+// SECURE USER SESSION & ROLE AUTHENTICATION HELPERS
+// -------------------------------------------------------------
+async function getAuthUserFromRequest(req) {
+  try {
+    let token = null;
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.substring(7).trim();
+    }
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (decoded && decoded.id) {
+          if (decoded.role === "admin" || decoded.isAdmin) {
+            return { id: decoded.id, name: "Super Admin", role: "admin", isAdmin: true };
+          }
+          if (decoded.role === "mentor" || decoded.isMentor) {
+            let mtr = null;
+            if (isMongoConnected) mtr = await Mentor.findOne({ id: decoded.id }).lean();
+            if (!mtr) mtr = (memoryDb.mentors || []).find(m => m.id === decoded.id);
+            if (mtr) return { ...mtr, isMentor: true, role: "mentor" };
+          }
+          // Student match
+          let stu = null;
+          if (isMongoConnected) {
+            stu = await Student.findOne({ $or: [{ id: decoded.id }, ...(mongoose.Types.ObjectId.isValid(decoded.id) ? [{ _id: decoded.id }] : [])] }).lean();
+          }
+          if (!stu) stu = (memoryDb.students || []).find(s => s.id === decoded.id);
+          if (stu) return { ...stu, role: "student" };
+        }
+      } catch (jwtErr) {
+        // Token invalid or expired
+      }
+    }
+  } catch (e) { }
+  return null;
+}
+
+const requireAdmin = async (req, res, next) => {
+  try {
+    const user = await getAuthUserFromRequest(req);
+    if (!user || (!user.isAdmin && user.role !== 'admin')) {
+      return res.status(403).json({ ok: false, message: "অ্যাডমিন অ্যাক্সেস আবশ্যক।" });
+    }
+    req.user = user;
+    next();
+  } catch (err) {
+    return res.status(403).json({ ok: false, message: "অবৈধ সিকিউরিটি ক্রেডেনশিয়াল।" });
+  }
+};
+
 // 2. Student Registration Request
 app.post("/api/auth/register", async (req, res) => {
   try {
@@ -1074,12 +1144,17 @@ app.post("/api/auth/login", async (req, res) => {
       cleanId === "bjsacademy38@gmail.com" ||
       cleanId === validAdminUser.toLowerCase();
 
-    // Standard Admin Passwords
-    const isAdminPassword =
-      passInput === validAdminPass ||
-      passInput === "ADMIN123@" ||
-      passInput === "admin123" ||
-      passInput === "ADMIN123";
+    // Verify Admin Password safely (matching configured adminPassword or bcrypt)
+    let isAdminPassword = false;
+    if (validAdminPass.startsWith("$2a$") || validAdminPass.startsWith("$2b$")) {
+      try {
+        isAdminPassword = await bcrypt.compare(passInput, validAdminPass);
+      } catch (e) {
+        isAdminPassword = false;
+      }
+    } else {
+      isAdminPassword = passInput === validAdminPass;
+    }
 
     // 1. DIRECT ADMIN PORTAL LOGIN
     if (isAdminPortal || (isAdminUsername && isAdminPassword)) {
@@ -1144,8 +1219,19 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     if (mentorUser) {
-      const mPass = String(mentorUser.password || "123456").trim();
-      if (passInput === mPass || passInput === "123456" || passInput === "ADMIN123@" || passInput === "mentor123") {
+      const mPass = String(mentorUser.password || "").trim();
+      let isMentorPassValid = false;
+      if (mPass.startsWith("$2a$") || mPass.startsWith("$2b$")) {
+        try {
+          isMentorPassValid = await bcrypt.compare(passInput, mPass);
+        } catch (e) {
+          isMentorPassValid = false;
+        }
+      } else {
+        isMentorPassValid = Boolean(mPass && passInput === mPass);
+      }
+
+      if (isMentorPassValid) {
         if (mentorUser.status === "Inactive" || mentorUser.loginApproval === "Rejected") {
           return res.status(403).json({
             ok: false,
@@ -1330,19 +1416,9 @@ app.post(["/api/auth/google-login", "/auth/google-login"], async (req, res) => {
 
     const cleanEmail = String(email).trim().toLowerCase();
 
-    // 1. Direct Super Admin Match
-    let validAdminUser = memoryDb.siteSettings.adminUsername || "prttoy";
-    if (cleanEmail === "bjsacademy38@gmail.com" || cleanEmail === validAdminUser.toLowerCase()) {
-      const token = jwt.sign({ role: "admin", id: "ADMIN-001" }, JWT_SECRET, { expiresIn: "7d" });
-      return res.json({
-        ok: true,
-        isAdmin: true,
-        token,
-        user: { id: "ADMIN-001", name: name || "Super Admin", role: "admin", isAdmin: true }
-      });
-    }
-
-    // 2. Mentor Match
+    // Google 1-Click login authenticates students and existing mentors.
+    // Admin access strictly requires admin credentials through the secured admin portal.
+    // 1. Mentor Match
     let mentorUser = null;
     if (isMongoConnected) {
       try {
@@ -5316,54 +5392,8 @@ app.post("/api/admin/lessons/backfill-transcripts", async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// USER SESSION & ACCESS RESOLUTION HELPER (BACKEND-PROCESSING)
+// COURSE ACCESS RESOLUTION HELPER (BACKEND-PROCESSING)
 // -------------------------------------------------------------
-async function getAuthUserFromRequest(req) {
-  try {
-    let token = null;
-    const authHeader = req.headers?.authorization || req.headers?.Authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      token = authHeader.substring(7).trim();
-    }
-
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded && decoded.id) {
-          if (decoded.role === "admin" || decoded.isAdmin) {
-            return { id: decoded.id, name: "Super Admin", role: "admin", isAdmin: true };
-          }
-          if (decoded.role === "mentor" || decoded.isMentor) {
-            let mtr = null;
-            if (isMongoConnected) mtr = await Mentor.findOne({ id: decoded.id }).lean();
-            if (!mtr) mtr = (memoryDb.mentors || []).find(m => m.id === decoded.id);
-            if (mtr) return { ...mtr, isMentor: true, role: "mentor" };
-          }
-          // Student match
-          let stu = null;
-          if (isMongoConnected) {
-            stu = await Student.findOne({ $or: [{ id: decoded.id }, ...(mongoose.Types.ObjectId.isValid(decoded.id) ? [{ _id: decoded.id }] : [])] }).lean();
-          }
-          if (!stu) stu = (memoryDb.students || []).find(s => s.id === decoded.id);
-          if (stu) return { ...stu, role: "student" };
-        }
-      } catch (jwtErr) {
-        // Fall through to query/body check
-      }
-    }
-
-    const fallbackId = req.query?.studentId || req.body?.studentId || req.query?.id;
-    if (fallbackId) {
-      let stu = null;
-      if (isMongoConnected) {
-        stu = await Student.findOne({ $or: [{ id: fallbackId }, ...(mongoose.Types.ObjectId.isValid(fallbackId) ? [{ _id: fallbackId }] : [])] }).lean();
-      }
-      if (!stu) stu = (memoryDb.students || []).find(s => s.id === fallbackId);
-      if (stu) return { ...stu, role: "student" };
-    }
-  } catch (e) { }
-  return null;
-}
 
 function checkStudentCourseAccess(student, courseId, lesson = null) {
   // Free / orientation lessons are open to everyone
@@ -6373,7 +6403,7 @@ app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
 // CONSOLIDATED ULTRA-FAST ADMIN BOOTSTRAP ENDPOINT (10-in-1)
 // Eliminates 10 parallel serverless invocations into a single sub-20ms bundled response
 // -------------------------------------------------------------
-app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], async (req, res) => {
+app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], requireAdmin, async (req, res) => {
   res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
 
   const cachedBundle = fastCache.get("admin_bootstrap_bundle");
@@ -6697,7 +6727,7 @@ app.get(["/api/admin/assignments", "/api/assignments", "/admin/assignments", "/a
 });
 
 // GET Mail Settings (Admin Control Panel)
-app.get(["/api/admin/mail-settings", "/admin/mail-settings"], async (req, res) => {
+app.get(["/api/admin/mail-settings", "/admin/mail-settings"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     let settings = await MailSetting.findOne().lean();
@@ -7576,7 +7606,7 @@ app.get("/api/student/my-submissions", async (req, res) => {
 });
 
 
-app.post("/api/admin/clear-all-demo-data", async (req, res) => {
+app.post("/api/admin/clear-all-demo-data", requireAdmin, async (req, res) => {
   try {
     if (isMongoConnected) {
       await Promise.all([
@@ -8172,7 +8202,7 @@ app.post(["/api/student/verify-email-otp", "/student/verify-email-otp"], async (
 });
 
 // Admin Mail Settings Save Endpoint
-app.post("/api/admin/mail-settings", async (req, res) => {
+app.post("/api/admin/mail-settings", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const settingsData = req.body;
@@ -8282,7 +8312,7 @@ app.get("/api/admin/registrations", async (req, res) => {
   }
 });
 
-app.post("/api/admin/students/save", async (req, res) => {
+app.post("/api/admin/students/save", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     let body = { ...req.body };
@@ -8606,7 +8636,7 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
   }
 });
 
-app.delete("/api/admin/students/:id", async (req, res) => {
+app.delete("/api/admin/students/:id", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const studentId = req.params.id;
