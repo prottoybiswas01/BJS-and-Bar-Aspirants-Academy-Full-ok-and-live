@@ -139,6 +139,20 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
 
+  // Digital Certificates & Study Notes State
+  const [adminCertificates, setAdminCertificates] = useState([]);
+  const [certForm, setCertForm] = useState({ studentId: '', courseId: '', completionScore: 100 });
+  const [certLoading, setCertLoading] = useState(false);
+
+  const [adminNotes, setAdminNotes] = useState([]);
+  const [noteForm, setNoteForm] = useState({ title: '', slug: '', category: 'দেওয়ানী কার্যবিধি (CPC)', summary: '', content: '', readTime: '৫ মিনিট', order: 1 });
+  const [noteSaving, setNoteSaving] = useState(false);
+
+  const [pushBroadcast, setPushBroadcast] = useState({ title: '', body: '', courseId: '' });
+  const [pushBroadcasting, setPushBroadcasting] = useState(false);
+
+  const [aiMcqModal, setAiMcqModal] = useState({ isOpen: false, lessonId: '', numQuestions: 5, loading: false });
+
   // Exam Merit List Generator State
   const [adminAssignments, setAdminAssignments] = useState([]);
   const [selectedMeritAsnId, setSelectedMeritAsnId] = useState('');
@@ -507,6 +521,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       if (results[9].status === 'fulfilled' && results[9].value.data?.ok && Array.isArray(results[9].value.data.results)) {
         setMcqResults(results[9].value.data.results);
       }
+      api.get('/certificates').then(r => { if (r.data?.ok) setAdminCertificates(r.data.certificates || []); }).catch(() => {});
+      api.get('/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
     } catch (err) {
       console.log('Error loading admin data:', err);
     } finally {
@@ -514,7 +530,122 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
-    const handleParseQuestions = (text) => {
+  const handleIssueCertificate = async (e) => {
+    e.preventDefault();
+    const targetStudent = students.find(s => s.id === certForm.studentId);
+    const targetCourse = courses.find(c => c.id === certForm.courseId);
+    if (!targetStudent || !targetCourse) {
+      showToast('অনুগ্রহ করে সঠিক শিক্ষার্থী ও কোর্স নির্বাচন করুন।', 'error');
+      return;
+    }
+    setCertLoading(true);
+    try {
+      const res = await api.post('/certificates', {
+        studentId: targetStudent.id,
+        studentName: targetStudent.name,
+        courseId: targetCourse.id,
+        courseTitle: targetCourse.title,
+        completionScore: certForm.completionScore || 100
+      });
+      if (res.data?.ok) {
+        showToast('✓ ডিজিটাল সার্টিফিকেট সফলভাবে ইস্যু করা হয়েছে!', 'success');
+        api.get('/certificates').then(r => { if (r.data?.ok) setAdminCertificates(r.data.certificates || []); }).catch(() => {});
+        setCertForm({ studentId: '', courseId: '', completionScore: 100 });
+      } else {
+        showToast(res.data?.message || 'সার্টিফিকেট তৈরিতে সমস্যা হয়েছে।', 'error');
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || 'সার্টিফিকেট তৈরিতে সমস্যা হয়েছে।', 'error');
+    } finally {
+      setCertLoading(false);
+    }
+  };
+
+  const handleSaveNote = async (e) => {
+    e.preventDefault();
+    if (!noteForm.title || !noteForm.content) {
+      showToast('নোটের শিরোনাম ও বিষয়বস্তু আবশ্যক।', 'error');
+      return;
+    }
+    setNoteSaving(true);
+    try {
+      const res = await api.post('/notes', noteForm);
+      if (res.data?.ok) {
+        showToast('✓ পাবলিক আইন স্টাডি নোট সফলভাবে সংরক্ষিত হয়েছে!', 'success');
+        api.get('/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
+        setNoteForm({ title: '', slug: '', category: 'দেওয়ানী কার্যবিধি (CPC)', summary: '', content: '', readTime: '৫ মিনিট', order: 1 });
+      } else {
+        showToast(res.data?.message || 'নোট সংরক্ষণে সমস্যা হয়েছে।', 'error');
+      }
+    } catch (err) {
+      showToast('নোট সংরক্ষণে সমস্যা হয়েছে।', 'error');
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
+  const handleDeleteNote = async (noteId) => {
+    if (!window.confirm('আপনি কি নিশ্চিতভাবে এই আইন নোটটি মুছে ফেলতে চান?')) return;
+    try {
+      const res = await api.delete(`/notes/${noteId}`);
+      if (res.data?.ok) {
+        showToast('✓ আইন নোটটি মুছে ফেলা হয়েছে।', 'success');
+        api.get('/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
+      }
+    } catch (err) {
+      showToast('নোট ডিলিট করতে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
+  const handleSendPushBroadcast = async (e) => {
+    e.preventDefault();
+    if (!pushBroadcast.title || !pushBroadcast.body) {
+      showToast('নোটিফিকেশন শিরোনাম ও বার্তা প্রদান করুন।', 'error');
+      return;
+    }
+    setPushBroadcasting(true);
+    try {
+      const res = await api.post('/admin/push/broadcast', pushBroadcast);
+      if (res.data?.ok) {
+        showToast(`✓ ব্রাউজার পুশ সফলভাবে প্রেরিত হয়েছে! (${res.data.sentCount || 0} টি ডিভাইসে)`, 'success');
+        setPushBroadcast({ title: '', body: '', courseId: '' });
+      } else {
+        showToast(res.data?.message || 'পুশ পাঠাতে সমস্যা হয়েছে।', 'error');
+      }
+    } catch (err) {
+      showToast('পুশ ব্রডকাস্টে সমস্যা হয়েছে।', 'error');
+    } finally {
+      setPushBroadcasting(false);
+    }
+  };
+
+  const handleGenerateAiMcqs = async (e) => {
+    e.preventDefault();
+    if (!aiMcqModal.lessonId) {
+      showToast('অনুগ্রহ করে একটি লেসন নির্বাচন করুন।', 'error');
+      return;
+    }
+    setAiMcqModal(prev => ({ ...prev, loading: true }));
+    try {
+      const res = await api.post('/admin/mcq-exams/generate-from-transcript', {
+        lessonId: aiMcqModal.lessonId,
+        numQuestions: aiMcqModal.numQuestions || 5
+      });
+      if (res.data?.ok) {
+        showToast(`✓ AI সফলভাবে ${res.data.exam?.totalQuestions || 5}টি MCQ তৈরি করেছে এবং এক্সাম ব্যাংকে যোগ করেছে!`, 'success');
+        setAiMcqModal({ isOpen: false, lessonId: '', numQuestions: 5, loading: false });
+        loadAllAdminData();
+      } else {
+        showToast(res.data?.message || 'AI MCQ তৈরিতে সমস্যা হয়েছে।', 'error');
+        setAiMcqModal(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || 'AI MCQ তৈরিতে সমস্যা হয়েছে।', 'error');
+      setAiMcqModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleParseQuestions = (text) => {
     if (!text) {
       setParsedQuestions([]);
       return;
@@ -2512,6 +2643,44 @@ return (
                 Audit
               </span>
             </button>
+
+            {/* Digital Certificates */}
+            <button
+              type="button"
+              onClick={() => { setAdminTab('certificates'); setIsMobileMenuOpen(false); }}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'certificates'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">📜</span>
+                <span>ডিজিটাল সার্টিফিকেট</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                Cert
+              </span>
+            </button>
+
+            {/* SEO & Public Law Study Notes */}
+            <button
+              type="button"
+              onClick={() => { setAdminTab('notes'); setIsMobileMenuOpen(false); }}
+              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                adminTab === 'notes'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">📖</span>
+                <span>SEO ও আইন স্টাডি গাইড</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                Notes
+              </span>
+            </button>
           </div>
         </div>
 
@@ -4042,6 +4211,14 @@ return (
               এমসিকিউ প্রশ্নব্যাংক টাইপ/পেস্ট করুন—সিস্টেম অটোমেটিক অপশন (ক, খ, গ, ঘ) ও ব্যাখ্যা পার্স করে পাবলিক লিঙ্ক তৈরি করবে।
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setAiMcqModal({ isOpen: true, lessonId: '', numQuestions: 5, loading: false })}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-extrabold text-xs shadow-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95 shrink-0"
+          >
+            <span>🤖</span>
+            <span>AI অটো-MCQ জেনারেটর (Gemini)</span>
+          </button>
         </div>
 
         {/* MCQ Exam Creation & Question Parser Form */}
@@ -5528,6 +5705,246 @@ return (
         </div>
       </section>
       )}
+
+      {/* (চ) ডিজিটাল সার্টিফিকেট ম্যানেজমেন্ট */}
+      {adminTab === 'certificates' && (
+        <section className="space-y-6 animate-fadeIn">
+          <div className="glass-card rounded-3xl p-6 border border-slate-800 bg-slate-950/80 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-2">
+              <div>
+                <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/30 uppercase">
+                  VERIFIED DIGITAL CREDENTIALS
+                </span>
+                <h2 className="text-xl font-extrabold text-white mt-1 flex items-center gap-2">
+                  <span>📜 ডিজিটাল সার্টিফিকেট ইস্যু ও ম্যানেজমেন্ট</span>
+                </h2>
+                <p className="text-xs text-slate-400">
+                  সফল শিক্ষার্থীদের জন্য কিউআর-কোড ভেরিফাইড অফিশিয়াল ডিজিটাল সার্টিফিকেট ইস্যু ও ম্যানেজ করুন।
+                </p>
+              </div>
+            </div>
+
+            {/* Issue Form */}
+            <form onSubmit={handleIssueCertificate} className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 text-xs">
+              <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
+                <span>➕ নতুন সার্টিফিকেট ইস্যু করুন</span>
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">শিক্ষার্থী নির্বাচন করুন:</label>
+                  <select
+                    value={certForm.studentId}
+                    onChange={e => setCertForm({ ...certForm, studentId: e.target.value })}
+                    required
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">-- শিক্ষার্থী সিলেক্ট করুন --</option>
+                    {students.map(s => (
+                      <option key={s.id} value={s.id}>{s.name} ({s.id})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">কোর্স নির্বাচন করুন:</label>
+                  <select
+                    value={certForm.courseId}
+                    onChange={e => setCertForm({ ...certForm, courseId: e.target.value })}
+                    required
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">-- কোর্স সিলেক্ট করুন --</option>
+                    {courses.map(c => (
+                      <option key={c.id} value={c.id}>{c.title}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">কমপ্লিশন মার্কস (%):</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={certForm.completionScore}
+                    onChange={e => setCertForm({ ...certForm, completionScore: Number(e.target.value) })}
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={certLoading}
+                className="py-2.5 px-6 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer"
+              >
+                {certLoading ? 'ইস্যু হচ্ছে...' : '📜 সার্টিফিকেট তৈরি ও ইস্যু করুন'}
+              </button>
+            </form>
+
+            {/* Issued Certificates Table */}
+            <div className="space-y-3">
+              <h3 className="font-bold text-white text-sm">পূর্বে ইস্যুকৃত সার্টিফিকেটসমূহ ({adminCertificates.length})</h3>
+              <div className="overflow-x-auto rounded-xl border border-slate-800">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 font-mono text-[11px] uppercase border-b border-slate-800">
+                    <tr>
+                      <th className="p-3">সার্টিফিকেট আইডি</th>
+                      <th className="p-3">শিক্ষার্থীর নাম</th>
+                      <th className="p-3">কোর্স</th>
+                      <th className="p-3">তারিখ</th>
+                      <th className="p-3 text-right">ডাউনলোড ও ভেরিফাই</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80">
+                    {adminCertificates.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-8 text-center text-slate-500">
+                          কোনো সার্টিফিকেট এখনো ইস্যু করা হয়নি।
+                        </td>
+                      </tr>
+                    ) : (
+                      adminCertificates.map(c => (
+                        <tr key={c.certificateId} className="hover:bg-slate-900/40">
+                          <td className="p-3 font-mono font-black text-amber-400">{c.certificateId}</td>
+                          <td className="p-3 font-bold text-white">{c.studentName} <span className="text-[10px] text-slate-500 font-mono">({c.studentId})</span></td>
+                          <td className="p-3 text-slate-300">{c.courseTitle}</td>
+                          <td className="p-3 font-mono text-[11px] text-slate-400">{formatBangladeshTime(c.issueDate)}</td>
+                          <td className="p-3 text-right space-x-2">
+                            <a
+                              href={`/api/certificates/${c.certificateId}/download`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-2.5 py-1 rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold"
+                            >
+                              📥 PDF
+                            </a>
+                            <a
+                              href={`/verify/${c.certificateId}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-2.5 py-1 rounded bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold"
+                            >
+                              🔍 Verify
+                            </a>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* (ছ) SEO ও আইন স্টাডি গাইড */}
+      {adminTab === 'notes' && (
+        <section className="space-y-6 animate-fadeIn">
+          <div className="glass-card rounded-3xl p-6 border border-slate-800 bg-slate-950/80 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-2">
+              <div>
+                <span className="px-2.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px] font-bold border border-blue-500/30 uppercase">
+                  PUBLIC SEO LAW NOTES
+                </span>
+                <h2 className="text-xl font-extrabold text-white mt-1 flex items-center gap-2">
+                  <span>📖 পাবলিক আইন স্টাডি গাইড ও SEO আর্টিকেলস</span>
+                </h2>
+                <p className="text-xs text-slate-400">
+                  বিজিএস ও বার কাউন্সিল পরীক্ষার জন্য পাবলিক আইন গাইড প্রকাশ ও এডিট করুন (/notes পেজে প্রদর্শিত)।
+                </p>
+              </div>
+            </div>
+
+            {/* Note Creation Form */}
+            <form onSubmit={handleSaveNote} className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 text-xs">
+              <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
+                <span>➕ নতুন স্টাডি গাইড যুক্ত করুন</span>
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">গাইড শিরোনাম:</label>
+                  <input
+                    type="text"
+                    required
+                    value={noteForm.title}
+                    onChange={e => setNoteForm({ ...noteForm, title: e.target.value })}
+                    placeholder="উদা: দেওয়ানী কার্যবিধির ৯ ধারা ও আদালতের এখতিয়ার"
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">ক্যাটাগরি:</label>
+                  <select
+                    value={noteForm.category}
+                    onChange={e => setNoteForm({ ...noteForm, category: e.target.value })}
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="দেওয়ানী কার্যবিধি (CPC)">দেওয়ানী কার্যবিধি (CPC)</option>
+                    <option value="ফৌজদারী কার্যবিধি (CrPC)">ফৌজদারী কার্যবিধি (CrPC)</option>
+                    <option value="দণ্ডবিধি ১৮৬০ (Penal Code)">দণ্ডবিধি ১৮৬০ (Penal Code)</option>
+                    <option value="বাংলাদেশ সংবিধান (Constitution)">বাংলাদেশ সংবিধান (Constitution)</option>
+                    <option value="সুনির্দিষ্ট প্রতিকার আইন (SRA)">সুনির্দিষ্ট প্রতিকার আইন (SRA)</option>
+                    <option value="তামাদি আইন (Limitation Act)">তামাদি আইন (Limitation Act)</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">সংক্ষিপ্ত বিবরণ (Summary):</label>
+                <input
+                  type="text"
+                  value={noteForm.summary}
+                  onChange={e => setNoteForm({ ...noteForm, summary: e.target.value })}
+                  placeholder="সংক্ষিপ্ত ১-২ লাইনের বিবরণ যা কার্ডে প্রদর্শিত হবে"
+                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">পূর্ণাঙ্গ বিষয়বস্তু (Markdown Content):</label>
+                <textarea
+                  rows={6}
+                  required
+                  value={noteForm.content}
+                  onChange={e => setNoteForm({ ...noteForm, content: e.target.value })}
+                  placeholder="আইনি পয়েন্ট, ধারাসমূহ ও ব্যাখ্যা লিখুন..."
+                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={noteSaving}
+                className="py-2.5 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 text-white font-black text-xs shadow-md transition-all cursor-pointer"
+              >
+                {noteSaving ? 'সংরক্ষণ হচ্ছে...' : '✓ গাইড সংরক্ষণ ও প্রকাশ করুন'}
+              </button>
+            </form>
+
+            {/* Published Notes List */}
+            <div className="space-y-3">
+              <h3 className="font-bold text-white text-sm">প্রকাশিত আইন গাইডসমূহ ({adminNotes.length})</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {adminNotes.map(n => (
+                  <div key={n.id || n.slug} className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+                    <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px] font-bold">
+                      {n.category}
+                    </span>
+                    <h4 className="font-extrabold text-white text-sm line-clamp-1">{n.title}</h4>
+                    <p className="text-slate-400 text-xs line-clamp-2">{n.summary}</p>
+                    <div className="flex justify-between items-center pt-2 border-t border-slate-800/80">
+                      <span className="text-[10px] text-slate-500 font-mono">⏱️ {n.readTime || '৫ মিনিট'}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteNote(n.id || n._id)}
+                        className="text-rose-400 hover:text-rose-300 text-xs font-bold"
+                      >
+                        🗑️ মুছে ফেলুন
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
       </main>
 
       {/* Printable Money Receipt Slip Modal */}
@@ -6381,6 +6798,55 @@ return (
               </p>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* AI Auto MCQ Generator Modal */}
+      {aiMcqModal.isOpen && (
+        <Modal
+          isOpen={aiMcqModal.isOpen}
+          onClose={() => setAiMcqModal({ isOpen: false, lessonId: '', numQuestions: 5, loading: false })}
+          title="🤖 Gemini AI অটো-MCQ জেনারেটর (লেসন ট্রান্সক্রিপ্ট থেকে)"
+          icon="🤖"
+          maxWidth="max-w-md"
+        >
+          <form onSubmit={handleGenerateAiMcqs} className="space-y-4 p-1 text-xs">
+            <p className="text-slate-300">
+              ভিডিও লেসনের ট্রান্সক্রিপ্ট / সাবটাইটেল বিশ্লেষণ করে Gemini AI স্বয়ংক্রিয়ভাবে বিজিএস স্ট্যান্ডার্ড প্রশ্নব্যাংক ও উত্তর তৈরি করবে।
+            </p>
+            <div>
+              <label className="block text-slate-400 font-bold mb-1">ভিডিও লেসন নির্বাচন করুন:</label>
+              <select
+                value={aiMcqModal.lessonId}
+                onChange={e => setAiMcqModal({ ...aiMcqModal, lessonId: e.target.value })}
+                required
+                className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+              >
+                <option value="">-- যেকোনো একটি লেসন সিলেক্ট করুন --</option>
+                {courses.flatMap(c => (c.modules || []).flatMap(m => m.lessons || [])).slice(0, 30).map(l => (
+                  <option key={l.id || l._id} value={l.id || l._id}>{l.title}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-slate-400 font-bold mb-1">প্রশ্নের সংখ্যা (Questions Count):</label>
+              <select
+                value={aiMcqModal.numQuestions}
+                onChange={e => setAiMcqModal({ ...aiMcqModal, numQuestions: Number(e.target.value) })}
+                className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+              >
+                <option value={5}>৫ টি প্রশ্ন (দ্রুত)</option>
+                <option value={10}>১০ টি প্রশ্ন (মডেল টেস্ট)</option>
+              </select>
+            </div>
+            <button
+              type="submit"
+              disabled={aiMcqModal.loading}
+              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+            >
+              {aiMcqModal.loading ? '⏳ AI প্রশ্ন তৈরি করছে...' : '✨ AI প্রশ্ন তৈরি ও যুক্ত করুন'}
+            </button>
+          </form>
         </Modal>
       )}
     </div>

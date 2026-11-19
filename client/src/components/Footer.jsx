@@ -118,6 +118,11 @@ export default function Footer({ setActivePage, activePage }) {
                 </button>
               </li>
               <li>
+                <button onClick={() => setActivePage('notes')} className="hover:text-amber-400 text-left transition-colors">
+                  📖 লিগ্যাল স্টাডি গাইড ও নোটস
+                </button>
+              </li>
+              <li>
                 <button onClick={() => setActivePage('login')} className="hover:text-amber-400 text-left transition-colors">
                   স্টুডেন্ট লগইন (Student Login)
                 </button>

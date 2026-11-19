@@ -25,6 +25,8 @@ const MentorDashboard = lazy(() => import('./pages/MentorDashboard'));
 const McqExamPlayer = lazy(() => import('./pages/McqExamPlayer'));
 const LessonManagerModal = lazy(() => import('./components/LessonManagerModal'));
 const MentorProfileModal = lazy(() => import('./components/MentorProfileModal'));
+const PublicNotes = lazy(() => import('./pages/PublicNotes'));
+const CertificateVerify = lazy(() => import('./pages/CertificateVerify'));
 
 const PAGE_TITLES = {
   'home': 'BJS & Bar Aspirants Academy - সহকারী জজ (BJS) ও বার কাউন্সিল প্রস্তুতি',
@@ -40,6 +42,8 @@ const PAGE_TITLES = {
   'mentor-dashboard': '👨‍🏫 বিচারক ও মেন্টর ড্যাশবোর্ড | BJS & Bar Aspirants Academy',
   'mentor-login': '👨‍🏫 মেন্টর লগইন পোর্টাল | BJS & Bar Aspirants Academy',
   'mcq-exam': '🎯 লাইভ MCQ পরীক্ষা রুম | BJS & Bar Aspirants Academy',
+  'notes': '📖 বিজিএস ও বার কাউন্সিল আইন স্টাডি গাইড ও নোটস | BJS & Bar Aspirants Academy',
+  'verify': '📜 ডিজিটাল সার্টিফিকেট ভেরিফিকেশন পোর্টাল | BJS & Bar Aspirants Academy',
   'penal-code-1860': '⚖️ দণ্ডবিধি ১৮৬০ স্পেশাল লেকচার সিরিজ | BJS & Bar Aspirants Academy',
   'civil-laws-intensive': '🏛️ দেওয়ানী কার্যবিধি ও সংশ্লিষ্ট আইন | BJS & Bar Aspirants Academy',
   'criminal-laws-intensive': '🚨 ফৌজদারী কার্যবিধি ও অপরাধ আইন | BJS & Bar Aspirants Academy',
@@ -115,6 +119,12 @@ function resolveRoute(user) {
     hash === '#student-portal'
   ) {
     return 'dashboard';
+  }
+  if (path === '/notes' || path === '/study-notes' || hash === '#notes' || hash === '#/notes') {
+    return 'notes';
+  }
+  if (path.startsWith('/verify') || hash.startsWith('#verify')) {
+    return 'verify';
   }
   if (path === '/' || path === '/home' || hash === '#home' || hash === '#/home' || hash === '') {
     return 'home';
@@ -327,6 +337,8 @@ function MainApp() {
       else if (targetPage === 'admin-login') targetPath = '/admin-login';
       else if (targetPage === 'mentor-dashboard') targetPath = '/mentor-dashboard';
       else if (targetPage === 'mentor-login') targetPath = '/mentor-login';
+      else if (targetPage === 'notes') targetPath = '/notes';
+      else if (targetPage === 'verify') targetPath = '/verify';
       else if (targetPage === 'mcq-exam') targetPath = mcqExamId ? `/mcq-exam/${mcqExamId}` : '/mcq-exams';
     }
     if (targetPath && window.location.pathname !== targetPath) {
@@ -424,6 +436,8 @@ function MainApp() {
             )}
             {activePage === 'mentor-login' && <MentorLogin setActivePage={navigatePage} />}
             {activePage === 'mentor-dashboard' && <MentorDashboard />}
+            {activePage === 'notes' && <PublicNotes setActivePage={navigatePage} />}
+            {activePage === 'verify' && <CertificateVerify onBack={() => navigatePage('home')} />}
             {(activePage === 'admin' || activePage === 'admin-login') && (
               user?.isAdmin ? (
                 <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />

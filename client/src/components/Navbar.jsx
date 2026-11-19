@@ -39,6 +39,16 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
             >
               🏠 হোম (Home)
             </button>
+            <button
+              onClick={() => setActivePage('notes')}
+              className={`px-3.5 py-2 rounded-lg font-medium text-sm transition-colors cursor-pointer ${
+                activePage === 'notes'
+                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
+              }`}
+            >
+              📖 আইন গাইড
+            </button>
             {user && (user.isAdmin || user.role === 'admin') && (
               <button
                 onClick={() => setActivePage('admin')}

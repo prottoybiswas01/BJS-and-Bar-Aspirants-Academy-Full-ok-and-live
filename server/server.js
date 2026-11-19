@@ -206,6 +206,12 @@ const McqResult = require("./models/McqResult");
 const TranscriptJob = require("./models/TranscriptJob");
 const NotificationLog = require("./models/NotificationLog");
 const AuditLog = require("./models/AuditLog");
+const Certificate = require("./models/Certificate");
+const PushSubscription = require("./models/PushSubscription");
+const StudyNote = require("./models/StudyNote");
+const { generateCertificatePdf } = require("./services/certificateService");
+const { sendTelegramAlert, sendEmergencyEmail, notifyNewLesson, notifyRegistration, notifyReceipt, notifySecurityAttack, notifyAdminDiff, notifySiteError } = require("./services/alertService");
+const { seedDefaultStudyNotes, generateAiMcqsFromTranscript, getExamLeaderboard } = require("./services/academyFeaturesService");
 const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId } = require("./services/transcriptService");
 const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
 const { dispatchNewLessonNotifications } = require("./services/videoNotificationService");
@@ -585,6 +591,8 @@ async function ensureDbConnected() {
         if (s) memoryDb.siteSettings = { ...memoryDb.siteSettings, ...s };
       }).catch(() => { });
     }
+    // Seed high-yield legal study notes non-blockingly
+    seedDefaultStudyNotes(StudyNote).catch(() => {});
     // Sync cache safely if empty without running destructive writes
     if (!memoryDb.courses || memoryDb.courses.length === 0) {
       syncMemoryDbFromMongo().catch(err => {
@@ -994,6 +1002,9 @@ app.post("/api/auth/register", async (req, res) => {
     if (cleanEmail) {
       sendRegistrationConfirmEmail(cleanEmail, newStudent);
     }
+
+    // 360-Degree Real-time Telegram Alert for new registration
+    notifyRegistration({ name, email: cleanEmail, phone: cleanPhone, batch });
 
     res.json({
       ok: true,
@@ -3799,10 +3810,14 @@ app.get("/sitemap.xml", async (req, res) => {
     }
 
     let activeCourses = memoryDb.courses || [];
+    let studyNotes = [];
     if (isMongoConnected) {
       try {
         const crs = await Course.find({ status: { $ne: "Inactive" } }).lean();
         if (crs && crs.length > 0) activeCourses = crs;
+      } catch (e) { }
+      try {
+        studyNotes = await StudyNote.find({ isPublished: true }, 'slug updatedAt').lean();
       } catch (e) { }
     }
 
@@ -3815,6 +3830,13 @@ app.get("/sitemap.xml", async (req, res) => {
     <priority>0.85</priority>
   </url>`).join("\n");
 
+    let notesXmlEntries = (studyNotes || []).map(n => `  <url>
+    <loc>https://bjs.kodl.uk/notes/${n.slug}</loc>
+    <lastmod>${todayDate}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>`).join("\n");
+
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
@@ -3825,6 +3847,12 @@ app.get("/sitemap.xml", async (req, res) => {
   </url>
   <url>
     <loc>https://bjs.kodl.uk/#courses</loc>
+    <lastmod>${todayDate}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://bjs.kodl.uk/notes</loc>
     <lastmod>${todayDate}</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
@@ -3848,6 +3876,7 @@ app.get("/sitemap.xml", async (req, res) => {
     <priority>0.85</priority>
   </url>
 ${courseXmlEntries}
+${notesXmlEntries}
 </urlset>`;
 
     fastCache.set("xml_sitemap", xml, 3600); // 1 hour
@@ -4874,6 +4903,13 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
         }).catch(err => {
           console.warn("[Video Notification] Dispatch notice:", err.message);
         });
+
+        // 360-Degree Real-time Telegram Alert
+        notifyNewLesson({
+          courseTitle: canonicalCourse?.title || saved.courseId,
+          lessonTitle: saved.title,
+          youtubeId: saved.youtubeId
+        });
       }
     } else {
       console.log(`[Video Manager] Lesson "${saved.title}" (${saved.id}) updated / edited. No notification email sent.`);
@@ -5747,8 +5783,8 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       };
     });
 
-    // 5. Optimized parallel query for assignments, submissions, exams, results, receipts using DB filtering & strict projections
-    const [dbAssignments, dbSubmissions, dbExams, dbResults, dbReceipts] = await Promise.all([
+    // 5. Optimized parallel query for assignments, submissions, exams, results, receipts, certificates using DB filtering & strict projections
+    const [dbAssignments, dbSubmissions, dbExams, dbResults, dbReceipts, dbCertificates] = await Promise.all([
       isMongoConnected
         ? Assignment.find(
             enrolledIds.length > 0 ? { courseId: { $in: enrolledIds } } : { id: '__none__' },
@@ -5767,13 +5803,13 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
               status: { $ne: "Closed" },
               ...(enrolledIds.length > 0 ? { $or: [{ isPublic: true }, { courseId: { $in: enrolledIds } }] } : { isPublic: true })
             },
-            'id title courseId courseTitle durationMinutes totalMarks passPercentage startDate endDate attemptLimit negativeMarks isPublic status createdAt'
+            'id title courseId courseTitle subject durationMinutes totalMarks passPercentage isLiveModelTest liveStartTime liveEndTime startDate endDate attemptLimit negativeMarks isPublic status createdAt'
           ).sort({ createdAt: -1 }).limit(20).lean().catch(() => [])
         : (memoryDb.mcqExams || []).filter(e => e.status !== "Closed"),
       isMongoConnected
         ? McqResult.find(
             { studentId: student.id },
-            'id examId examTitle score totalMarks percentage grade submittedAt'
+            'id examId examTitle score totalMarks percentage grade submittedAt correctCount wrongCount negativeDeduction netScore timeTakenSeconds rank'
           ).sort({ submittedAt: -1 }).limit(20).lean().catch(() => [])
         : (memoryDb.mcqResults || []).filter(r => r.studentId === student.id),
       isMongoConnected
@@ -5786,7 +5822,10 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
               ]
             }
           ).sort({ paymentTime: -1, createdAt: -1 }).limit(50).lean().catch(() => [])
-        : (memoryDb.receipts || []).filter(r => r.studentId === student.id || r.studentEmail === student.email || r.studentPhone === student.phone)
+        : (memoryDb.receipts || []).filter(r => r.studentId === student.id || r.studentEmail === student.email || r.studentPhone === student.phone),
+      isMongoConnected
+        ? Certificate.find({ studentId: student.id, status: 'Valid' }).sort({ issueDate: -1 }).limit(20).lean().catch(() => [])
+        : []
     ]);
 
     // Backend-calculate progress
@@ -5822,6 +5861,7 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       exams: dbExams || [],
       results: dbResults || [],
       receipts: dbReceipts || [],
+      certificates: dbCertificates || [],
       source: "mongodb-backend-processed"
     };
 
@@ -7547,6 +7587,304 @@ app.get("/api/student/mcq-result/:id", async (req, res) => {
   }
 });
 
+// =========================================================================
+// PREMIUM LAW ACADEMY MODULE: LEADERBOARD, CERTIFICATES, NOTES & WEB PUSH
+// =========================================================================
+
+// 1. MCQ EXAM LEADERBOARD (Live Model Test & Merit List)
+app.get("/api/mcq-exams/:id/leaderboard", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { id } = req.params;
+    const data = await getExamLeaderboard({ examId: id, McqExam, McqResult });
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "মেরিট লিস্ট লোড করতে সমস্যা হয়েছে: " + err.message });
+  }
+});
+
+// 2. AI AUTO-MCQ GENERATOR FROM LESSON TRANSCRIPT (Admin)
+app.post("/api/admin/mcq-exams/generate-from-transcript", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { courseId, lessonIds, questionCount, durationMinutes, negativeMarks } = req.body || {};
+    const newExam = await generateAiMcqsFromTranscript({
+      courseId,
+      lessonIds,
+      questionCount: Number(questionCount) || 10,
+      durationMinutes: Number(durationMinutes) || 20,
+      negativeMarks: Number(negativeMarks) || 0.25,
+      Lesson,
+      McqExam,
+      resolveOptimalGeminiModel
+    });
+    return res.json({ ok: true, exam: newExam, message: `✓ Gemini AI সফলভাবে ${newExam.questions.length}-টি বিজিএস স্ট্যান্ডার্ড MCQ তৈরি করেছে!` });
+  } catch (err) {
+    console.error("AI Auto-MCQ Error:", err);
+    return res.status(500).json({ ok: false, message: "AI MCQ জেনারেটরে ত্রুটি: " + err.message });
+  }
+});
+
+// 3. PUBLIC LEGAL STUDY NOTES & EXAM GUIDES (/api/notes)
+app.get(["/api/notes", "/notes"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { category, search } = req.query;
+    const filter = { isPublished: true };
+    if (category && category !== 'All') {
+      filter.category = category;
+    }
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { summary: { $regex: search, $options: 'i' } },
+        { lawSections: { $in: [new RegExp(search, 'i')] } }
+      ];
+    }
+    const notes = await StudyNote.find(filter).sort({ order: 1, createdAt: -1 }).lean();
+    return res.json({ ok: true, notes: notes || [] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "আইনি নোটস লোড করতে সমস্যা হয়েছে।" });
+  }
+});
+
+app.get(["/api/notes/:idOrSlug", "/notes/:idOrSlug"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { idOrSlug } = req.params;
+    const note = await StudyNote.findOneAndUpdate(
+      { $or: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      { $inc: { views: 1 } },
+      { new: true }
+    ).lean();
+    if (!note) {
+      return res.status(404).json({ ok: false, message: "আইনি নোট পাওয়া যায়নি।" });
+    }
+    return res.json({ ok: true, note });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "নোট লোড করতে সমস্যা হয়েছে: " + err.message });
+  }
+});
+
+app.post("/api/admin/notes/save", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { id, title, slug, category, summary, content, lawSections, readTime, order, isPublished } = req.body || {};
+    if (!title || !content) {
+      return res.status(400).json({ ok: false, message: "শিরোনাম ও বিস্তারিত নোট প্রদান আবশ্যক।" });
+    }
+    const safeSlug = (slug || title).toLowerCase().replace(/[^a-z0-9\u0980-\u09FF]+/g, '-').replace(/(^-|-$)/g, '');
+    const noteId = id || `note-${Date.now()}`;
+    const updated = await StudyNote.findOneAndUpdate(
+      { id: noteId },
+      {
+        id: noteId,
+        title,
+        slug: safeSlug,
+        category: category || 'BJS সিলেবাস ও প্রস্তুতি',
+        summary: summary || '',
+        content,
+        lawSections: Array.isArray(lawSections) ? lawSections : (lawSections ? String(lawSections).split(',').map(s => s.trim()) : []),
+        readTime: readTime || '5 min',
+        order: Number(order) || 0,
+        isPublished: isPublished !== false,
+        updatedAt: new Date()
+      },
+      { upsert: true, new: true }
+    ).lean();
+    return res.json({ ok: true, note: updated, message: "✓ আইনি স্টাডি নোট সফলভাবে সংরক্ষিত হয়েছে!" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "নোট সংরক্ষণ করতে সমস্যা হয়েছে: " + err.message });
+  }
+});
+
+app.delete("/api/admin/notes/:id", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { id } = req.params;
+    await StudyNote.deleteOne({ id });
+    return res.json({ ok: true, message: "✓ আইনি নোট সফলভাবে মুছে ফেলা হয়েছে।" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "নোট ডিলিট করতে সমস্যা হয়েছে।" });
+  }
+});
+
+// 4. CERTIFICATES ENGINE (/api/certificates)
+app.get("/api/certificates/student/:studentId", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { studentId } = req.params;
+    const certs = await Certificate.find({ studentId, status: "Valid" }).sort({ issueDate: -1 }).lean();
+    return res.json({ ok: true, certificates: certs || [] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "সার্টিফিকেট লোড করতে সমস্যা হয়েছে।" });
+  }
+});
+
+app.get("/api/admin/certificates", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const certs = await Certificate.find().sort({ issueDate: -1 }).lean();
+    return res.json({ ok: true, certificates: certs || [] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "সার্টিফিকেট তালিকা লোড ব্যর্থ।" });
+  }
+});
+
+app.post("/api/admin/certificates/issue", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { studentId, courseId, completionScore } = req.body || {};
+    if (!studentId || !courseId) {
+      return res.status(400).json({ ok: false, message: "শিক্ষার্থী এবং কোর্স নির্বাচন করা আবশ্যক।" });
+    }
+
+    const student = await Student.findOne({ id: studentId }).lean();
+    if (!student) {
+      return res.status(404).json({ ok: false, message: "শিক্ষার্থী পাওয়া যায়নি।" });
+    }
+
+    const course = await Course.findOne({ id: courseId }).lean();
+    const courseTitle = course ? course.title : "BJS & Bar Masterclass";
+
+    const certId = `CERT-BJS-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const verificationUrl = `https://bjs.kodl.uk/verify/${certId}`;
+    const qrCodeDataUrl = await QRCode.toDataURL(verificationUrl, { width: 140, margin: 1 });
+
+    const certDoc = await Certificate.create({
+      certificateId: certId,
+      studentId: student.id,
+      studentName: student.name,
+      courseId,
+      courseTitle,
+      completionScore: Number(completionScore) || 100,
+      verificationUrl,
+      qrCodeDataUrl,
+      issueDate: new Date()
+    });
+
+    return res.json({
+      ok: true,
+      certificate: certDoc,
+      message: `✓ ${student.name} এর জন্য ডিজিটাল সার্টিফিকেট সফলভাবে ইস্যু হয়েছে! (ID: ${certId})`
+    });
+  } catch (err) {
+    console.error("Certificate Issue Error:", err);
+    return res.status(500).json({ ok: false, message: "সার্টিফিকেট ইস্যু করতে সমস্যা হয়েছে: " + err.message });
+  }
+});
+
+app.get(["/api/certificates/verify/:certificateId", "/verify/:certificateId"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { certificateId } = req.params;
+    const cert = await Certificate.findOne({ certificateId }).lean();
+    if (!cert) {
+      return res.status(404).json({ ok: false, valid: false, message: "সার্টিফিকেটটি খুঁজে পাওয়া যায়নি বা এটি বৈধ নয়।" });
+    }
+    return res.json({
+      ok: true,
+      valid: cert.status === "Valid",
+      certificate: {
+        certificateId: cert.certificateId,
+        studentName: cert.studentName,
+        courseTitle: cert.courseTitle,
+        issueDate: cert.issueDate,
+        status: cert.status,
+        issuedBy: cert.issuedBy || "BJS & Bar Aspirants Academy",
+        verificationUrl: cert.verificationUrl
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "সার্টিফিকেট যাচাইকরণে ত্রুটি: " + err.message });
+  }
+});
+
+app.get("/api/certificates/:certificateId/download", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { certificateId } = req.params;
+    const cert = await Certificate.findOne({ certificateId }).lean();
+    if (!cert) {
+      return res.status(404).send("সার্টিফিকেট পাওয়া যায়নি।");
+    }
+
+    const pdfBuffer = await generateCertificatePdf({
+      certificateId: cert.certificateId,
+      studentName: cert.studentName,
+      courseTitle: cert.courseTitle,
+      issueDate: cert.issueDate,
+      verificationUrl: cert.verificationUrl
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="Certificate-${cert.certificateId}.pdf"`);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error("Certificate PDF Download Error:", err);
+    return res.status(500).send("সার্টিফিকেট PDF তৈরি করতে সমস্যা হয়েছে: " + err.message);
+  }
+});
+
+// 5. PWA WEB PUSH NOTIFICATION (/api/push) - ZERO EMAIL COST
+app.post("/api/push/subscribe", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { endpoint, keys, studentId, courseIds } = req.body || {};
+    if (!endpoint || !keys?.p256dh || !keys?.auth) {
+      return res.status(400).json({ ok: false, message: "Invalid push subscription payload." });
+    }
+    await PushSubscription.findOneAndUpdate(
+      { endpoint },
+      {
+        endpoint,
+        keys,
+        studentId: studentId || "",
+        courseIds: Array.isArray(courseIds) ? courseIds : [],
+        userAgent: req.headers["user-agent"] || "",
+        createdAt: new Date()
+      },
+      { upsert: true, new: true }
+    );
+    return res.json({ ok: true, message: "✓ ব্রাউজার পুশ নোটিফিকেশন সফলভাবে সক্রিয় হয়েছে!" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+app.post("/api/admin/push/broadcast", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { title, body, url, courseId } = req.body || {};
+    if (!title || !body) {
+      return res.status(400).json({ ok: false, message: "শিরোনাম ও বিবরণ আবশ্যক।" });
+    }
+
+    const subQuery = courseId ? { $or: [{ courseIds: courseId }, { courseIds: { $size: 0 } }] } : {};
+    const subscriptions = await PushSubscription.find(subQuery).lean();
+
+    // Log notification in NotificationLog
+    await NotificationLog.create({
+      type: "push",
+      title,
+      body,
+      targetCount: subscriptions.length,
+      createdAt: new Date()
+    }).catch(() => {});
+
+    // Notify Telegram channel of the broadcast
+    sendTelegramAlert(`📢 <b>ব্রাউজার পুশ নোটিফিকেশন প্রেরিত!</b>\n\n📌 <b>শিরোনাম:</b> ${title}\n📝 <b>বিবরণ:</b> ${body}\n🎯 <b>টার্গেট ডিভাইস:</b> ${subscriptions.length}টি`);
+
+    return res.json({
+      ok: true,
+      targetCount: subscriptions.length,
+      message: `✓ ব্রাউজার পুশ নোটিফিকেশন ${subscriptions.length}টি ডিভাইসে কিউতে যুক্ত হয়েছে! (ইমেইল কোটা খরচ: ০)`
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "পুশ নোটিফিকেশন পাঠাতে সমস্যা: " + err.message });
+  }
+});
+
 // GET Student Available Assignments
 app.get("/api/student/assignments", async (req, res) => {
   try {
@@ -9038,6 +9376,14 @@ app.post("/api/admin/receipts/save", async (req, res) => {
       targetId: savedReceipt.receiptId,
       details: { studentId: savedReceipt.studentId, amount: savedReceipt.amount, paymentMethod: savedReceipt.paymentMethod, trxId: savedReceipt.trxId },
       req
+    });
+
+    // 360-Degree Real-time Telegram Alert for payment receipt
+    notifyReceipt({
+      studentName: savedReceipt.studentName,
+      amount: savedReceipt.amount,
+      receiptId: savedReceipt.receiptId,
+      paymentMethod: savedReceipt.paymentMethod
     });
 
     return res.json({

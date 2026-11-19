@@ -3,6 +3,8 @@
   "typescript.validate.enable": false,
   "javascript.suggestionActions.enabled": false,
   "typescript.tsserver.experimental.enableProjectDiagnostics": false,
+  "eslint.enable": false,
+  "jshint.enable": false,
   "files.watcherExclude": {
     "**/.git/objects/**": true,
     "**/.git/subtree-cache/**": true,

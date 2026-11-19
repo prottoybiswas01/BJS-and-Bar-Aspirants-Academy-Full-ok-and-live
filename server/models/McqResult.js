@@ -12,6 +12,13 @@ const McqResultSchema = new mongoose.Schema({
   score: { type: Number, required: true },
   totalMarks: { type: Number, required: true },
   percentage: { type: Number, required: true },
+  correctCount: { type: Number, default: 0 },
+  wrongCount: { type: Number, default: 0 },
+  unansweredCount: { type: Number, default: 0 },
+  negativeDeduction: { type: Number, default: 0 },
+  netScore: { type: Number, default: 0 },
+  timeTakenSeconds: { type: Number, default: 0 },
+  rank: { type: Number, default: 0 },
   grade: { type: String, default: "Pass" }, // Distinction / Passed / Needs Practice
   userAnswers: [{
     questionId: String,

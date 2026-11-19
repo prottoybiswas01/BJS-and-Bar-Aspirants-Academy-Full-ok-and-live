@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext';
 import QuestionFormattedView from '../components/QuestionFormattedView';
 import { formatBangladeshTime, toBangladeshDigits } from '../utils/dateUtils';
 import { sortLessons } from '../utils/lessonUtils';
+import { getNotificationPermission, requestAndSubscribePush } from '../utils/pushNotification';
 
 export default function Dashboard({ openVideoModal, openProfileModal }) {
   const { user, updateUserProfile } = useAuth();
@@ -29,6 +30,19 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
   // Student MCQ Exams & Performance States
   const [studentExams, setStudentExams] = useState([]);
   const [studentResults, setStudentResults] = useState([]);
+  const [studentCertificates, setStudentCertificates] = useState([]);
+  const [leaderboardModal, setLeaderboardModal] = useState({
+    isOpen: false,
+    examId: null,
+    examTitle: '',
+    leaderboard: [],
+    totalParticipants: 0,
+    loading: false
+  });
+  const [pushStatus, setPushStatus] = useState(() => getNotificationPermission());
+  const [pushLoading, setPushLoading] = useState(false);
+  const [passForm, setPassForm] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
+  const [passLoading, setPassLoading] = useState(false);
   const [reviewModal, setReviewModal] = useState({
     isOpen: false,
     result: null,
@@ -36,9 +50,10 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     loading: false
   });
 
-  // Close review modal on tab change
+  // Close review & leaderboard modals on tab change
   useEffect(() => {
     setReviewModal({ isOpen: false, result: null, review: [], loading: false });
+    setLeaderboardModal({ isOpen: false, examId: null, examTitle: '', leaderboard: [], totalParticipants: 0, loading: false });
   }, [selectedTab]);
 
   // Request sequence, active course reference, and in-memory tab/course cache to prevent race conditions
@@ -162,6 +177,91 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       showToast(`✓ Receipt-${receiptId}.pdf ডাউনলোড সম্পন্ন!`, 'success');
     } catch (err) {
       showToast('রসিদ PDF ডাউনলোড করতে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
+  const handleOpenLeaderboard = async (examId, examTitle) => {
+    setLeaderboardModal({ isOpen: true, examId, examTitle, leaderboard: [], totalParticipants: 0, loading: true });
+    try {
+      const res = await api.get(`/mcq-exams/${examId}/leaderboard`);
+      if (res.data?.ok) {
+        setLeaderboardModal({
+          isOpen: true,
+          examId,
+          examTitle: res.data.exam?.title || examTitle,
+          leaderboard: res.data.leaderboard || [],
+          totalParticipants: res.data.totalParticipants || 0,
+          loading: false
+        });
+      }
+    } catch (err) {
+      showToast('লিডারবোর্ড লোড করতে সমস্যা হয়েছে।', 'error');
+      setLeaderboardModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleDownloadCertificatePdf = async (certId) => {
+    try {
+      showToast('⏳ সার্টিফিকেট PDF তৈরি ও ডাউনলোড হচ্ছে...', 'success');
+      const response = await api.get(`/certificates/${certId}/download`, { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Certificate-${certId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      showToast(`✓ Certificate-${certId}.pdf ডাউনলোড সম্পন্ন!`, 'success');
+    } catch (err) {
+      showToast('সার্টিফিকেট PDF ডাউনলোড করতে সমস্যা হয়েছে।', 'error');
+    }
+  };
+
+  const handleTogglePushNotification = async () => {
+    setPushLoading(true);
+    try {
+      const res = await requestAndSubscribePush(user?.id, user?.enrolledCourses || []);
+      if (res.ok) {
+        showSuccess(res.message);
+        setPushStatus('granted');
+      } else {
+        showError(res.message);
+      }
+    } catch (e) {
+      showError('পুশ নোটিফিকেশন চালু করতে সমস্যা হয়েছে।');
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (!passForm.newPassword || passForm.newPassword.length < 6) {
+      showError('নতুন পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।');
+      return;
+    }
+    if (passForm.newPassword !== passForm.confirmPassword) {
+      showError('নতুন পাসওয়ার্ড দুটি মিলছে না!');
+      return;
+    }
+    setPassLoading(true);
+    try {
+      const res = await api.post('/student/change-password', {
+        oldPassword: passForm.oldPassword,
+        newPassword: passForm.newPassword
+      });
+      if (res.data?.ok) {
+        showSuccess('✓ পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে!');
+        setPassForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+      } else {
+        showError(res.data?.message || 'পাসওয়ার্ড পরিবর্তনে সমস্যা হয়েছে।');
+      }
+    } catch (err) {
+      showError(err.response?.data?.message || 'বর্তমান পাসওয়ার্ডটি সঠিক নয়।');
+    } finally {
+      setPassLoading(false);
     }
   };
 
@@ -337,6 +437,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         if (Array.isArray(res.data.exams)) setStudentExams(res.data.exams);
         if (Array.isArray(res.data.results)) setStudentResults(res.data.results);
         if (Array.isArray(res.data.receipts)) setStudentReceipts(res.data.receipts);
+        if (Array.isArray(res.data.certificates)) setStudentCertificates(res.data.certificates);
         return;
       }
     } catch (err) {
@@ -552,47 +653,67 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         </div>
       </section>
 
-      {/* Section Tab Navigation: Video Lectures vs Assignments vs MCQ Exams */}
-      <div className="flex flex-wrap sm:flex-nowrap bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-2">
+      {/* Section Tab Navigation: 6 Core Judicial Academy Pillars */}
+      <div className="flex flex-wrap bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-1.5 shadow-xl">
         <button
           onClick={() => setSelectedTab('lectures')}
-          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center ${
+          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center cursor-pointer ${
             selectedTab === 'lectures'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900'
           }`}
         >
-          📹 ভিডিও ক্লাসসমূহ (Lectures)
-        </button>
-        <button
-          onClick={() => setSelectedTab('assignments')}
-          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center ${
-            selectedTab === 'assignments'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          <span>📝 লিখিত অ্যাসাইনমেন্ট ({studentAssignments.length})</span>
+          📹 ক্লাস ও কোর্স
         </button>
         <button
           onClick={() => setSelectedTab('exams')}
-          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center ${
+          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
             selectedTab === 'exams'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900'
           }`}
         >
-          <span>🎯 অনলাইন এমসিকিউ পরীক্ষা ({studentExams.length})</span>
+          <span>🎯 সেন্ট্রাল মডেল টেস্ট ({studentExams.length})</span>
+        </button>
+        <button
+          onClick={() => setSelectedTab('assignments')}
+          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
+            selectedTab === 'assignments'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+          }`}
+        >
+          <span>📝 অ্যাসাইনমেন্ট ({studentAssignments.length})</span>
         </button>
         <button
           onClick={() => setSelectedTab('payments')}
-          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center ${
+          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
             selectedTab === 'payments'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900'
           }`}
         >
-          <span>💳 পেমেন্ট ও মানি রিসিট ({studentReceipts.length})</span>
+          <span>💳 মানি রিসিট ({studentReceipts.length})</span>
+        </button>
+        <button
+          onClick={() => setSelectedTab('certificates')}
+          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
+            selectedTab === 'certificates'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+          }`}
+        >
+          <span>📜 সার্টিফিকেট ({studentCertificates.length})</span>
+        </button>
+        <button
+          onClick={() => setSelectedTab('profile')}
+          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
+            selectedTab === 'profile'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+          }`}
+        >
+          <span>👤 প্রোফাইল ও নিরাপত্তা</span>
         </button>
       </div>
 
@@ -648,6 +769,22 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                       </div>
                       <h3 className="font-extrabold text-sm text-white line-clamp-1">{c.title}</h3>
                       <p className="text-[11px] text-slate-500 mt-1">ফ্যাকাল্টি: {c.faculty}</p>
+                      {enrolled && (
+                        <div className="mt-2.5 pt-2 border-t border-slate-800/80">
+                          <div className="flex justify-between text-[10px] text-slate-400 font-bold mb-1">
+                            <span>কোর্স অগ্রগতি</span>
+                            <span className="text-amber-400 font-mono">
+                              {active ? `${progressPercent}%` : 'সক্রিয়'}
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-amber-500 to-emerald-400"
+                              style={{ width: active ? `${progressPercent}%` : '50%' }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </button>
                   );
                 })}
@@ -1130,6 +1267,15 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                             <span>▶️</span> পরীক্ষা শুরু করুন (Start Exam)
                           </button>
                         )}
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenLeaderboard(ex.id || ex._id, ex.title)}
+                          className="w-full mt-2 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm hover:border-amber-400"
+                        >
+                          <span>🏆</span>
+                          <span>সেন্ট্রাল মেরিট লিস্ট ও লিডারবোর্ড</span>
+                        </button>
                       </div>
                     </div>
                   );
@@ -1197,12 +1343,20 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                           {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : 'N/A'}
                         </td>
                         <td className="p-3 text-right">
-                          <button
-                            onClick={() => handleOpenReviewModal(r)}
-                            className="px-3 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 font-bold text-xs transition-all shadow-sm cursor-pointer"
-                          >
-                            🔍 উত্তর রিভিউ দেখুন
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleOpenReviewModal(r)}
+                              className="px-3 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 font-bold text-xs transition-all shadow-sm cursor-pointer"
+                            >
+                              🔍 উত্তর রিভিউ
+                            </button>
+                            <button
+                              onClick={() => handleOpenLeaderboard(r.examId || r.id, r.examTitle)}
+                              className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold text-xs transition-all shadow-sm cursor-pointer"
+                            >
+                              🏆 মেরিট
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1351,6 +1505,260 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         </section>
       )}
 
+      {/* MY CERTIFICATES TAB */}
+      {selectedTab === 'certificates' && (
+        <section className="space-y-6 animate-fadeIn">
+          <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+              <div>
+                <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/30">
+                  OFFICIAL DIGITAL CREDENTIALS
+                </span>
+                <h2 className="text-xl font-extrabold text-white mt-1 flex items-center gap-2">
+                  <span>📜 আমার ডিজিটাল সার্টিফিকেট ও ভেরিফিকেশন</span>
+                </h2>
+                <p className="text-xs text-slate-400">
+                  কোর্স সমাপ্তির পর একাডেমি কর্তৃক প্রদত্ত কিউআর-কোড ভেরিফাইড অফিশিয়াল সার্টিফিকেট।
+                </p>
+              </div>
+            </div>
+
+            {studentCertificates.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 text-xs bg-slate-950/60 rounded-xl border border-slate-800 space-y-3">
+                <div className="text-4xl">🎓</div>
+                <p className="text-slate-300 font-bold text-sm">কোনো সার্টিফিকেট এখনো ইস্যু করা হয়নি</p>
+                <p className="text-slate-400 text-xs max-w-md mx-auto">
+                  আপনার কোর্স সম্পন্ন হওয়ার পর একাডেমি কর্তৃপক্ষ আপনার নামে ডিজিটাল সার্টিফিকেট ইস্যু করবে। সার্টিফিকেট ইস্যু হলে তা এখানে প্রদর্শিত হবে এবং আপনি পিডিএফ ডাউনলোড করতে পারবেন।
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {studentCertificates.map(cert => (
+                  <div key={cert.id || cert.certificateId || cert._id} className="p-6 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-950 border-2 border-amber-500/40 space-y-4 shadow-2xl relative overflow-hidden">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold border border-emerald-500/30">
+                          ✓ VERIFIED CREDENTIAL
+                        </span>
+                        <h3 className="text-lg font-black text-white mt-1.5">{cert.courseTitle || 'BJS & Bar Masterclass'}</h3>
+                        <p className="text-xs text-amber-400 font-mono">আইডি: {cert.certificateId}</p>
+                      </div>
+                      <div className="w-12 h-12 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center text-2xl border border-amber-500/40">
+                        ⚖️
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-xs space-y-1.5 font-sans">
+                      <div className="flex justify-between text-slate-300">
+                        <span className="text-slate-500">প্রাপকের নাম:</span>
+                        <strong className="text-white font-bold">{cert.studentName}</strong>
+                      </div>
+                      <div className="flex justify-between text-slate-300">
+                        <span className="text-slate-500">স্টুডেন্ট রোল:</span>
+                        <span className="font-mono text-amber-300 font-bold">{cert.studentId}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-300">
+                        <span className="text-slate-500">ইস্যুর তারিখ:</span>
+                        <span className="font-mono text-slate-300">{formatBangladeshTime(cert.issueDate)}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadCertificatePdf(cert.id || cert.certificateId || cert._id)}
+                        className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                      >
+                        <span>📥</span>
+                        <span>ডাউনলোড PDF</span>
+                      </button>
+                      <a
+                        href={`/verify/${cert.id || cert.certificateId || cert._id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 font-bold text-xs text-center transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <span>🔍</span>
+                        <span>অনলাইনে ভেরিফাই</span>
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* STUDENT PROFILE & SECURITY TAB */}
+      {selectedTab === 'profile' && (
+        <section className="space-y-6 animate-fadeIn">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Student Identity Card */}
+            <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+              <div className="border-b border-slate-800 pb-3">
+                <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/30">
+                  DIGITAL IDENTITY CARD
+                </span>
+                <h2 className="text-lg font-extrabold text-white mt-1 flex items-center gap-2">
+                  <span>👤 শিক্ষার্থী পরিচয় ও একাডেমি প্রোফাইল</span>
+                </h2>
+              </div>
+
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3 text-xs">
+                <div className="flex justify-between border-b border-slate-900 pb-2">
+                  <span className="text-slate-400">নাম:</span>
+                  <span className="text-white font-bold">{user?.name}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-900 pb-2">
+                  <span className="text-slate-400">রেজিস্ট্রেশন রোল / আইডি:</span>
+                  <span className="text-amber-400 font-mono font-bold">{user?.id}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-900 pb-2">
+                  <span className="text-slate-400">মোবাইল নম্বর:</span>
+                  <span className="text-slate-200 font-mono">{user?.phone}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-900 pb-2">
+                  <span className="text-slate-400">ইমেইল ঠিকানা:</span>
+                  <span className="text-slate-200">{user?.email || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-900 pb-2">
+                  <span className="text-slate-400">ব্যাচ:</span>
+                  <span className="text-amber-300 font-bold">{user?.batch || 'BJS & Bar Regular'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">অ্যাকাউন্ট স্ট্যাটাস:</span>
+                  <span className="text-emerald-400 font-bold">● {user?.status || 'Active'}</span>
+                </div>
+              </div>
+
+              {/* Browser Push Notifications Activation */}
+              <div className="p-4 bg-gradient-to-r from-blue-950/40 to-slate-950 rounded-xl border border-blue-500/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-blue-300 flex items-center gap-1.5">
+                    <span>🔔</span>
+                    <span>ব্রাউজার পুশ নোটিফিকেশন</span>
+                  </span>
+                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
+                    pushStatus === 'granted' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {pushStatus === 'granted' ? 'সক্রিয় (Active)' : 'নিষ্ক্রিয় (Inactive)'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  কোনো ইমেইল কোটা খরচ না করেই নতুন ভিডিও ক্লাস, লাইভ মডেল টেস্ট ও অ্যাকাডেমিক ঘোষণার তাৎক্ষণিক ব্রাউজার নোটিফিকেশন পান।
+                </p>
+                <button
+                  type="button"
+                  onClick={handleTogglePushNotification}
+                  disabled={pushLoading || pushStatus === 'granted'}
+                  className={`w-full py-2 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                    pushStatus === 'granted'
+                      ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-500/30 cursor-default'
+                      : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white shadow-md'
+                  }`}
+                >
+                  {pushLoading ? 'প্রসেসিং হচ্ছে...' : pushStatus === 'granted' ? '✓ পুশ নোটিফিকেশন চালু আছে' : '🔔 নোটিফিকেশন চালু করুন'}
+                </button>
+              </div>
+            </div>
+
+            {/* Device Lock & Password Update */}
+            <div className="space-y-6">
+              {/* Device Security Status (Max 2 Devices Lock) */}
+              <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-3">
+                <div className="border-b border-slate-800 pb-3">
+                  <span className="px-2.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono text-[10px] font-bold border border-rose-500/30">
+                    DEVICE SECURITY GUARD
+                  </span>
+                  <h2 className="text-lg font-extrabold text-white mt-1 flex items-center gap-2">
+                    <span>🛡️ ডিভাইস লক ও নিরাপত্তা (সর্বোচ্চ ২টি ডিভাইস)</span>
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    ভিডিও পাইরেসি ও অননুমোদিত অ্যাক্সেস রোধে আপনার অ্যাকাউন্টটি সর্বোচ্চ ২টি ডিভাইসে সীমাবদ্ধ।
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  {(user?.devices && user.devices.length > 0) ? (
+                    user.devices.map((dev, idx) => (
+                      <div key={idx} className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-base">💻</span>
+                          <div>
+                            <p className="text-white font-bold">{dev.userAgent ? dev.userAgent.substring(0, 35) + '...' : `ডিভাইস #${idx + 1}`}</p>
+                            <p className="text-[10px] text-slate-500 font-mono">লগইন: {formatBangladeshTime(dev.lastLogin || dev.createdAt)}</p>
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold">
+                          অনুমোদিত
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-400">
+                      বর্তমান ডিভাইসটি প্রধান অনুমোদিত ডিভাইস হিসেবে সংরক্ষিত রয়েছে।
+                    </div>
+                  )}
+                </div>
+                <p className="text-[10px] text-amber-400">
+                  ⚠️ ডিভাইস রিসেট বা পরিবর্তন করতে চাইলে হেল্পলাইনে যোগাযোগ করুন।
+                </p>
+              </div>
+
+              {/* Change Password Form */}
+              <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-3">
+                <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                  <span>🔐 পাসওয়ার্ড পরিবর্তন করুন</span>
+                </h3>
+                <form onSubmit={handleChangePassword} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-slate-400 font-bold mb-1">বর্তমান পাসওয়ার্ড:</label>
+                    <input
+                      type="password"
+                      required
+                      value={passForm.oldPassword}
+                      onChange={e => setPassForm({ ...passForm, oldPassword: e.target.value })}
+                      placeholder="আপনার বর্তমান পাসওয়ার্ড লিখুন"
+                      className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-bold mb-1">নতুন পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর):</label>
+                    <input
+                      type="password"
+                      required
+                      value={passForm.newPassword}
+                      onChange={e => setPassForm({ ...passForm, newPassword: e.target.value })}
+                      placeholder="নতুন গোপনীয় পাসওয়ার্ড"
+                      className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-bold mb-1">নতুন পাসওয়ার্ড নিশ্চিত করুন:</label>
+                    <input
+                      type="password"
+                      required
+                      value={passForm.confirmPassword}
+                      onChange={e => setPassForm({ ...passForm, confirmPassword: e.target.value })}
+                      placeholder="পাসওয়ার্ডটি পুনরায় লিখুন"
+                      className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={passLoading}
+                    className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                  >
+                    {passLoading ? 'সংরক্ষণ হচ্ছে...' : '✓ পাসওয়ার্ড সংরক্ষণ করুন'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* DETAILED MCQ RESULT REVIEW MODAL */}
       {reviewModal.isOpen && (
         <Modal
@@ -1478,6 +1886,95 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                 })
               )}
             </div>
+        </Modal>
+      )}
+
+      {/* CENTRAL LIVE MERIT LIST & LEADERBOARD MODAL */}
+      {leaderboardModal.isOpen && (
+        <Modal
+          isOpen={leaderboardModal.isOpen}
+          onClose={() => setLeaderboardModal({ isOpen: false, examId: null, examTitle: '', leaderboard: [], totalParticipants: 0, loading: false })}
+          title={`🏆 সেন্ট্রাল মেধা তালিকা (Live Merit List): ${leaderboardModal.examTitle}`}
+          icon="🏆"
+          maxWidth="max-w-4xl"
+          footer={
+            <div className="w-full flex justify-end">
+              <button
+                type="button"
+                onClick={() => setLeaderboardModal({ isOpen: false, examId: null, examTitle: '', leaderboard: [], totalParticipants: 0, loading: false })}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer"
+              >
+                বন্ধ করুন (Close Leaderboard)
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4 max-h-[75vh] overflow-y-auto p-1 text-xs">
+            {leaderboardModal.loading ? (
+              <div className="p-12 text-center text-amber-400 font-bold space-y-2">
+                <div className="w-8 h-8 rounded-full border-2 border-amber-500 border-t-transparent animate-spin mx-auto" />
+                <p>⏳ সেন্ট্রাল মেধা তালিকা ও লিডারবোর্ড লোড হচ্ছে...</p>
+              </div>
+            ) : leaderboardModal.leaderboard.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 space-y-2">
+                <div className="text-3xl">📊</div>
+                <p>এই পরীক্ষায় এখনো কোনো শিক্ষার্থী ফলাফল জমা দেয়নি।</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+                  <span className="text-slate-400">মোট অংশগ্রহণকারী শিক্ষার্থী:</span>
+                  <span className="text-amber-400 font-mono font-bold">{leaderboardModal.totalParticipants} জন</span>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-900 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                      <tr>
+                        <th className="p-3 text-center">মেধা স্থান (Rank)</th>
+                        <th className="p-3">শিক্ষার্থীর নাম</th>
+                        <th className="p-3 text-center">সঠিক</th>
+                        <th className="p-3 text-center">ভুল (কাটা)</th>
+                        <th className="p-3 text-center">নেট স্কোর (Net Score)</th>
+                        <th className="p-3 text-center">ব্যয়িত সময়</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-sans">
+                      {leaderboardModal.leaderboard.map((row) => {
+                        const medal = row.rank === 1 ? '🥇 1st' : row.rank === 2 ? '🥈 2nd' : row.rank === 3 ? '🥉 3rd' : `#${row.rank}`;
+                        const rowClass = row.rank === 1 ? 'bg-amber-500/10' : row.rank === 2 ? 'bg-slate-800/40' : row.rank === 3 ? 'bg-amber-900/10' : '';
+
+                        return (
+                          <tr key={row.rank} className={`hover:bg-slate-900/50 transition-colors ${rowClass}`}>
+                            <td className="p-3 text-center font-bold">
+                              <span className={`px-2 py-0.5 rounded-full font-mono text-xs ${
+                                row.rank === 1 ? 'bg-amber-500 text-slate-950 font-black' :
+                                row.rank === 2 ? 'bg-slate-300 text-slate-950 font-black' :
+                                row.rank === 3 ? 'bg-amber-700 text-white font-black' :
+                                'text-slate-400'
+                              }`}>
+                                {medal}
+                              </span>
+                            </td>
+                            <td className="p-3">
+                              <p className="font-extrabold text-white text-xs">{row.studentName}</p>
+                              <p className="text-[10px] text-slate-500 font-mono">{row.studentPhone || '***'}</p>
+                            </td>
+                            <td className="p-3 text-center font-mono text-emerald-400 font-bold">+{row.correctCount}</td>
+                            <td className="p-3 text-center font-mono text-rose-400 font-bold">-{row.negativeDeduction || 0} ({row.wrongCount})</td>
+                            <td className="p-3 text-center font-mono text-amber-300 font-black text-sm">{row.netScore}</td>
+                            <td className="p-3 text-center font-mono text-slate-400">
+                              {Math.floor((row.timeTakenSeconds || 0) / 60)}মি. {(row.timeTakenSeconds || 0) % 60}সে.
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
         </Modal>
       )}
     </div>
