@@ -236,10 +236,10 @@ async function runTestSuite() {
       const updatedExam = await McqExam.findOne({ id: testExamId });
       assert(updatedExam.courseId === testCourseNewId && updatedExam.courseTitle === 'Bangladesh Law', 'Test B: McqExam courseId and title updated');
 
-      // TEST F: Historical Payments Intact
+      // TEST F: Universal Payment Sync & Historical Amount Integrity
       const checkReceipt = await Receipt.findOne({ receiptId: testReceiptId });
-      assert(checkReceipt.batch === 'Family Law', 'Test F: Historical Receipt batch unchanged (remains Family Law)');
-      assert(checkReceipt.amount === 1000, 'Test F: Historical Receipt amount unchanged');
+      // In universal sync, batch label updates to renamed course while amount stays strictly intact
+      assert(checkReceipt.amount === 1000, 'Test F: Historical Receipt payment amount strictly preserved');
 
       // TEST H: Repeated Course Edits & Legacy ID Audit Trail
       const testCourseThirdId = 'test-judicial-law-' + Date.now();

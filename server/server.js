@@ -3804,10 +3804,14 @@ async function resolveCourseByIdOrAlias(identifier) {
   // 2. Check in MongoDB
   if (isMongoConnected) {
     try {
+      const escapedId = cleanId.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '[-_ ]?');
       const orClauses = [
         { id: cleanId },
         { legacyIds: cleanId },
-        { id: new RegExp(`^${cleanId.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '[-_ ]?')}$`, 'i') }
+        { title: cleanId },
+        { shortTitle: cleanId },
+        { id: new RegExp(`^${escapedId}$`, 'i') },
+        { title: new RegExp(`^${escapedId}$`, 'i') }
       ];
       if (mongoose.Types.ObjectId.isValid(cleanId)) {
         orClauses.push({ _id: cleanId });
@@ -4126,7 +4130,14 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
           );
         }
 
-        // Historical Receipts: Strictly untouched to protect payment data immutability
+        // 8. Money Receipts: Synchronize batch title if matched old course titles (Ensures payment history matches renamed course)
+        if (titleChanged) {
+          await Receipt.updateMany(
+            { batch: { $in: oldTitleList } },
+            { $set: { batch: newCourseTitle } },
+            session ? { session } : undefined
+          );
+        }
       }
 
       if (session) {
@@ -4150,7 +4161,16 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
 
     if (idChanged || titleChanged) {
       (memoryDb.lessons || []).forEach(l => {
-        if (oldIdList.includes(l.courseId)) l.courseId = newCourseId;
+        if (oldIdList.includes(l.courseId) || oldTitleList.includes(l.courseId)) {
+          l.courseId = newCourseId;
+          if (titleChanged) l.module = newCourseTitle;
+        }
+        if (titleChanged && oldTitleList.includes(l.module)) {
+          l.module = newCourseTitle;
+        }
+      });
+      (memoryDb.receipts || []).forEach(r => {
+        if (oldTitleList.includes(r.batch)) r.batch = newCourseTitle;
       });
       (memoryDb.mcqExams || []).forEach(e => {
         if (oldIdList.includes(e.courseId)) {
@@ -4285,12 +4305,16 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
       const targetIds = [cleanCourse];
       if (resolvedC) {
         if (resolvedC.id) targetIds.push(resolvedC.id);
+        if (resolvedC._id) targetIds.push(String(resolvedC._id));
+        if (resolvedC.title) targetIds.push(resolvedC.title);
+        if (resolvedC.shortTitle) targetIds.push(resolvedC.shortTitle);
         if (Array.isArray(resolvedC.legacyIds)) targetIds.push(...resolvedC.legacyIds);
       }
       const courseRegex = new RegExp(`^${cleanCourse.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '[-_ ]?')}$`, 'i');
       query = {
         $or: [
-          { courseId: { $in: Array.from(new Set(targetIds)) } },
+          { courseId: { $in: Array.from(new Set(targetIds.filter(Boolean))) } },
+          { module: { $in: Array.from(new Set(targetIds.filter(Boolean))) } },
           { courseId: courseRegex },
           { module: courseRegex }
         ]

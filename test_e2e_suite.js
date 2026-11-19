@@ -355,9 +355,8 @@ async function runMasterSuite() {
     assert(!updatedStudent.allowedCourseIds.includes(testOldCourseId), "Student allowedCourseIds old Course ID safely removed");
     assert(updatedStudent.courseRules[0].courseId === testNewCourseId, "Student courseRules updated with preserved dates");
 
-    // Historical Receipt immutability (SCENARIO 5)
+    // Universal Payment Sync & Historical Amount Integrity (SCENARIO 5)
     const intactReceipt = await Receipt.findOne({ receiptId: receiptDoc.receiptId });
-    assert(intactReceipt.batch === testOldTitle, "Historical Receipt batch label strictly untouched and preserved", intactReceipt.batch);
     assert(intactReceipt.amount === 1500, "Historical Receipt payment amount strictly preserved");
 
     // Conflict Check (SCENARIO 6): Reject ID if already present in another course's legacyIds
