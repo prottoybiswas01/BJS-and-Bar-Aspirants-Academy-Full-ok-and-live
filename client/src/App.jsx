@@ -15,7 +15,6 @@ import AiChatDrawer from './components/AiChatDrawer';
 import ProfileModal from './components/ProfileModal';
 import ForceTempPasswordModal from './components/ForceTempPasswordModal';
 import PwaInstallBanner from './components/PwaInstallBanner';
-import MobileBottomNav from './components/MobileBottomNav';
 import PageErrorBoundary from './components/PageErrorBoundary';
 import NotFound from './pages/NotFound';
 import api from './services/api';
@@ -402,7 +401,7 @@ function MainApp() {
         openProfileModal={() => setProfileModalOpen(true)}
       />
 
-      <main className={`flex-1 w-full mx-auto px-3 sm:px-5 lg:px-6 pt-4 sm:pt-6 pb-24 md:pb-10 ${
+      <main className={`flex-1 w-full mx-auto px-3 sm:px-5 lg:px-6 pt-6 ${
         activePage === 'admin' ? 'max-w-[1750px]' : 'max-w-7xl'
       }`}>
         <PageErrorBoundary pageName={activePage} onNavigateHome={() => navigatePage('home')}>
@@ -438,15 +437,6 @@ function MainApp() {
       </main>
 
       <Footer setActivePage={navigatePage} activePage={activePage} />
-
-      {/* Modern App-like Bottom Navigation for Mobile */}
-      {activePage !== 'admin' && activePage !== 'admin-login' && (
-        <MobileBottomNav
-          activePage={activePage}
-          setActivePage={navigatePage}
-          openProfileModal={() => setProfileModalOpen(true)}
-        />
-      )}
 
       {/* Video Player Modal */}
       {videoModal.isOpen && (
