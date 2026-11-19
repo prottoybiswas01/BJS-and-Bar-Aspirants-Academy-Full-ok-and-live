@@ -147,6 +147,73 @@ function analyzeUserIntentAndContext(query, conversationHistory = []) {
   };
 }
 
+let cachedResolvedModel = null;
+let lastModelCheckTime = 0;
+
+/**
+ * Dynamically resolves the best active Gemini model supported by the user's API Key.
+ * Queries Google's ListModels endpoint to automatically discover available Flash models
+ * (e.g. gemini-2.5-flash, gemini-3.8-flash, etc.)
+ */
+async function resolveOptimalGeminiModel(apiKey) {
+  if (process.env.GEMINI_MODEL) {
+    return process.env.GEMINI_MODEL;
+  }
+  if (!apiKey) {
+    return 'gemini-2.5-flash';
+  }
+
+  const now = Date.now();
+  if (cachedResolvedModel && (now - lastModelCheckTime < 3600000)) {
+    return cachedResolvedModel;
+  }
+
+  try {
+    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+    const listRes = await fetch(listUrl, {
+      method: 'GET',
+      headers: { 'x-goog-api-key': apiKey }
+    });
+    if (listRes.ok) {
+      const data = await listRes.json();
+      if (Array.isArray(data?.models)) {
+        const usable = data.models.filter(m => 
+          Array.isArray(m.supportedGenerationMethods) && 
+          m.supportedGenerationMethods.includes('generateContent')
+        );
+
+        const modelNames = usable.map(m => m.name.replace(/^models\//, ''));
+        console.log(`[Gemini Discovery] Found ${modelNames.length} usable models: ${modelNames.slice(0, 10).join(', ')}`);
+
+        // Preference order: super-fast flash-lite-latest (fastest & lowest latency), then flash-latest, then 2.5-flash
+        const pick =
+          modelNames.find(n => n === 'gemini-flash-lite-latest') ||
+          modelNames.find(n => n === 'gemini-flash-latest') ||
+          modelNames.find(n => n === 'gemini-2.5-flash-lite') ||
+          modelNames.find(n => n === 'gemini-2.5-flash') ||
+          modelNames.find(n => n.includes('3.8-flash')) ||
+          modelNames.find(n => n === 'gemini-pro-latest') ||
+          modelNames.find(n => n.includes('flash')) ||
+          modelNames[0];
+
+        if (pick) {
+          cachedResolvedModel = pick;
+          lastModelCheckTime = now;
+          console.log(`[Gemini Discovery] Selected optimal model: ${cachedResolvedModel}`);
+          return cachedResolvedModel;
+        }
+      }
+    } else {
+      const errTxt = await listRes.text();
+      console.warn(`[Gemini Discovery] ListModels returned ${listRes.status}: ${errTxt.substring(0, 180)}`);
+    }
+  } catch (err) {
+    console.warn(`[Gemini Discovery] Error checking models: ${err.message}`);
+  }
+
+  return 'gemini-2.5-flash';
+}
+
 /**
  * Call Google Gemini API with Grounding & Multi-turn Context
  */
@@ -218,30 +285,64 @@ ${videoContext}
 
 ২. মনগড়া বা কাল্পনিক কোনো ধারা কখনোই তৈরি করবে না।`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const optimalModel = await resolveOptimalGeminiModel(apiKey);
+  const candidateModels = [
+    process.env.GEMINI_MODEL,
+    optimalModel,
+    'gemini-flash-lite-latest',
+    'gemini-flash-latest',
+    'gemini-2.5-flash',
+    'gemini-3.8-flash',
+    'gemini-pro-latest'
+  ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.15,
-        maxOutputTokens: 950
+  let lastErr = null;
+  for (const model of candidateModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 1024
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.warn(`[Gemini Attempt] Model "${model}" failed (${response.status}): ${errText.substring(0, 160)}`);
+        lastErr = new Error(`Gemini Provider (${model}) Error: ${response.status} - ${errText}`);
+        if (response.status === 404 || response.status === 503 || response.status === 400) {
+          continue;
+        }
+        throw lastErr;
       }
-    })
-  });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Gemini Provider Error: ${response.status} - ${errText}`);
+      const data = await response.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error(`Empty response received from Gemini model ${model}`);
+
+      // Cache working model
+      cachedResolvedModel = model;
+      lastModelCheckTime = Date.now();
+
+      return { text, model };
+    } catch (err) {
+      lastErr = err;
+      if (candidateModels.indexOf(model) < candidateModels.length - 1) {
+        continue;
+      }
+      throw lastErr;
+    }
   }
-
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Empty response received from AI provider");
-
-  return text;
+  throw lastErr || new Error("Failed to generate response from Gemini API");
 }
 
 /**
@@ -473,7 +574,7 @@ async function processLegalAiQuery({ query, studentName = 'শিক্ষার
 
   if (geminiKey) {
     try {
-      aiAnswer = await callGroundedGeminiAi({
+      const geminiRes = await callGroundedGeminiAi({
         query: contextualQuery,
         intentMeta,
         verifiedSources,
@@ -482,7 +583,9 @@ async function processLegalAiQuery({ query, studentName = 'শিক্ষার
         apiKey: geminiKey,
         conversationHistory
       });
-      provider = 'gemini_flash_dynamic';
+      aiAnswer = typeof geminiRes === 'string' ? geminiRes : (geminiRes?.text || '');
+      const usedModel = typeof geminiRes === 'object' && geminiRes?.model ? geminiRes.model : 'gemini-2.5-flash';
+      provider = `gemini_${usedModel.replace(/[\.\-]/g, '_')}`;
       isAiGenerated = true;
     } catch (err) {
       console.error('Gemini Provider Error:', err.message);
@@ -523,6 +626,7 @@ async function processLegalAiQuery({ query, studentName = 'শিক্ষার
 module.exports = {
   processLegalAiQuery,
   callGroundedGeminiAi,
+  resolveOptimalGeminiModel,
   synthesizeDynamicAnswer,
   analyzeUserIntentAndContext
 };
