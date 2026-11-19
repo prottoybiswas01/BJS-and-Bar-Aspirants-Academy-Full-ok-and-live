@@ -325,7 +325,7 @@ function parseTranscriptXml(xml, lang = 'bn') {
 
 /**
  * TIER 1: YouTube Innertube Android Client API
- * Bypasses Vercel/Datacenter IP blocks and retrieves caption tracks (bn, a.bn, etc.)
+ * Bypasses standard web bot protections and retrieves caption tracks (bn, a.bn, etc.)
  */
 async function fetchViaInnertubeAndroid(youtubeId) {
   try {
@@ -358,14 +358,29 @@ async function fetchViaInnertubeAndroid(youtubeId) {
     });
     clearTimeout(timer);
 
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      const isBlocked = resp.status === 429 || resp.status === 403;
+      return { ok: false, error: `HTTP_${resp.status}`, isBlocked, tier: 'tier1_innertube_android' };
+    }
     const data = await resp.json();
-    const captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!Array.isArray(captionTracks) || captionTracks.length === 0) return null;
+    const playStatus = data?.playabilityStatus?.status;
+    const playReason = data?.playabilityStatus?.reason || '';
+    if (playStatus === 'ERROR' || playReason.toLowerCase().includes('bot') || playReason.toLowerCase().includes('sign in')) {
+      return { ok: false, error: playReason || 'BOT_DETECTION', isBlocked: true, tier: 'tier1_innertube_android' };
+    }
 
-    // Prioritize Bengali track (uploaded or auto-generated), then any track
-    const track = captionTracks.find(t => t.languageCode === 'bn' || t.languageCode?.startsWith('bn') || t.vssId?.includes('.bn')) || captionTracks[0];
-    if (!track || !track.baseUrl) return null;
+    const captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!Array.isArray(captionTracks) || captionTracks.length === 0) {
+      return { ok: false, error: 'NO_CAPTION_TRACKS', isBlocked: false, tier: 'tier1_innertube_android' };
+    }
+
+    // Prioritize Bengali track (uploaded or auto-generated), then English or any track
+    const track = captionTracks.find(t => t.languageCode === 'bn' || t.languageCode?.startsWith('bn') || t.vssId?.includes('.bn')) 
+               || captionTracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en'))
+               || captionTracks[0];
+    if (!track || !track.baseUrl) {
+      return { ok: false, error: 'NO_TRACK_BASE_URL', isBlocked: false, tier: 'tier1_innertube_android' };
+    }
 
     const trController = new AbortController();
     const trTimer = setTimeout(() => trController.abort(), 6500);
@@ -377,18 +392,24 @@ async function fetchViaInnertubeAndroid(youtubeId) {
     });
     clearTimeout(trTimer);
 
-    if (!trRes.ok) return null;
+    if (!trRes.ok) {
+      return { ok: false, error: `TRACK_FETCH_${trRes.status}`, isBlocked: trRes.status === 429 || trRes.status === 403, tier: 'tier1_innertube_android' };
+    }
     const xml = await trRes.text();
     const segments = parseTranscriptXml(xml, track.languageCode || 'bn');
-    if (segments.length === 0) return null;
+    if (segments.length === 0) {
+      return { ok: false, error: 'EMPTY_PARSED_XML', isBlocked: false, tier: 'tier1_innertube_android' };
+    }
 
     return {
+      ok: true,
       tier: 'tier1_innertube_android',
       language: track.languageCode || 'bn',
       segments
     };
   } catch (err) {
-    return null;
+    const isAbort = err.name === 'AbortError';
+    return { ok: false, error: isAbort ? 'TIMEOUT' : err.message, isBlocked: isAbort, tier: 'tier1_innertube_android' };
   }
 }
 
@@ -411,21 +432,35 @@ async function fetchViaWebWatchPage(youtubeId) {
     });
     clearTimeout(timer);
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const isBlocked = res.status === 429 || res.status === 403;
+      return { ok: false, error: `WATCH_PAGE_${res.status}`, isBlocked, tier: 'tier2_web_watch_page' };
+    }
     const html = await res.text();
+    if (html.includes('Sign in to confirm you’re not a bot') || html.includes('captcha') || html.includes('consent.youtube.com')) {
+      return { ok: false, error: 'BOT_DETECTION_CHALLENGE', isBlocked: true, tier: 'tier2_web_watch_page' };
+    }
     const match = html.match(/"captionTracks":\s*(\[.+?\])/);
-    if (!match) return null;
+    if (!match) {
+      return { ok: false, error: 'NO_CAPTION_TRACKS_IN_HTML', isBlocked: false, tier: 'tier2_web_watch_page' };
+    }
 
     let tracks = [];
     try {
       tracks = JSON.parse(match[1]);
     } catch (e) {
-      return null;
+      return { ok: false, error: 'JSON_PARSE_ERROR', isBlocked: false, tier: 'tier2_web_watch_page' };
     }
 
-    if (!Array.isArray(tracks) || tracks.length === 0) return null;
-    const track = tracks.find(t => t.languageCode === 'bn' || t.languageCode?.startsWith('bn') || t.vssId?.includes('.bn')) || tracks[0];
-    if (!track || !track.baseUrl) return null;
+    if (!Array.isArray(tracks) || tracks.length === 0) {
+      return { ok: false, error: 'EMPTY_TRACKS_ARRAY', isBlocked: false, tier: 'tier2_web_watch_page' };
+    }
+    const track = tracks.find(t => t.languageCode === 'bn' || t.languageCode?.startsWith('bn') || t.vssId?.includes('.bn'))
+               || tracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en'))
+               || tracks[0];
+    if (!track || !track.baseUrl) {
+      return { ok: false, error: 'NO_BASE_URL', isBlocked: false, tier: 'tier2_web_watch_page' };
+    }
 
     const trController = new AbortController();
     const trTimer = setTimeout(() => trController.abort(), 6500);
@@ -438,29 +473,81 @@ async function fetchViaWebWatchPage(youtubeId) {
     });
     clearTimeout(trTimer);
 
-    if (!trRes.ok) return null;
+    if (!trRes.ok) {
+      return { ok: false, error: `TRACK_${trRes.status}`, isBlocked: trRes.status === 429 || trRes.status === 403, tier: 'tier2_web_watch_page' };
+    }
     const xml = await trRes.text();
     const segments = parseTranscriptXml(xml, track.languageCode || 'bn');
-    if (segments.length === 0) return null;
+    if (segments.length === 0) {
+      return { ok: false, error: 'EMPTY_SEGMENTS', isBlocked: false, tier: 'tier2_web_watch_page' };
+    }
 
     return {
+      ok: true,
       tier: 'tier2_web_watch_page',
       language: track.languageCode || 'bn',
       segments
     };
   } catch (err) {
-    return null;
+    const isAbort = err.name === 'AbortError';
+    return { ok: false, error: isAbort ? 'TIMEOUT' : err.message, isBlocked: isAbort, tier: 'tier2_web_watch_page' };
   }
 }
 
 /**
- * TIER 3: YouTube Transcript Library / Fallback Proxy
+ * TIER 3: Direct YouTube TimedText Gateway
+ * Hits https://www.youtube.com/api/timedtext with candidate language codes
+ */
+async function fetchViaDirectTimedText(youtubeId) {
+  const langCandidates = ['bn', 'a.bn', 'en', 'a.en'];
+  let anyBlocked = false;
+  for (const lang of langCandidates) {
+    try {
+      const url = `https://www.youtube.com/api/timedtext?v=${youtubeId}&lang=${lang}&fmt=srv3`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        },
+        signal: AbortSignal.timeout(5000)
+      });
+      if (res.status === 429 || res.status === 403) {
+        anyBlocked = true;
+        continue;
+      }
+      if (res.ok) {
+        const xml = await res.text();
+        if (xml && xml.trim().length > 30 && xml.includes('<p')) {
+          const segments = parseTranscriptXml(xml, lang.includes('bn') ? 'bn' : 'en');
+          if (segments.length > 0) {
+            return {
+              ok: true,
+              tier: 'tier3_direct_timedtext',
+              language: lang.includes('bn') ? 'bn' : 'en',
+              segments
+            };
+          }
+        }
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') anyBlocked = true;
+    }
+  }
+  return { ok: false, error: 'NO_TIMEDTEXT_STREAM', isBlocked: anyBlocked, tier: 'tier3_direct_timedtext' };
+}
+
+/**
+ * TIER 4: YouTube Transcript Library / Fallback Proxy
  */
 async function fetchViaFallbackChain(youtubeId) {
   try {
-    const rawLines = await YoutubeTranscript.fetchTranscript(youtubeId, { lang: 'bn' }).catch(() =>
-      YoutubeTranscript.fetchTranscript(youtubeId).catch(() => null)
-    );
+    let lastError = null;
+    const rawLines = await YoutubeTranscript.fetchTranscript(youtubeId, { lang: 'bn' }).catch((err) => {
+      lastError = err;
+      return YoutubeTranscript.fetchTranscript(youtubeId).catch((err2) => {
+        lastError = err2;
+        return null;
+      });
+    });
 
     if (rawLines && Array.isArray(rawLines) && rawLines.length > 0) {
       const segments = rawLines.map(line => {
@@ -476,24 +563,29 @@ async function fetchViaFallbackChain(youtubeId) {
 
       if (segments.length > 0) {
         return {
-          tier: 'tier3_library_fallback',
+          ok: true,
+          tier: 'tier4_library_fallback',
           language: rawLines[0].lang || 'bn',
           segments
         };
       }
     }
+    const errMsg = lastError?.message || '';
+    const isBlocked = errMsg.includes('429') || errMsg.includes('blocking') || errMsg.includes('disabled');
+    return { ok: false, error: errMsg || 'NO_TRANSCRIPT_LIB', isBlocked, tier: 'tier4_library_fallback' };
   } catch (err) {
-    // Non-fatal, return null
+    return { ok: false, error: err.message, isBlocked: false, tier: 'tier4_library_fallback' };
   }
-  return null;
 }
 
 /**
- * Permanent Multi-Tier Subtitle Extraction Pipeline with Strict Quality Gate
- * - Tier 1: YouTube Innertube Android Client API (Bypasses Vercel Cloud IP blocks)
+ * Permanent Multi-Tier Subtitle Extraction Pipeline with Accurate Diagnostic Logging
+ * - Tier 1: YouTube Innertube Android Client API
  * - Tier 2: Web Watch Page HTML Scraper + TimedText XML
- * - Tier 3: YoutubeTranscript Library / Fallback Chain
+ * - Tier 3: Direct YouTube TimedText Gateway
+ * - Tier 4: YoutubeTranscript Library / Fallback Chain
  * - Quality Gate: >= 50 words required (rejects bogus titles/descriptions)
+ * - Precise Error Classification: IP_BLOCKED_BY_YOUTUBE vs NO_CAPTIONS_AVAILABLE
  */
 async function fetchYoutubeTranscript(videoIdOrUrl) {
   const youtubeId = extractYoutubeId(videoIdOrUrl);
@@ -501,32 +593,93 @@ async function fetchYoutubeTranscript(videoIdOrUrl) {
     return {
       ok: false,
       status: 'invalid_id',
+      errorCode: 'INVALID_ID',
       retryable: false,
       youtubeId: '',
       message: 'অবৈধ ইউটিউব ভিডিও আইডি বা ইউআরএল।'
     };
   }
 
-  // Execute Multi-Tier Pipeline in Sequence
-  let result = await fetchViaInnertubeAndroid(youtubeId);
-  if (!result) {
-    result = await fetchViaWebWatchPage(youtubeId);
-  }
-  if (!result) {
-    result = await fetchViaFallbackChain(youtubeId);
+  // Execute Multi-Tier Pipeline in Sequence and collect diagnostics
+  const tierReports = [];
+  let successfulResult = null;
+
+  // 1. Tier 1: Android Innertube
+  const t1 = await fetchViaInnertubeAndroid(youtubeId);
+  tierReports.push(t1);
+  if (t1 && t1.ok && t1.segments?.length > 0) {
+    successfulResult = t1;
   }
 
-  // Handle No Captions or Extraction Failure
-  if (!result || !result.segments || result.segments.length === 0) {
+  // 2. Tier 2: Watch Page Scraper
+  if (!successfulResult) {
+    const t2 = await fetchViaWebWatchPage(youtubeId);
+    tierReports.push(t2);
+    if (t2 && t2.ok && t2.segments?.length > 0) {
+      successfulResult = t2;
+    }
+  }
+
+  // 3. Tier 3: Direct TimedText Gateway
+  if (!successfulResult) {
+    const t3 = await fetchViaDirectTimedText(youtubeId);
+    tierReports.push(t3);
+    if (t3 && t3.ok && t3.segments?.length > 0) {
+      successfulResult = t3;
+    }
+  }
+
+  // 4. Tier 4: Library Fallback
+  if (!successfulResult) {
+    const t4 = await fetchViaFallbackChain(youtubeId);
+    tierReports.push(t4);
+    if (t4 && t4.ok && t4.segments?.length > 0) {
+      successfulResult = t4;
+    }
+  }
+
+  // If no tier succeeded, accurately classify the root cause
+  if (!successfulResult || !successfulResult.segments || successfulResult.segments.length === 0) {
+    const anyTierBlocked = tierReports.some(r => r && r.isBlocked);
+    const allHadNoCaptions = tierReports.every(r => r && !r.isBlocked && (r.error === 'NO_CAPTION_TRACKS' || r.error === 'NO_CAPTION_TRACKS_IN_HTML' || r.error === 'NO_TIMEDTEXT_STREAM'));
+
+    if (anyTierBlocked) {
+      console.warn(`[Subtitle Diagnostic] YouTube Bot Protection blocked Server IP for ${youtubeId}:`, tierReports.map(r => `${r?.tier}: ${r?.error}`));
+      return {
+        ok: false,
+        status: 'IP_BLOCKED_BY_YOUTUBE',
+        errorCode: 'IP_BLOCKED_BY_YOUTUBE',
+        retryable: true,
+        youtubeId,
+        tierReports,
+        message: 'ইউটিউব বট প্রোটেকশন দ্বারা Vercel ক্লাউড সার্ভারের IP সাময়িকভাবে সীমাবদ্ধ (IP_BLOCKED_BY_YOUTUBE)। অনুগ্রহ করে ব্রাউজার দিয়ে সিঙ্ক করুন অথবা "📋 ম্যানুয়াল সাবটাইটেল (Paste)" বাটন ব্যবহার করুন।'
+      };
+    }
+
+    if (allHadNoCaptions) {
+      return {
+        ok: false,
+        status: 'NO_CAPTIONS_AVAILABLE',
+        errorCode: 'NO_CAPTIONS_AVAILABLE',
+        retryable: false,
+        youtubeId,
+        tierReports,
+        message: 'এই ভিডিওটির জন্য ইউটিউবে কোনো বাংলা বা ইংরেজি সাবটাইটেল এখনও তৈরি করা হয়নি (NO_CAPTIONS_AVAILABLE)।'
+      };
+    }
+
     return {
       ok: false,
-      status: 'no_captions',
-      retryable: false,
+      status: 'IP_BLOCKED_BY_YOUTUBE',
+      errorCode: 'IP_BLOCKED_BY_YOUTUBE',
+      retryable: true,
       youtubeId,
-      message: 'এই ভিডিওটির জন্য ইউটিউবে কোনো বাংলা বা ইংরেজি সাবটাইটেল ট্র্যাক পাওয়া যায়নি।'
+      tierReports,
+      message: 'ক্লাউড সার্ভার থেকে ইউটিউব ক্যাপশন ফেচ করা যায়নি। দয়া করে ব্রাউজার সিঙ্ক অথবা "📋 ম্যানুয়াল পেস্ট" দিয়ে সাবটাইটেল যুক্ত করুন।'
     };
   }
 
+  const result = successfulResult;
   const cleanedParts = result.segments.map(s => `[${s.timestamp}] ${s.text}`);
   const fullText = cleanedParts.join('\n');
   const pureText = result.segments.map(s => s.text).join(' ');
@@ -534,11 +687,11 @@ async function fetchYoutubeTranscript(videoIdOrUrl) {
   const isBangla = /[\u0980-\u09FF]/.test(pureText);
 
   // STRICT QUALITY GATE: Subtitle text MUST have >= 50 words to be considered complete
-  // Prevents saving video title or description as fake subtitles
   if (wordCount < 50) {
     return {
       ok: false,
       status: 'incomplete',
+      errorCode: 'INCOMPLETE_CAPTIONS',
       retryable: true,
       youtubeId,
       wordCount,
@@ -550,6 +703,7 @@ async function fetchYoutubeTranscript(videoIdOrUrl) {
   return {
     ok: true,
     status: 'ready',
+    errorCode: null,
     youtubeId,
     transcript: fullText,
     pureText,

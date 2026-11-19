@@ -5015,10 +5015,15 @@ app.get(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"], 
   }
 });
 
-app.post(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"], async (req, res) => {
+app.post([
+  "/api/admin/lessons/:id/transcript", 
+  "/admin/lessons/:id/transcript",
+  "/api/admin/lessons/:id/save-transcript",
+  "/admin/lessons/:id/save-transcript"
+], async (req, res) => {
   try {
     const { id } = req.params;
-    const { transcript, action, isSrtOrVtt } = req.body || {}; // 'save' or 'refetch'
+    const { transcript, action, isSrtOrVtt, source } = req.body || {}; // 'save' or 'refetch'
 
     let lsn = null;
     if (isMongoConnected) {
@@ -5037,6 +5042,7 @@ app.post(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"],
         return res.json({
           ok: false,
           status: 'invalid_id',
+          errorCode: 'INVALID_ID',
           message: 'এই ক্লাসে কোনো বৈধ ইউটিউব লিঙ্ক বা ভিডিও আইডি যুক্ত নেই। অনুগ্রহ করে এডিট করে ইউটিউব লিঙ্ক দিন অথবা "📋 ম্যানুয়াল পেস্ট" বাটন দিয়ে সরাসরি সাবটাইটেল সেভ করুন।'
         });
       }
@@ -5063,8 +5069,11 @@ app.post(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"],
           mem.transcriptUpdatedAt = new Date();
         }
         fastCache.del("lessons");
+        fastCache.flushAll();
         return res.json({
           ok: true,
+          status: 'ready',
+          errorCode: null,
           message: `✓ ইউটিউব থেকে ${trRes.wordCount} শব্দের সাবটাইটেল সফলভাবে রি-ফেচ ও সেভ করা হয়েছে! (${trRes.tier || 'Multi-Tier Pipeline'})`,
           transcript: trRes.transcript,
           transcriptStatus: 'ready',
@@ -5072,6 +5081,7 @@ app.post(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"],
         });
       } else {
         const finalStatus = trRes?.status || 'no_captions';
+        const finalErrorCode = trRes?.errorCode || finalStatus;
         lsn.hasSubtitles = false;
         lsn.transcriptStatus = finalStatus;
         lsn.transcriptLastError = trRes?.message || 'ক্যাপশন পাওয়া যায়নি';
@@ -5083,14 +5093,16 @@ app.post(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"],
           mem.transcriptLastError = trRes?.message || '';
         }
         fastCache.del("lessons");
+        fastCache.flushAll();
         return res.json({
           ok: false,
           status: finalStatus,
-          message: trRes?.message || "ইউটিউব ক্যাপশন এখনও তৈরি হয়নি। আপনি চাইলে '📋 ম্যানুয়াল পেস্ট' দিয়ে সরাসরি সাবটাইটেল যুক্ত করতে পারেন।"
+          errorCode: finalErrorCode,
+          message: trRes?.message || "ইউটিউব ক্যাপশন এখনও তৈরি হয়নি। আপনি চাইলে '📋 ম্যানুয়াল পেস্ট' দিয়ে সরাসরি সাবটাইটেল যুক্ত করতে পারেন。"
         });
       }
     } else {
-      // Manual Save/Edit by Admin (supports SRT / VTT auto-parsing & YouTube Studio format)
+      // Manual Save / Browser-Assisted Sync (supports SRT / VTT auto-parsing & YouTube Studio format)
       let cleanText = transcript || "";
       const parsed = parseSrtOrVtt(cleanText);
       const segments = parsed.ok ? (parsed.segments || []) : [];
@@ -5098,14 +5110,15 @@ app.post(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"],
       const lang = parsed.ok ? parsed.language : (/[\u0980-\u09FF]/.test(cleanText) ? 'bn' : 'en');
       const finalTranscript = (parsed.ok && parsed.transcript) ? parsed.transcript : cleanText;
       const isManualValid = parsedWordCount >= 5 || cleanText.trim().length >= 10;
+      const src = source || req.body?.source || 'manual_paste';
 
       lsn.hasSubtitles = isManualValid;
       lsn.transcript = finalTranscript;
       lsn.transcriptSegments = segments;
       lsn.transcriptWordCount = parsedWordCount;
       lsn.transcriptLanguage = lang;
-      lsn.transcriptSource = 'manual_paste';
-      lsn.transcriptStatus = isManualValid ? 'manual' : 'none';
+      lsn.transcriptSource = src;
+      lsn.transcriptStatus = isManualValid ? (src.includes('browser') ? 'ready' : 'manual') : 'none';
       lsn.transcriptUpdatedAt = new Date();
       lsn.transcriptLastError = '';
       if (isMongoConnected) await lsn.save();
@@ -5116,14 +5129,17 @@ app.post(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"],
         mem.transcriptSegments = segments;
         mem.transcriptWordCount = parsedWordCount;
         mem.transcriptLanguage = lang;
-        mem.transcriptSource = 'manual_paste';
-        mem.transcriptStatus = isManualValid ? 'manual' : 'none';
+        mem.transcriptSource = src;
+        mem.transcriptStatus = isManualValid ? (src.includes('browser') ? 'ready' : 'manual') : 'none';
         mem.transcriptUpdatedAt = new Date();
       }
       fastCache.del("lessons");
+      fastCache.flushAll();
       return res.json({
         ok: true,
-        message: `✓ সাবটাইটেল সফলভাবে ম্যানুয়ালি সংরক্ষণ করা হয়েছে! (${parsedWordCount} শব্দ)`,
+        message: src.includes('browser')
+          ? `✓ ব্রাউজার-অ্যাসিস্টেড সিঙ্ক সফল! (${parsedWordCount} শব্দ সংরক্ষিত)`
+          : `✓ সাবটাইটেল সফলভাবে ম্যানুয়ালি সংরক্ষণ করা হয়েছে! (${parsedWordCount} শব্দ)`,
         transcript: lsn.transcript,
         transcriptStatus: lsn.transcriptStatus,
         wordCount: lsn.transcriptWordCount
