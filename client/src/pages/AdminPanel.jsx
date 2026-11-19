@@ -909,11 +909,11 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     setPreviewLessons([]);
     setPreviewLoading(true);
 
-    const rawAllowed = [
-      ...(Array.isArray(student?.allowedCourseIds) ? student.allowedCourseIds : []),
-      ...(Array.isArray(student?.enrolledCourseIds) ? student.enrolledCourseIds : []),
-      ...(student?.course ? [student.course] : [])
-    ].filter(Boolean);
+    const rawAllowed = (Array.isArray(student?.allowedCourseIds) && student.allowedCourseIds.length > 0)
+      ? student.allowedCourseIds
+      : (Array.isArray(student?.enrolledCourseIds) && student.enrolledCourseIds.length > 0)
+        ? student.enrolledCourseIds
+        : (student?.course ? [student.course] : []);
 
     const distinctAllowed = Array.from(new Set(rawAllowed)).filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
     const isUnlimited = student?.unlimitedAccess === true || distinctAllowed.some(id => String(id).toLowerCase() === 'all');
@@ -1262,8 +1262,17 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   const handleToggleCourseAssignment = (cId, isChecked) => {
     let currentAllowed = studentForm.allowedCourseIds || [];
+    const targetCourse = (courses || []).find(c => c.id === cId || c._id === cId);
+    const idsToRemove = new Set([
+      cId,
+      targetCourse?.id,
+      targetCourse?._id,
+      targetCourse?.title,
+      targetCourse?.shortTitle
+    ].filter(Boolean).map(x => String(x).toLowerCase().trim()));
+
     if (isChecked) {
-      if (!currentAllowed.includes(cId)) {
+      if (!currentAllowed.some(id => idsToRemove.has(String(id).toLowerCase().trim()))) {
         currentAllowed = [...currentAllowed, cId];
       }
       setCourseRulesMap(prev => ({
@@ -1282,7 +1291,13 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         }
       }));
     } else {
-      currentAllowed = currentAllowed.filter(i => i !== cId);
+      currentAllowed = currentAllowed.filter(id => !idsToRemove.has(String(id).toLowerCase().trim()));
+      setCourseRulesMap(prev => {
+        const next = { ...prev };
+        delete next[cId];
+        if (targetCourse?.id) delete next[targetCourse.id];
+        return next;
+      });
     }
 
     setStudentForm(prev => ({ ...prev, allowedCourseIds: currentAllowed }));
@@ -1299,9 +1314,27 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
     try {
       const allowed = Array.isArray(studentForm.allowedCourseIds) ? studentForm.allowedCourseIds : [];
+
+      // If batch corresponds to an old removed course, update batch to match the newly assigned course title
+      let updatedBatch = studentForm.batch;
+      if (allowed.length > 0) {
+        const assignedCourseObj = (courses || []).find(c => allowed.includes(c.id) || allowed.includes(c._id));
+        if (assignedCourseObj) {
+          const oldCourseObj = (courses || []).find(c => 
+            String(c.title).toLowerCase() === String(studentForm.batch || '').toLowerCase() ||
+            String(c.shortTitle).toLowerCase() === String(studentForm.batch || '').toLowerCase() ||
+            String(c.id).toLowerCase() === String(studentForm.batch || '').toLowerCase()
+          );
+          if (!oldCourseObj || !allowed.includes(oldCourseObj.id)) {
+            updatedBatch = assignedCourseObj.title || assignedCourseObj.shortTitle || updatedBatch;
+          }
+        }
+      }
+
       const updatedStudent = {
         ...selectedStudentForRules,
         ...studentForm,
+        batch: updatedBatch,
         allowedCourseIds: allowed,
         enrolledCourseIds: allowed
       };
@@ -2138,6 +2171,29 @@ BJS & Bar Aspirants Academy
 
   const resolveStudentBatchName = (s) => {
     if (!s) return 'Regular Batch';
+
+    const allowed = (Array.isArray(s.allowedCourseIds) && s.allowedCourseIds.length > 0)
+      ? s.allowedCourseIds
+      : (Array.isArray(s.enrolledCourseIds) && s.enrolledCourseIds.length > 0)
+        ? s.enrolledCourseIds
+        : (s.course ? [s.course] : []);
+
+    if (allowed.length > 0) {
+      const assigned = (courses || []).find(c => allowed.includes(c.id) || allowed.includes(c._id));
+      if (assigned) {
+        const bStr = String(s.batch || '').trim().toLowerCase();
+        const oldMatched = (courses || []).find(c => {
+          const cId = String(c.id || '').trim().toLowerCase();
+          const cTitle = String(c.title || '').trim().toLowerCase();
+          const cShort = String(c.shortTitle || '').trim().toLowerCase();
+          return cId === bStr || cTitle === bStr || cShort === bStr;
+        });
+        if (!oldMatched || !allowed.includes(oldMatched.id)) {
+          return assigned.title || assigned.shortTitle;
+        }
+      }
+    }
+
     const bStr = String(s.batch || '').trim().toLowerCase();
     const matched = (courses || []).find(c => {
       const cId = String(c.id || '').trim().toLowerCase();
@@ -2149,18 +2205,16 @@ BJS & Bar Aspirants Academy
     });
     if (matched) return matched.title || matched.shortTitle;
 
-    const rawAllowed = (s.allowedCourseIds || s.enrolledCourseIds || []).filter(Boolean);
-    if (rawAllowed.length > 0) {
-      const cFound = (courses || []).find(c => rawAllowed.includes(c.id) || rawAllowed.includes(c._id));
-      if (cFound) return cFound.title || cFound.shortTitle;
-    }
-
     return s.batch || 'Regular Batch';
   };
 
   const getStudentEnrolledCourseTitles = (s) => {
     if (!s) return [];
-    const rawAllowed = s.allowedCourseIds || s.enrolledCourseIds || [];
+    const rawAllowed = (Array.isArray(s.allowedCourseIds) && s.allowedCourseIds.length > 0)
+      ? s.allowedCourseIds
+      : (Array.isArray(s.enrolledCourseIds) && s.enrolledCourseIds.length > 0)
+        ? s.enrolledCourseIds
+        : (s.course ? [s.course] : []);
     const allowed = rawAllowed.filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
     if (allowed.length === 0) {
       if (s.batch) {
@@ -5869,11 +5923,11 @@ return (
               <div>
                 <span className="text-[10px] text-slate-400 uppercase font-bold">ACCESS MODE</span>
                 {(() => {
-                  const rawAllowed = [
-                    ...(Array.isArray(previewStudentModal.student?.allowedCourseIds) ? previewStudentModal.student.allowedCourseIds : []),
-                    ...(Array.isArray(previewStudentModal.student?.enrolledCourseIds) ? previewStudentModal.student.enrolledCourseIds : []),
-                    ...(previewStudentModal.student?.course ? [previewStudentModal.student.course] : [])
-                  ].filter(Boolean);
+                  const rawAllowed = (Array.isArray(previewStudentModal.student?.allowedCourseIds) && previewStudentModal.student.allowedCourseIds.length > 0)
+                    ? previewStudentModal.student.allowedCourseIds
+                    : (Array.isArray(previewStudentModal.student?.enrolledCourseIds) && previewStudentModal.student.enrolledCourseIds.length > 0)
+                      ? previewStudentModal.student.enrolledCourseIds
+                      : (previewStudentModal.student?.course ? [previewStudentModal.student.course] : []);
                   const distinctAllowed = Array.from(new Set(rawAllowed)).filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
                   const isUnlimited = previewStudentModal.student?.unlimitedAccess === true || distinctAllowed.some(id => String(id).toLowerCase() === 'all');
                   if (isUnlimited) return <p className="font-bold text-purple-300">Unlimited Access</p>;
@@ -5906,11 +5960,11 @@ return (
 
             {/* Section 1 & 2: Interactive Enrolled Courses & Course-Specific Videos */}
             {(() => {
-              const rawAllowed = [
-                ...(Array.isArray(previewStudentModal.student?.allowedCourseIds) ? previewStudentModal.student.allowedCourseIds : []),
-                ...(Array.isArray(previewStudentModal.student?.enrolledCourseIds) ? previewStudentModal.student.enrolledCourseIds : []),
-                ...(previewStudentModal.student?.course ? [previewStudentModal.student.course] : [])
-              ].filter(Boolean);
+              const rawAllowed = (Array.isArray(previewStudentModal.student?.allowedCourseIds) && previewStudentModal.student.allowedCourseIds.length > 0)
+                ? previewStudentModal.student.allowedCourseIds
+                : (Array.isArray(previewStudentModal.student?.enrolledCourseIds) && previewStudentModal.student.enrolledCourseIds.length > 0)
+                  ? previewStudentModal.student.enrolledCourseIds
+                  : (previewStudentModal.student?.course ? [previewStudentModal.student.course] : []);
               const distinctAllowed = Array.from(new Set(rawAllowed)).filter(id => id && !String(id).includes('---') && String(id).trim() !== '');
               const isUnlimited = previewStudentModal.student?.unlimitedAccess === true || distinctAllowed.some(id => String(id).toLowerCase() === 'all');
 

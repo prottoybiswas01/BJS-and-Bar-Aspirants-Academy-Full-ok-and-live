@@ -281,13 +281,13 @@ function syncStudentCourseData(student, explicitAllowedIds = null) {
         .map(id => String(id || '').trim())
         .filter(id => id && !id.includes('---'))
     ));
-  } else if (Array.isArray(student.allowedCourseIds)) {
+  } else if (Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0) {
     targetAllowed = Array.from(new Set(
       student.allowedCourseIds
         .map(id => String(id || '').trim())
         .filter(id => id && !id.includes('---'))
     ));
-  } else if (Array.isArray(student.enrolledCourseIds)) {
+  } else if (Array.isArray(student.enrolledCourseIds) && student.enrolledCourseIds.length > 0) {
     targetAllowed = Array.from(new Set(
       student.enrolledCourseIds
         .map(id => String(id || '').trim())
@@ -296,19 +296,49 @@ function syncStudentCourseData(student, explicitAllowedIds = null) {
   }
 
   if (targetAllowed !== null) {
-    student.allowedCourseIds = targetAllowed;
-    student.enrolledCourseIds = targetAllowed;
+    // Canonicalize course IDs using live memoryDb courses
+    const allCourses = memoryDb.courses || [];
+    targetAllowed = targetAllowed.map(id => {
+      const match = allCourses.find(c => 
+        String(c.id).toLowerCase() === String(id).toLowerCase() ||
+        String(c._id) === String(id) ||
+        String(c.title).toLowerCase() === String(id).toLowerCase() ||
+        String(c.shortTitle).toLowerCase() === String(id).toLowerCase()
+      );
+      return match ? match.id : id;
+    });
+    targetAllowed = Array.from(new Set(targetAllowed.filter(Boolean)));
 
-    // Ensure legacy single course field does not reference a removed course
-    if (student.course && !targetAllowed.some(id => id.toLowerCase() === String(student.course).toLowerCase().trim())) {
-      student.course = targetAllowed[0] || '';
+    // STRICT SINGLE SOURCE OF TRUTH: allowedCourseIds and enrolledCourseIds MUST be 100% identical!
+    student.allowedCourseIds = targetAllowed;
+    student.enrolledCourseIds = [...targetAllowed];
+
+    // Ensure legacy single course field matches first allowed course
+    student.course = targetAllowed[0] || '';
+
+    // Synchronize batch name if it currently references a removed course
+    if (targetAllowed.length > 0 && allCourses.length > 0) {
+      const assignedCourseObj = allCourses.find(c => targetAllowed.includes(c.id));
+      if (assignedCourseObj) {
+        const curBatchClean = String(student.batch || '').trim().toLowerCase();
+        const oldMatchedC = allCourses.find(c => {
+          const cId = String(c.id || '').trim().toLowerCase();
+          const cTitle = String(c.title || '').trim().toLowerCase();
+          const cShort = String(c.shortTitle || '').trim().toLowerCase();
+          return cId === curBatchClean || cTitle === curBatchClean || cShort === curBatchClean;
+        });
+        // If current batch was pointing to a course that is NOT in targetAllowed, update to assigned course!
+        if (oldMatchedC && !targetAllowed.includes(oldMatchedC.id)) {
+          student.batch = assignedCourseObj.title || assignedCourseObj.shortTitle || student.batch;
+        }
+      }
     }
 
-    // Synchronize courseRules
+    // Synchronize courseRules: COMPLETELY PURGE rules for removed courses!
+    // A course that is not in targetAllowed must NOT have any active or ghost rule.
     const existingRules = Array.isArray(student.courseRules) ? student.courseRules : [];
     const updatedRules = [];
 
-    // Retain and update existing rules
     existingRules.forEach(r => {
       if (!r || !r.courseId) return;
       const rId = String(r.courseId).trim();
@@ -317,21 +347,15 @@ function syncStudentCourseData(student, explicitAllowedIds = null) {
         cId.toLowerCase().replace(/[-_]/g, ' ') === rId.toLowerCase().replace(/[-_]/g, ' ')
       );
 
-      const plain = (r && typeof r.toObject === 'function') ? r.toObject() : { ...r };
       if (isRetained) {
+        const plain = (r && typeof r.toObject === 'function') ? r.toObject() : { ...r };
         updatedRules.push({
           ...plain,
           courseId: rId,
           enrollmentStatus: plain.enrollmentStatus === 'Expired' ? 'Expired' : 'Active'
         });
-      } else {
-        // Course removed: mark suspended so old rules never grant access
-        updatedRules.push({
-          ...plain,
-          courseId: rId,
-          enrollmentStatus: 'Suspended'
-        });
       }
+      // Non-retained rules are purged completely!
     });
 
     // Add default rules for newly added courses that don't yet have a rule
@@ -2718,12 +2742,12 @@ async function notifyStudentsNewLesson(courseId, lessonData) {
 
       // STRICT authorization check: preserve all enrollment restrictions
       enrolledStudents = candidates.filter(student => {
-        const hasExplicitList = (Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0) ||
-                                (Array.isArray(student.enrolledCourseIds) && student.enrolledCourseIds.length > 0);
-        if (hasExplicitList) {
-          const inAllowed = Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.includes(courseId);
-          const inEnrolled = Array.isArray(student.enrolledCourseIds) && student.enrolledCourseIds.includes(courseId);
-          return inAllowed || inEnrolled;
+        if (student.status === 'Blocked' || student.status === 'Inactive') return false;
+        if (Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0) {
+          return student.allowedCourseIds.includes(courseId);
+        }
+        if (Array.isArray(student.enrolledCourseIds) && student.enrolledCourseIds.length > 0) {
+          return student.enrolledCourseIds.includes(courseId);
         }
         // Legacy fallback only if explicit list is not set
         if (Array.isArray(student.courseRules) && student.courseRules.some(r => r && r.courseId === courseId && r.enrollmentStatus !== 'Suspended')) {
@@ -2736,12 +2760,11 @@ async function notifyStudentsNewLesson(courseId, lessonData) {
     if (!enrolledStudents || enrolledStudents.length === 0) {
       enrolledStudents = (memoryDb.students || []).filter(s => {
         if (s.status === 'Blocked' || s.status === 'Inactive') return false;
-        const hasExplicitList = (Array.isArray(s.allowedCourseIds) && s.allowedCourseIds.length > 0) ||
-                                (Array.isArray(s.enrolledCourseIds) && s.enrolledCourseIds.length > 0);
-        if (hasExplicitList) {
-          const inAllowed = Array.isArray(s.allowedCourseIds) && s.allowedCourseIds.includes(courseId);
-          const inEnrolled = Array.isArray(s.enrolledCourseIds) && s.enrolledCourseIds.includes(courseId);
-          return inAllowed || inEnrolled;
+        if (Array.isArray(s.allowedCourseIds) && s.allowedCourseIds.length > 0) {
+          return s.allowedCourseIds.includes(courseId);
+        }
+        if (Array.isArray(s.enrolledCourseIds) && s.enrolledCourseIds.length > 0) {
+          return s.enrolledCourseIds.includes(courseId);
         }
         const inRules = Array.isArray(s.courseRules) && s.courseRules.some(r => r && r.courseId === courseId && r.enrollmentStatus !== 'Suspended');
         const inBatch = courseBatch && s.batch && s.batch.trim().toLowerCase() === courseBatch.trim().toLowerCase();
@@ -5199,7 +5222,8 @@ function checkStudentCourseAccess(student, courseId, lesson = null) {
   const sCourseNorm = sCourseId.replace(/[-_]/g, ' ');
 
   // Strict check: Student must be explicitly enrolled in THIS specific course
-  const hasExplicitList = Array.isArray(student.allowedCourseIds) || Array.isArray(student.enrolledCourseIds);
+  const hasExplicitList = (Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0) ||
+                          (Array.isArray(student.enrolledCourseIds) && student.enrolledCourseIds.length > 0);
 
   let isCourseAssigned = rawAllowed.some(id => {
     const cId = String(id).toLowerCase().trim();
@@ -5279,15 +5303,18 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       : (Array.isArray(student.enrolledCourseIds) ? student.enrolledCourseIds : []);
 
     const candidateIds = [...enrolledFilter];
-    if (student.course && !candidateIds.includes(student.course)) {
-      candidateIds.push(student.course);
-    }
-    if (Array.isArray(student.courseRules)) {
-      student.courseRules.forEach(r => {
-        if (r && r.courseId && r.enrollmentStatus !== 'Suspended' && !candidateIds.includes(r.courseId)) {
-          candidateIds.push(r.courseId);
-        }
-      });
+    // ONLY check legacy course or rules if explicit enrolledFilter is completely empty
+    if (candidateIds.length === 0) {
+      if (student.course && !candidateIds.includes(student.course)) {
+        candidateIds.push(student.course);
+      }
+      if (Array.isArray(student.courseRules)) {
+        student.courseRules.forEach(r => {
+          if (r && r.courseId && r.enrollmentStatus !== 'Suspended' && !candidateIds.includes(r.courseId)) {
+            candidateIds.push(r.courseId);
+          }
+        });
+      }
     }
 
     const idRegexes = candidateIds.map(id => {
@@ -6023,19 +6050,6 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
         let allowed = Array.isArray(s.allowedCourseIds) ? s.allowedCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '') : [];
         let enrolled = Array.isArray(s.enrolledCourseIds) ? s.enrolledCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '') : [];
 
-        // Match student batch to a live course
-        const matchedC = matchCourse(s.batch);
-        if (matchedC) {
-          s.batch = matchedC.title || matchedC.shortTitle || s.batch;
-          if (!enrolled.includes(matchedC.id)) {
-            enrolled.push(matchedC.id);
-          }
-          // If approved/active and has 0 active courses, auto-assign this course!
-          if ((s.loginApproval === 'Approved' || s.status === 'Active') && allowed.length === 0) {
-            allowed.push(matchedC.id);
-          }
-        }
-
         // Map any old titles in allowed/enrolled to canonical course IDs
         allowed = allowed.map(id => {
           const cFound = matchCourse(id);
@@ -6045,6 +6059,30 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
           const cFound = matchCourse(id);
           return cFound ? cFound.id : id;
         });
+
+        // Match student batch to a live course
+        const matchedC = matchCourse(s.batch);
+
+        if (allowed.length > 0) {
+          // STRICT RULE: allowedCourseIds is the single authoritative source of truth.
+          // enrolledCourseIds MUST strictly match allowedCourseIds!
+          enrolled = [...allowed];
+
+          // If student's batch corresponds to an old removed course, update s.batch to the assigned course
+          if (matchedC && !allowed.includes(matchedC.id)) {
+            const assignedC = allCoursesList.find(c => allowed.includes(c.id));
+            if (assignedC) {
+              s.batch = assignedC.title || assignedC.shortTitle || s.batch;
+            }
+          }
+        } else if (enrolled.length > 0) {
+          allowed = [...enrolled];
+        } else if ((s.loginApproval === 'Approved' || s.status === 'Active') && matchedC) {
+          // Newly approved student with 0 courses assigned: initialize to registration course
+          allowed = [matchedC.id];
+          enrolled = [matchedC.id];
+          s.batch = matchedC.title || matchedC.shortTitle || s.batch;
+        }
 
         s.allowedCourseIds = Array.from(new Set(allowed.filter(Boolean)));
         s.enrolledCourseIds = Array.from(new Set(enrolled.filter(Boolean)));
