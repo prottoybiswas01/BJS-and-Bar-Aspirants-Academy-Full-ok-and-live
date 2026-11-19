@@ -445,6 +445,24 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   const loadAllAdminData = async (isInitial = true) => {
     if (isInitial) setLoading(true);
     try {
+      // 1. Ultra-fast consolidated bootstrap request (1 round-trip instead of 10)
+      const bootRes = await api.get('/admin/bootstrap-data').catch(() => null);
+      if (bootRes?.data?.ok) {
+        const d = bootRes.data;
+        if (d.stats) setStats(d.stats);
+        if (Array.isArray(d.students)) setStudents(d.students);
+        if (Array.isArray(d.courses) && d.courses.length > 0) setCourses(d.courses);
+        if (d.mailSettings) setMailSettings(d.mailSettings);
+        if (isInitial && d.siteSettings) setSiteSettingsForm(d.siteSettings);
+        if (Array.isArray(d.mentors)) setMentors(d.mentors);
+        if (Array.isArray(d.receipts)) setReceipts(d.receipts);
+        if (Array.isArray(d.assignments)) setAdminAssignments(d.assignments);
+        if (Array.isArray(d.exams)) setMcqExams(d.exams);
+        if (Array.isArray(d.results)) setMcqResults(d.results);
+        return;
+      }
+
+      // Fallback: parallel fetch if consolidated endpoint is unavailable
       const results = await Promise.allSettled([
         api.get('/admin/overview-stats'),
         api.get('/admin/students'),

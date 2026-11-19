@@ -30,17 +30,21 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, [token]);
 
-  // Real-Time Account Deletion/Deactivation & Access Sync Monitor (Auto Logouts deleted accounts, syncs granted courses in < 4s)
+  // Real-Time Account Deletion/Deactivation & Access Sync Monitor (30s interval + visibilitychange)
   useEffect(() => {
-    if (!user || user.isAdmin || (!user.id && !user.regId)) return;
+    const userId = user?.id || user?.regId;
+    if (!userId || user?.isAdmin) return;
 
+    let isChecking = false;
     const checkSessionStatus = async () => {
+      if (isChecking) return;
+      isChecking = true;
       try {
         const res = await api.get('/auth/verify-session', {
           params: {
-            id: user.id || user.regId,
-            isMentor: !!user.isMentor,
-            isAdmin: !!user.isAdmin
+            id: userId,
+            isMentor: !!user?.isMentor,
+            isAdmin: !!user?.isAdmin
           }
         });
         if (res.data && res.data.deleted) {
@@ -49,10 +53,17 @@ export const AuthProvider = ({ children }) => {
           return;
         }
 
-        if (res.data && res.data.ok && res.data.student && !user.isMentor && !user.isAdmin) {
+        if (res.data && res.data.ok && res.data.student && !user?.isMentor && !user?.isAdmin) {
           const freshStudent = res.data.student;
           setUser((prev) => {
             if (!prev) return freshStudent;
+            if (
+              JSON.stringify(prev.allowedCourseIds) === JSON.stringify(freshStudent.allowedCourseIds) &&
+              prev.status === freshStudent.status &&
+              prev.loginApproval === freshStudent.loginApproval
+            ) {
+              return prev;
+            }
             const updated = { ...prev, ...freshStudent };
             localStorage.setItem('bjs_user', JSON.stringify(updated));
             return updated;
@@ -63,13 +74,25 @@ export const AuthProvider = ({ children }) => {
           logout();
           window.location.href = '/';
         }
+      } finally {
+        isChecking = false;
       }
     };
 
     checkSessionStatus();
-    const interval = setInterval(checkSessionStatus, 4000);
-    return () => clearInterval(interval);
-  }, [user]);
+    const interval = setInterval(checkSessionStatus, 30000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkSessionStatus();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [user?.id, user?.regId, user?.isAdmin, user?.isMentor]);
 
   const login = async (identifier, password, isAdminPortal = false) => {
     const deviceId = getDeviceId();

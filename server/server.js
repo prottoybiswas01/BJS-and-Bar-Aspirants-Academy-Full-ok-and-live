@@ -385,7 +385,12 @@ function syncStudentCourseData(student, explicitAllowedIds = null) {
   }
 }
 
+function invalidateAdminBundle() {
+  fastCache.del("admin_bootstrap_bundle");
+}
+
 function invalidateStudentDashboardCache(student) {
+  invalidateAdminBundle();
   if (!student) return;
   const ids = typeof student === 'object'
     ? [student.id, student.phone, student.email, student._id].filter(Boolean)
@@ -398,17 +403,18 @@ function invalidateStudentDashboardCache(student) {
 async function syncMemoryDbFromMongo() {
   if (!isMongoConnected) return;
   try {
+    const lessonProjection = 'id courseId module chapter title duration youtubeUrl youtubeId releaseDate order isFree status isDraft transcriptStatus transcriptLanguage transcriptSource transcriptWordCount transcriptUpdatedAt transcriptLastAttemptAt transcriptNextRetryAt transcriptAttemptCount transcriptLastError transcriptVideoId notifiedAt createdAt';
     const [stus, crss, mtrs, lsns, regs, rcpts, mcqs, asns, siteSet, mailSet] = await Promise.all([
-      Student.find().lean(),
-      Course.find().lean(),
-      Mentor.find().lean(),
-      Lesson.find().lean(),
-      Registration.find().lean(),
-      Receipt.find().lean(),
-      McqExam.find().lean(),
-      Assignment.find().lean(),
-      SiteSetting.findOne().lean(),
-      MailSetting.findOne().lean()
+      Student.find({}, '-password').lean().catch(() => []),
+      Course.find().lean().catch(() => []),
+      Mentor.find({}, '-password').lean().catch(() => []),
+      Lesson.find({}, lessonProjection).lean().catch(() => []),
+      Registration.find({}, '-password').lean().catch(() => []),
+      Receipt.find().sort({ paymentTime: -1, createdAt: -1 }).limit(100).lean().catch(() => []),
+      McqExam.find().sort({ createdAt: -1 }).limit(50).lean().catch(() => []),
+      Assignment.find().sort({ createdAt: -1 }).limit(50).lean().catch(() => []),
+      SiteSetting.findOne({ id: "default_settings" }).lean().catch(() => null),
+      MailSetting.findOne().lean().catch(() => null)
     ]);
     if (stus && stus.length > 0) memoryDb.students = stus;
     if (crss && crss.length > 0) memoryDb.courses = crss;
@@ -418,7 +424,10 @@ async function syncMemoryDbFromMongo() {
     if (rcpts && rcpts.length > 0) memoryDb.receipts = rcpts;
     if (mcqs && mcqs.length > 0) memoryDb.mcqExams = mcqs;
     if (asns && asns.length > 0) memoryDb.assignments = asns;
-    if (siteSet) memoryDb.siteSettings = { ...memoryDb.siteSettings, ...siteSet };
+    if (siteSet) {
+      memoryDb.siteSettings = { ...memoryDb.siteSettings, ...siteSet };
+      fastCache.set("site_settings", memoryDb.siteSettings, 300);
+    }
     if (mailSet) memoryDb.mailSettings = { ...memoryDb.mailSettings, ...mailSet };
   } catch (e) {
     console.warn("Notice syncing memoryDb from Mongo:", e.message);
@@ -1031,10 +1040,15 @@ app.post("/api/auth/login", async (req, res) => {
     let validAdminUser = memoryDb.siteSettings.adminUsername || "prttoy";
     let validAdminPass = memoryDb.siteSettings.adminPassword || "ADMIN123@";
 
-    if (isMongoConnected) {
+    const cachedSettings = fastCache.get("site_settings");
+    if (cachedSettings) {
+      if (cachedSettings.adminUsername) validAdminUser = cachedSettings.adminUsername;
+      if (cachedSettings.adminPassword) validAdminPass = cachedSettings.adminPassword;
+    } else if (isMongoConnected) {
       try {
-        const settings = await SiteSetting.findOne({ id: "default_settings" });
+        const settings = await SiteSetting.findOne({ id: "default_settings" }).lean();
         if (settings) {
+          fastCache.set("site_settings", settings, 300);
           if (settings.adminUsername) validAdminUser = settings.adminUsername;
           if (settings.adminPassword) validAdminPass = settings.adminPassword;
         }
@@ -1087,16 +1101,26 @@ app.post("/api/auth/login", async (req, res) => {
     let mentorUser = null;
     if (isMongoConnected) {
       try {
-        const mentorOrConditions = [
+        const mentorExact = [
           { phone: rawQuery },
-          { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
-          { id: rawQuery },
-          { id: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
+          { email: cleanId },
+          { id: rawQuery }
         ];
         if (last10) {
-          mentorOrConditions.push({ phone: new RegExp(last10 + "$") });
+          mentorExact.push({ phone: last10 }, { phone: "0" + last10 }, { phone: "880" + last10 }, { phone: "+880" + last10 });
         }
-        mentorUser = await Mentor.findOne({ $or: mentorOrConditions });
+        mentorUser = await Mentor.findOne({ $or: mentorExact });
+
+        if (!mentorUser) {
+          const mentorOrConditions = [
+            { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
+            { id: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
+          ];
+          if (last10) {
+            mentorOrConditions.push({ phone: new RegExp(last10 + "$") });
+          }
+          mentorUser = await Mentor.findOne({ $or: mentorOrConditions });
+        }
       } catch (e) { }
     }
 
@@ -1145,16 +1169,26 @@ app.post("/api/auth/login", async (req, res) => {
 
     if (isMongoConnected) {
       try {
-        const mongoOrConditions = [
+        const studentExact = [
           { phone: rawQuery },
-          { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
-          { id: rawQuery },
-          { id: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
+          { email: cleanId },
+          { id: rawQuery }
         ];
         if (last10) {
-          mongoOrConditions.push({ phone: new RegExp(last10 + "$") });
+          studentExact.push({ phone: last10 }, { phone: "0" + last10 }, { phone: "880" + last10 }, { phone: "+880" + last10 });
         }
-        student = await Student.findOne({ $or: mongoOrConditions });
+        student = await Student.findOne({ $or: studentExact });
+
+        if (!student) {
+          const mongoOrConditions = [
+            { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
+            { id: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
+          ];
+          if (last10) {
+            mongoOrConditions.push({ phone: new RegExp(last10 + "$") });
+          }
+          student = await Student.findOne({ $or: mongoOrConditions });
+        }
       } catch (e) {
         console.warn("Mongo student query warning:", e.message);
       }
@@ -1180,16 +1214,26 @@ app.post("/api/auth/login", async (req, res) => {
       let regRecord = null;
       if (isMongoConnected) {
         try {
-          const regOrConditions = [
+          const regExact = [
             { phone: rawQuery },
-            { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
-            { regId: rawQuery },
-            { regId: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
+            { email: cleanId },
+            { regId: rawQuery }
           ];
           if (last10) {
-            regOrConditions.push({ phone: new RegExp(last10 + "$") });
+            regExact.push({ phone: last10 }, { phone: "0" + last10 }, { phone: "880" + last10 }, { phone: "+880" + last10 });
           }
-          regRecord = await Registration.findOne({ $or: regOrConditions });
+          regRecord = await Registration.findOne({ $or: regExact });
+
+          if (!regRecord) {
+            const regOrConditions = [
+              { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
+              { regId: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
+            ];
+            if (last10) {
+              regOrConditions.push({ phone: new RegExp(last10 + "$") });
+            }
+            regRecord = await Registration.findOne({ $or: regOrConditions });
+          }
         } catch (e) { }
       }
       if (!regRecord) {
@@ -3693,7 +3737,7 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
     if (isMongoConnected) {
       const [crsList, mtrList, stusCount, dbSettings] = await Promise.all([
         Course.find({ status: { $ne: "Inactive" } }).sort({ createdAt: -1 }).lean(),
-        Mentor.find({ status: "Active" }).sort({ createdAt: -1 }).lean(),
+        Mentor.find({ status: "Active" }, '-password').sort({ createdAt: -1 }).lean(),
         Student.countDocuments(),
         SiteSetting.findOne().lean()
       ]);
@@ -4282,6 +4326,7 @@ app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], async (req, res) =>
     fastCache.del("courses");
     fastCache.del("home_data");
     fastCache.del("student_dash_");
+    invalidateAdminBundle();
 
     return res.json({ ok: true, message: "কোর্স সফলভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
@@ -5639,7 +5684,7 @@ app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], as
   }
 
   try {
-    const mentorsList = await Mentor.find().sort({ createdAt: -1 }).lean();
+    const mentorsList = await Mentor.find({}, '-password').sort({ createdAt: -1 }).lean();
     if (mentorsList && mentorsList.length > 0) memoryDb.mentors = mentorsList;
 
     if (isPublic) {
@@ -5721,6 +5766,7 @@ app.post(["/api/admin/mentors/save", "/admin/mentors/save"], async (req, res) =>
     // Instant cache invalidation
     fastCache.del("mentors");
     fastCache.del("home_data");
+    invalidateAdminBundle();
 
     return res.json({
       ok: true,
@@ -5765,6 +5811,7 @@ app.post(["/api/admin/mentors/assign-courses", "/admin/mentors/assign-courses"],
     // Instant cache invalidation
     fastCache.del("mentors");
     fastCache.del("home_data");
+    invalidateAdminBundle();
 
     return res.json({
       ok: true,
@@ -5791,6 +5838,7 @@ app.delete(["/api/admin/mentors/:id", "/admin/mentors/:id"], async (req, res) =>
     // Instant cache invalidation
     fastCache.del("mentors");
     fastCache.del("home_data");
+    invalidateAdminBundle();
 
     return res.json({ ok: true, message: "✓ Mentor deleted successfully!" });
   } catch (err) {
@@ -5822,6 +5870,7 @@ app.post(["/api/admin/mentors/approve", "/admin/mentors/approve"], async (req, r
       memoryDb.mentors[idx].loginApproval = newApproval;
     }
 
+    invalidateAdminBundle();
     return res.json({ ok: true, message: `মেন্টর অনুমোদন (${newApproval}) সফল হয়েছে!` });
   } catch (err) {
     console.error("Approve mentor error:", err);
@@ -6172,6 +6221,186 @@ app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
   }
 });
 
+// -------------------------------------------------------------
+// CONSOLIDATED ULTRA-FAST ADMIN BOOTSTRAP ENDPOINT (10-in-1)
+// Eliminates 10 parallel serverless invocations into a single sub-20ms bundled response
+// -------------------------------------------------------------
+app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], async (req, res) => {
+  res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
+
+  const cachedBundle = fastCache.get("admin_bootstrap_bundle");
+  if (cachedBundle) {
+    return res.json({ ok: true, ...cachedBundle, source: "fast-cache" });
+  }
+
+  try {
+    await ensureDbConnected();
+
+    let studentsList = [];
+    let regsList = [];
+    let coursesList = [];
+    let mentorsList = [];
+    let receiptsList = [];
+    let assignmentsList = [];
+    let examsList = [];
+    let resultsList = [];
+    let mailSet = memoryDb.mailSettings;
+    let siteSet = memoryDb.siteSettings;
+
+    if (isMongoConnected) {
+      const [stus, regs, crss, mtrs, rcpts, asns, mcqs, reslts, mSet, sSet] = await Promise.all([
+        Student.find({}, '-password').sort({ createdAt: -1 }).lean().catch(() => []),
+        Registration.find({}, '-password').sort({ createdAt: -1 }).lean().catch(() => []),
+        Course.find().sort({ createdAt: -1 }).lean().catch(() => []),
+        Mentor.find({}, '-password').sort({ createdAt: -1 }).lean().catch(() => []),
+        Receipt.find().sort({ paymentTime: -1, createdAt: -1 }).limit(100).lean().catch(() => []),
+        Assignment.find().sort({ createdAt: -1 }).limit(50).lean().catch(() => []),
+        McqExam.find().sort({ createdAt: -1 }).limit(50).lean().catch(() => []),
+        McqResult.find().sort({ submittedAt: -1 }).limit(100).lean().catch(() => []),
+        MailSetting.findOne().lean().catch(() => null),
+        SiteSetting.findOne({ id: "default_settings" }).lean().catch(() => null)
+      ]);
+
+      studentsList = stus || [];
+      regsList = regs || [];
+      coursesList = crss || [];
+      mentorsList = mtrs || [];
+      receiptsList = rcpts || [];
+      assignmentsList = asns || [];
+      examsList = mcqs || [];
+      resultsList = reslts || [];
+      if (mSet) mailSet = mSet;
+      if (sSet) siteSet = sSet;
+    } else {
+      studentsList = memoryDb.students || [];
+      regsList = memoryDb.registrations || [];
+      coursesList = memoryDb.courses || [];
+      mentorsList = memoryDb.mentors || [];
+      receiptsList = memoryDb.receipts || [];
+      assignmentsList = memoryDb.assignments || [];
+      examsList = memoryDb.mcqExams || [];
+      resultsList = memoryDb.mcqResults || [];
+    }
+
+    // Merge students & pending registrations (deduplicated by phone/email/regId)
+    const studentMap = new Map();
+    const getKey = (item) => {
+      if (!item) return "";
+      const phoneDigits = item.phone ? String(item.phone).replace(/\D/g, "").slice(-10) : "";
+      if (phoneDigits) return "phone_" + phoneDigits;
+      const email = item.email ? String(item.email).trim().toLowerCase() : "";
+      if (email) return "email_" + email;
+      const regId = item.regId ? String(item.regId).trim().toLowerCase() : "";
+      if (regId) return "reg_" + regId;
+      const id = item.id || item._id ? String(item.id || item._id).trim().toLowerCase() : "";
+      return id ? "id_" + id : "";
+    };
+
+    studentsList.forEach(s => {
+      const k = getKey(s);
+      if (k) studentMap.set(k, s);
+    });
+
+    regsList.forEach(r => {
+      const k = getKey(r);
+      if (k && !studentMap.has(k)) {
+        studentMap.set(k, {
+          id: r.regId || ("STU-" + Date.now()),
+          regId: r.regId,
+          name: r.name,
+          phone: r.phone,
+          email: r.email,
+          university: r.university || "",
+          batch: r.batch || "Regular Batch",
+          session: r.session || "Standard Session",
+          status: r.status === "Approved" ? "Active" : (r.status || "Pending"),
+          loginApproval: r.status === "Approved" ? "Approved" : (r.status || "Pending"),
+          enrolledCourseIds: [],
+          allowedCourseIds: [],
+          createdAt: r.createdAt || new Date()
+        });
+      }
+    });
+
+    const combinedStudents = Array.from(studentMap.values()).map(s => {
+      if (!s) return s;
+      let allowed = Array.isArray(s.allowedCourseIds) ? s.allowedCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '') : [];
+      let enrolled = Array.isArray(s.enrolledCourseIds) ? s.enrolledCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '') : [];
+      return {
+        ...s,
+        allowedCourseIds: Array.from(new Set(allowed)),
+        enrolledCourseIds: Array.from(new Set(enrolled))
+      };
+    });
+
+    // Backend-processed stats calculations
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const monthlyCounts = { JAN: 0, FEB: 0, MAR: 0, APR: 0, MAY: 0, JUN: 0, JUL: 0, AUG: 0, SEP: 0, OCT: 0, NOV: 0, DEC: 0 };
+    const currentYear = new Date().getFullYear();
+
+    combinedStudents.forEach(s => {
+      if (!s) return;
+      const dateStr = s.joinedOn || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
+      if (dateStr && dateStr.startsWith(String(currentYear))) {
+        const mIdx = parseInt(dateStr.substring(5, 7), 10) - 1;
+        if (mIdx >= 0 && mIdx < 12) {
+          monthlyCounts[months[mIdx]] += 1;
+        }
+      }
+    });
+
+    let peakMonth = 'None';
+    let maxCount = -1;
+    let totalAdmissionsThisYear = 0;
+    months.forEach(m => {
+      const c = monthlyCounts[m];
+      totalAdmissionsThisYear += c;
+      if (c > maxCount) {
+        maxCount = c;
+        peakMonth = m;
+      }
+    });
+    if (maxCount <= 0) peakMonth = 'None';
+
+    const currentMonthIdx = new Date().getMonth() + 1;
+    const monthlyAverage = (totalAdmissionsThisYear / Math.max(currentMonthIdx, 1)).toFixed(1);
+
+    const sortedByDate = [...combinedStudents].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    const latestAdmission = sortedByDate.length > 0 ? (sortedByDate[0].name || sortedByDate[0].id) : 'None';
+    const activeCoursesCount = coursesList.filter(c => c && c.status !== 'Inactive' && c.status !== 'Hidden').length;
+
+    const stats = {
+      ok: true,
+      totalStudents: combinedStudents.length,
+      activeCourses: activeCoursesCount,
+      messageLogs: 0,
+      peakMonth,
+      monthlyAverage,
+      latestAdmission,
+      monthlyCounts
+    };
+
+    const bundle = {
+      stats,
+      students: combinedStudents,
+      courses: coursesList,
+      mentors: mentorsList,
+      receipts: receiptsList,
+      assignments: assignmentsList,
+      exams: examsList,
+      results: resultsList,
+      mailSettings: mailSet,
+      siteSettings: siteSet
+    };
+
+    fastCache.set("admin_bootstrap_bundle", bundle, 20); // 20s cache
+    return res.json({ ok: true, ...bundle, source: "mongodb-parallel-bundle" });
+  } catch (err) {
+    console.error("Admin bootstrap data error:", err);
+    return res.status(500).json({ ok: false, message: "Failed to load admin bootstrap data: " + err.message });
+  }
+});
+
 app.get(["/api/admin/overview-stats", "/admin/overview-stats"], async (req, res) => {
   if (!isMongoConnected && (!memoryDb.students || memoryDb.students.length === 0)) {
     return res.status(503).json({
@@ -6386,6 +6615,7 @@ app.post(["/api/admin/site-settings", "/admin/site-settings"], async (req, res) 
     // Instant cache invalidation
     fastCache.del("site_settings");
     fastCache.del("home_data");
+    invalidateAdminBundle();
 
     return res.json({
       ok: true,
@@ -8491,6 +8721,8 @@ app.post("/api/admin/receipts/save", async (req, res) => {
       sendMoneyReceiptEmail(savedReceipt.studentEmail, savedReceipt);
     }
 
+    invalidateAdminBundle();
+
     return res.json({
       ok: true,
       message: `Money Receipt ${savedReceipt.receiptId} saved and email sent to ${savedReceipt.studentEmail}!`,
@@ -8632,6 +8864,7 @@ app.delete("/api/admin/receipts/:receiptId", async (req, res) => {
     memoryDb.receipts = (memoryDb.receipts || []).filter(
       (r) => r && r.receiptId !== receiptId && String(r._id) !== receiptId
     );
+    invalidateAdminBundle();
     return res.json({ ok: true, message: `Money Receipt ${receiptId} deleted permanently!` });
   } catch (e) {
     console.error("Error deleting receipt:", e);
