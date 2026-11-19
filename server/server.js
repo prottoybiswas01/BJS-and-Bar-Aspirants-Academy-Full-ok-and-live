@@ -4579,7 +4579,9 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
           lessonData.transcript = existing.transcript;
           lessonData.transcriptStatus = existing.transcriptStatus || "ready";
           lessonData.transcriptSegments = existing.transcriptSegments || [];
-          lessonData.transcriptWordCount = existing.transcriptWordCount || 0;
+          lessonData.transcriptWordCount = (typeof existing.transcriptWordCount === 'number' && existing.transcriptWordCount > 0)
+            ? existing.transcriptWordCount
+            : (existing.transcript ? existing.transcript.split(/\s+/).filter(Boolean).length : 0);
           lessonData.transcriptLanguage = existing.transcriptLanguage || "";
           lessonData.transcriptSource = existing.transcriptSource || "";
         }

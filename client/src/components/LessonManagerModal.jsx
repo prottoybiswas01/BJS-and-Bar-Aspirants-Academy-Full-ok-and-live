@@ -5,6 +5,11 @@ import { useToast } from '../context/ToastContext';
 import { lockBodyScroll, unlockBodyScroll } from './ui/scrollLock';
 import { getLessonNum, sortLessons, getNextSerial } from '../utils/lessonUtils';
 
+const formatWordCount = (count) => {
+  const num = Number(count) || 0;
+  return num.toLocaleString('bn-BD');
+};
+
 export default function LessonManagerModal({ course, isOpen, onClose }) {
   const { showToast, showError, showSuccess } = useToast();
   const [lessons, setLessons] = useState([]);
@@ -316,7 +321,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       lesson: l,
       text: l.transcript || '',
       status: l.transcriptStatus || (l.transcript ? 'ready' : 'none'),
-      wordCount: l.transcript ? l.transcript.split(/\s+/).filter(Boolean).length : 0,
+      wordCount: l.transcriptWordCount || (l.transcript ? l.transcript.split(/\s+/).filter(Boolean).length : 0),
       isSrtOrVtt: false,
       loading: true,
       saving: false
@@ -329,7 +334,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
           ...prev,
           text: res.data.transcript || '',
           status: res.data.transcriptStatus || 'none',
-          wordCount: res.data.wordCount || 0,
+          wordCount: res.data.wordCount || (res.data.transcript ? res.data.transcript.split(/\s+/).filter(Boolean).length : 0),
           loading: false
         }));
       }
@@ -583,24 +588,31 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                         <td className="p-2.5 font-bold text-white">
                           {l.title}
                           {l.chapter && <span className="block text-[10px] text-slate-400 font-normal italic">{l.chapter}</span>}
-                          {(l.transcriptStatus === 'ready' || l.transcriptStatus === 'manual') ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold mt-1">
-                              ✓ {l.transcriptStatus === 'manual' ? 'ম্যানুয়াল সাবটাইটেল' : 'সাবটাইটেল সিঙ্কড'} ({l.transcriptWordCount || (l.transcript ? l.transcript.split(/\s+/).filter(Boolean).length : 0)} শব্দ)
+                          {(l.transcriptStatus === 'ready' || l.transcriptStatus === 'manual' || (l.hasSubtitles && ((l.transcriptWordCount && l.transcriptWordCount > 0) || l.transcript))) ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold mt-1 shadow-sm">
+                              ✓ {l.transcriptStatus === 'manual' ? 'ম্যানুয়াল সাবটাইটেল' : 'সাবটাইটেল সিঙ্কড'} ({formatWordCount(l.transcriptWordCount || (l.transcript ? l.transcript.split(/\s+/).filter(Boolean).length : 0))} শব্দ)
                             </span>
                           ) : l.transcriptStatus === 'no_captions' ? (
-                            <div className="flex items-center gap-1 mt-1">
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium">
-                                ⚠️ ক্যাপশন পাওয়া যায়নি
-                              </span>
-                              <button
-                                type="button"
-                                disabled={quickSyncingId === (l.id || l._id)}
-                                onClick={() => handleQuickSyncSubtitle(l)}
-                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
-                                title="ইউটিউব থেকে পুনরায় চেষ্টা করুন"
-                              >
-                                {quickSyncingId === (l.id || l._id) ? '...' : '🔄 রিট্রাই'}
-                              </button>
+                            <div className="flex flex-col gap-0.5 mt-1">
+                              <div className="flex items-center gap-1">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium" title={l.transcriptLastError || "YouTube-এ বাংলা ক্যাপশন পাওয়া যায়নি"}>
+                                  ⚠️ ক্যাপশন পাওয়া যায়নি
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={quickSyncingId === (l.id || l._id)}
+                                  onClick={() => handleQuickSyncSubtitle(l)}
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
+                                  title="ইউটিউব থেকে পুনরায় চেষ্টা করুন"
+                                >
+                                  {quickSyncingId === (l.id || l._id) ? '...' : '🔄 রিট্রাই'}
+                                </button>
+                              </div>
+                              {l.transcriptLastError && (
+                                <span className="text-[8px] text-amber-400/80 font-mono line-clamp-1 max-w-[220px]" title={l.transcriptLastError}>
+                                  {l.transcriptLastError}
+                                </span>
+                              )}
                             </div>
                           ) : (l.transcriptStatus === 'retry_scheduled' || l.transcriptStatus === 'rate_limited') ? (
                             <div className="flex items-center gap-1 mt-1">
@@ -618,28 +630,35 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                               </button>
                             </div>
                           ) : l.transcriptStatus === 'private_or_restricted' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-purple-500/15 text-purple-300 border border-purple-500/30 font-medium mt-1">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-purple-500/15 text-purple-300 border border-purple-500/30 font-medium mt-1" title="ভিডিওটি প্রাইভেট/অনুপলব্ধ অথবা ইউটিউব ক্যাপশন সুরক্ষিত">
                               🔒 ভিডিও প্রাইভেট/অনুপলব্ধ
                             </span>
                           ) : l.transcriptStatus === 'failed' ? (
-                            <div className="flex items-center gap-1 mt-1">
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-rose-500/15 text-rose-300 border border-rose-500/30 font-medium">
-                                ❌ সিঙ্ক ব্যর্থ
-                              </span>
-                              <button
-                                type="button"
-                                disabled={quickSyncingId === (l.id || l._id)}
-                                onClick={() => handleQuickSyncSubtitle(l)}
-                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-rose-500 hover:bg-rose-400 text-white font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
-                                title="পুনরায় চেষ্টা করুন"
-                              >
-                                {quickSyncingId === (l.id || l._id) ? '...' : '🔄 রিট্রাই'}
-                              </button>
+                            <div className="flex flex-col gap-0.5 mt-1">
+                              <div className="flex items-center gap-1">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-rose-500/15 text-rose-300 border border-rose-500/30 font-medium" title={l.transcriptLastError || "সাবটাইটেল সংগ্রহ করা যায়নি"}>
+                                  ❌ সিঙ্ক ব্যর্থ
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={quickSyncingId === (l.id || l._id)}
+                                  onClick={() => handleQuickSyncSubtitle(l)}
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-rose-500 hover:bg-rose-400 text-white font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
+                                  title="পুনরায় চেষ্টা করুন"
+                                >
+                                  {quickSyncingId === (l.id || l._id) ? '...' : '🔄 রিট্রাই'}
+                                </button>
+                              </div>
+                              {l.transcriptLastError && (
+                                <span className="text-[8px] text-rose-400/80 font-mono line-clamp-1 max-w-[220px]" title={l.transcriptLastError}>
+                                  {l.transcriptLastError}
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <div className="flex items-center gap-1 mt-1">
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-slate-800 text-slate-400 border border-slate-700 font-medium">
-                                ⏳ সাবটাইটেল পেন্ডিং
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium">
+                                ⏳ পেন্ডিং (অপেক্ষমাণ)
                               </span>
                               <button
                                 type="button"
@@ -738,7 +757,9 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                     subtitleModal.text ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'
                   }`}>
-                    {subtitleModal.text ? `✓ সিঙ্কড (${subtitleModal.wordCount || subtitleModal.text.split(/\s+/).filter(Boolean).length} শব্দ)` : '⚠️ কোনো সাবটাইটেল নেই'}
+                    {subtitleModal.text
+                      ? `✓ সিঙ্কড (${formatWordCount(subtitleModal.wordCount || subtitleModal.text.split(/\s+/).filter(Boolean).length)} শব্দ)`
+                      : (subtitleModal.loading ? '⏳ তথ্য লোড হচ্ছে...' : '⚠️ কোনো সাবটাইটেল নেই')}
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono">
                     YouTube ID: {subtitleModal.lesson?.youtubeId || 'N/A'}
