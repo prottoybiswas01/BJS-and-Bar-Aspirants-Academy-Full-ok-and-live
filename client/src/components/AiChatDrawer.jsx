@@ -215,8 +215,17 @@ export default function AiChatDrawer({ isOpen, onClose, openVideoModal, setActiv
     setMessages((prev) => [...prev, { sender: 'user', text: trimmed }]);
     setLoading(true);
 
+    // Multi-turn conversational memory: pass last 4 turns
+    const historyPayload = messages.slice(-4).map((m) => ({
+      role: m.sender === 'user' ? 'user' : 'assistant',
+      content: m.text || m.reply || ''
+    }));
+
     try {
-      const res = await api.post('/ai/chat', { prompt: trimmed });
+      const res = await api.post('/ai/chat', { 
+        prompt: trimmed,
+        conversationHistory: historyPayload
+      });
       if (res.data && res.data.ok) {
         setMessages((prev) => [
           ...prev,

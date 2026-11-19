@@ -5676,7 +5676,7 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
 // AI LEGAL ASSISTANT ENDPOINT (Bangladesh Constitution & Law + Video Transcript Matching)
 app.post("/api/ai/legal-assistant", async (req, res) => {
   try {
-    const { query, studentName } = req.body;
+    const { query, studentName, conversationHistory, history } = req.body;
     if (!query || !query.trim()) {
       return res.status(400).json({ ok: false, message: "অনুগ্রহ করে প্রশ্ন লিখুন।" });
     }
@@ -5692,7 +5692,8 @@ app.post("/api/ai/legal-assistant", async (req, res) => {
     const result = await processLegalAiQuery({
       query: query.trim(),
       studentName: studentName || 'শিক্ষার্থী',
-      allLessons
+      allLessons,
+      conversationHistory: conversationHistory || history || []
     });
 
     return res.json(result);
@@ -8940,12 +8941,13 @@ app.delete("/api/admin/receipts/:receiptId", async (req, res) => {
 app.post("/api/ai/chat", async (req, res) => {
   try {
     await ensureDbConnected();
-    const { prompt } = req.body;
+    const { prompt, conversationHistory, history } = req.body;
     if (!prompt || !String(prompt).trim()) {
       return res.status(400).json({ ok: false, message: "Prompt is required." });
     }
 
     const userQuery = String(prompt).trim();
+    const convHist = conversationHistory || history || [];
 
     // 1. Resolve student/user identity on the backend
     const authUser = await getAuthUserFromRequest(req);
@@ -8955,7 +8957,10 @@ app.post("/api/ai/chat", async (req, res) => {
 
     // 2. High-speed cache check (Sub-5ms response for repeated queries)
     const queryHash = crypto.createHash('md5').update(userQuery.toLowerCase()).digest('hex');
-    const cacheKey = `ai_chat_${queryHash}_${userRoleKey}`;
+    const histHash = (Array.isArray(convHist) && convHist.length > 0)
+      ? crypto.createHash('md5').update(JSON.stringify(convHist)).digest('hex').substring(0, 8)
+      : 'root';
+    const cacheKey = `ai_chat_${queryHash}_${histHash}_${userRoleKey}`;
     const cachedResponse = fastCache.get(cacheKey);
     if (cachedResponse) {
       return res.json({ ok: true, ...cachedResponse, source: "fast-cache" });
@@ -8974,7 +8979,8 @@ app.post("/api/ai/chat", async (req, res) => {
     const aiResult = await processLegalAiQuery({
       query: userQuery,
       studentName: authUser?.name || 'আইন শিক্ষার্থী',
-      allLessons: activeLessons
+      allLessons: activeLessons,
+      conversationHistory: convHist
     });
 
     if (!aiResult.ok) {

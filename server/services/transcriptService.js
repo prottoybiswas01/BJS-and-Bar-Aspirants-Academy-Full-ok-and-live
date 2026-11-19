@@ -341,6 +341,8 @@ const BANGLISH_MAP = {
   'cpc': 'দেওয়ানী',
   'crpc': 'ফৌজদারি',
   'penal': 'দণ্ডবিধি',
+  'section': 'ধারা',
+  'sec': 'ধারা',
   'family': 'Family',
   'english': 'English',
   'general': 'General',
@@ -364,13 +366,17 @@ const BANGLISH_MAP = {
 };
 
 /**
- * Bengali Stopwords
+ * Bengali Stopwords & Conversational Filter
  */
 const BANGLA_STOPWORDS = new Set([
   'কী', 'কি', 'কে', 'কাকে', 'কোথায়', 'কখন', 'কেন', 'কিভাবে', 'হলে', 'হলে কী', 'হবে',
   'আছে', 'নাই', 'না', 'এবং', 'ও', 'বা', 'আর', 'যদি', 'কিন্তু', 'তাহলে', 'এই', 'সেই',
   'কোন', 'একটি', 'টা', 'টি', 'গুলো', 'এর', 'কে', 'তে', 'দিয়ে', 'দ্বারা', 'থেকে', 'চেয়ে',
-  'আইন', 'আইনের', 'ধারা', 'অনুচ্ছেদ'
+  'আইন', 'আইনের', 'ধারা', 'অনুচ্ছেদ', 'আদেশ',
+  'হ্যালো', 'হাই', 'কেমন', 'আছেন', 'ভালো', 'আছো', 'করব', 'করবো', 'করতে', 'করার', 'করে',
+  'নিয়ম', 'উপায়', 'পদ্ধতি', 'জানতে', 'চাই', 'বলা', 'বলো', 'বলোতো', 'বলুন', 'ধন্যবাদ',
+  'থ্যাংকস', 'ভাই', 'স্যার', 'আপু', 'hello', 'hi', 'hey', 'please', 'help', 'kemon', 'achen',
+  'valo', 'bhalo', 'dhonnobad', 'thanks', 'thank', 'you', 'ki', 'korbo', 'korar', 'niyom'
 ]);
 
 function getBengaliRoot(word) {
@@ -392,17 +398,55 @@ function getBengaliRoot(word) {
  * 3. Extracts genuine timestamps from matched segments.
  * 4. Never invents fictional videos or timestamps.
  */
-function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
+/**
+ * Strict Two-Stage Transcript & Metadata Search Engine
+ * 1. Checks intent & domain relevance: Excludes greetings and topics not offered in our academy courses (e.g. Dowry, Cheque, Cyber).
+ * 2. Stage-1 Metadata Priority: Directly resolves explicit class lookups ("Orientation", "Class 1", "2nd class").
+ * 3. Stage-2 Genuine Transcript Subtitle Matching: Extracts verified timestamps & snippets.
+ */
+function searchLessonsForQuery(query, lessons = [], maxResults = 2, intentMeta = null) {
   if (!query || !Array.isArray(lessons) || lessons.length === 0) return [];
 
-  const rawTokens = query
-    .toLowerCase()
+  // Gatekeeper: Greetings, Chitchat, and Vague/Clarification queries NEVER search lessons
+  if (intentMeta && (intentMeta.isGreeting || intentMeta.primaryIntent === 'CHAT_OR_GREETING' || intentMeta.primaryIntent === 'CLARIFICATION_NEEDED')) {
+    return [];
+  }
+
+  const cleanQ = String(query).toLowerCase().trim();
+
+  // Domain Filter: If query is about a topic our academy has NO course for (e.g. Dowry, Cheque, Cyber), return zero lessons
+  const unofferedTopicKeywords = ['যৌতুক', 'dowry', 'চেক বাউন্স', 'চেক ডিজঅনার', 'dishonour', 'সাইবার', 'হ্যাকিং', 'cyber'];
+  if (unofferedTopicKeywords.some(kw => cleanQ.includes(kw))) {
+    return [];
+  }
+
+  // Pre-screen: Only proceed if query touches an offered course domain OR is a class lookup
+  const offeredCourseDomains = [
+    'দেওয়ানী', 'সিপিসি', 'cpc', 'civil', 'এখতিয়ার', 'jurisdiction', 'নিষেধাজ্ঞা', 'injunction',
+    'অর্ডার ৩৯', 'order 39', 'ডিক্রি', 'decree', 'আরজি', 'plaint', 'সমন', 'summons', 'রেস জুডিকাটা',
+    'res judicata', 'রেস সাব-জুডিস', 'res sub-judice', '৯ ধারা', 'ধারা ৯',
+    'সংবিধান', 'constitution', 'মৌলিক অধিকার', 'fundamental rights', 'অনুচ্ছেদ', 'article', 'সুপ্রিম কোর্ট',
+    'হাইকোর্ট', 'রিট', 'writ', 'সমতা', 'নাগরিক',
+    'পারিবারিক', 'পারিবারিক আইন', 'family law', 'দেনমোহর', 'dower', 'খোরপোষ', 'ভরণপোষণ',
+    'maintenance', 'তালাক', 'divorce', 'অভিভাবকত্ব', 'guardianship',
+    'general class', 'জেনারেল ক্লাস', 'orientation', '১ম ক্লাস', '২য় ক্লাস', '৩য় ক্লাস', 'class 1', 'class 2',
+    'english', 'ইংরেজি'
+  ];
+
+  const touchesOfferedDomain = offeredCourseDomains.some(d => cleanQ.includes(d));
+  const isExplicitClassLookup = cleanQ.includes('orientation') || cleanQ.includes('class') || cleanQ.includes('ক্লাস') || cleanQ.includes('লেকচার');
+
+  if (!touchesOfferedDomain && !isExplicitClassLookup && !cleanQ.includes('ধারা') && !cleanQ.includes('আইন')) {
+    return [];
+  }
+
+  const rawTokens = cleanQ
     .replace(/[^\w\u0980-\u09FF\s]/g, ' ')
     .split(/\s+/)
     .map(t => t.trim())
-    .filter(t => t.length >= 2 && !BANGLA_STOPWORDS.has(t));
+    .filter(t => (t.length >= 2 || /^[0-9০-৯]+$/.test(t)) && !BANGLA_STOPWORDS.has(t));
 
-  if (rawTokens.length === 0) return [];
+  if (rawTokens.length === 0 && !isExplicitClassLookup) return [];
 
   const cleanTokens = [];
   for (const t of rawTokens) {
@@ -410,6 +454,14 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
     const mapped = BANGLISH_MAP[t];
     if (mapped && !cleanTokens.includes(mapped.toLowerCase())) {
       cleanTokens.push(mapped.toLowerCase());
+    }
+    // Digit conversion between English and Bengali digits
+    if (/^[0-9]+$/.test(t)) {
+      const bnDigit = t.replace(/[0-9]/g, d => ({ '0':'০','1':'১','2':'২','3':'৩','4':'৪','5':'৫','6':'৬','7':'৭','8':'৮','9':'৯' }[d] || d));
+      if (!cleanTokens.includes(bnDigit)) cleanTokens.push(bnDigit);
+    } else if (/^[০-৯]+$/.test(t)) {
+      const enDigit = t.replace(/[০-৯]/g, d => ({ '০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9' }[d] || d));
+      if (!cleanTokens.includes(enDigit)) cleanTokens.push(enDigit);
     }
     const root = getBengaliRoot(t);
     if (root && root.length >= 2 && !cleanTokens.includes(root) && !BANGLA_STOPWORDS.has(root)) {
@@ -420,11 +472,12 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
   const scoredLessons = [];
 
   for (const lesson of lessons) {
-    // Only include lessons with authentic ready/manual transcripts or verified subtitles
-    const validStatus = lesson.hasSubtitles === true || lesson.transcriptStatus === 'ready' || lesson.transcriptStatus === 'manual';
-    const transcript = (lesson.transcript || '').toLowerCase();
+    const transcriptText = String(lesson.transcript || lesson.subtitles || '');
+    const validStatus = lesson.hasSubtitles === true || lesson.transcriptStatus === 'ready' || lesson.transcriptStatus === 'manual' || transcriptText.length >= 20;
+    const transcript = transcriptText.toLowerCase();
 
-    if (!validStatus || !transcript || transcript.length < 25) {
+    // Must have valid status and non-empty transcript
+    if (!validStatus || !transcript || transcript.length < 20) {
       continue;
     }
 
@@ -433,10 +486,28 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
     const moduleName = (lesson.module || '').toLowerCase();
 
     let transcriptKeywordHits = 0;
+    let titleKeywordHits = 0;
     let score = 0;
     const matchedTokens = [];
     let bestTimestamp = '';
     let bestSnippet = '';
+
+    // Stage-1: Metadata Priority Matching (Orientation / Specific Class Search)
+    if (cleanQ.includes('orientation') && (title.includes('orientation') || moduleName.includes('orientation'))) {
+      score += 150;
+      transcriptKeywordHits++;
+    }
+
+    // Match exact class serial in query e.g. "2nd class", "class 2", "class-2", "২য় ক্লাস"
+    const classNumMatch = cleanQ.match(/(?:class|ক্লাস)\s*[-:]?\s*([0-9০-৯]+)/i) || cleanQ.match(/([0-9০-৯]+)\s*(?:st|nd|rd|th|তম|য়|র্থ)?\s*(?:class|ক্লাস)/i);
+    if (classNumMatch) {
+      const targetNum = classNumMatch[1];
+      const enNum = targetNum.replace(/[০-৯]/g, d => ({ '০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9' }[d] || d));
+      if (title.includes(`class-${enNum}`) || title.includes(`class ${enNum}`) || title.includes(`(${enNum})`)) {
+        score += 120;
+        transcriptKeywordHits++;
+      }
+    }
 
     // Segment-level analysis for highest precision timestamp extraction
     const rawSegments = [...(lesson.transcript || '').matchAll(/\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*([^\[]+)/g)];
@@ -465,7 +536,6 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
         score += 30; // Primary weight for genuine transcript match
         if (!matchedTokens.includes(token)) matchedTokens.push(token);
 
-        // Fallback timestamp if no bracketed segment matched
         if (!bestTimestamp) {
           const textBefore = transcript.substring(0, tIdx + token.length);
           const allTimestamps = [...textBefore.matchAll(/\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g)];
@@ -481,17 +551,20 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
         }
       }
 
-      // Supplementary title/module boosting ONLY if transcript already matched
+      // Supplementary title/module boosting
       if (title.includes(token)) {
-        score += 15;
+        score += 35;
+        titleKeywordHits++;
       }
       if (chapter.includes(token) || moduleName.includes(token)) {
-        score += 10;
+        score += 20;
+        titleKeywordHits++;
       }
     }
 
-    // MANDATORY REQUIREMENT: Must have at least 1 genuine hit in the transcript
-    if (transcriptKeywordHits >= 1 && score >= 30) {
+    // MANDATORY REQUIREMENT: Must have at least 1 genuine hit in transcript/metadata and minimum threshold
+    const qualifies = transcriptKeywordHits >= 1 || (isExplicitClassLookup && titleKeywordHits >= 1);
+    if (qualifies && score >= 30) {
       scoredLessons.push({
         id: lesson.id || lesson._id,
         title: lesson.title,
@@ -502,7 +575,7 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
         score,
         timestamp: bestTimestamp || '00:00',
         matchedKeywords: matchedTokens,
-        snippet: bestSnippet
+        snippet: bestSnippet || (lesson.transcript ? lesson.transcript.slice(0, 150) + '...' : '')
       });
     }
   }
