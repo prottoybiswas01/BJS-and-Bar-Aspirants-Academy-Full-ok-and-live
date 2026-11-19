@@ -41,6 +41,18 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     setReviewModal({ isOpen: false, result: null, review: [], loading: false });
   }, [selectedTab]);
 
+  // Global listener to switch tabs from Mobile Bottom Nav or Mobile Menu Drawer
+  useEffect(() => {
+    const handleSwitchTab = (e) => {
+      if (e.detail && ['lectures', 'assignments', 'exams', 'payments'].includes(e.detail)) {
+        setSelectedTab(e.detail);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    };
+    window.addEventListener('switch-dashboard-tab', handleSwitchTab);
+    return () => window.removeEventListener('switch-dashboard-tab', handleSwitchTab);
+  }, []);
+
   // Request sequence, active course reference, and in-memory tab/course cache to prevent race conditions
   const currentReqSeqRef = useRef(0);
   const selectedCourseIdRef = useRef(null);
@@ -490,22 +502,22 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       )}
 
       {/* Top Welcome Banner */}
-      <section className="glass-card rounded-2xl p-6 sm:p-8 border border-amber-500/20 shadow-2xl relative overflow-hidden">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div className="space-y-2">
+      <section className="glass-card rounded-2xl p-4 sm:p-6 md:p-8 border border-amber-500/20 shadow-2xl relative overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 relative z-10">
+          <div className="space-y-2.5">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold border border-emerald-500/30">
+              <span className="px-2.5 sm:px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[11px] sm:text-xs font-bold border border-emerald-500/30">
                 ● STATUS: {user?.status || 'Active'}
               </span>
-              <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-amber-500/30">
+              <span className="px-2.5 sm:px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[11px] sm:text-xs font-bold border border-amber-500/30">
                 ID: {user?.id || 'STU-2026-001'}
               </span>
               {openProfileModal && (
                 <button
                   type="button"
                   onClick={openProfileModal}
-                  className="px-3 py-1 rounded-full bg-slate-900/90 hover:bg-slate-800 text-amber-300 hover:text-amber-200 font-bold text-xs border border-amber-500/30 hover:border-amber-400 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
-                  title="প্রোফাইল দেখুন ও ইমেইল পরিবর্তন করুন"
+                  className="px-2.5 sm:px-3 py-1 rounded-full bg-slate-900/90 hover:bg-slate-800 text-amber-300 hover:text-amber-200 font-bold text-[11px] sm:text-xs border border-amber-500/30 hover:border-amber-400 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  title="প্রোফাইল দেখুন ও পাসওয়ার্ড পরিবর্তন করুন"
                 >
                   <span>👤</span>
                   <span>আমার প্রোফাইল ও সেটিংস</span>
@@ -513,20 +525,20 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
               )}
             </div>
 
-            <h1 className="text-2xl sm:text-3xl font-black text-white">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight">
               স্বাগতম, <span className="text-gradient-gold">{user?.name || 'শিক্ষার্থী'}</span>!
             </h1>
-            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <span className="text-xs text-slate-400 font-bold">আপনার এনরোলকৃত কোর্সসমূহ:</span>
               {courses
                 .filter(c => checkCourseEnrolled(c))
                 .map(c => (
-                  <span key={c.id} className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
+                  <span key={c.id} className="px-2.5 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
                     📚 {c.shortTitle || c.title}
                   </span>
                 ))}
               {courses.filter(c => checkCourseEnrolled(c)).length === 0 && (
-                <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
+                <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
                   📚 {isApproved ? (user?.batch || 'BJS & Bar Masterclass') : 'কোনো সক্রিয় কোর্স নেই (পেন্ডিং)'}
                 </span>
               )}
@@ -534,7 +546,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           </div>
 
           {/* Learning Progress Widget */}
-          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 min-w-[240px]">
+          <div className="bg-slate-950 p-3.5 sm:p-4 rounded-xl border border-slate-800 space-y-2 w-full md:w-auto md:min-w-[260px]">
             <div className="flex justify-between text-xs font-bold">
               <span className="text-slate-400">কোর্স অগ্রগতি (Progress)</span>
               <span className="text-amber-400 font-mono">{progressPercent}%</span>
@@ -552,47 +564,55 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         </div>
       </section>
 
-      {/* Section Tab Navigation: Video Lectures vs Assignments vs MCQ Exams */}
-      <div className="flex flex-wrap sm:flex-nowrap bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-2">
+      {/* Section Tab Navigation: 2x2 Grid on Mobile, 4-Cols on Tablet/Desktop */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-1.5 sm:gap-2">
         <button
+          type="button"
           onClick={() => setSelectedTab('lectures')}
-          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center ${
+          className={`py-2.5 px-2 sm:px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer ${
             selectedTab === 'lectures'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
           }`}
         >
-          📹 ভিডিও ক্লাসসমূহ (Lectures)
+          <span>📹</span>
+          <span>ভিডিও ক্লাস</span>
         </button>
         <button
+          type="button"
           onClick={() => setSelectedTab('assignments')}
-          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center ${
+          className={`py-2.5 px-2 sm:px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer ${
             selectedTab === 'assignments'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
           }`}
         >
-          <span>📝 লিখিত অ্যাসাইনমেন্ট ({studentAssignments.length})</span>
+          <span>📝</span>
+          <span>অ্যাসাইনমেন্ট ({studentAssignments.length})</span>
         </button>
         <button
+          type="button"
           onClick={() => setSelectedTab('exams')}
-          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center ${
+          className={`py-2.5 px-2 sm:px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer ${
             selectedTab === 'exams'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
           }`}
         >
-          <span>🎯 অনলাইন এমসিকিউ পরীক্ষা ({studentExams.length})</span>
+          <span>🎯</span>
+          <span>MCQ পরীক্ষা ({studentExams.length})</span>
         </button>
         <button
+          type="button"
           onClick={() => setSelectedTab('payments')}
-          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center ${
+          className={`py-2.5 px-2 sm:px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer ${
             selectedTab === 'payments'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
           }`}
         >
-          <span>💳 পেমেন্ট ও মানি রিসিট ({studentReceipts.length})</span>
+          <span>💳</span>
+          <span>মানি রিসিট ({studentReceipts.length})</span>
         </button>
       </div>
 
@@ -757,19 +777,21 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                                   <p className="text-xs text-slate-300">{l.description}</p>
                                 </div>
 
-                                <div className="flex items-center gap-3 flex-shrink-0">
+                                <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/60">
                                   <button
+                                    type="button"
                                     onClick={() => toggleComplete(l.id)}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border text-center flex items-center justify-center cursor-pointer min-h-[40px] ${
                                       isCompleted
-                                        ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                                        : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
+                                        ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-sm'
+                                        : 'bg-slate-900/90 text-slate-300 border-slate-700 hover:text-white'
                                     }`}
                                   >
                                     {isCompleted ? '✓ Completed' : 'Mark Done'}
                                   </button>
 
                                   <button
+                                    type="button"
                                     onClick={() => {
                                       if (canWatch) {
                                         openVideoModal(l);
@@ -781,9 +803,9 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                                         showToast('🔒 এই ভিডিও ক্লাসটি বর্তমানে লক করা রয়েছে।', 'error');
                                       }
                                     }}
-                                    className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-md transition-all cursor-pointer ${
+                                    className={`py-2 px-4 rounded-xl text-xs font-black shadow-md transition-all text-center flex items-center justify-center cursor-pointer min-h-[40px] ${
                                       canWatch
-                                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-400 hover:to-teal-400 hover:scale-105'
+                                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-400 hover:to-teal-400 active:scale-95'
                                         : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/80 hover:bg-slate-800'
                                     }`}
                                   >
@@ -1155,60 +1177,111 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
             </div>
 
             {studentResults.length === 0 ? (
-              <div className="p-10 text-center text-slate-500 text-xs bg-slate-950/60 rounded-xl border border-slate-800">
+              <div className="p-8 sm:p-10 text-center text-slate-500 text-xs bg-slate-950/60 rounded-xl border border-slate-800">
                 আপনি এখনো কোনো অনলাইন এমসিকিউ পরীক্ষায় অংশগ্রহণ করেননি। উপরের পরীক্ষাগুলো থেকে শুরু করুন।
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-slate-900 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
-                    <tr>
-                      <th className="p-3">পরীক্ষার শিরোনাম (Exam Title)</th>
-                      <th className="p-3 text-center">প্রাপ্ত নম্বর (Score)</th>
-                      <th className="p-3 text-center">শতকরা হার (%)</th>
-                      <th className="p-3 text-center">গ্রেড ও ফলাফল</th>
-                      <th className="p-3 text-center">জমাদানের সময়</th>
-                      <th className="p-3 text-right">বিস্তারিত রিভিউ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {studentResults.map((r, idx) => (
-                      <tr key={r.id || r.resultId || idx} className="hover:bg-slate-900/50 transition-colors">
-                        <td className="p-3">
-                          <div className="font-extrabold text-white text-xs">{r.examTitle || 'MCQ Model Test'}</div>
+              <>
+                {/* Mobile Results Cards View (< md) */}
+                <div className="md:hidden space-y-3">
+                  {studentResults.map((r, idx) => (
+                    <div key={r.id || r.resultId || idx} className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                      <div className="flex items-start justify-between gap-2 border-b border-slate-800/80 pb-2">
+                        <div>
+                          <h4 className="font-extrabold text-white text-xs">{r.examTitle || 'MCQ Model Test'}</h4>
                           <span className="text-[10px] text-amber-400 font-mono">ID: {r.id || r.resultId}</span>
-                        </td>
-                        <td className="p-3 text-center font-mono font-black text-amber-400 text-sm">
-                          {r.score} <span className="text-xs text-slate-500 font-normal">/ {r.totalMarks}</span>
-                        </td>
-                        <td className="p-3 text-center font-mono font-bold text-white">
-                          {r.percentage}%
-                        </td>
-                        <td className="p-3 text-center">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                            r.percentage >= 80 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' :
-                            r.percentage >= 50 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' :
-                            'bg-rose-500/20 text-rose-300 border-rose-500/30'
-                          }`}>
-                            {r.grade || (r.percentage >= 50 ? 'Passed ✓' : 'Needs Practice')}
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${
+                          r.percentage >= 80 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' :
+                          r.percentage >= 50 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' :
+                          'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                        }`}>
+                          {r.grade || (r.percentage >= 50 ? 'Passed ✓' : 'Needs Practice')}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+                          <span className="text-[10px] text-slate-400 block font-bold">প্রাপ্ত নম্বর:</span>
+                          <span className="font-mono font-black text-amber-400 text-sm">
+                            {r.score} <span className="text-[10px] text-slate-500 font-normal">/ {r.totalMarks}</span>
                           </span>
-                        </td>
-                        <td className="p-3 text-center font-mono text-[11px] text-slate-400">
-                          {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : 'N/A'}
-                        </td>
-                        <td className="p-3 text-right">
-                          <button
-                            onClick={() => handleOpenReviewModal(r)}
-                            className="px-3 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 font-bold text-xs transition-all shadow-sm cursor-pointer"
-                          >
-                            🔍 উত্তর রিভিউ দেখুন
-                          </button>
-                        </td>
+                        </div>
+                        <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+                          <span className="text-[10px] text-slate-400 block font-bold">শতকরা হার:</span>
+                          <span className="font-mono font-bold text-white text-sm">{r.percentage}%</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          তারিখ: {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : 'N/A'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenReviewModal(r)}
+                          className="px-3 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 font-bold text-xs transition-all shadow-sm cursor-pointer"
+                        >
+                          🔍 উত্তর রিভিউ
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Results Table (>= md) */}
+                <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-900 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                      <tr>
+                        <th className="p-3">পরীক্ষার শিরোনাম (Exam Title)</th>
+                        <th className="p-3 text-center">প্রাপ্ত নম্বর (Score)</th>
+                        <th className="p-3 text-center">শতকরা হার (%)</th>
+                        <th className="p-3 text-center">গ্রেড ও ফলাফল</th>
+                        <th className="p-3 text-center">জমাদানের সময়</th>
+                        <th className="p-3 text-right">বিস্তারিত রিভিউ</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {studentResults.map((r, idx) => (
+                        <tr key={r.id || r.resultId || idx} className="hover:bg-slate-900/50 transition-colors">
+                          <td className="p-3">
+                            <div className="font-extrabold text-white text-xs">{r.examTitle || 'MCQ Model Test'}</div>
+                            <span className="text-[10px] text-amber-400 font-mono">ID: {r.id || r.resultId}</span>
+                          </td>
+                          <td className="p-3 text-center font-mono font-black text-amber-400 text-sm">
+                            {r.score} <span className="text-xs text-slate-500 font-normal">/ {r.totalMarks}</span>
+                          </td>
+                          <td className="p-3 text-center font-mono font-bold text-white">
+                            {r.percentage}%
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                              r.percentage >= 80 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' :
+                              r.percentage >= 50 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' :
+                              'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                            }`}>
+                              {r.grade || (r.percentage >= 50 ? 'Passed ✓' : 'Needs Practice')}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center font-mono text-[11px] text-slate-400">
+                            {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : 'N/A'}
+                          </td>
+                          <td className="p-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenReviewModal(r)}
+                              className="px-3 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 font-bold text-xs transition-all shadow-sm cursor-pointer"
+                            >
+                              🔍 উত্তর রিভিউ দেখুন
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </section>
@@ -1284,68 +1357,121 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
             </div>
 
             {studentReceipts.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 space-y-2">
+              <div className="p-8 sm:p-12 text-center text-slate-500 space-y-2">
                 <span className="text-3xl block">📜</span>
                 <p className="text-sm font-bold text-slate-400">এখনো কোনো মানি রিসিট ইস্যু করা হয়নি।</p>
                 <p className="text-xs text-slate-500">আপনার ভর্তি বা কোর্স ফি জমা হওয়ার পর অ্যাডমিন প্যানেল থেকে এখানে ডিজিটাল রিসিট ইস্যু করা হবে।</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-800 bg-slate-900/60 text-slate-400 font-mono text-[11px]">
-                      <th className="p-3.5">রসিদ নম্বর</th>
-                      <th className="p-3.5">কোর্স / ব্যাচ</th>
-                      <th className="p-3.5">ফি (পরিমাণ)</th>
-                      <th className="p-3.5">মেথড</th>
-                      <th className="p-3.5">ট্রানজেকশন আইডি</th>
-                      <th className="p-3.5">পরিশোধের সময় (BST)</th>
-                      <th className="p-3.5">স্ট্যাটাস</th>
-                      <th className="p-3.5 text-right">ডাউনলোড</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {studentReceipts.map((r, rIdx) => (
-                      <tr key={r.receiptId || rIdx} className="hover:bg-slate-900/40 transition-colors">
-                        <td className="p-3.5 font-mono font-black text-amber-400 text-xs">
-                          {r.receiptId}
-                        </td>
-                        <td className="p-3.5 font-bold text-white max-w-[180px] truncate">
+              <>
+                {/* Mobile Receipts Cards View (< md) */}
+                <div className="md:hidden p-3 space-y-3">
+                  {studentReceipts.map((r, rIdx) => (
+                    <div key={r.receiptId || rIdx} className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5 shadow-md">
+                      <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                        <span className="font-mono font-black text-amber-400 text-xs">
+                          #{r.receiptId}
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                          ✓ পরিশোধিত
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div className="font-bold text-white text-xs truncate max-w-[170px]">
                           {r.batch || 'BJS & Bar Masterclass'}
-                        </td>
-                        <td className="p-3.5 font-mono font-bold text-emerald-400">
+                        </div>
+                        <div className="font-mono font-black text-emerald-400 text-sm">
                           ৳{toBangladeshDigits(Number(r.amount || 0).toLocaleString('en-IN'))}
-                        </td>
-                        <td className="p-3.5 font-bold text-cyan-300">
-                          {r.paymentMethod || 'bKash'}
-                        </td>
-                        <td className="p-3.5 font-mono text-slate-400 text-[11px]">
-                          {r.trxId || 'N/A'}
-                        </td>
-                        <td className="p-3.5 font-mono text-slate-300 text-[11px] whitespace-nowrap">
-                          {formatBangladeshTime(r.paymentTime || r.createdAt)}
-                        </td>
-                        <td className="p-3.5">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                            ✓ পরিশোধিত
-                          </span>
-                        </td>
-                        <td className="p-3.5 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => handleDownloadReceiptPdf(r.receiptId)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-md shadow-emerald-900/30 cursor-pointer transition-all active:scale-95"
-                            title="সরাসরি ক্লিন PDF মানি রিসিট ডাউনলোড করুন"
-                          >
-                            <span>📥</span>
-                            <span>রসিদ ডাউনলোড (PDF)</span>
-                          </button>
-                        </td>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-950/60 p-2 rounded-lg border border-slate-800/80">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">পেমেন্ট মেথড:</span>
+                          <span className="font-bold text-cyan-300">{r.paymentMethod || 'bKash'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Trx ID:</span>
+                          <span className="font-mono text-slate-300 truncate block">{r.trxId || 'N/A'}</span>
+                        </div>
+                      </div>
+
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        সময়: {formatBangladeshTime(r.paymentTime || r.createdAt)}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadReceiptPdf(r.receiptId)}
+                        className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-md shadow-emerald-900/30 cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-2"
+                        title="রিসিট ডাউনলোড করুন"
+                      >
+                        <span>📥</span>
+                        <span>রসিদ ডাউনলোড (PDF)</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Receipts Table (>= md) */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-800 bg-slate-900/60 text-slate-400 font-mono text-[11px]">
+                        <th className="p-3.5">রসিদ নম্বর</th>
+                        <th className="p-3.5">কোর্স / ব্যাচ</th>
+                        <th className="p-3.5">ফি (পরিমাণ)</th>
+                        <th className="p-3.5">মেথড</th>
+                        <th className="p-3.5">ট্রানজেকশন আইডি</th>
+                        <th className="p-3.5">পরিশোধের সময় (BST)</th>
+                        <th className="p-3.5">স্ট্যাটাস</th>
+                        <th className="p-3.5 text-right">ডাউনলোড</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {studentReceipts.map((r, rIdx) => (
+                        <tr key={r.receiptId || rIdx} className="hover:bg-slate-900/40 transition-colors">
+                          <td className="p-3.5 font-mono font-black text-amber-400 text-xs">
+                            {r.receiptId}
+                          </td>
+                          <td className="p-3.5 font-bold text-white max-w-[180px] truncate">
+                            {r.batch || 'BJS & Bar Masterclass'}
+                          </td>
+                          <td className="p-3.5 font-mono font-bold text-emerald-400">
+                            ৳{toBangladeshDigits(Number(r.amount || 0).toLocaleString('en-IN'))}
+                          </td>
+                          <td className="p-3.5 font-bold text-cyan-300">
+                            {r.paymentMethod || 'bKash'}
+                          </td>
+                          <td className="p-3.5 font-mono text-slate-400 text-[11px]">
+                            {r.trxId || 'N/A'}
+                          </td>
+                          <td className="p-3.5 font-mono text-slate-300 text-[11px] whitespace-nowrap">
+                            {formatBangladeshTime(r.paymentTime || r.createdAt)}
+                          </td>
+                          <td className="p-3.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                              ✓ পরিশোধিত
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadReceiptPdf(r.receiptId)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-md shadow-emerald-900/30 cursor-pointer transition-all active:scale-95"
+                              title="সরাসরি ক্লিন PDF মানি রিসিট ডাউনলোড করুন"
+                            >
+                              <span>📥</span>
+                              <span>রসিদ ডাউনলোড (PDF)</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </section>
