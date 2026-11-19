@@ -390,8 +390,8 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
   const scoredLessons = [];
 
   for (const lesson of lessons) {
-    // Phase 11: Only include lessons with authentic ready/manual transcripts
-    const validStatus = lesson.transcriptStatus === 'ready' || lesson.transcriptStatus === 'manual';
+    // Only include lessons with authentic ready/manual transcripts or verified subtitles
+    const validStatus = lesson.hasSubtitles === true || lesson.transcriptStatus === 'ready' || lesson.transcriptStatus === 'manual';
     const transcript = (lesson.transcript || '').toLowerCase();
 
     if (!validStatus || !transcript || transcript.length < 25) {

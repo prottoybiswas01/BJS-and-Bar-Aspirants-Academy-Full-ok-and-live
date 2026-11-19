@@ -190,6 +190,12 @@ const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYou
 const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
 const { dispatchNewLessonNotifications } = require("./services/videoNotificationService");
 const { processLegalAiQuery } = require("./services/legalAiService");
+const {
+  syncSingleLessonSubtitle,
+  syncPendingSubtitlesBatch,
+  startSubtitleScheduler,
+  backfillAllExistingSubtitles
+} = require("./services/subtitleScheduler");
 const { generateReceiptPdf } = require("./services/receiptPdfService");
 const { parseBangladeshTimeToUtc, formatBangladeshTime } = require("./utils/dateUtils");
 const { sortLessons, getLessonNum, parseLessonNum, getNextSerial } = require("./utils/lessonUtils");
@@ -4405,7 +4411,7 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
 
     let lessonsList = [];
     // Ordinary Lesson List returns compact metadata without bulky transcript/segments payload (Phase 7)
-    const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree status isDraft transcriptStatus transcriptLanguage transcriptSource transcriptWordCount transcriptUpdatedAt transcriptLastAttemptAt transcriptNextRetryAt transcriptAttemptCount transcriptLastError transcriptVideoId notifiedAt createdAt';
+    const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree status isDraft hasSubtitles transcriptStatus transcriptLanguage transcriptSource transcriptWordCount transcriptUpdatedAt transcriptLastAttemptAt transcriptNextRetryAt transcriptAttemptCount transcriptLastError transcriptVideoId notifiedAt createdAt';
     if (isMongoConnected) {
       lessonsList = await Lesson.find(query, lessonProjection).lean();
     } else {
@@ -4627,6 +4633,7 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
 
           if (isMongoConnected) {
             await Lesson.updateOne({ id: lessonId }, {
+              hasSubtitles: true,
               transcript: trRes.transcript,
               transcriptStatus: 'ready',
               transcriptSegments: trRes.segments || [],
@@ -4649,6 +4656,7 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
           }
           const mem = (memoryDb.lessons || []).find(l => l.id === lessonId);
           if (mem) {
+            mem.hasSubtitles = true;
             mem.transcript = trRes.transcript;
             mem.transcriptStatus = 'ready';
             mem.transcriptSegments = trRes.segments || [];
@@ -4691,6 +4699,13 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       } catch (err) {
         console.warn(`Notice fetching transcript for ${lessonId}:`, err.message);
       }
+    }
+
+    // Automatic Background Subtitle Sync if not already marked as ready
+    if (youtubeId && !saved.hasSubtitles && saved.transcriptStatus !== 'manual') {
+      syncSingleLessonSubtitle(saved, Lesson).catch(err => {
+        console.warn(`[SubtitleSync] Async fetch notice for ${lessonId}:`, err.message);
+      });
     }
 
     // CRITICAL: Send email notification ONLY for genuinely NEW published videos (never on edit or update or draft)
@@ -4863,6 +4878,7 @@ app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
         if (trRes && trRes.ok && trRes.transcript) {
           if (isMongoConnected) {
             await Lesson.updateOne({ _id: lsn._id }, {
+              hasSubtitles: true,
               transcript: trRes.transcript,
               transcriptStatus: 'ready',
               transcriptUpdatedAt: new Date()
@@ -4870,6 +4886,7 @@ app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
           }
           const m = (memoryDb.lessons || []).find(x => x.id === lsn.id || String(x._id) === String(lsn._id));
           if (m) {
+            m.hasSubtitles = true;
             m.transcript = trRes.transcript;
             m.transcriptStatus = 'ready';
             m.transcriptUpdatedAt = new Date();
@@ -4982,6 +4999,7 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
       const yId = lsn.youtubeId || extractYoutubeId(lsn.youtubeUrl);
       const trRes = await fetchYoutubeTranscript(yId);
       if (trRes && trRes.ok && trRes.transcript) {
+        lsn.hasSubtitles = true;
         lsn.transcript = trRes.transcript;
         lsn.transcriptStatus = 'ready';
         lsn.transcriptSegments = trRes.segments || [];
@@ -4994,6 +5012,7 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
         if (isMongoConnected) await lsn.save();
         const mem = (memoryDb.lessons || []).find(l => l.id === lsn.id);
         if (mem) {
+          mem.hasSubtitles = true;
           mem.transcript = trRes.transcript;
           mem.transcriptStatus = 'ready';
           mem.transcriptSegments = trRes.segments || [];
@@ -5037,6 +5056,7 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
         lang = /[\u0980-\u09FF]/.test(cleanText) ? 'bn' : 'en';
       }
 
+      lsn.hasSubtitles = cleanText.length > 20;
       lsn.transcript = cleanText;
       lsn.transcriptSegments = segments;
       lsn.transcriptWordCount = parsedWordCount;
@@ -5048,6 +5068,7 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
       if (isMongoConnected) await lsn.save();
       const mem = (memoryDb.lessons || []).find(l => l.id === lsn.id);
       if (mem) {
+        mem.hasSubtitles = cleanText.length > 20;
         mem.transcript = cleanText;
         mem.transcriptSegments = segments;
         mem.transcriptWordCount = parsedWordCount;
@@ -5070,11 +5091,14 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
   }
 });
 
-// Durable Background Transcript Job Runner & Queue Status (Phase 6)
-app.post("/api/admin/transcripts/process-jobs", async (req, res) => {
+// Durable Background Transcript Job Runner & Subtitle Sync Cron (Phase 6 & 11)
+// Supports GET (Vercel Cron & Browser Ping) and POST (Admin Trigger)
+app.all(["/api/admin/transcripts/process-jobs", "/api/crons/sync-subtitles", "/api/admin/subtitles/sync-batch"], async (req, res) => {
   try {
     await ensureDbConnected();
-    const limit = Math.min(15, Number(req.body?.limit || req.query?.limit || 5));
+    const limit = Math.min(15, Number(req.body?.limit || req.query?.limit || 10));
+
+    // 1. Process due legacy queue jobs
     const processed = await processDueTranscriptJobs({
       limit,
       LessonModel: Lesson,
@@ -5082,15 +5106,40 @@ app.post("/api/admin/transcripts/process-jobs", async (req, res) => {
       isMongoConnected,
       memoryDb
     });
+
+    // 2. Automated Subtitle Batch Sync for any pending lessons
+    const subtitleSyncResult = await syncPendingSubtitlesBatch({
+      limit,
+      LessonModel: Lesson
+    });
+
     const status = await getQueueStatus({ TranscriptJobModel: TranscriptJob, isMongoConnected, memoryDb });
+
+    fastCache.del("lessons");
+
     return res.json({
       ok: true,
+      timestamp: new Date().toISOString(),
       processedCount: processed.length,
       processed,
+      subtitleSync: subtitleSyncResult,
       queueStatus: status
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Queue processing error: " + err.message });
+    return res.status(500).json({ ok: false, message: "Queue/Cron processing error: " + err.message });
+  }
+});
+
+// Full Backfill Subtitles Endpoint
+app.post("/api/admin/subtitles/backfill-all", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const result = await backfillAllExistingSubtitles({ LessonModel: Lesson });
+    fastCache.del("lessons");
+    return res.json({ ok: true, timestamp: new Date().toISOString(), result });
+  } catch (err) {
+    console.error("Full Backfill Error:", err);
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -9047,6 +9096,7 @@ app.post("/api/ai/chat", async (req, res) => {
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`🚀 BJS & Bar Academy Server running on http://localhost:${PORT}`);
+    startSubtitleScheduler({ LessonModel: Lesson, intervalMinutes: 30 });
   });
 }
 

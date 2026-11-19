@@ -16,7 +16,8 @@ const lessonSchema = new mongoose.Schema({
   status: { type: String, default: "published" }, // draft | published
   isDraft: { type: Boolean, default: false },
 
-  // Comprehensive Transcript Schema (Phase 7)
+  // Comprehensive Transcript & Subtitles Schema
+  hasSubtitles: { type: Boolean, default: false, index: true }, // Boolean indicator for subtitle availability
   transcript: { type: String, default: "" }, // Extracted or manually saved full transcript text
   transcriptStatus: {
     type: String,

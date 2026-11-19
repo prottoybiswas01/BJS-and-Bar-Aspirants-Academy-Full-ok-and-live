@@ -13,7 +13,7 @@
   ],
   "crons": [
     {
-      "path": "/api/admin/transcripts/process-jobs",
+      "path": "/api/crons/sync-subtitles",
       "schedule": "0 0 * * *"
     }
   ],
