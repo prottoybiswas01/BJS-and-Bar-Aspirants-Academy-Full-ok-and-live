@@ -240,6 +240,46 @@ const VERIFIED_BD_STATUTES = [
         directUrl: 'http://bdlaws.minlaw.gov.bd/act-75/section-3552.html',
         excerptBn: 'এই কার্যবিধির কোনো কিছুই হাইকোর্ট বিভাগের এমন কোনো আদেশ প্রদানের সহজাত ক্ষমতা সীমিত করিবে না, যাহা এই কার্যবিধির অধীন কোনো আদেশ কার্যকর করিবার জন্য অথবা কোনো আদালতের কার্যক্রমের অপব্যবহার রোধ করিবার জন্য অথবা অন্য কোনো প্রকারে ন্যায়বিচারের উদ্দেশ্য নিশ্চিত করিবার জন্য আবশ্যক। ফৌজদারি মামলা বাতিলের (Quashment) জন্য এই ধারা প্রয়োগ করা হয়।',
         keywords: ['৫৬১ক ধারা', 'সহজাত ক্ষমতা', 'কোয়াশমেন্ট', 'অপব্যবহার রোধ', 'inherent power', 'quashment']
+      },
+      {
+        num: '107',
+        numBn: '১০৭',
+        type: 'ধারা',
+        titleBn: 'শান্তিরক্ষা ও সদাচরণের জন্য মুচলেকা',
+        titleEn: 'Security for keeping the peace in other cases',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-75/section-3098.html',
+        excerptBn: 'যখন নির্বাহী ম্যাজিস্ট্রেট তথ্য পান যে কোনো ব্যক্তি শান্তিভঙ্গ করিতে পারে বা জনশান্তি বিনষ্ট করিতে পারে, তখন তিনি উক্ত ব্যক্তিকে অনধিক ১ বছরের জন্য শান্তিরক্ষার জামানত বা মুচলেকা সম্পাদনের নির্দেশ দিতে পারেন।',
+        keywords: ['১০৭ ধারা', 'মুচলেকা', 'শান্তিরক্ষা', 'জামানত', 'security for peace']
+      },
+      {
+        num: '144',
+        numBn: '১৪৪',
+        type: 'ধারা',
+        titleBn: 'উপদ্রব বা আশঙ্কিত বিপদের ক্ষেত্রে জরুরি আদেশ (১৪৪ ধারা)',
+        titleEn: 'Power to issue order absolute at once in urgent cases of nuisance or apprehended danger',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-75/section-3135.html',
+        excerptBn: 'জরুরি পরিস্থিতিতে কোনো ব্যক্তির মানবজীবন, স্বাস্থ্য বা নিরাপত্তার বিঘ্ন বা দাঙ্গা রোধে নির্বাহী ম্যাজিস্ট্রেট নির্দিষ্ট এলাকায় জনসমাবেশ বা কাজ নিষিদ্ধ করিয়া লিখিত আদেশ দিতে পারেন। এই আদেশের মেয়াদ সাধারণতঃ অনধিক ২ মাস।',
+        keywords: ['১৪৪ ধারা', 'জরুরি আদেশ', 'নিষেধাজ্ঞা', 'দাঙ্গা', 'section 144']
+      },
+      {
+        num: '145',
+        numBn: '১৪৫',
+        type: 'ধারা',
+        titleBn: 'জমি বা পানিসীমা সংক্রান্ত বিরোধে শান্তিভঙ্গ রোধে কার্যপদ্ধতি',
+        titleEn: 'Procedure where dispute concerning land, etc., is likely to cause breach of peace',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-75/section-3136.html',
+        excerptBn: 'জমি, বাড়ি বা পানিসীমা সংক্রান্ত বিরোধে শান্তিভঙ্গের আশঙ্কা থাকিলে নির্বাহী ম্যাজিস্ট্রেট উভয় পক্ষকে আদালতে হাজির হইয়া দখলের প্রমাণ পেশের নির্দেশ দিতে পারেন। ম্যাজিস্ট্রেট কেবল দখল (Possession) নির্ধারণ করিবেন, স্বত্ব (Title) নির্ধারণ করিবেন না। আদেশ প্রদানের ২ মাসের মধ্যে বেদখল হইলে দখল পুনরুদ্ধার আদেশের বিধান রহিয়াছে।',
+        keywords: ['১৪৫ ধারা', 'জমি বিরোধ', 'দখল বিরোধ', 'শান্তিভঙ্গ', 'জমি সংক্রান্ত বিরোধ', 'land dispute', 'breach of peace']
+      },
+      {
+        num: '154',
+        numBn: '১৫৪',
+        type: 'ধারা',
+        titleBn: 'আমলযোগ্য অপরাধের এজাহার বা এফআইআর (FIR)',
+        titleEn: 'Information in cognizable cases (First Information Report)',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-75/section-3145.html',
+        excerptBn: 'থানার ভারপ্রাপ্ত কর্মকর্তার (ওসি) নিকট আমলযোগ্য কোনো অপরাধ সংঘটনের তথ্য মৌখিকভাবে দেওয়া হইলে তাহা লিখিত আকারে লিপিবদ্ধ করিয়া তথ্য প্রদানকারীর স্বাক্ষর গ্রহণ করিতে হইবে এবং নির্ধারিত রেজিস্টার বহিতে (বিপি ফরম নং ২৭) নথিভুক্ত করিতে হইবে। ইহাই প্রাথমিক তথ্য বিবরণী বা এজাহার (FIR)।',
+        keywords: ['১৫৪ ধারা', 'এজাহার', 'এফআইআর', 'মামলা দায়ের', 'থানায় মামলা', 'fir', 'first information report']
       }
     ]
   },
@@ -384,6 +424,46 @@ const VERIFIED_BD_STATUTES = [
         directUrl: 'http://bdlaws.minlaw.gov.bd/act-11/section-554.html',
         excerptBn: 'যে ব্যক্তি প্রতারণা করে এবং প্রতারিত ব্যক্তিকে কোনো সম্পত্তি সমর্পণ করিতে বা কোনো মূল্যবান জামানত তৈরি বা পরিবর্তন করিতে অসাধুভাবে প্ররোচিত করে, সে অনধিক ৭ বছর পর্যন্ত যেকোনো বর্ণনার কারাদণ্ডে এবং অর্থদণ্ডে দণ্ডিত হইবে।',
         keywords: ['৪২০ ধারা', 'প্রতারণা', 'চিটিং', 'সম্পত্তি সমর্পণ', 'cheating']
+      },
+      {
+        num: '406',
+        numBn: '৪০৬',
+        type: 'ধারা',
+        titleBn: 'অপরাধমূলক বিশ্বাসভঙ্গের শাস্তি (Criminal Breach of Trust)',
+        titleEn: 'Punishment for criminal breach of trust',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-11/section-540.html',
+        excerptBn: 'যে ব্যক্তি অপরাধমূলক বিশ্বাসভঙ্গ করে, সে অনধিক ৩ বছর পর্যন্ত যেকোনো বর্ণনার কারাদণ্ডে, অথবা অর্থদণ্ডে, অথবা উভয় দণ্ডে দণ্ডিত হইবে। টাকা ধার নিয়ে আত্মসাৎ করা বা আমানতের খেয়ানত করার ক্ষেত্রে এই ধারা প্রযোজ্য।',
+        keywords: ['৪০৬ ধারা', 'বিশ্বাসভঙ্গ', 'টাকা আত্মসাৎ', 'আমানত', 'ধার', 'criminal breach of trust']
+      },
+      {
+        num: '427',
+        numBn: '৪২৭',
+        type: 'ধারা',
+        titleBn: '৫০ টাকা বা তদূর্ধ্ব ক্ষতির অনিষ্ট বা ক্ষতিসাধন (Mischief)',
+        titleEn: 'Mischief causing damage to the amount of fifty taka',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-11/section-561.html',
+        excerptBn: 'যে ব্যক্তি এমন অনিষ্ট সাধন করে যাহার ফলে ৫০ টাকা বা তদূর্ধ্ব পরিমাণ অর্থের ক্ষতি বা অনিষ্ট ঘটে, সে অনধিক ২ বছর পর্যন্ত যেকোনো বর্ণনার কারাদণ্ডে, অথবা অর্থদণ্ডে, অথবা উভয় দণ্ডে দণ্ডিত হইবে। সীমানা প্রাচীর বা দেওয়াল ভাঙচুর, গাছ কাটা বা মালামাল ধ্বংসের ক্ষেত্রে এই ধারা প্রযোজ্য।',
+        keywords: ['৪২৭ ধারা', 'ক্ষতিসাধন', 'ভাঙচুর', 'সীমানা প্রাচীর', 'প্রাচীর ভাঙা', 'দেওয়াল ভাঙা', 'অনিষ্ট', 'mischief', 'damage']
+      },
+      {
+        num: '447',
+        numBn: '৪৪৭',
+        type: 'ধারা',
+        titleBn: 'অপরাধমূলক অনধিকার প্রবেশের শাস্তি (Criminal Trespass)',
+        titleEn: 'Punishment for criminal trespass',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-11/section-581.html',
+        excerptBn: 'যে ব্যক্তি অপরাধমূলক অনধিকার প্রবেশ করে, সে অনধিক ৩ মাস পর্যন্ত যেকোনো বর্ণনার কারাদণ্ডে, অথবা অনধিক ৫০০ টাকা অর্থদণ্ডে, অথবা উভয় দণ্ডে দণ্ডিত হইবে। অপরের জমি বা সম্পত্তিতে বেআইনিভাবে জোরপূর্বক প্রবেশের ক্ষেত্রে এই ধারা প্রযোজ্য।',
+        keywords: ['৪৪৭ ধারা', 'অনধিকার প্রবেশ', 'জমি দখল', 'জোরপূর্বক প্রবেশ', 'criminal trespass', 'trespass']
+      },
+      {
+        num: '506',
+        numBn: '৫০৬',
+        type: 'ধারা',
+        titleBn: 'অপরাধমূলক ভীতি প্রদর্শনের শাস্তি (Criminal Intimidation)',
+        titleEn: 'Punishment for criminal intimidation',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-11/section-640.html',
+        excerptBn: 'যে ব্যক্তি অপরাধমূলক ভীতি প্রদর্শন করে, সে অনধিক ২ বছর পর্যন্ত যেকোনো বর্ণনার কারাদণ্ডে, অথবা অর্থদণ্ডে, অথবা উভয় দণ্ডে দণ্ডিত হইবে; এবং যদি হুমকিটি মৃত্যু বা গুরুতর আঘাত ঘটাইবার হয়, তবে সে অনধিক ৭ বছর পর্যন্ত যেকোনো বর্ণনার কারাদণ্ডে দণ্ডিত হইবে।',
+        keywords: ['৫০৬ ধারা', 'হুমকি', 'ভীতি প্রদর্শন', 'প্রাণনাশের হুমকি', 'criminal intimidation', 'threat']
       }
     ]
   },
@@ -488,6 +568,80 @@ const VERIFIED_BD_STATUTES = [
         directUrl: 'http://bdlaws.minlaw.gov.bd/act-32/section-1395.html',
         excerptBn: 'যেকোনো আইনি চরিত্র বা সম্পত্তির অধিকারপ্রাপ্ত ব্যক্তি কাহারও বিরুদ্ধে স্বত্ব ঘোষণার মামলা করিতে পারেন। তবে শর্ত থাকে যে, যেখানে বাদী ঘোষণার অতিরিক্ত আনুষঙ্গিক প্রতিকার (Consequential Relief) দাবি করিতে সমর্থ হওয়া সত্ত্বেও তাহা দাবি না করে, সেখানে আদালত কেবল ঘোষণার আদেশ দিবেন না।',
         keywords: ['৪২ ধারা', 'স্বত্ব ঘোষণা', 'আইনি চরিত্র', 'আনুষঙ্গিক প্রতিকার', 'declaratory decree']
+      },
+      {
+        num: '54',
+        numBn: '৫৪',
+        type: 'ধারা',
+        titleBn: 'স্থায়ী বা চিরতরে নিষেধাজ্ঞা মঞ্জুর (Perpetual Injunction)',
+        titleEn: 'Perpetual injunctions when granted',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-32/section-1407.html',
+        excerptBn: 'বাদীপক্ষ তাহার সম্পত্তিতে অধিকার রক্ষার্থে চিরস্থায়ী নিষেধাজ্ঞার ডিক্রি লাভ করিতে পারেন যখন বিবাদী বাদীর সম্পত্তির অধিকারে হস্তক্ষেপ করে বা করিবার হুমকি দেয় এবং যেখানে ক্ষতির প্রকৃত পরিমাণ নির্ধারণের কোনো মাপকাঠি নাই অথবা আর্থিক ক্ষতিপূরণ পর্যাপ্ত প্রতিকার নহে।',
+        keywords: ['৫৪ ধারা', 'চিরস্থায়ী নিষেধাজ্ঞা', 'স্থায়ী নিষেধাজ্ঞা', 'perpetual injunction']
+      }
+    ]
+  },
+
+  // 7. The Negotiable Instruments Act, 1881
+  {
+    id: 'ni-act-1881',
+    actNumber: 'Act No. XXVI of 1881',
+    year: 1881,
+    actTitleBn: 'হস্তান্তরযোগ্য দলিল আইন, ১৮৮১ (এনআই অ্যাক্ট)',
+    actTitleEn: 'The Negotiable Instruments Act, 1881',
+    status: 'In Force',
+    statusBn: 'কার্যকর আইন (সংশোধিত)',
+    sourcePortal: 'Legislative and Parliamentary Affairs Division (bdlaws)',
+    sourceUrl: 'http://bdlaws.minlaw.gov.bd/act-43.html',
+    lastVerifiedAt: '2026-11-19T00:00:00.000Z',
+    synonyms: ['এনআই অ্যাক্ট', 'চেক ডিজঅনার', 'চেকের মামলা', 'নিগোশিয়েবল ইনস্ট্রুমেন্টস', 'ni act', 'cheque dishonour', 'চেক', 'cheque', 'check'],
+    sections: [
+      {
+        num: '138',
+        numBn: '১৩৮',
+        type: 'ধারা',
+        titleBn: 'তহবিল অপর্যাপ্ততার কারণে চেক প্রত্যাখ্যাত বা ডিজঅনার হওয়ার অপরাধ',
+        titleEn: 'Dishonour of cheque for insufficiency, etc., of funds in the account',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-43/section-1886.html',
+        excerptBn: 'কোনো দেনা বা দায় পরিশোধের উদ্দেশ্যে প্রদত্ত চেক ব্যাংকে অপর্যাপ্ত তহবিলের কারণে প্রত্যাখ্যাত (Dishonour) হইলে চেকের ড্রয়ার অনধিক ১ বছর পর্যন্ত কারাদণ্ডে, অথবা চেকের অর্থের তিনগুণ পর্যন্ত অর্থদণ্ডে, অথবা উভয় দণ্ডে দণ্ডিত হইবেন। ডিজঅনারের ৩০ দিনের মধ্যে লিখিত লিগ্যাল নোটিশ দিতে হইবে এবং নোটিশ প্রাপ্তির ৩০ দিনের মধ্যে টাকা না দিলে পরবর্তী ৩০ দিনের মধ্যে আদালতে মামলা দায়ের করিতে হইবে।',
+        keywords: ['১৩৮ ধারা', 'চেক ডিজঅনার', 'চেকের মামলা', 'লিগ্যাল নোটিশ', 'এনআই অ্যাক্ট ১৩৮', 'dishonour of cheque', 'cheque bounce']
+      }
+    ]
+  },
+
+  // 8. Muslim Family Laws Ordinance, 1961 & Family Laws
+  {
+    id: 'family-laws',
+    actNumber: 'Ordinance No. VIII of 1961',
+    year: 1961,
+    actTitleBn: 'মুসলিম পারিবারিক আইন অধ্যাদেশ, ১৯৬১',
+    actTitleEn: 'The Muslim Family Laws Ordinance, 1961',
+    status: 'In Force',
+    statusBn: 'কার্যকর আইন (সংশোধিত)',
+    sourcePortal: 'Legislative and Parliamentary Affairs Division (bdlaws)',
+    sourceUrl: 'http://bdlaws.minlaw.gov.bd/act-305.html',
+    lastVerifiedAt: '2026-11-19T00:00:00.000Z',
+    synonyms: ['পারিবারিক আইন', 'মুসলিম পারিবারিক আইন', 'তালাক', 'দেনমোহর', 'ভরণপোষণ', 'family law', 'divorce', 'dower', 'maintenance'],
+    sections: [
+      {
+        num: '7',
+        numBn: '৭',
+        type: 'ধারা',
+        titleBn: 'তালাক সংক্রান্ত নোটিশ ও সালিশি পরিষদ',
+        titleEn: 'Talaq (Notice to Chairman and Arbitration Council)',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-305/section-14402.html',
+        excerptBn: 'যেকোনো স্বামী বা স্ত্রী (তালাক-ই-তৌফিজ ক্ষমতাপ্রাপ্ত) তালাক প্রদান করিলে কালবিলম্ব না করিয়া সংশ্লিষ্ট ইউনিয়ন পরিষদ চেয়ারম্যান বা সিটি কর্পোরেশন মেয়র বরাবর লিখিত নোটিশ প্রেরণ করিবেন এবং অপর পক্ষকে তাহার নকল প্রদান করিবেন। নোটিশ প্রাপ্তির তারিখ হইতে ৯০ দিন অতিবাহিত না হওয়া পর্যন্ত তালাক কার্যকর হইবে না।',
+        keywords: ['৭ ধারা', 'তালাক', 'নোটিশ', 'সালিশি পরিষদ', '৯০ দিন', 'divorce notice', 'talaq']
+      },
+      {
+        num: '9',
+        numBn: '৯',
+        type: 'ধারা',
+        titleBn: 'স্ত্রী ও সন্তানের ভরণপোষণ (Maintenance)',
+        titleEn: 'Maintenance',
+        directUrl: 'http://bdlaws.minlaw.gov.bd/act-305/section-14404.html',
+        excerptBn: 'কোনো স্বামী তাহার স্ত্রীকে যথাযথভাবে ভরণপোষণ না দিলে অথবা একাধিক স্ত্রী থাকিলে তাহাদের সমভাবে ভরণপোষণ না দিলে, স্ত্রী সালিশি পরিষদে বা পারিবারিক আদালতে ভরণপোষণ ও বকেয়া খোরপোষের জন্য আবেদন করিতে পারেন।',
+        keywords: ['৯ ধারা', 'ভরণপোষণ', 'খোরপোষ', 'স্ত্রীর অধিকার', 'সন্তানের ভরণপোষণ', 'maintenance']
       }
     ]
   }
@@ -546,12 +700,73 @@ function matchesSectionNumber(text, numBn, numEn) {
   return bnRegex.test(text) || enRegex.test(text);
 }
 
+const BANGLISH_MAP = {
+  'jomi': 'জমি',
+  'jami': 'জমি',
+  'dokhol': 'দখল',
+  'bedokhol': 'বেদখল',
+  'shimanapracir': 'সীমানা প্রাচীর',
+  'pracir': 'প্রাচীর',
+  'boundary': 'সীমানা প্রাচীর',
+  'wall': 'দেওয়াল',
+  'bhanga': 'ভাঙচুর',
+  'bhenge': 'ভাঙচুর',
+  'khoti': 'ক্ষতিসাধন',
+  'taka': 'টাকা',
+  'dhar': 'ধার',
+  'cheating': 'প্রতারণা',
+  'fraud': 'প্রতারণা',
+  'police': 'পুলিশ',
+  'thana': 'থানা',
+  'case': 'মামলা',
+  'mokoddama': 'মোকদ্দমা',
+  'fir': 'এজাহার',
+  'ejahar': 'এজাহার',
+  'gd': 'জিডি',
+  'crpc': 'ফৌজদারি কার্যবিধি',
+  'cpc': 'দেওয়ানী কার্যবিধি',
+  'penal': 'দণ্ডবিধি',
+  'murder': 'খুন',
+  'khun': 'খুন',
+  'hotta': 'হত্যা',
+  'maramari': 'মারামারি',
+  'aghat': 'আঘাত',
+  'humki': 'হুমকি',
+  'threat': 'হুমকি',
+  'cheque': 'চেক',
+  'check': 'চেক',
+  'bounce': 'ডিজঅনার',
+  'dishonour': 'ডিজঅনার',
+  'talak': 'তালাক',
+  'divorce': 'তালাক',
+  'denmohor': 'দেনমোহর',
+  'dower': 'দেনমোহর',
+  'khorposh': 'ভরণপোষণ',
+  'maintenance': 'ভরণপোষণ',
+  'bail': 'জামিন',
+  'jamin': 'জামিন',
+  'arrest': 'গ্রেপ্তার',
+  'greptar': 'গ্রেপ্তার',
+  'remand': 'রিমান্ড',
+  'writ': 'রিট',
+  'appeal': 'আপিল',
+  'order': 'আদেশ',
+  'dhara': 'ধারা',
+  'section': 'ধারা'
+};
+
 /**
  * Fast Grounded Search in Authentic Statute Registry
  */
 function searchStatutes(query) {
   const qClean = query.trim().toLowerCase();
   const words = qClean.split(/[\s,?!।.]+/).filter(w => w.length >= 2 && !LEGAL_STOPWORDS.has(w));
+  const expandedWords = [...words];
+  for (const w of words) {
+    if (BANGLISH_MAP[w] && !expandedWords.includes(BANGLISH_MAP[w])) {
+      expandedWords.push(BANGLISH_MAP[w]);
+    }
+  }
   const matchedSources = [];
 
   for (const statute of VERIFIED_BD_STATUTES) {
@@ -559,7 +774,7 @@ function searchStatutes(query) {
 
     // Check statute level synonyms
     for (const syn of statute.synonyms) {
-      if (qClean.includes(syn.toLowerCase())) {
+      if (qClean.includes(syn.toLowerCase()) || expandedWords.some(ew => syn.toLowerCase().includes(ew))) {
         statuteMatches = true;
         break;
       }
@@ -576,12 +791,12 @@ function searchStatutes(query) {
 
       // Keyword matches
       for (const kw of sec.keywords) {
-        if (qClean.includes(kw.toLowerCase())) {
+        if (qClean.includes(kw.toLowerCase()) || expandedWords.some(ew => kw.toLowerCase().includes(ew))) {
           secScore += 5;
         }
       }
 
-      for (const w of words) {
+      for (const w of expandedWords) {
         if (sec.titleBn.toLowerCase().includes(w) || sec.excerptBn.toLowerCase().includes(w)) {
           secScore += 2;
         }

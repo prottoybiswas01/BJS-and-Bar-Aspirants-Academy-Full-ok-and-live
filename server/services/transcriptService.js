@@ -337,6 +337,32 @@ async function fetchYoutubeTranscript(videoIdOrUrl) {
   };
 }
 
+const BANGLISH_MAP = {
+  'cpc': 'দেওয়ানী',
+  'crpc': 'ফৌজদারি',
+  'penal': 'দণ্ডবিধি',
+  'family': 'Family',
+  'english': 'English',
+  'general': 'General',
+  'constitution': 'সংবিধান',
+  'jomi': 'জমি',
+  'jami': 'জমি',
+  'dokhol': 'দখল',
+  'bedokhol': 'বেদখল',
+  'taka': 'টাকা',
+  'cheque': 'চেক',
+  'check': 'চেক',
+  'police': 'পুলিশ',
+  'case': 'মামলা',
+  'fir': 'এজাহার',
+  'murder': 'খুন',
+  'khun': 'খুন',
+  'bail': 'জামিন',
+  'jamin': 'জামিন',
+  'arrest': 'গ্রেপ্তার',
+  'remand': 'রিমান্ড'
+};
+
 /**
  * Bengali Stopwords
  */
@@ -381,6 +407,10 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
   const cleanTokens = [];
   for (const t of rawTokens) {
     if (!cleanTokens.includes(t)) cleanTokens.push(t);
+    const mapped = BANGLISH_MAP[t];
+    if (mapped && !cleanTokens.includes(mapped.toLowerCase())) {
+      cleanTokens.push(mapped.toLowerCase());
+    }
     const root = getBengaliRoot(t);
     if (root && root.length >= 2 && !cleanTokens.includes(root) && !BANGLA_STOPWORDS.has(root)) {
       cleanTokens.push(root);
