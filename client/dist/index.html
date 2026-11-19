@@ -340,13 +340,27 @@
       }
     }
     </script>
-    <script type="module" crossorigin src="/assets/index-XiTQix1U.js"></script>
+    <script type="module" crossorigin src="/assets/index-B_Kd20H0.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-libs-BnLe2aT-.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-react-JlVIRROR.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-react-ROtNqB3g.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-firebase-CKPYc7hn.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-CqXqNuvr.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-CSmXXNdZ.css">
   </head>
   <body class="bg-[#0b1325] text-slate-100 font-sans antialiased selection:bg-amber-500 selection:text-slate-900 overflow-x-hidden w-full max-w-full">
     <div id="root"></div>
+    <script>
+      // Emergency mobile failsafe for slow network or stale cache desync
+      setTimeout(function() {
+        var r = document.getElementById('root');
+        if (r && (!r.childNodes || r.childNodes.length === 0)) {
+          r.innerHTML = '<div style="min-height:85vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;color:#f8fafc;font-family:sans-serif;">' +
+            '<div style="width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#d97706,#fcd34d);display:flex;align-items:center;justify-content:center;box-shadow:0 10px 25px rgba(245,158,11,0.25);margin-bottom:16px;font-size:26px;">⚖️</div>' +
+            '<h2 style="font-size:19px;font-weight:700;color:#f59e0b;margin-bottom:8px;">BJS & Bar Aspirants Academy</h2>' +
+            '<p style="font-size:13px;color:#94a3b8;max-width:320px;line-height:1.6;margin-bottom:20px;">নতুন আপডেট লোড হতে প্রত্যাশার চেয়ে বেশি সময় নিচ্ছে। নতুন সংস্করণ পেতে নিচের বাটনে ক্লিক করুন।</p>' +
+            '<button onclick="if(window.caches){caches.keys().then(function(keys){keys.forEach(function(k){caches.delete(k);});});}if(navigator.serviceWorker){navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.unregister();});});}sessionStorage.clear();window.location.reload(true);" style="background:#f59e0b;color:#0b1325;border:none;padding:12px 26px;border-radius:12px;font-weight:800;font-size:14px;cursor:pointer;box-shadow:0 4px 16px rgba(245,158,11,0.35);">🔄 পেজটি রিফ্রেশ করুন</button>' +
+            '</div>';
+        }
+      }, 4500);
+    </script>
   </body>
 </html>
