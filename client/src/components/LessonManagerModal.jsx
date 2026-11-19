@@ -53,17 +53,32 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
 
   useEffect(() => {
     if (course && isOpen) {
+      setLessons([]);
+      setForm(getDefaultForm([]));
       loadLessons();
     }
-  }, [course, isOpen]);
+  }, [course?.id, isOpen]);
 
   const loadLessons = async () => {
     if (!targetCourseId) return;
     setLoading(true);
     try {
-      const res = await api.get(`/lessons?courseId=${targetCourseId}`);
+      const res = await api.get(`/lessons?courseId=${encodeURIComponent(targetCourseId)}`);
       if (res.data.ok) {
-        const loaded = res.data.lessons || [];
+        const rawLoaded = res.data.lessons || [];
+        // Strict course matching defense: only retain lessons that belong to this specific course
+        const targetClean = String(targetCourseId).trim().toLowerCase();
+        const targetTitle = String(course?.title || '').trim().toLowerCase();
+        const targetShort = String(course?.shortTitle || '').trim().toLowerCase();
+        const loaded = rawLoaded.filter(l => {
+          if (!l) return false;
+          const lCourse = String(l.courseId || '').trim().toLowerCase();
+          return lCourse === targetClean ||
+                 (targetTitle && lCourse === targetTitle) ||
+                 (targetShort && lCourse === targetShort) ||
+                 lCourse.replace(/[-_ ]/g, '') === targetClean.replace(/[-_ ]/g, '');
+        });
+
         setLessons(loaded);
         setForm(prev => {
           if (prev.id) return prev; // Preserve form if user is actively editing a lesson

@@ -4339,9 +4339,7 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
       query = {
         $or: [
           { courseId: { $in: Array.from(new Set(targetIds.filter(Boolean))) } },
-          { module: { $in: Array.from(new Set(targetIds.filter(Boolean))) } },
-          { courseId: courseRegex },
-          { module: courseRegex }
+          { courseId: courseRegex }
         ]
       };
     }
@@ -4351,13 +4349,25 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
     const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree status isDraft transcriptStatus transcriptLanguage transcriptSource transcriptWordCount transcriptUpdatedAt transcriptLastAttemptAt transcriptNextRetryAt transcriptAttemptCount transcriptLastError transcriptVideoId notifiedAt createdAt';
     if (isMongoConnected) {
       lessonsList = await Lesson.find(query, lessonProjection).lean();
-    }
-
-    if (!lessonsList || lessonsList.length === 0) {
+    } else {
+      // In-memory DB fallback strictly used ONLY if MongoDB is disconnected
       lessonsList = memoryDb.lessons || [];
       if (courseId) {
-        const filtered = lessonsList.filter(l => l.courseId === courseId || l.courseId === String(courseId));
-        if (filtered.length > 0) lessonsList = filtered;
+        const cleanCourse = String(courseId).trim().toLowerCase();
+        const resolvedC = await resolveCourseByIdOrAlias(cleanCourse);
+        const targetSet = new Set([cleanCourse]);
+        if (resolvedC) {
+          if (resolvedC.id) targetSet.add(String(resolvedC.id).toLowerCase().trim());
+          if (resolvedC._id) targetSet.add(String(resolvedC._id).toLowerCase().trim());
+          if (resolvedC.title) targetSet.add(String(resolvedC.title).toLowerCase().trim());
+          if (resolvedC.shortTitle) targetSet.add(String(resolvedC.shortTitle).toLowerCase().trim());
+          if (Array.isArray(resolvedC.legacyIds)) resolvedC.legacyIds.forEach(id => targetSet.add(String(id).toLowerCase().trim()));
+        }
+        lessonsList = lessonsList.filter(l => {
+          if (!l) return false;
+          const lCId = String(l.courseId || '').toLowerCase().trim();
+          return targetSet.has(lCId);
+        });
       }
       if (lessonsList) {
         lessonsList = lessonsList.map(l => {
