@@ -15,6 +15,7 @@ import AiChatDrawer from './components/AiChatDrawer';
 import ProfileModal from './components/ProfileModal';
 import ForceTempPasswordModal from './components/ForceTempPasswordModal';
 import PwaInstallBanner from './components/PwaInstallBanner';
+import PageErrorBoundary from './components/PageErrorBoundary';
 import NotFound from './pages/NotFound';
 import api from './services/api';
 
@@ -406,34 +407,36 @@ function MainApp() {
       <main className={`flex-1 w-full mx-auto px-3 sm:px-5 lg:px-6 pt-6 ${
         activePage === 'admin' ? 'max-w-[1750px]' : 'max-w-7xl'
       }`}>
-        <Suspense fallback={
-          <div className="min-h-[50vh] flex flex-col items-center justify-center space-y-3">
-            <div className="w-8 h-8 rounded-full border-2 border-amber-500 border-t-transparent animate-spin"></div>
-            <p className="text-amber-400 font-bold text-xs tracking-wider">লোড হচ্ছে...</p>
-          </div>
-        }>
-          {activePage === 'home' && (
-            <Home setActivePage={navigatePage} openMentorProfile={openMentorProfile} openVideoModal={openVideoModal} />
-          )}
-          {activePage === 'mcq-exam' && (
-            <McqExamPlayer examId={mcqExamId} onBack={() => navigatePage('home')} />
-          )}
-          {activePage === 'login' && <Login setActivePage={navigatePage} />}
-          {activePage === 'register' && <Register setActivePage={navigatePage} />}
-          {activePage === 'dashboard' && (
-            <Dashboard openVideoModal={openVideoModal} openProfileModal={() => setProfileModalOpen(true)} />
-          )}
-          {activePage === 'mentor-login' && <MentorLogin setActivePage={navigatePage} />}
-          {activePage === 'mentor-dashboard' && <MentorDashboard />}
-          {(activePage === 'admin' || activePage === 'admin-login') && (
-            user?.isAdmin ? (
-              <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />
-            ) : (
-              <AdminLogin setActivePage={navigatePage} />
-            )
-          )}
-          {activePage === '404' && <NotFound setActivePage={navigatePage} />}
-        </Suspense>
+        <PageErrorBoundary pageName={activePage} onNavigateHome={() => navigatePage('home')}>
+          <Suspense fallback={
+            <div className="min-h-[50vh] flex flex-col items-center justify-center space-y-3">
+              <div className="w-8 h-8 rounded-full border-2 border-amber-500 border-t-transparent animate-spin"></div>
+              <p className="text-amber-400 font-bold text-xs tracking-wider">লোড হচ্ছে...</p>
+            </div>
+          }>
+            {activePage === 'home' && (
+              <Home setActivePage={navigatePage} openMentorProfile={openMentorProfile} openVideoModal={openVideoModal} />
+            )}
+            {activePage === 'mcq-exam' && (
+              <McqExamPlayer examId={mcqExamId} onBack={() => navigatePage('home')} />
+            )}
+            {activePage === 'login' && <Login setActivePage={navigatePage} />}
+            {activePage === 'register' && <Register setActivePage={navigatePage} />}
+            {activePage === 'dashboard' && (
+              <Dashboard openVideoModal={openVideoModal} openProfileModal={() => setProfileModalOpen(true)} />
+            )}
+            {activePage === 'mentor-login' && <MentorLogin setActivePage={navigatePage} />}
+            {activePage === 'mentor-dashboard' && <MentorDashboard />}
+            {(activePage === 'admin' || activePage === 'admin-login') && (
+              user?.isAdmin ? (
+                <AdminPanel openLessonManager={openLessonManager} openVideoModal={openVideoModal} openMentorProfile={openMentorProfile} />
+              ) : (
+                <AdminLogin setActivePage={navigatePage} />
+              )
+            )}
+            {activePage === '404' && <NotFound setActivePage={navigatePage} />}
+          </Suspense>
+        </PageErrorBoundary>
       </main>
 
       <Footer setActivePage={navigatePage} activePage={activePage} />

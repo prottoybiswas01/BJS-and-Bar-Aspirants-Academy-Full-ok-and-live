@@ -475,27 +475,6 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           </p>
         </div>
       )}
-      {/* Floating Glassmorphic Toast Notification */}
-      {toast && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 animate-bounceIn max-w-md w-full px-4">
-          <div className={`p-4 rounded-2xl border shadow-2xl flex items-center justify-between gap-3 backdrop-blur-xl ${
-            toast.type === 'error'
-              ? 'bg-rose-950/95 border-rose-500/50 text-rose-200 shadow-rose-900/30'
-              : 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200 shadow-emerald-900/30'
-          }`}>
-            <div className="flex items-center gap-3">
-              <span className="text-xl">{toast.type === 'error' ? '⚠️' : '🎉'}</span>
-              <p className="text-xs sm:text-sm font-bold leading-relaxed">{toast.msg}</p>
-            </div>
-            <button
-              onClick={() => setToast(null)}
-              className="w-6 h-6 rounded-lg bg-slate-900/60 hover:bg-slate-900 flex items-center justify-center text-xs font-bold shrink-0 text-slate-300 hover:text-white"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Admin Popup Message Alert */}
       {user?.popupMessage?.body && (

@@ -957,11 +957,11 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       const updated = { ...student, status: newStatus };
       const res = await api.post('/admin/students/save', updated);
       if (res.data.ok) {
-        setMsg({ type: 'success', text: `${student.name} status set to ${newStatus}!` });
+        showSuccess(`${student.name} status set to ${newStatus}!`);
         loadAllAdminData();
       }
     } catch (err) {
-      setMsg({ type: 'error', text: 'Failed to update status.' });
+      showError('Failed to update status.');
     }
   };
 
@@ -995,10 +995,10 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           allowedCourseIds: coursesToGrant
         });
         if (res.data.ok) {
-          setMsg({ type: 'success', text: `🎉 ${student.name} এর আবেদন এপ্রুভ করা হয়েছে এবং কোর্সের এক্সেস সক্রিয় করা হয়েছে!` });
+          showSuccess(`🎉 ${student.name} এর আবেদন এপ্রুভ করা হয়েছে এবং কোর্সের এক্সেস সক্রিয় করা হয়েছে!`);
           await loadAllAdminData();
         } else {
-          setMsg({ type: 'error', text: res.data.message || 'Failed to approve student.' });
+          showError(res.data.message || 'Failed to approve student.');
         }
       } else {
         const updated = { 
@@ -1008,12 +1008,12 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         };
         const res = await api.post('/admin/students/save', updated);
         if (res.data.ok) {
-          setMsg({ type: 'success', text: `${student.name} approval set to ${newApproval}!` });
+          showSuccess(`${student.name} approval set to ${newApproval}!`);
           await loadAllAdminData();
         }
       }
     } catch (err) {
-      setMsg({ type: 'error', text: 'Failed to update student approval status.' });
+      showError('Failed to update student approval status.');
     }
   };
 
@@ -1022,10 +1022,10 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     try {
       const res = await api.post('/admin/site-settings', siteSettingsForm);
       if (res.data.ok) {
-        setMsg({ type: 'success', text: 'হিরো ব্যানার পরিবর্তন সফলভাবে সেভ করা হয়েছে!' });
+        showSuccess('হিরো ব্যানার পরিবর্তন সফলভাবে সেভ করা হয়েছে!');
       }
     } catch (err) {
-      setMsg({ type: 'error', text: 'হিরো ব্যানার সেভ করতে সমস্যা হয়েছে।' });
+      showError('হিরো ব্যানার সেভ করতে সমস্যা হয়েছে।');
     }
   };
 

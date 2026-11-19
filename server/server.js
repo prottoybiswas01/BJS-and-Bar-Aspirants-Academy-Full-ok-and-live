@@ -3401,20 +3401,22 @@ app.post("/api/admin/parse-mcq-file", async (req, res) => {
 
     if (lowerName.endsWith(".docx") || lowerName.endsWith(".doc")) {
       try {
-        const result = await mammoth.extractRawText({ buffer });
+        const mammothModule = require("mammoth");
+        const result = await mammothModule.extractRawText({ buffer });
         extractedText = result.value || "";
       } catch (docErr) {
-        console.error("Mammoth docx parse error, applying fallback:", docErr);
+        console.error("Mammoth docx parse error, applying fallback:", docErr?.message || docErr);
         const str = buffer.toString("binary");
         const matches = str.match(/<w:t[^>]*>(.*?)<\/w:t>/gi) || [];
         extractedText = matches.map(m => m.replace(/<[^>]+>/g, '')).join(' ');
       }
     } else if (lowerName.endsWith(".pdf")) {
       try {
-        const pdfData = await pdfParse(buffer);
+        const pdfParseModule = require("pdf-parse");
+        const pdfData = await pdfParseModule(buffer);
         extractedText = pdfData.text || "";
       } catch (pdfErr) {
-        console.error("PDF parse error, applying fallback:", pdfErr);
+        console.error("PDF parse error, applying fallback:", pdfErr?.message || pdfErr);
         extractedText = buffer.toString("utf-8");
       }
     } else {
@@ -7194,7 +7196,7 @@ app.post("/api/admin/clear-all-demo-data", async (req, res) => {
         Course.deleteMany({}),
         Lesson.deleteMany({}),
         Registration.deleteMany({}),
-        Payment.deleteMany({}),
+        Receipt.deleteMany({}),
         Device.deleteMany({}),
         Mentor.deleteMany({})
       ]);

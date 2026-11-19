@@ -62,10 +62,29 @@ class RootErrorBoundary extends React.Component {
           });
         }
         sessionStorage.clear();
-        window.location.href = '/';
+        window.location.reload();
       });
     } else {
       sessionStorage.clear();
+      window.location.reload();
+    }
+  };
+
+  handleFullReset = () => {
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch (e) {}
+    if ('caches' in window) {
+      caches.keys().then((names) => Promise.all(names.map((n) => caches.delete(n)))).finally(() => {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then((regs) => {
+            regs.forEach((r) => r.unregister());
+          });
+        }
+        window.location.href = '/';
+      });
+    } else {
       window.location.href = '/';
     }
   };
@@ -83,7 +102,7 @@ class RootErrorBoundary extends React.Component {
           <p className="text-sm text-slate-300 max-w-sm mb-6 leading-relaxed">
             একটি সাময়িক কারিগরি ত্রুটির কারণে পেজটি লোড হতে পারেনি। অনুগ্রহ করে নিচের বাটনে ক্লিক করে পেজটি রিফ্রেশ করুন।
           </p>
-          <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
+          <div className="flex flex-col gap-3 w-full max-w-xs">
             <button
               onClick={this.handleHardRefresh}
               className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/25 transition-all active:scale-95 flex items-center justify-center gap-2"
@@ -91,15 +110,43 @@ class RootErrorBoundary extends React.Component {
               <span>🔄</span> পেজ রিফ্রেশ করুন
             </button>
             <button
-              onClick={() => {
-                sessionStorage.clear();
-                window.location.href = '/';
-              }}
-              className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
+              onClick={this.handleFullReset}
+              className="w-full py-2.5 px-4 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-500/50 text-rose-200 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
             >
-              হোম পেজে ফিরে যান
+              <span>🧹</span> ক্যাশ ও লগইন ডাটা ক্লিয়ার করুন
             </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  window.location.href = '/';
+                }}
+                className="flex-1 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
+              >
+                হোম পেজ
+              </button>
+              <button
+                onClick={() => {
+                  window.location.href = '/admin';
+                }}
+                className="flex-1 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-semibold border border-slate-700 transition-colors"
+              >
+                অ্যাডমিন প্যানেল
+              </button>
+            </div>
           </div>
+          {this.state.error?.message && (
+            <details className="mt-6 text-left max-w-md w-full bg-slate-900/90 border border-slate-800 rounded-xl p-3 text-[11px] font-mono text-rose-400/90">
+              <summary className="cursor-pointer text-slate-400 hover:text-slate-200 font-sans font-bold">
+                ত্রুটির প্রযুক্তিগত বিবরণ (Technical Details)
+              </summary>
+              <div className="mt-2 space-y-1 overflow-x-auto whitespace-pre-wrap break-words">
+                <p className="font-bold text-rose-300">{String(this.state.error?.message)}</p>
+                {this.state.error?.stack && (
+                  <pre className="text-[10px] text-slate-500 max-h-36 overflow-y-auto">{this.state.error.stack}</pre>
+                )}
+              </div>
+            </details>
+          )}
         </div>
       );
     }
