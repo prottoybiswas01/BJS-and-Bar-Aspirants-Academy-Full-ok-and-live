@@ -2,12 +2,18 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "CommonJS",
-    "moduleResolution": "Node",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": true,
     "skipLibCheck": true,
     "checkJs": false,
+    "noEmit": true,
     "types": ["node"]
   },
+  "include": [
+    "server/**/*",
+    "scripts/**/*",
+    "test_*.js"
+  ],
   "exclude": [
     "node_modules",
     "client",

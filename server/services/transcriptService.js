@@ -570,7 +570,7 @@ async function fetchViaFallbackChain(youtubeId) {
         };
       }
     }
-    const errMsg = lastError?.message || '';
+    const errMsg = (lastError && lastError.message) ? lastError.message : '';
     const isBlocked = errMsg.includes('429') || errMsg.includes('blocking') || errMsg.includes('disabled');
     return { ok: false, error: errMsg || 'NO_TRANSCRIPT_LIB', isBlocked, tier: 'tier4_library_fallback' };
   } catch (err) {

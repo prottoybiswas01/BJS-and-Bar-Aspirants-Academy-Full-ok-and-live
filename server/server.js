@@ -66,6 +66,8 @@ try {
   console.warn("⚠️ PDFKit serverless load notice:", e.message);
 }
 
+const QRCode = require("qrcode");
+
 const app = express();
 app.use(compression());
 
@@ -212,7 +214,7 @@ const StudyNote = require("./models/StudyNote");
 const { generateCertificatePdf } = require("./services/certificateService");
 const { sendTelegramAlert, sendEmergencyEmail, notifyNewLesson, notifyRegistration, notifyReceipt, notifySecurityAttack, notifyAdminDiff, notifySiteError } = require("./services/alertService");
 const { seedDefaultStudyNotes, generateAiMcqsFromTranscript, getExamLeaderboard } = require("./services/academyFeaturesService");
-const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId } = require("./services/transcriptService");
+const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId, formatSecondsToTimestamp } = require("./services/transcriptService");
 const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
 const { dispatchNewLessonNotifications } = require("./services/videoNotificationService");
 const { processLegalAiQuery, resolveOptimalGeminiModel } = require("./services/legalAiService");

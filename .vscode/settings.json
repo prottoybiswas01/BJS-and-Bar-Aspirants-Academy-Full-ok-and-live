@@ -5,6 +5,8 @@
   "typescript.tsserver.experimental.enableProjectDiagnostics": false,
   "eslint.enable": false,
   "jshint.enable": false,
+  "errorLens.enabled": false,
+  "cSpell.enabled": false,
   "files.watcherExclude": {
     "**/.git/objects/**": true,
     "**/.git/subtree-cache/**": true,

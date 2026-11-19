@@ -16,6 +16,8 @@ export default function VideoPlayerModal({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showNotesDrawer, setShowNotesDrawer] = useState(false);
   const containerRef = useRef(null);
+  const iframeRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(true);
 
   // De-obfuscate protected video ID if encoded with bjs_enc_ prefix
   const resolveVideoId = (raw) => {
@@ -196,6 +198,54 @@ export default function VideoPlayerModal({
     }
   };
 
+  // Intercept right-click and long-press in the entire player container
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const preventContext = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    };
+    el.addEventListener('contextmenu', preventContext, { capture: true });
+    el.addEventListener('selectstart', preventContext, { capture: true });
+    return () => {
+      el.removeEventListener('contextmenu', preventContext, { capture: true });
+      el.removeEventListener('selectstart', preventContext, { capture: true });
+    };
+  }, []);
+
+  // Sync play/pause state from YouTube iframe messages
+  useEffect(() => {
+    const handleWindowMessage = (e) => {
+      try {
+        const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        if (data && data.event === 'onStateChange') {
+          if (data.info === 1) setIsPlaying(true);
+          else if (data.info === 2) setIsPlaying(false);
+        }
+      } catch (_) {}
+    };
+    window.addEventListener('message', handleWindowMessage);
+    return () => window.removeEventListener('message', handleWindowMessage);
+  }, []);
+
+  // Safe bottom-left click handler (toggles play/pause while blocking underlying YouTube link)
+  const handleTogglePlayPause = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (iframeRef.current && iframeRef.current.contentWindow) {
+      const cmd = isPlaying ? 'pauseVideo' : 'playVideo';
+      iframeRef.current.contentWindow.postMessage(
+        JSON.stringify({ event: 'command', func: cmd, args: [] }),
+        '*'
+      );
+      setIsPlaying(!isPlaying);
+    }
+  };
+
   return createPortal(
     <div className="fixed inset-0 z-[9990] flex items-center justify-center p-2 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
       <div
@@ -258,11 +308,23 @@ export default function VideoPlayerModal({
         {/* Video Player + Notes Split Layout */}
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-black">
           {/* Main Video View */}
-          <div className="relative aspect-video lg:aspect-auto flex-1 bg-black overflow-hidden select-none" onContextMenu={(e) => e.preventDefault()}>
+          <div
+            className="relative aspect-video lg:aspect-auto flex-1 bg-black overflow-hidden select-none"
+            style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }}
+          >
             {/* Anti-Piracy Top Shield */}
             <div
               className="absolute top-0 left-0 right-0 h-14 z-30 pointer-events-auto bg-gradient-to-b from-black/85 via-black/40 to-transparent cursor-default select-none"
-              onContextMenu={(e) => e.preventDefault()}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+              }}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between px-3 pt-2 text-[10px] text-amber-400/90 font-bold pointer-events-none select-none">
@@ -274,8 +336,40 @@ export default function VideoPlayerModal({
               </div>
             </div>
 
+            {/* Anti-Piracy Bottom-Left Click-Blocker Shield (Blocks YouTube link & acts as Play/Pause) */}
+            <div
+              className="absolute bottom-0 left-0 z-30 w-16 sm:w-20 h-10 sm:h-11 bg-transparent pointer-events-auto cursor-pointer select-none"
+              style={{ WebkitTouchCallout: 'none', userSelect: 'none' }}
+              onClick={handleTogglePlayPause}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+              }}
+              onTouchStart={(e) => e.stopPropagation()}
+              title="Play / Pause"
+            />
+
+            {/* Anti-Piracy Bottom-Right Click-Blocker Shield (Blocks YouTube Logo / Copy URL) */}
+            <div
+              className="absolute bottom-0 right-0 z-30 w-24 sm:w-28 h-10 sm:h-11 bg-transparent pointer-events-auto cursor-default select-none"
+              style={{ WebkitTouchCallout: 'none', userSelect: 'none' }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+              }}
+              onTouchStart={(e) => e.stopPropagation()}
+              title="BJS Protected Stream"
+            />
+
             {activeVideoId ? (
               <iframe
+                ref={iframeRef}
                 key={playerKey}
                 src={iframeSrc}
                 className="h-full w-full border-0 pointer-events-auto"
