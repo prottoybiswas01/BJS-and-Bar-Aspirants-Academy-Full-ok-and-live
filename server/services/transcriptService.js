@@ -11,34 +11,49 @@ function decodeHtmlEntities(str) {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
     .replace(/&nbsp;/g, ' ')
     .replace(/\[♪[^\]]*\]/g, '') // remove music notes e.g. [♪♪♪]
     .replace(/\[Applause\]/gi, '')
     .replace(/\[Laughter\]/gi, '')
+    .replace(/\[Music\]/gi, '')
     .trim();
 }
 
 /**
- * Extract 11-character YouTube Video ID from any URL format
+ * Robust YouTube Video ID extractor
+ * Supports:
+ * - standard watch: https://www.youtube.com/watch?v=7HNVqFCWZm4
+ * - short link: https://youtu.be/7HNVqFCWZm4
+ * - embed: https://www.youtube.com/embed/7HNVqFCWZm4
+ * - shorts: https://www.youtube.com/shorts/7HNVqFCWZm4
+ * - live: https://www.youtube.com/live/7HNVqFCWZm4
+ * - mobile: https://m.youtube.com/watch?v=7HNVqFCWZm4
+ * - query parameters (e.g. ?t=10s, &feature=share, ?si=...)
+ * - raw 11-char ID
  */
 function extractYoutubeId(input) {
   if (!input) return '';
   const str = String(input).trim();
-  if (str.length === 11 && !str.includes('/') && !str.includes('.')) {
+  if (/^[a-zA-Z0-9_-]{11}$/.test(str)) {
     return str;
   }
-  const match = str.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/i);
+  const match = str.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/|live\/))([a-zA-Z0-9_-]{11})/i);
   return match ? match[1] : '';
 }
 
 /**
- * Convert seconds into MM:SS format
+ * Convert seconds into MM:SS or HH:MM:SS format
  */
 function formatSecondsToTimestamp(seconds) {
   const s = Math.max(0, Math.floor(seconds || 0));
-  const m = Math.floor(s / 60);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
   const remainingSec = s % 60;
   const pad = (n) => String(n).padStart(2, '0');
+  if (h > 0) {
+    return `${pad(h)}:${pad(m)}:${pad(remainingSec)}`;
+  }
   return `${pad(m)}:${pad(remainingSec)}`;
 }
 
@@ -58,7 +73,7 @@ function parseSrtOrVtt(content) {
   let currentTextLines = [];
 
   const timeRegex = /(?:(\d{2}):)?(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(?:(\d{2}):)?(\d{2}):(\d{2})[,.](\d{3})/;
-  const bracketTimeRegex = /\[(\d{1,2}):(\d{2})\]/;
+  const bracketTimeRegex = /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]/;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -98,7 +113,7 @@ function parseSrtOrVtt(content) {
       continue;
     }
 
-    // Check bracketed manual format: [01:25] or [12:30]
+    // Check bracketed format: [01:25] or [01:12:30]
     const bracketMatch = line.match(bracketTimeRegex);
     if (bracketMatch) {
       if (currentTextLines.length > 0) {
@@ -109,9 +124,16 @@ function parseSrtOrVtt(content) {
         });
         currentTextLines = [];
       }
-      const minutes = parseInt(bracketMatch[1], 10);
-      const seconds = parseInt(bracketMatch[2], 10);
-      currentOffsetSec = minutes * 60 + seconds;
+      if (bracketMatch[3] !== undefined) {
+        const hours = parseInt(bracketMatch[1], 10);
+        const minutes = parseInt(bracketMatch[2], 10);
+        const seconds = parseInt(bracketMatch[3], 10);
+        currentOffsetSec = hours * 3600 + minutes * 60 + seconds;
+      } else {
+        const minutes = parseInt(bracketMatch[1], 10);
+        const seconds = parseInt(bracketMatch[2], 10);
+        currentOffsetSec = minutes * 60 + seconds;
+      }
       currentTimestamp = formatSecondsToTimestamp(currentOffsetSec);
       const textAfter = line.replace(bracketTimeRegex, '').trim();
       if (textAfter) currentTextLines.push(textAfter);
@@ -132,69 +154,155 @@ function parseSrtOrVtt(content) {
     });
   }
 
-  // Combine full text
   const fullText = segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n');
   const pureText = segments.map(s => s.text).join(' ');
   const wordCount = pureText.split(/\s+/).filter(Boolean).length;
+  const isBangla = /[\u0980-\u09FF]/.test(pureText);
 
   return {
     ok: true,
     transcript: fullText || pureText,
     pureText,
     segments,
-    wordCount
+    wordCount,
+    language: isBangla ? 'bn' : 'en',
+    source: 'srt_vtt_upload'
   };
 }
 
 /**
- * Fetch YouTube transcript for a video ID or URL
- * STRICT: Only marks as ready if actual captions exist. Never substitutes titles or notes.
+ * Fetch YouTube transcript with accurate error differentiation
+ * Supported Statuses:
+ * - ready: transcript successfully extracted & parsed
+ * - no_captions: captions disabled or not available on YouTube
+ * - invalid_id: video ID is malformed or invalid
+ * - private_or_restricted: video is private, geoblocked, or removed
+ * - network_error: network timeout or connectivity failure
+ * - rate_limited: YouTube rate limit / captcha encountered
+ * - unsupported_language: language requested not available
  */
 async function fetchYoutubeTranscript(videoIdOrUrl) {
   const youtubeId = extractYoutubeId(videoIdOrUrl);
   if (!youtubeId) {
-    return { ok: false, status: 'failed', message: 'অবৈধ ইউটিউব ভিডিও আইডি বা ইউআরএল।' };
+    return {
+      ok: false,
+      status: 'invalid_id',
+      retryable: false,
+      youtubeId: '',
+      message: 'অবৈধ ইউটিউব ভিডিও আইডি বা ইউআরএল।'
+    };
   }
 
   let rawLines = null;
-  let lastError = null;
+  let detectedLang = 'en';
+  let recordedError = null;
 
-  // Try 1: Default fetch (auto-detects language)
+  // Attempt 1: Fetch primary caption track (auto-detects language)
   try {
     rawLines = await YoutubeTranscript.fetchTranscript(youtubeId);
+    if (rawLines && rawLines.length > 0 && rawLines[0].lang) {
+      detectedLang = rawLines[0].lang;
+    }
   } catch (err) {
-    lastError = err;
+    recordedError = err;
   }
 
-  // Try 2: Explicit Bengali language preference
+  // Attempt 2: Explicit Bengali track preference if primary failed
   if (!rawLines || rawLines.length === 0) {
     try {
       rawLines = await YoutubeTranscript.fetchTranscript(youtubeId, { lang: 'bn' });
+      detectedLang = 'bn';
     } catch (err) {
-      lastError = err;
+      if (!recordedError) recordedError = err;
     }
   }
 
-  // Try 3: English fallback
+  // Attempt 3: English fallback if Bengali failed
   if (!rawLines || rawLines.length === 0) {
     try {
       rawLines = await YoutubeTranscript.fetchTranscript(youtubeId, { lang: 'en' });
+      detectedLang = 'en';
     } catch (err) {
-      lastError = err;
+      if (!recordedError) recordedError = err;
     }
   }
 
-  // STRICT: If no caption track found, DO NOT invent transcript.
+  // If captions could not be retrieved, categorize the error accurately
   if (!rawLines || rawLines.length === 0) {
+    const errMsg = recordedError ? String(recordedError.message || recordedError) : '';
+    const errName = recordedError ? String(recordedError.name || recordedError.constructor?.name || '') : '';
+
+    if (errName.includes('TooManyRequest') || errMsg.includes('TooManyRequest') || errMsg.includes('captcha') || errMsg.includes('429')) {
+      return {
+        ok: false,
+        status: 'rate_limited',
+        retryable: true,
+        youtubeId,
+        message: 'ইউটিউব অতিরিক্ত রিকোয়েস্টের কারণে সাময়িকভাবে রেট লিমিট করেছে।'
+      };
+    }
+
+    if (errName.includes('VideoUnavailable') || errMsg.includes('no longer available') || errMsg.includes('private')) {
+      return {
+        ok: false,
+        status: 'private_or_restricted',
+        retryable: false,
+        youtubeId,
+        message: 'ভিডিওটি প্রাইভেট, ব্লকড অথবা ইউটিউবে আর উপলব্ধ নেই।'
+      };
+    }
+
+    if (errName.includes('Disabled') || errMsg.includes('Transcript is disabled')) {
+      return {
+        ok: false,
+        status: 'no_captions',
+        retryable: false,
+        youtubeId,
+        message: 'এই ভিডিওটিতে ক্রিয়েটর কর্তৃক সাবটাইটেল নিষ্ক্রিয় করা রয়েছে।'
+      };
+    }
+
+    if (errName.includes('NotAvailableLanguage') || errMsg.includes('Available languages:')) {
+      return {
+        ok: false,
+        status: 'unsupported_language',
+        retryable: false,
+        youtubeId,
+        message: 'নির্দিষ্ট ভাষায় কোনো সাবটাইটেল পাওয়া যায়নি।'
+      };
+    }
+
+    if (errMsg.includes('fetch failed') || errMsg.includes('ETIMEDOUT') || errMsg.includes('ECONNRESET') || errMsg.includes('ENOTFOUND') || errMsg.includes('network')) {
+      return {
+        ok: false,
+        status: 'network_error',
+        retryable: true,
+        youtubeId,
+        message: 'ইউটিউব সার্ভারের সাথে সংযোগে সাময়িক নেটওয়ার্ক ত্রুটি হয়েছে।'
+      };
+    }
+
+    if (errMsg.includes('Impossible to retrieve') || errMsg.includes('invalid')) {
+      return {
+        ok: false,
+        status: 'invalid_id',
+        retryable: false,
+        youtubeId,
+        message: 'অবৈধ ইউটিউব ভিডিও আইডি।'
+      };
+    }
+
+    // Default: captions truly not available on video
     return {
       ok: false,
       status: 'no_captions',
+      retryable: false,
       youtubeId,
       message: 'এই ভিডিওর জন্য ইউটিউবে কোনো ক্যাপশন বা সাবটাইটেল ট্র্যাক পাওয়া যায়নি।'
     };
   }
 
-  // Clean lines with timestamp preservation
+  // Parse clean lines with segment preservation
   const segments = [];
   const cleanedTextParts = [];
 
@@ -213,6 +321,7 @@ async function fetchYoutubeTranscript(videoIdOrUrl) {
 
   const fullText = cleanedTextParts.join('\n');
   const wordCount = fullText.split(/\s+/).filter(Boolean).length;
+  const isBangla = /[\u0980-\u09FF]/.test(fullText);
 
   return {
     ok: true,
@@ -222,6 +331,8 @@ async function fetchYoutubeTranscript(videoIdOrUrl) {
     segments,
     lineCount: segments.length,
     wordCount,
+    language: isBangla ? 'bn' : (detectedLang || 'en'),
+    source: 'youtube_caption',
     updatedAt: new Date()
   };
 }
@@ -248,7 +359,12 @@ function getBengaliRoot(word) {
 }
 
 /**
- * Search lessons by keywords in their real subtitle transcript
+ * Strict Transcript Search Engine (Phase 11 Compliance)
+ * Requirements:
+ * 1. MUST match real transcript content (never recommends based on title alone).
+ * 2. Only considers lessons with valid ready/manual transcripts.
+ * 3. Extracts genuine timestamps from matched segments.
+ * 4. Never invents fictional videos or timestamps.
  */
 function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
   if (!query || !Array.isArray(lessons) || lessons.length === 0) return [];
@@ -274,64 +390,87 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2) {
   const scoredLessons = [];
 
   for (const lesson of lessons) {
+    // Phase 11: Only include lessons with authentic ready/manual transcripts
+    const validStatus = lesson.transcriptStatus === 'ready' || lesson.transcriptStatus === 'manual';
     const transcript = (lesson.transcript || '').toLowerCase();
+
+    if (!validStatus || !transcript || transcript.length < 25) {
+      continue;
+    }
+
     const title = (lesson.title || '').toLowerCase();
     const chapter = (lesson.chapter || '').toLowerCase();
     const moduleName = (lesson.module || '').toLowerCase();
 
-    // Skip lessons with no valid transcript
-    if (!transcript || transcript.length < 15) continue;
-
+    let transcriptKeywordHits = 0;
     let score = 0;
     const matchedTokens = [];
-    let bestTimestamp = '00:00';
+    let bestTimestamp = '';
     let bestSnippet = '';
 
-    for (const token of cleanTokens) {
-      if (title.includes(token)) {
-        score += 20;
-        if (!matchedTokens.includes(token)) matchedTokens.push(token);
-      }
-      if (chapter.includes(token)) {
-        score += 15;
-        if (!matchedTokens.includes(token)) matchedTokens.push(token);
-      }
-      if (moduleName.includes(token)) {
-        score += 10;
-        if (!matchedTokens.includes(token)) matchedTokens.push(token);
-      }
+    // Segment-level analysis for highest precision timestamp extraction
+    const rawSegments = [...(lesson.transcript || '').matchAll(/\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*([^\[]+)/g)];
+    let bestSegmentScore = 0;
 
-      const tIdx = transcript.indexOf(token);
-      if (tIdx !== -1) {
-        score += 25;
-        if (!matchedTokens.includes(token)) matchedTokens.push(token);
-
-        // Find the closest preceding timestamp before the keyword occurrence
-        const textBefore = transcript.substring(0, tIdx + token.length);
-        const allTimestamps = [...textBefore.matchAll(/\[(\d{1,2}:\d{2})\]/g)];
-        if (allTimestamps.length > 0 && bestTimestamp === '00:00') {
-          bestTimestamp = allTimestamps[allTimestamps.length - 1][1];
+    if (rawSegments.length > 0) {
+      for (const seg of rawSegments) {
+        const segTs = seg[1];
+        const segText = seg[2].toLowerCase();
+        let segHits = 0;
+        for (const token of cleanTokens) {
+          if (segText.includes(token)) segHits++;
         }
-
-        if (!bestSnippet) {
-          const start = Math.max(0, tIdx - 60);
-          const end = Math.min(transcript.length, tIdx + 120);
-          bestSnippet = '...' + (lesson.transcript || '').substring(start, end).replace(/\n/g, ' ').trim() + '...';
+        if (segHits > bestSegmentScore) {
+          bestSegmentScore = segHits;
+          bestTimestamp = segTs;
+          bestSnippet = '...' + seg[2].trim().replace(/\n/g, ' ') + '...';
         }
       }
     }
 
-    if (score >= 20 && matchedTokens.length >= 1) {
+    for (const token of cleanTokens) {
+      const tIdx = transcript.indexOf(token);
+      if (tIdx !== -1) {
+        transcriptKeywordHits++;
+        score += 30; // Primary weight for genuine transcript match
+        if (!matchedTokens.includes(token)) matchedTokens.push(token);
+
+        // Fallback timestamp if no bracketed segment matched
+        if (!bestTimestamp) {
+          const textBefore = transcript.substring(0, tIdx + token.length);
+          const allTimestamps = [...textBefore.matchAll(/\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g)];
+          if (allTimestamps.length > 0) {
+            bestTimestamp = allTimestamps[allTimestamps.length - 1][1];
+          }
+        }
+
+        if (!bestSnippet) {
+          const start = Math.max(0, tIdx - 50);
+          const end = Math.min(transcript.length, tIdx + 110);
+          bestSnippet = '...' + (lesson.transcript || '').substring(start, end).replace(/\n/g, ' ').trim() + '...';
+        }
+      }
+
+      // Supplementary title/module boosting ONLY if transcript already matched
+      if (title.includes(token)) {
+        score += 15;
+      }
+      if (chapter.includes(token) || moduleName.includes(token)) {
+        score += 10;
+      }
+    }
+
+    // MANDATORY REQUIREMENT: Must have at least 1 genuine hit in the transcript
+    if (transcriptKeywordHits >= 1 && score >= 30) {
       scoredLessons.push({
         id: lesson.id || lesson._id,
         title: lesson.title,
         courseId: lesson.courseId,
         chapter: lesson.chapter || lesson.module || '',
-        duration: lesson.duration || '',
         youtubeId: lesson.youtubeId,
         youtubeUrl: lesson.youtubeUrl,
         score,
-        timestamp: bestTimestamp,
+        timestamp: bestTimestamp || '00:00',
         matchedKeywords: matchedTokens,
         snippet: bestSnippet
       });

@@ -184,7 +184,11 @@ const Assignment = require("./models/Assignment");
 const Submission = require("./models/Submission");
 const McqExam = require("./models/McqExam");
 const McqResult = require("./models/McqResult");
-const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt } = require("./services/transcriptService");
+const TranscriptJob = require("./models/TranscriptJob");
+const NotificationLog = require("./models/NotificationLog");
+const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId } = require("./services/transcriptService");
+const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
+const { dispatchNewLessonNotifications } = require("./services/videoNotificationService");
 const { processLegalAiQuery } = require("./services/legalAiService");
 const { generateReceiptPdf } = require("./services/receiptPdfService");
 const { parseBangladeshTimeToUtc, formatBangladeshTime } = require("./utils/dateUtils");
@@ -203,6 +207,8 @@ const memoryDb = {
   registrations: [],
   courses: [],
   lessons: [],
+  transcriptJobs: [],
+  notificationLogs: [],
   mentors: [],
   assignments: [],
   submissions: [],
@@ -3822,16 +3828,33 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
 
     const courseId = incomingId || (existing ? existing.id : ("course-" + Date.now()));
 
-    // Validate ID uniqueness before saving to prevent duplicate courses or collision
+    // Validate ID uniqueness before saving to prevent duplicate courses or collision (current ID or historical alias)
     if (isMongoConnected) {
-      const conflictQuery = existing && existing._id
-        ? { id: courseId, _id: { $ne: existing._id } }
-        : { id: courseId };
+      const conflictQuery = {
+        $or: [
+          { id: courseId },
+          { legacyIds: courseId }
+        ],
+        ...(existing && existing._id ? { _id: { $ne: existing._id } } : {})
+      };
       const conflict = await Course.findOne(conflictQuery).lean();
       if (conflict) {
         return res.status(400).json({
           ok: false,
-          message: `কোর্স আইডি "${courseId}" ইতিমধ্যে অন্য কোর্সে ব্যবহৃত হচ্ছে। অনুগ্রহ করে একটি ভিন্ন আইডি দিন।`
+          message: `কোর্স আইডি বা ঐতিহাসিক এলিয়াস "${courseId}" ইতিমধ্যে "${conflict.title || conflict.id}" কোর্সে ব্যবহৃত হচ্ছে। অনুগ্রহ করে একটি ভিন্ন আইডি দিন।`
+        });
+      }
+    } else {
+      const conflict = (memoryDb.courses || []).find(c => {
+        if (existing && existing._id && String(c._id) === String(existing._id)) return false;
+        if (existing && existing.id && c.id === existing.id) return false;
+        const cLegacy = Array.isArray(c.legacyIds) ? c.legacyIds : [];
+        return c.id === courseId || cLegacy.includes(courseId);
+      });
+      if (conflict) {
+        return res.status(400).json({
+          ok: false,
+          message: `কোর্স আইডি বা ঐতিহাসিক এলিয়াস "${courseId}" ইতিমধ্যে "${conflict.title || conflict.id}" কোর্সে ব্যবহৃত হচ্ছে। অনুগ্রহ করে একটি ভিন্ন আইডি দিন।`
         });
       }
     }
@@ -4205,7 +4228,8 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
     }
 
     let lessonsList = [];
-    const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree createdAt';
+    // Ordinary Lesson List returns compact metadata without bulky transcript/segments payload (Phase 7)
+    const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree status isDraft transcriptStatus transcriptLanguage transcriptSource transcriptWordCount transcriptUpdatedAt transcriptLastAttemptAt transcriptNextRetryAt transcriptAttemptCount transcriptLastError transcriptVideoId notifiedAt createdAt';
     if (isMongoConnected) {
       lessonsList = await Lesson.find(query, lessonProjection).lean().catch(() => []);
     }
@@ -4215,6 +4239,12 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], as
       if (courseId) {
         const filtered = lessonsList.filter(l => l.courseId === courseId || l.courseId === String(courseId));
         if (filtered.length > 0) lessonsList = filtered;
+      }
+      if (lessonsList) {
+        lessonsList = lessonsList.map(l => {
+          const { transcript, transcriptSegments, ...compact } = l;
+          return compact;
+        });
       }
     }
 
@@ -4309,9 +4339,21 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
     let saved = lessonData;
     if (isMongoConnected) {
       if (existing) {
-        if (!lessonData.transcript && existing.transcript) {
+        const ytChanged = existing.youtubeId && youtubeId && existing.youtubeId !== youtubeId;
+        if (ytChanged) {
+          lessonData.transcript = "";
+          lessonData.transcriptSegments = [];
+          lessonData.transcriptWordCount = 0;
+          lessonData.transcriptStatus = "pending";
+          lessonData.transcriptVideoId = youtubeId;
+          lessonData.transcriptUpdatedAt = null;
+        } else if (existing.transcript) {
           lessonData.transcript = existing.transcript;
           lessonData.transcriptStatus = existing.transcriptStatus || "ready";
+          lessonData.transcriptSegments = existing.transcriptSegments || [];
+          lessonData.transcriptWordCount = existing.transcriptWordCount || 0;
+          lessonData.transcriptLanguage = existing.transcriptLanguage || "";
+          lessonData.transcriptSource = existing.transcriptSource || "";
         }
         Object.assign(existing, lessonData);
         saved = await existing.save();
@@ -4329,70 +4371,124 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       (memoryDb.lessons = memoryDb.lessons || []).unshift(lessonData);
     }
 
+    // Enqueue durable transcript processing job (Phase 5 & 6)
+    if (youtubeId && lessonData.transcriptStatus !== 'manual') {
+      await enqueueTranscriptJob({
+        lessonId,
+        courseId: lessonData.courseId,
+        youtubeId,
+        TranscriptJobModel: TranscriptJob,
+        isMongoConnected,
+        memoryDb
+      });
+    }
+
     // Synchronous with fast-timeout YouTube transcript fetch (Guaranteed on Vercel Serverless)
     let transcriptSynced = false;
-    if (youtubeId && (!saved.transcript || saved.transcript.length < 20 || saved.transcriptStatus !== 'ready')) {
+    if (youtubeId && (!saved.transcript || saved.transcript.length < 20 || saved.transcriptStatus !== 'ready') && saved.transcriptStatus !== 'manual') {
       try {
         const trPromise = fetchYoutubeTranscript(youtubeId);
-        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), 3500));
+        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), 4000));
         const trRes = await Promise.race([trPromise, timeoutPromise]);
 
-        if (trRes && trRes.ok && trRes.transcript) {
+        if (trRes && trRes.ok && trRes.status === 'ready' && trRes.transcript) {
           saved.transcript = trRes.transcript;
           saved.transcriptStatus = 'ready';
+          saved.transcriptSegments = trRes.segments || [];
+          saved.transcriptWordCount = trRes.wordCount || 0;
+          saved.transcriptLanguage = trRes.language || 'bn';
+          saved.transcriptSource = 'youtube_caption';
+          saved.transcriptVideoId = youtubeId;
           saved.transcriptUpdatedAt = new Date();
+          saved.transcriptLastError = '';
           transcriptSynced = true;
 
           if (isMongoConnected) {
             await Lesson.updateOne({ id: lessonId }, {
               transcript: trRes.transcript,
               transcriptStatus: 'ready',
-              transcriptUpdatedAt: new Date()
+              transcriptSegments: trRes.segments || [],
+              transcriptWordCount: trRes.wordCount || 0,
+              transcriptLanguage: trRes.language || 'bn',
+              transcriptSource: 'youtube_caption',
+              transcriptVideoId: youtubeId,
+              transcriptUpdatedAt: new Date(),
+              transcriptLastError: ''
             });
+            if (TranscriptJob) {
+              await TranscriptJob.updateOne({ jobId: `tr-job-${lessonId}` }, {
+                status: 'completed',
+                resultStatus: 'ready',
+                wordCount: trRes.wordCount,
+                transcriptLanguage: trRes.language || 'bn',
+                lastAttemptAt: new Date()
+              });
+            }
           }
           const mem = (memoryDb.lessons || []).find(l => l.id === lessonId);
           if (mem) {
             mem.transcript = trRes.transcript;
             mem.transcriptStatus = 'ready';
+            mem.transcriptSegments = trRes.segments || [];
+            mem.transcriptWordCount = trRes.wordCount || 0;
             mem.transcriptUpdatedAt = new Date();
           }
-          console.log(`✓ Synchronously fetched transcript for lesson "${saved.title}" (${trRes.wordCount} words)`);
-        } else {
-          // If video was freshly uploaded to YouTube, YouTube captions take 2-10 minutes to process
-          // Provide an intelligent initial legal topic fallback so Gemini AI can find it immediately
-          const initialTopicText = `${saved.module || saved.courseId || 'আইন'} স্পেশাল লেকচার: ${saved.title || ''} ${saved.chapter || ''} ${saved.description || ''} সম্পর্কিত আইনি বিষয়বস্তুর বিস্তারিত আলোচনা।`;
-          saved.transcript = initialTopicText;
-          saved.transcriptStatus = 'pending';
-          saved.transcriptUpdatedAt = new Date();
-
+          console.log(`✓ Synchronously fetched authentic transcript for lesson "${saved.title}" (${trRes.wordCount} words)`);
+        } else if (trRes && !trRes.ok && !trRes.timeout) {
+          // Accurate failure status without fabricating fake transcripts
+          const finalStatus = trRes.status || 'failed';
+          saved.transcriptStatus = finalStatus;
+          saved.transcriptLastError = trRes.message || '';
           if (isMongoConnected) {
             await Lesson.updateOne({ id: lessonId }, {
-              transcript: initialTopicText,
-              transcriptStatus: 'pending',
-              transcriptUpdatedAt: new Date()
+              transcriptStatus: finalStatus,
+              transcriptLastError: trRes.message || ''
             });
+            if (TranscriptJob && !trRes.retryable) {
+              await TranscriptJob.updateOne({ jobId: `tr-job-${lessonId}` }, {
+                status: 'failed',
+                resultStatus: finalStatus,
+                lastError: trRes.message || ''
+              });
+            }
           }
           const mem = (memoryDb.lessons || []).find(l => l.id === lessonId);
           if (mem) {
-            mem.transcript = initialTopicText;
-            mem.transcriptStatus = 'pending';
-            mem.transcriptUpdatedAt = new Date();
+            mem.transcriptStatus = finalStatus;
+            mem.transcriptLastError = trRes.message || '';
           }
+        } else {
+          // Timeout or queued for background worker: leave in pending status, NEVER invent fake transcript text
+          saved.transcriptStatus = 'pending';
+          if (isMongoConnected) {
+            await Lesson.updateOne({ id: lessonId }, { transcriptStatus: 'pending' });
+          }
+          const mem = (memoryDb.lessons || []).find(l => l.id === lessonId);
+          if (mem) mem.transcriptStatus = 'pending';
         }
       } catch (err) {
         console.warn(`Notice fetching transcript for ${lessonId}:`, err.message);
       }
     }
 
-    // CRITICAL: Send email notification ONLY for genuinely NEW published videos (never on edit)
-    if (isNewLesson) {
+    // CRITICAL: Send email notification ONLY for genuinely NEW published videos (never on edit or draft) (Phase 2)
+    if (isNewLesson && !saved.isDraft && saved.status !== 'draft') {
       if (!saved.notifiedAt) {
         saved.notifiedAt = new Date();
         if (isMongoConnected) {
           await Lesson.updateOne({ id: lessonId }, { notifiedAt: new Date() });
         }
-        notifyStudentsNewLesson(saved.courseId, saved).catch(err => {
-          console.warn("Notice sending new lesson upload email:", err.message);
+        const canonicalCourse = await resolveCourseByIdOrAlias(saved.courseId);
+        dispatchNewLessonNotifications({
+          lesson: saved,
+          course: canonicalCourse || { id: saved.courseId, title: saved.module || saved.courseId },
+          NotificationLogModel: NotificationLog,
+          StudentModel: Student,
+          isMongoConnected,
+          memoryDb,
+          sendEmailFn: sendStudentEmail
+        }).catch(err => {
+          console.warn("[Video Notification] Dispatch notice:", err.message);
         });
       }
     } else {
@@ -4406,7 +4502,7 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
     const responseMsg = transcriptSynced
       ? `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং সাবটাইটেল সিঙ্ক হয়েছে!`
       : (saved.transcriptStatus === 'pending'
-        ? `✓ ভিডিও "${saved.title}" সেভ হয়েছে! (ইউটিউব সদ্য আপলোড করা ভিডিওর সাবটাইটেল প্রসেস করতে কিছুটা সময় নেয়। সিস্টেম স্বয়ংক্রিয়ভাবে কিছুক্ষণ পর এটি সম্পূর্ণ সিঙ্ক করে নেবে)`
+        ? `✓ ভিডিও "${saved.title}" সেভ হয়েছে! (ইউটিউব সদ্য আপলোড করা ভিডিওর সাবটাইটেল ব্যাকগ্রাউন্ড জবে সিঙ্ক হচ্ছে)`
         : `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে!`);
 
     return res.json({
@@ -4629,8 +4725,14 @@ app.get("/api/admin/lessons/:id/transcript", async (req, res) => {
       youtubeUrl: lsn.youtubeUrl,
       transcript: lsn.transcript || "",
       transcriptStatus: lsn.transcriptStatus || "none",
+      transcriptLanguage: lsn.transcriptLanguage || "",
+      transcriptSource: lsn.transcriptSource || "",
+      transcriptSegments: lsn.transcriptSegments || [],
+      transcriptLastError: lsn.transcriptLastError || "",
+      transcriptAttemptCount: lsn.transcriptAttemptCount || 0,
+      transcriptNextRetryAt: lsn.transcriptNextRetryAt || null,
       transcriptUpdatedAt: lsn.transcriptUpdatedAt || null,
-      wordCount: lsn.transcript ? lsn.transcript.split(/\s+/).filter(Boolean).length : 0
+      wordCount: lsn.transcriptWordCount || (lsn.transcript ? lsn.transcript.split(/\s+/).filter(Boolean).length : 0)
     });
   } catch (err) {
     return res.status(500).json({ ok: false, message: err.message });
@@ -4659,12 +4761,20 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
       if (trRes && trRes.ok && trRes.transcript) {
         lsn.transcript = trRes.transcript;
         lsn.transcriptStatus = 'ready';
+        lsn.transcriptSegments = trRes.segments || [];
+        lsn.transcriptWordCount = trRes.wordCount || 0;
+        lsn.transcriptLanguage = trRes.language || 'bn';
+        lsn.transcriptSource = 'youtube_caption';
+        lsn.transcriptVideoId = yId;
         lsn.transcriptUpdatedAt = new Date();
+        lsn.transcriptLastError = '';
         if (isMongoConnected) await lsn.save();
         const mem = (memoryDb.lessons || []).find(l => l.id === lsn.id);
         if (mem) {
           mem.transcript = trRes.transcript;
           mem.transcriptStatus = 'ready';
+          mem.transcriptSegments = trRes.segments || [];
+          mem.transcriptWordCount = trRes.wordCount || 0;
           mem.transcriptUpdatedAt = new Date();
         }
         fastCache.del("lessons");
@@ -4676,28 +4786,51 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
           wordCount: trRes.wordCount
         });
       } else {
-        lsn.transcriptStatus = 'no_captions';
+        const finalStatus = trRes.status || 'no_captions';
+        lsn.transcriptStatus = finalStatus;
+        lsn.transcriptLastError = trRes?.message || '';
         if (isMongoConnected) await lsn.save();
         return res.status(400).json({ ok: false, message: trRes?.message || "ইউটিউব ক্যাপশন পাওয়া যায়নি।" });
       }
     } else {
-      // Manual Save/Edit by Admin (supports SRT / VTT auto-parsing)
+      // Manual Save/Edit by Admin (supports SRT / VTT auto-parsing) (Phase 9)
       let cleanText = transcript || "";
+      let segments = [];
+      let parsedWordCount = 0;
+      let lang = 'bn';
+      let src = 'manual_text';
+
       if (cleanText.includes('-->') || isSrtOrVtt) {
         const parsed = parseSrtOrVtt(cleanText);
         if (parsed.ok && parsed.transcript) {
           cleanText = parsed.transcript;
+          segments = parsed.segments || [];
+          parsedWordCount = parsed.wordCount || 0;
+          lang = parsed.language || 'bn';
+          src = 'srt_vtt_upload';
         }
+      } else {
+        parsedWordCount = cleanText.split(/\s+/).filter(Boolean).length;
+        lang = /[\u0980-\u09FF]/.test(cleanText) ? 'bn' : 'en';
       }
 
       lsn.transcript = cleanText;
-      lsn.transcriptStatus = cleanText.length > 10 ? 'ready' : 'none';
+      lsn.transcriptSegments = segments;
+      lsn.transcriptWordCount = parsedWordCount;
+      lsn.transcriptLanguage = lang;
+      lsn.transcriptSource = src;
+      lsn.transcriptStatus = cleanText.length > 10 ? 'manual' : 'none';
       lsn.transcriptUpdatedAt = new Date();
+      lsn.transcriptLastError = '';
       if (isMongoConnected) await lsn.save();
       const mem = (memoryDb.lessons || []).find(l => l.id === lsn.id);
       if (mem) {
         mem.transcript = cleanText;
-        mem.transcriptStatus = cleanText.length > 10 ? 'ready' : 'none';
+        mem.transcriptSegments = segments;
+        mem.transcriptWordCount = parsedWordCount;
+        mem.transcriptLanguage = lang;
+        mem.transcriptSource = src;
+        mem.transcriptStatus = cleanText.length > 10 ? 'manual' : 'none';
         mem.transcriptUpdatedAt = new Date();
       }
       fastCache.del("lessons");
@@ -4706,11 +4839,143 @@ app.post("/api/admin/lessons/:id/transcript", async (req, res) => {
         message: "✓ সাবটাইটেল সফলভাবে সংরক্ষণ করা হয়েছে!",
         transcript: lsn.transcript,
         transcriptStatus: lsn.transcriptStatus,
-        wordCount: lsn.transcript.split(/\s+/).filter(Boolean).length
+        wordCount: lsn.transcriptWordCount
       });
     }
   } catch (err) {
     return res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// Durable Background Transcript Job Runner & Queue Status (Phase 6)
+app.post("/api/admin/transcripts/process-jobs", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const limit = Math.min(15, Number(req.body?.limit || req.query?.limit || 5));
+    const processed = await processDueTranscriptJobs({
+      limit,
+      LessonModel: Lesson,
+      TranscriptJobModel: TranscriptJob,
+      isMongoConnected,
+      memoryDb
+    });
+    const status = await getQueueStatus({ TranscriptJobModel: TranscriptJob, isMongoConnected, memoryDb });
+    return res.json({
+      ok: true,
+      processedCount: processed.length,
+      processed,
+      queueStatus: status
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Queue processing error: " + err.message });
+  }
+});
+
+app.get("/api/admin/transcripts/queue-status", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const status = await getQueueStatus({ TranscriptJobModel: TranscriptJob, isMongoConnected, memoryDb });
+    return res.json({ ok: true, queue: status });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// Bounded Transcript Backfill for existing lessons (Phase 8)
+app.post("/api/admin/lessons/backfill-transcripts", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const batchSize = Math.min(25, Number(req.body?.batchSize || 10));
+    const courseId = req.body?.courseId;
+
+    let allLessons = isMongoConnected
+      ? await Lesson.find().lean()
+      : (memoryDb.lessons || []);
+
+    if (courseId && courseId !== 'all') {
+      allLessons = allLessons.filter(l => l.courseId === courseId);
+    }
+
+    const totalLessons = allLessons.length;
+    const previouslySynced = allLessons.filter(l => l.transcriptStatus === 'ready' || l.transcriptStatus === 'manual').length;
+
+    // Filter unsynchronized lessons with valid YouTube ID
+    const candidates = allLessons.filter(l => {
+      const yId = l.youtubeId || extractYoutubeId(l.youtubeUrl);
+      if (!yId) return false;
+      return l.transcriptStatus !== 'ready' && l.transcriptStatus !== 'manual';
+    }).slice(0, batchSize);
+
+    let newlySynced = 0;
+    let noCaptions = 0;
+    let failed = 0;
+    let retryScheduled = 0;
+    const items = [];
+
+    for (const lsn of candidates) {
+      const yId = lsn.youtubeId || extractYoutubeId(lsn.youtubeUrl);
+      if (!yId) continue;
+
+      try {
+        const trRes = await fetchYoutubeTranscript(yId);
+        if (trRes && trRes.ok && trRes.transcript) {
+          if (isMongoConnected) {
+            await Lesson.updateOne({ _id: lsn._id }, {
+              transcript: trRes.transcript,
+              transcriptStatus: 'ready',
+              transcriptSegments: trRes.segments || [],
+              transcriptWordCount: trRes.wordCount || 0,
+              transcriptLanguage: trRes.language || 'bn',
+              transcriptSource: 'youtube_caption',
+              transcriptVideoId: yId,
+              transcriptUpdatedAt: new Date(),
+              transcriptLastError: ''
+            });
+          }
+          newlySynced++;
+          items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'ready', wordCount: trRes.wordCount });
+        } else if (trRes && trRes.status === 'no_captions') {
+          if (isMongoConnected) {
+            await Lesson.updateOne({ _id: lsn._id }, {
+              transcriptStatus: 'no_captions',
+              transcriptLastError: trRes.message || '',
+              transcriptUpdatedAt: new Date()
+            });
+          }
+          noCaptions++;
+          items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'no_captions', message: trRes.message });
+        } else if (trRes && trRes.retryable) {
+          retryScheduled++;
+          items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'retry_scheduled', message: trRes.message });
+        } else {
+          failed++;
+          items.push({ id: lsn.id || lsn._id, title: lsn.title, status: trRes?.status || 'failed', message: trRes?.message || 'Error' });
+        }
+      } catch (err) {
+        failed++;
+        items.push({ id: lsn.id || lsn._id, title: lsn.title, status: 'failed', message: err.message });
+      }
+      await new Promise(r => setTimeout(r, 120));
+    }
+
+    fastCache.del("lessons");
+
+    return res.json({
+      ok: true,
+      report: {
+        totalLessons,
+        previouslySynced,
+        batchProcessed: candidates.length,
+        newlySynced,
+        noCaptions,
+        retryScheduled,
+        failed,
+        remainingUnsynced: Math.max(0, totalLessons - previouslySynced - newlySynced),
+        items
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Backfill error: " + err.message });
   }
 });
 
@@ -8155,9 +8420,10 @@ app.post("/api/ai/chat", async (req, res) => {
       let resolvedCourseId = topMatch.courseId || "";
       try {
         if (topMatch.courseId) {
-          const cDoc = (await Course.findOne({ id: topMatch.courseId }).lean()) || (memoryDb.courses || []).find(c => c.id === topMatch.courseId);
+          const cDoc = await resolveCourseByIdOrAlias(topMatch.courseId);
           if (cDoc && cDoc.title) {
             resolvedCourseTitle = cDoc.title;
+            resolvedCourseId = cDoc.id || topMatch.courseId;
           }
         }
       } catch (ce) { }
@@ -8193,7 +8459,7 @@ app.post("/api/ai/chat", async (req, res) => {
         }
       }
 
-      // Secure Lesson Payload: Never expose raw YouTube URL or streaming payload to unauthorized users
+      // Secure Lesson Payload: Never expose raw YouTube URL or streaming payload to unauthorized users (Phase 11 & 12)
       let sanitizedLesson = null;
       if (accessCheck.allowed) {
         sanitizedLesson = topMatch;
@@ -8203,7 +8469,6 @@ app.post("/api/ai/chat", async (req, res) => {
           title: topMatch.title,
           courseId: resolvedCourseId,
           chapter: topMatch.chapter,
-          duration: topMatch.duration,
           timestamp: topMatch.timestamp || '00:00'
         };
       }
@@ -8228,16 +8493,27 @@ app.post("/api/ai/chat", async (req, res) => {
           isEnrolled: accessCheck.allowed
         }
       };
-    }
 
-    const responsePayload = {
-      reply: aiResult.answer,
-      verifiedSources: aiResult.verifiedSources || [],
-      isAmbiguous: aiResult.isAmbiguous || false,
-      matchedLessons: aiResult.matchedLessons || [],
-      recommendation,
-      source: "mongodb-backend-processed"
-    };
+      const safeMatchedLessons = accessCheck.allowed
+        ? (aiResult.matchedLessons || [])
+        : (aiResult.matchedLessons || []).map(ml => ({
+            id: ml.id,
+            title: ml.title,
+            courseId: resolvedCourseId,
+            chapter: ml.chapter,
+            timestamp: ml.timestamp || '00:00',
+            matchedKeywords: ml.matchedKeywords,
+            snippet: ml.snippet
+          }));
+
+      const responsePayload = {
+        reply: aiResult.answer,
+        verifiedSources: aiResult.verifiedSources || [],
+        isAmbiguous: aiResult.isAmbiguous || false,
+        matchedLessons: safeMatchedLessons,
+        recommendation,
+        source: "mongodb-backend-processed"
+      };
 
     fastCache.set(cacheKey, responsePayload, 120); // 2 minutes query cache
     return res.json({ ok: true, ...responsePayload });

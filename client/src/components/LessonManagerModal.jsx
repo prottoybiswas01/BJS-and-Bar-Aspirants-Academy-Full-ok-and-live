@@ -507,9 +507,9 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                         <td className="p-2.5 font-bold text-white">
                           {l.title}
                           {l.chapter && <span className="block text-[10px] text-slate-400 font-normal italic">{l.chapter}</span>}
-                          {l.transcriptStatus === 'ready' && l.transcript && l.transcript.length > 20 ? (
+                          {(l.transcriptStatus === 'ready' || l.transcriptStatus === 'manual') ? (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold mt-1">
-                              ✓ সাবটাইটেল সিঙ্কড ({l.transcript.split(/\s+/).filter(Boolean).length} শব্দ)
+                              ✓ {l.transcriptStatus === 'manual' ? 'ম্যানুয়াল সাবটাইটেল' : 'সাবটাইটেল সিঙ্কড'} ({l.transcriptWordCount || (l.transcript ? l.transcript.split(/\s+/).filter(Boolean).length : 0)} শব্দ)
                             </span>
                           ) : l.transcriptStatus === 'no_captions' ? (
                             <div className="flex items-center gap-1 mt-1">
@@ -526,6 +526,25 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                                 {quickSyncingId === (l.id || l._id) ? '...' : '🔄 রিট্রাই'}
                               </button>
                             </div>
+                          ) : (l.transcriptStatus === 'retry_scheduled' || l.transcriptStatus === 'rate_limited') ? (
+                            <div className="flex items-center gap-1 mt-1">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-medium">
+                                ⏳ {l.transcriptStatus === 'rate_limited' ? 'রেট লিমিট (রিট্রাই অপেক্ষমাণ)' : `রিট্রাই শিডিউলড (${l.transcriptAttemptCount || 1})`}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={quickSyncingId === (l.id || l._id)}
+                                onClick={() => handleQuickSyncSubtitle(l)}
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
+                                title="এখনই রিট্রাই করুন"
+                              >
+                                {quickSyncingId === (l.id || l._id) ? '...' : '🔄 রিট্রাই'}
+                              </button>
+                            </div>
+                          ) : l.transcriptStatus === 'private_or_restricted' ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-purple-500/15 text-purple-300 border border-purple-500/30 font-medium mt-1">
+                              🔒 ভিডিও প্রাইভেট/অনুপলব্ধ
+                            </span>
                           ) : l.transcriptStatus === 'failed' ? (
                             <div className="flex items-center gap-1 mt-1">
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-rose-500/15 text-rose-300 border border-rose-500/30 font-medium">
