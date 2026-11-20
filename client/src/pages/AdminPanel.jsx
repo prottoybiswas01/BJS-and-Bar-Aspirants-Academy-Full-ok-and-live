@@ -145,8 +145,25 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   const [certLoading, setCertLoading] = useState(false);
 
   const [adminNotes, setAdminNotes] = useState([]);
-  const [noteForm, setNoteForm] = useState({ title: '', slug: '', category: 'দেওয়ানী কার্যবিধি (CPC)', summary: '', content: '', readTime: '৫ মিনিট', order: 1 });
+  const initialNoteForm = {
+    id: '',
+    title: '',
+    slug: '',
+    category: 'দেওয়ানী কার্যবিধি (CPC)',
+    summary: '',
+    content: '',
+    readTime: '৫ মিনিট',
+    order: 1,
+    youtubeId: '',
+    clipStartSeconds: 0,
+    clipEndSeconds: 180,
+    seoTitle: '',
+    seoKeywords: ''
+  };
+  const [noteForm, setNoteForm] = useState(initialNoteForm);
   const [noteSaving, setNoteSaving] = useState(false);
+  const [adminLessons, setAdminLessons] = useState([]);
+  const [aiNoteModal, setAiNoteModal] = useState({ isOpen: false, lessonId: '', loading: false });
 
   const [pushBroadcast, setPushBroadcast] = useState({ title: '', body: '', courseId: '' });
   const [pushBroadcasting, setPushBroadcasting] = useState(false);
@@ -523,6 +540,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       }
       api.get('/certificates').then(r => { if (r.data?.ok) setAdminCertificates(r.data.certificates || []); }).catch(() => {});
       api.get('/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
+      api.get('/lessons').then(r => { if (r.data?.ok && Array.isArray(r.data.lessons)) setAdminLessons(r.data.lessons); }).catch(() => {});
     } catch (err) {
       console.log('Error loading admin data:', err);
     } finally {
@@ -573,7 +591,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       if (res.data?.ok) {
         showToast('✓ পাবলিক আইন স্টাডি নোট সফলভাবে সংরক্ষিত হয়েছে!', 'success');
         api.get('/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
-        setNoteForm({ title: '', slug: '', category: 'দেওয়ানী কার্যবিধি (CPC)', summary: '', content: '', readTime: '৫ মিনিট', order: 1 });
+        setNoteForm(initialNoteForm);
       } else {
         showToast(res.data?.message || 'নোট সংরক্ষণে সমস্যা হয়েছে।', 'error');
       }
@@ -581,6 +599,48 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       showToast('নোট সংরক্ষণে সমস্যা হয়েছে।', 'error');
     } finally {
       setNoteSaving(false);
+    }
+  };
+
+  const handleEditNote = (note) => {
+    setNoteForm({
+      id: note.id || note._id || '',
+      title: note.title || '',
+      slug: note.slug || '',
+      category: note.category || 'দেওয়ানী কার্যবিধি (CPC)',
+      summary: note.summary || '',
+      content: note.content || '',
+      readTime: note.readTime || '৫ মিনিট',
+      order: note.order || 1,
+      youtubeId: note.youtubeId || '',
+      clipStartSeconds: note.clipStartSeconds || 0,
+      clipEndSeconds: note.clipEndSeconds || 180,
+      seoTitle: note.seoTitle || '',
+      seoKeywords: Array.isArray(note.seoKeywords) ? note.seoKeywords.join(', ') : (note.seoKeywords || '')
+    });
+    showToast('✏️ নোটটি এডিট ফর্মে লোড হয়েছে। এডিট শেষে "গাইড সংরক্ষণ" চাপুন।', 'info');
+  };
+
+  const handleGenerateAiStudyNotes = async (e) => {
+    e?.preventDefault();
+    if (!aiNoteModal.lessonId) {
+      showToast('অনুগ্রহ করে একটি লেসন নির্বাচন করুন।', 'error');
+      return;
+    }
+    setAiNoteModal(prev => ({ ...prev, loading: true }));
+    try {
+      const res = await api.post('/admin/study-notes/ai-generate-from-lesson', { lessonId: aiNoteModal.lessonId });
+      if (res.data?.ok) {
+        showToast(res.data.message || '✓ AI সফলভাবে স্টাডি গাইড ও ভিডিও ক্লিপ তৈরি করেছে!', 'success');
+        setAiNoteModal({ isOpen: false, lessonId: '', loading: false });
+        api.get('/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
+      } else {
+        showToast(res.data?.message || 'AI স্টাডি গাইড তৈরিতে সমস্যা হয়েছে।', 'error');
+        setAiNoteModal(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || 'AI স্টাডি গাইড তৈরিতে সমস্যা হয়েছে।', 'error');
+      setAiNoteModal(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -4229,7 +4289,12 @@ return (
           </div>
           <button
             type="button"
-            onClick={() => setAiMcqModal({ isOpen: true, lessonId: '', numQuestions: 5, loading: false })}
+            onClick={() => {
+              if (adminLessons.length === 0) {
+                api.get('/lessons').then(r => { if (r.data?.ok && Array.isArray(r.data.lessons)) setAdminLessons(r.data.lessons); }).catch(() => {});
+              }
+              setAiMcqModal({ isOpen: true, lessonId: '', numQuestions: 5, loading: false });
+            }}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-extrabold text-xs shadow-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95 shrink-0"
           >
             <span>🤖</span>
@@ -5859,22 +5924,46 @@ return (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-2">
               <div>
                 <span className="px-2.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px] font-bold border border-blue-500/30 uppercase">
-                  PUBLIC SEO LAW NOTES
+                  PUBLIC SEO LAW NOTES & VIDEO CLIPS
                 </span>
                 <h2 className="text-xl font-extrabold text-white mt-1 flex items-center gap-2">
                   <span>📖 পাবলিক আইন স্টাডি গাইড ও SEO আর্টিকেলস</span>
                 </h2>
                 <p className="text-xs text-slate-400">
-                  বিজিএস ও বার কাউন্সিল পরীক্ষার জন্য পাবলিক আইন গাইড প্রকাশ ও এডিট করুন (/notes পেজে প্রদর্শিত)।
+                  বিজিএস ও বার কাউন্সিল পরীক্ষার জন্য পাবলিক আইন গাইড ও ক্লাস ভিডিও ক্লিপ প্রকাশ, AI জেনারেশন ও এডিট করুন (/notes পেজে প্রদর্শিত)।
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (adminLessons.length === 0) {
+                    api.get('/lessons').then(r => { if (r.data?.ok && Array.isArray(r.data.lessons)) setAdminLessons(r.data.lessons); }).catch(() => {});
+                  }
+                  setAiNoteModal({ isOpen: true, lessonId: '', loading: false });
+                }}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-black text-xs shadow-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95 shrink-0"
+              >
+                <span>🤖</span>
+                <span>লেসন থেকে AI স্টাডি গাইড ও ভিডিও ক্লিপ তৈরি</span>
+              </button>
             </div>
 
-            {/* Note Creation Form */}
+            {/* Note Creation / Edit Form */}
             <form onSubmit={handleSaveNote} className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 text-xs">
-              <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
-                <span>➕ নতুন স্টাডি গাইড যুক্ত করুন</span>
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
+                  <span>{noteForm.id ? '✏️ স্টাডি গাইড এডিট করুন' : '➕ নতুন স্টাডি গাইড যুক্ত করুন'}</span>
+                </h3>
+                {noteForm.id && (
+                  <button
+                    type="button"
+                    onClick={() => setNoteForm(initialNoteForm)}
+                    className="px-2.5 py-1 rounded bg-slate-800 text-slate-300 hover:text-white text-[11px] font-bold"
+                  >
+                    ✕ বাতিল (নতুন ফরম)
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-slate-300 font-bold mb-1">গাইড শিরোনাম:</label>
@@ -5900,9 +5989,45 @@ return (
                     <option value="বাংলাদেশ সংবিধান (Constitution)">বাংলাদেশ সংবিধান (Constitution)</option>
                     <option value="সুনির্দিষ্ট প্রতিকার আইন (SRA)">সুনির্দিষ্ট প্রতিকার আইন (SRA)</option>
                     <option value="তামাদি আইন (Limitation Act)">তামাদি আইন (Limitation Act)</option>
+                    <option value="BJS সিলেবাস ও প্রস্তুতি">BJS সিলেবাস ও প্রস্তুতি</option>
                   </select>
                 </div>
               </div>
+
+              {/* Video Clip Integration */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-xl bg-slate-950/70 border border-slate-800">
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1">রেফারেন্স YouTube ID (ঐচ্ছিক):</label>
+                  <input
+                    type="text"
+                    value={noteForm.youtubeId}
+                    onChange={e => setNoteForm({ ...noteForm, youtubeId: e.target.value })}
+                    placeholder="উদা: dQw4w9WgXcQ"
+                    className="w-full p-2 rounded-lg bg-slate-900 border border-slate-800 text-white font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1">ক্লিপ শুরু (সেকেন্ড):</label>
+                  <input
+                    type="number"
+                    value={noteForm.clipStartSeconds}
+                    onChange={e => setNoteForm({ ...noteForm, clipStartSeconds: Number(e.target.value) })}
+                    placeholder="0"
+                    className="w-full p-2 rounded-lg bg-slate-900 border border-slate-800 text-white font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1">ক্লিপ শেষ (সেকেন্ড):</label>
+                  <input
+                    type="number"
+                    value={noteForm.clipEndSeconds}
+                    onChange={e => setNoteForm({ ...noteForm, clipEndSeconds: Number(e.target.value) })}
+                    placeholder="180"
+                    className="w-full p-2 rounded-lg bg-slate-900 border border-slate-800 text-white font-mono text-xs"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-slate-300 font-bold mb-1">সংক্ষিপ্ত বিবরণ (Summary):</label>
                 <input
@@ -5929,7 +6054,7 @@ return (
                 disabled={noteSaving}
                 className="py-2.5 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 text-white font-black text-xs shadow-md transition-all cursor-pointer"
               >
-                {noteSaving ? 'সংরক্ষণ হচ্ছে...' : '✓ গাইড সংরক্ষণ ও প্রকাশ করুন'}
+                {noteSaving ? 'সংরক্ষণ হচ্ছে...' : (noteForm.id ? '✓ আপডেট সংরক্ষণ করুন' : '✓ গাইড সংরক্ষণ ও প্রকাশ করুন')}
               </button>
             </form>
 
@@ -5939,20 +6064,36 @@ return (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {adminNotes.map(n => (
                   <div key={n.id || n.slug} className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-                    <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px] font-bold">
-                      {n.category}
-                    </span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px] font-bold">
+                        {n.category}
+                      </span>
+                      {n.youtubeId && (
+                        <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono text-[10px] font-bold border border-rose-500/30">
+                          🎥 ভিডিও ক্লিপ সহ
+                        </span>
+                      )}
+                    </div>
                     <h4 className="font-extrabold text-white text-sm line-clamp-1">{n.title}</h4>
                     <p className="text-slate-400 text-xs line-clamp-2">{n.summary}</p>
                     <div className="flex justify-between items-center pt-2 border-t border-slate-800/80">
                       <span className="text-[10px] text-slate-500 font-mono">⏱️ {n.readTime || '৫ মিনিট'}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteNote(n.id || n._id)}
-                        className="text-rose-400 hover:text-rose-300 text-xs font-bold"
-                      >
-                        🗑️ মুছে ফেলুন
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEditNote(n)}
+                          className="text-amber-400 hover:text-amber-300 text-xs font-bold"
+                        >
+                          ✏️ এডিট
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteNote(n.id || n._id)}
+                          className="text-rose-400 hover:text-rose-300 text-xs font-bold"
+                        >
+                          🗑️ মুছে ফেলুন
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -6839,9 +6980,15 @@ return (
                 className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
               >
                 <option value="">-- যেকোনো একটি লেসন সিলেক্ট করুন --</option>
-                {courses.flatMap(c => (c.modules || []).flatMap(m => m.lessons || [])).slice(0, 30).map(l => (
-                  <option key={l.id || l._id} value={l.id || l._id}>{l.title}</option>
-                ))}
+                {adminLessons.map(l => {
+                  const course = courses.find(c => c.id === l.courseId);
+                  const courseTitle = course ? course.title : (l.courseTitle || l.courseId || 'সাধারণ');
+                  return (
+                    <option key={l.id || l._id} value={l.id || l._id}>
+                      {courseTitle} — {l.title}
+                    </option>
+                  );
+                })}
               </select>
             </div>
             <div>
@@ -6861,6 +7008,50 @@ return (
               className="w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
             >
               {aiMcqModal.loading ? '⏳ AI প্রশ্ন তৈরি করছে...' : '✨ AI প্রশ্ন তৈরি ও যুক্ত করুন'}
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {/* AI Auto Study Note Generator Modal */}
+      {aiNoteModal.isOpen && (
+        <Modal
+          isOpen={aiNoteModal.isOpen}
+          onClose={() => setAiNoteModal({ isOpen: false, lessonId: '', loading: false })}
+          title="🤖 Gemini AI অটো স্টাডি গাইড ও ভিডিও ক্লিপ জেনারেটর"
+          icon="📖"
+          maxWidth="max-w-md"
+        >
+          <form onSubmit={handleGenerateAiStudyNotes} className="space-y-4 p-1 text-xs">
+            <p className="text-slate-300">
+              নির্বাচিত ভিডিও লেকচারের সাবটাইটেল/ট্রান্সক্রিপ্ট বিশ্লেষণ করে Gemini AI স্বয়ংক্রিয়ভাবে ৩–৪টি গুরুত্বপূর্ণ আইনি বিধান, ২–৫ মিনিটের নির্ভুল ভিডিও ক্লিপ সেগমেন্ট এবং BJS স্ট্যান্ডার্ড ব্যাখ্যা তৈরি করবে।
+            </p>
+            <div>
+              <label className="block text-slate-400 font-bold mb-1">ভিডিও লেসন নির্বাচন করুন:</label>
+              <select
+                value={aiNoteModal.lessonId}
+                onChange={e => setAiNoteModal({ ...aiNoteModal, lessonId: e.target.value })}
+                required
+                className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+              >
+                <option value="">-- যেকোনো একটি লেসন সিলেক্ট করুন --</option>
+                {adminLessons.map(l => {
+                  const course = courses.find(c => c.id === l.courseId);
+                  const courseTitle = course ? course.title : (l.courseTitle || l.courseId || 'সাধারণ');
+                  return (
+                    <option key={l.id || l._id} value={l.id || l._id}>
+                      {courseTitle} — {l.title}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            <button
+              type="submit"
+              disabled={aiNoteModal.loading}
+              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+            >
+              {aiNoteModal.loading ? '⏳ AI স্টাডি গাইড তৈরি করছে...' : '✨ AI স্টাডি গাইড তৈরি ও প্রকাশ করুন'}
             </button>
           </form>
         </Modal>

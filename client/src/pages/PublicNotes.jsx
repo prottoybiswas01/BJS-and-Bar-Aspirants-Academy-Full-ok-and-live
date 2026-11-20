@@ -145,10 +145,17 @@ export default function PublicNotes() {
                     <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-[11px] font-bold border border-indigo-100">
                       {note.category}
                     </span>
-                    <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                      <span>⏱️</span>
-                      <span>{note.readTime || '৫ মিনিট'}</span>
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {note.youtubeId && (
+                        <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 text-[10px] font-bold border border-rose-200 flex items-center gap-1">
+                          <span>🎥</span> ভিডিও ক্লিপ
+                        </span>
+                      )}
+                      <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                        <span>⏱️</span>
+                        <span>{note.readTime || '৫ মিনিট'}</span>
+                      </span>
+                    </div>
                   </div>
 
                   <h3 className="text-base font-extrabold text-slate-900 group-hover:text-amber-600 transition-colors leading-snug line-clamp-2">
@@ -213,6 +220,33 @@ export default function PublicNotes() {
               {selectedNote.summary && (
                 <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm font-semibold">
                   📌 <strong>সারসংক্ষেপ:</strong> {selectedNote.summary}
+                </div>
+              )}
+
+              {/* Timestamped Public Video Clip Player (2-5 min class segment) */}
+              {selectedNote.youtubeId && (
+                <div className="rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-xl space-y-2.5 p-3 sm:p-4 text-white">
+                  <div className="flex items-center justify-between text-xs text-amber-400 font-bold px-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                      <span>🎥 ক্লাসের রেফারেন্স ভিডিও ক্লিপ</span>
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-300 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800">
+                      ⏱️ {Math.floor((Number(selectedNote.clipStartSeconds) || 0) / 60)}:{String((Number(selectedNote.clipStartSeconds) || 0) % 60).padStart(2, '0')} - {Math.floor((Number(selectedNote.clipEndSeconds) || 180) / 60)}:{String((Number(selectedNote.clipEndSeconds) || 180) % 60).padStart(2, '0')}
+                    </span>
+                  </div>
+                  <div className="w-full aspect-video max-h-[48vh] relative overflow-hidden rounded-xl bg-black">
+                    <iframe
+                      src={`https://www.youtube-nocookie.com/embed/${String(selectedNote.youtubeId).startsWith('bjs_enc_') ? atob(String(selectedNote.youtubeId).replace('bjs_enc_', '')) : selectedNote.youtubeId}?start=${selectedNote.clipStartSeconds || 0}&end=${selectedNote.clipEndSeconds || (Number(selectedNote.clipStartSeconds || 0) + 180)}&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&controls=1&fs=1`}
+                      className="absolute inset-0 w-full h-full border-0"
+                      allow="autoplay; encrypted-media; fullscreen"
+                      allowFullScreen
+                      title={selectedNote.title}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 px-1 italic">
+                    💡 এই আইনি বিধানটির উপর ক্লাসের নির্বাচিত মূল লেকচার ক্লিপটি উপরে সরাসরি প্লে করুন।
+                  </p>
                 </div>
               )}
 

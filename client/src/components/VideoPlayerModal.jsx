@@ -167,8 +167,8 @@ export default function VideoPlayerModal({
   };
 
   const iframeSrc = canPlayFull
-    ? `https://www.youtube-nocookie.com/embed/${activeVideoId}?autoplay=1&start=${playStartTime}&rel=0&modestbranding=1&controls=1&showinfo=1&iv_load_policy=3&fs=1&disablekb=0&color=amber&enablejsapi=1`
-    : `https://www.youtube-nocookie.com/embed/${activeVideoId}?autoplay=1&start=${playStartTime}&end=${endTime}&rel=0&modestbranding=1&controls=1&showinfo=1&iv_load_policy=3&fs=1&disablekb=1&color=amber&enablejsapi=1`;
+    ? `https://www.youtube-nocookie.com/embed/${activeVideoId}?autoplay=1&start=${playStartTime}&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&controls=1&fs=1&disablekb=0&color=amber&enablejsapi=1`
+    : `https://www.youtube-nocookie.com/embed/${activeVideoId}?autoplay=1&start=${playStartTime}&end=${endTime}&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&controls=1&fs=1&disablekb=1&color=amber&enablejsapi=1`;
 
   // Body Scroll Lock & Anti-Piracy Keyboard Inspect Lock
   useEffect(() => {
@@ -336,9 +336,9 @@ export default function VideoPlayerModal({
 
         {/* Video Player + Notes Split Layout */}
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-black">
-          {/* Main Video View */}
+          {/* Main Video View - Responsive full-width 16:9 container */}
           <div
-            className="relative aspect-video lg:aspect-auto flex-1 bg-black overflow-hidden select-none"
+            className="w-full aspect-video max-h-[75vh] relative overflow-hidden bg-black select-none flex-1"
             style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -401,7 +401,7 @@ export default function VideoPlayerModal({
                 ref={iframeRef}
                 key={playerKey}
                 src={iframeSrc}
-                className="h-full w-full border-0 pointer-events-auto"
+                className="absolute inset-0 w-full h-full border-0 pointer-events-auto"
                 allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                 allowFullScreen
                 title={title}

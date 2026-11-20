@@ -101,12 +101,13 @@ async function runUpgradesTestSuite() {
   assert.strictEqual(boardData.leaderboard[1].rank, 2, 'Beta must be rank 2');
   console.log('  ✓ PASS: Leaderboard ranked examinees with correct net scores and negative marking deductions');
 
-  // Test 3: Study Notes Seeding
-  console.log('\n--- Test 3: Public Law Notes Seeding ---');
-  await seedDefaultStudyNotes();
-  const count = await StudyNote.countDocuments();
-  assert(count >= 6, `Expected at least 6 pre-seeded law notes, found ${count}`);
-  console.log(`  ✓ PASS: High-yield public law notes seeded (${count} notes present)`);
+  // Test 3: Dynamic AI Legal Study Notes & Video Clips Schema
+  console.log('\n--- Test 3: Dynamic Law Study Notes & Video Clip Schema ---');
+  assert(StudyNote.schema.path('clipStartSeconds'), 'StudyNote must have clipStartSeconds');
+  assert(StudyNote.schema.path('clipEndSeconds'), 'StudyNote must have clipEndSeconds');
+  assert(StudyNote.schema.path('seoTitle'), 'StudyNote must have seoTitle');
+  assert(StudyNote.schema.path('seoKeywords'), 'StudyNote must have seoKeywords');
+  console.log('  ✓ PASS: Dynamic Law Study Note schema verified with video clips & SEO metadata');
 
   // Test 4: Models Schema Verification
   console.log('\n--- Test 4: PushSubscription & Certificate Schemas ---');

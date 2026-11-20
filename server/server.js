@@ -213,7 +213,7 @@ const PushSubscription = require("./models/PushSubscription");
 const StudyNote = require("./models/StudyNote");
 const { generateCertificatePdf } = require("./services/certificateService");
 const { sendTelegramAlert, sendEmergencyEmail, notifyNewLesson, notifyRegistration, notifyReceipt, notifySecurityAttack, notifyAdminDiff, notifySiteError } = require("./services/alertService");
-const { seedDefaultStudyNotes, generateAiMcqsFromTranscript, getExamLeaderboard } = require("./services/academyFeaturesService");
+const { seedDefaultStudyNotes, generateAiMcqsFromTranscript, getExamLeaderboard, generateStudyNotesFromLesson } = require("./services/academyFeaturesService");
 const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId, formatSecondsToTimestamp } = require("./services/transcriptService");
 const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
 const { dispatchNewLessonNotifications } = require("./services/videoNotificationService");
@@ -594,8 +594,6 @@ async function ensureDbConnected() {
         if (s) memoryDb.siteSettings = { ...memoryDb.siteSettings, ...s };
       }).catch(() => { });
     }
-    // Seed high-yield legal study notes non-blockingly
-    seedDefaultStudyNotes(StudyNote).catch(() => {});
     // Sync cache safely if empty without running destructive writes
     if (!memoryDb.courses || memoryDb.courses.length === 0) {
       syncMemoryDbFromMongo().catch(err => {
@@ -7634,7 +7632,7 @@ app.get(["/api/notes", "/notes"], async (req, res) => {
     await ensureDbConnected();
     const { category, search } = req.query;
     const filter = { isPublished: true };
-    if (category && category !== 'All') {
+    if (category && category !== 'All' && category !== 'সকল') {
       filter.category = category;
     }
     if (search) {
@@ -7669,17 +7667,42 @@ app.get(["/api/notes/:idOrSlug", "/notes/:idOrSlug"], async (req, res) => {
   }
 });
 
-app.post("/api/admin/notes/save", async (req, res) => {
+app.post(["/api/notes", "/api/admin/notes", "/api/admin/notes/save"], async (req, res) => {
   try {
     await ensureDbConnected();
-    const { id, title, slug, category, summary, content, lawSections, readTime, order, isPublished } = req.body || {};
+    const {
+      id,
+      title,
+      slug,
+      category,
+      summary,
+      content,
+      lawSections,
+      readTime,
+      order,
+      isPublished,
+      courseId,
+      courseTitle,
+      lessonId,
+      lessonTitle,
+      youtubeId,
+      clipStartSeconds,
+      clipEndSeconds,
+      seoTitle,
+      seoDescription,
+      seoKeywords
+    } = req.body || {};
+
     if (!title || !content) {
       return res.status(400).json({ ok: false, message: "শিরোনাম ও বিস্তারিত নোট প্রদান আবশ্যক।" });
     }
     const safeSlug = (slug || title).toLowerCase().replace(/[^a-z0-9\u0980-\u09FF]+/g, '-').replace(/(^-|-$)/g, '');
     const noteId = id || `note-${Date.now()}`;
+    const startSec = Math.max(0, Number(clipStartSeconds) || 0);
+    const endSec = Math.max(startSec, Number(clipEndSeconds) || 0);
+
     const updated = await StudyNote.findOneAndUpdate(
-      { id: noteId },
+      { $or: [{ id: noteId }, { slug: safeSlug }] },
       {
         id: noteId,
         title,
@@ -7688,9 +7711,20 @@ app.post("/api/admin/notes/save", async (req, res) => {
         summary: summary || '',
         content,
         lawSections: Array.isArray(lawSections) ? lawSections : (lawSections ? String(lawSections).split(',').map(s => s.trim()) : []),
-        readTime: readTime || '5 min',
+        readTime: readTime || '৫ মিনিট',
         order: Number(order) || 0,
         isPublished: isPublished !== false,
+        courseId: courseId || '',
+        courseTitle: courseTitle || '',
+        lessonId: lessonId || '',
+        lessonTitle: lessonTitle || '',
+        youtubeId: youtubeId || '',
+        clipStartSeconds: startSec,
+        clipEndSeconds: endSec,
+        clipDuration: endSec > startSec ? (endSec - startSec) : 0,
+        seoTitle: seoTitle || title,
+        seoDescription: seoDescription || summary || '',
+        seoKeywords: Array.isArray(seoKeywords) ? seoKeywords : (seoKeywords ? String(seoKeywords).split(',').map(s => s.trim()) : []),
         updatedAt: new Date()
       },
       { upsert: true, new: true }
@@ -7701,18 +7735,47 @@ app.post("/api/admin/notes/save", async (req, res) => {
   }
 });
 
-app.delete("/api/admin/notes/:id", async (req, res) => {
+app.delete(["/api/notes/:id", "/api/admin/notes/:id"], async (req, res) => {
   try {
     await ensureDbConnected();
     const { id } = req.params;
-    await StudyNote.deleteOne({ id });
+    await StudyNote.deleteOne({ $or: [{ id }, { _id: mongoose.isValidObjectId(id) ? id : null }] });
     return res.json({ ok: true, message: "✓ আইনি নোট সফলভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "নোট ডিলিট করতে সমস্যা হয়েছে।" });
   }
 });
 
-// 4. CERTIFICATES ENGINE (/api/certificates)
+// AI Auto-Generate Study Notes from Lesson Transcript
+app.post("/api/admin/study-notes/ai-generate-from-lesson", async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { lessonId } = req.body || {};
+    if (!lessonId) {
+      return res.status(400).json({ ok: false, message: "লেসন নির্বাচন করা আবশ্যক।" });
+    }
+
+    const generatedNotes = await generateStudyNotesFromLesson({
+      lessonId,
+      Lesson,
+      StudyNote,
+      Course,
+      resolveOptimalGeminiModel
+    });
+
+    return res.json({
+      ok: true,
+      count: generatedNotes.length,
+      notes: generatedNotes,
+      message: `✓ Gemini AI সফলভাবে ${generatedNotes.length}টি হাই-ইল্ড আইনি স্টাডি গাইড ও ভিডিও ক্লিপ তৈরি করেছে!`
+    });
+  } catch (err) {
+    console.error("AI Study Note Generation Error:", err);
+    return res.status(500).json({ ok: false, message: "AI স্টাডি গাইড তৈরিতে সমস্যা হয়েছে: " + err.message });
+  }
+});
+
+// 4. CERTIFICATES ENGINE (/api/certificates & /api/admin/certificates)
 app.get("/api/certificates/student/:studentId", async (req, res) => {
   try {
     await ensureDbConnected();
@@ -7724,52 +7787,91 @@ app.get("/api/certificates/student/:studentId", async (req, res) => {
   }
 });
 
-app.get("/api/admin/certificates", async (req, res) => {
+app.get(["/api/certificates", "/api/admin/certificates"], async (req, res) => {
   try {
     await ensureDbConnected();
-    const certs = await Certificate.find().sort({ issueDate: -1 }).lean();
+    let certs = [];
+    if (isMongoConnected) {
+      certs = await Certificate.find().sort({ issueDate: -1 }).lean().catch(() => []);
+    } else {
+      certs = memoryDb.certificates || [];
+    }
     return res.json({ ok: true, certificates: certs || [] });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "সার্টিফিকেট তালিকা লোড ব্যর্থ।" });
   }
 });
 
-app.post("/api/admin/certificates/issue", async (req, res) => {
+app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificates/issue"], async (req, res) => {
   try {
     await ensureDbConnected();
-    const { studentId, courseId, completionScore } = req.body || {};
+    const { studentId, courseId, completionScore, studentName, courseTitle } = req.body || {};
     if (!studentId || !courseId) {
       return res.status(400).json({ ok: false, message: "শিক্ষার্থী এবং কোর্স নির্বাচন করা আবশ্যক।" });
     }
 
-    const student = await Student.findOne({ id: studentId }).lean();
+    let student = null;
+    if (isMongoConnected) {
+      student = await Student.findOne({ id: studentId }).lean().catch(() => null);
+    }
     if (!student) {
-      return res.status(404).json({ ok: false, message: "শিক্ষার্থী পাওয়া যায়নি।" });
+      student = (memoryDb.students || []).find(s => s.id === studentId);
     }
 
-    const course = await Course.findOne({ id: courseId }).lean();
-    const courseTitle = course ? course.title : "BJS & Bar Masterclass";
+    let course = null;
+    if (isMongoConnected) {
+      course = await Course.findOne({ id: courseId }).lean().catch(() => null);
+    }
+    if (!course) {
+      course = (memoryDb.courses || []).find(c => c.id === courseId);
+    }
+
+    const finalStudentName = student?.name || studentName || 'Student';
+    const finalCourseTitle = course?.title || courseTitle || 'BJS & Bar Masterclass';
 
     const certId = `CERT-BJS-2026-${Math.floor(1000 + Math.random() * 9000)}`;
     const verificationUrl = `https://bjs.kodl.uk/verify/${certId}`;
-    const qrCodeDataUrl = await QRCode.toDataURL(verificationUrl, { width: 140, margin: 1 });
+    let qrCodeDataUrl = '';
+    try {
+      qrCodeDataUrl = await QRCode.toDataURL(verificationUrl, { width: 140, margin: 1 });
+    } catch (qrErr) {
+      console.warn("QR code generation warning:", qrErr.message);
+    }
 
-    const certDoc = await Certificate.create({
-      certificateId: certId,
-      studentId: student.id,
-      studentName: student.name,
-      courseId,
-      courseTitle,
-      completionScore: Number(completionScore) || 100,
-      verificationUrl,
-      qrCodeDataUrl,
-      issueDate: new Date()
-    });
+    let certDoc = null;
+    if (isMongoConnected) {
+      certDoc = await Certificate.create({
+        certificateId: certId,
+        studentId: student?.id || studentId,
+        studentName: finalStudentName,
+        courseId,
+        courseTitle: finalCourseTitle,
+        completionScore: Number(completionScore) || 100,
+        verificationUrl,
+        qrCodeDataUrl,
+        issueDate: new Date()
+      });
+      certDoc = certDoc.toObject();
+    } else {
+      certDoc = {
+        certificateId: certId,
+        studentId: student?.id || studentId,
+        studentName: finalStudentName,
+        courseId,
+        courseTitle: finalCourseTitle,
+        completionScore: Number(completionScore) || 100,
+        verificationUrl,
+        qrCodeDataUrl,
+        issueDate: new Date()
+      };
+      if (!Array.isArray(memoryDb.certificates)) memoryDb.certificates = [];
+      memoryDb.certificates.push(certDoc);
+    }
 
     return res.json({
       ok: true,
       certificate: certDoc,
-      message: `✓ ${student.name} এর জন্য ডিজিটাল সার্টিফিকেট সফলভাবে ইস্যু হয়েছে! (ID: ${certId})`
+      message: `✓ ${finalStudentName} এর জন্য ডিজিটাল সার্টিফিকেট সফলভাবে ইস্যু হয়েছে! (ID: ${certId})`
     });
   } catch (err) {
     console.error("Certificate Issue Error:", err);
@@ -7781,19 +7883,27 @@ app.get(["/api/certificates/verify/:certificateId", "/verify/:certificateId"], a
   try {
     await ensureDbConnected();
     const { certificateId } = req.params;
-    const cert = await Certificate.findOne({ certificateId }).lean();
+    let cert = null;
+    if (isMongoConnected) {
+      cert = await Certificate.findOne({ certificateId }).lean().catch(() => null);
+    }
+    if (!cert) {
+      cert = (memoryDb.certificates || []).find(c => c.certificateId === certificateId);
+    }
     if (!cert) {
       return res.status(404).json({ ok: false, valid: false, message: "সার্টিফিকেটটি খুঁজে পাওয়া যায়নি বা এটি বৈধ নয়।" });
     }
     return res.json({
       ok: true,
-      valid: cert.status === "Valid",
+      valid: cert.status !== "Revoked",
       certificate: {
         certificateId: cert.certificateId,
         studentName: cert.studentName,
+        studentId: cert.studentId,
         courseTitle: cert.courseTitle,
+        completionScore: cert.completionScore || 100,
         issueDate: cert.issueDate,
-        status: cert.status,
+        status: cert.status || "Valid",
         issuedBy: cert.issuedBy || "BJS & Bar Aspirants Academy",
         verificationUrl: cert.verificationUrl
       }
@@ -7807,7 +7917,13 @@ app.get("/api/certificates/:certificateId/download", async (req, res) => {
   try {
     await ensureDbConnected();
     const { certificateId } = req.params;
-    const cert = await Certificate.findOne({ certificateId }).lean();
+    let cert = null;
+    if (isMongoConnected) {
+      cert = await Certificate.findOne({ certificateId }).lean().catch(() => null);
+    }
+    if (!cert) {
+      cert = (memoryDb.certificates || []).find(c => c.certificateId === certificateId);
+    }
     if (!cert) {
       return res.status(404).send("সার্টিফিকেট পাওয়া যায়নি।");
     }
