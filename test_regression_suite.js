@@ -1,3 +1,17 @@
+// ============================================================================
+// HARD PRODUCTION SAFETY GUARD: Blocks test execution against production DB
+// ============================================================================
+(() => {
+  try { require('dotenv').config({ path: 'server/.env' }); } catch (e) {}
+  const uri = process.env.MONGODB_URI || process.env.MONGO_URI || '';
+  const db = process.env.MONGODB_DB || '';
+  const isExplicitTestDb = uri.includes('_test') || uri.includes('127.0.0.1') || uri.includes('localhost') || db.includes('_test');
+  if (uri && !isExplicitTestDb) {
+    console.error(`🚫 HARD SAFETY GUARD TRIGGERED: Test script blocked! MONGODB_URI points to non-test database ("${db || 'production'}"). Execution aborted to protect real production data.`);
+    process.exit(1);
+  }
+})();
+
 /**
  * BJS & Bar Aspirants Academy - Automated Regression Test Suite
  * Covers Test Scenarios A through I for Universal Course Sync & Video Management

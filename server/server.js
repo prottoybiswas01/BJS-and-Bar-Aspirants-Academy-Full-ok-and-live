@@ -180,6 +180,14 @@ app.use((req, res, next) => {
 
 const otpStore = new Map();
 
+// Anti-Stale DB Caching: Ensure all API endpoints are NEVER served from stale edge or browser cache
+app.use((req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
+});
+
 // Normalize URLs so Vercel Serverless Function rewrites always match Express /api routes
 app.use((req, res, next) => {
   if (req.url && !req.url.startsWith("/api/") && req.url !== "/api") {
@@ -191,6 +199,33 @@ app.use((req, res, next) => {
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "bjs_bar_academy_super_secret_jwt_key_2026";
 const MONGODB_URI = process.env.MONGODB_URI || "";
+const PRODUCTION_DB_NAME = (process.env.MONGODB_DB || "bjs_academy").trim().replace(/[\r\n"']/g, "");
+
+/**
+ * Rewrites the MongoDB connection URI to explicitly and immutably lock the target database name.
+ * Prevents the MongoDB driver from falling back to default "test", "cluster0" or "admin".
+ */
+function lockMongoUriToTargetDb(rawUri, targetDb) {
+  if (!rawUri || typeof rawUri !== "string") return "";
+  const cleaned = rawUri.trim().replace(/[\r\n"']/g, "");
+  if (!cleaned.startsWith("mongodb://") && !cleaned.startsWith("mongodb+srv://")) {
+    return cleaned;
+  }
+
+  const questionIdx = cleaned.indexOf("?");
+  const baseUrl = questionIdx !== -1 ? cleaned.slice(0, questionIdx) : cleaned;
+  const queryParams = questionIdx !== -1 ? cleaned.slice(questionIdx) : "";
+
+  const doubleSlashIdx = baseUrl.indexOf("//");
+  const pathSlashIdx = baseUrl.indexOf("/", doubleSlashIdx + 2);
+
+  if (pathSlashIdx !== -1) {
+    const hostPart = baseUrl.slice(0, pathSlashIdx);
+    return `${hostPart}/${targetDb}${queryParams}`;
+  } else {
+    return `${baseUrl}/${targetDb}${queryParams}`;
+  }
+}
 
 // Models
 const Student = require("./models/Student");
@@ -537,32 +572,52 @@ async function runStudentConsistencySweep() {
 }
 
 async function ensureDbConnected() {
-  if (cached.conn && mongoose.connection && mongoose.connection.readyState === 1) {
-    isMongoConnected = true;
-    return cached.conn;
+  // If connection is established, verify it is strictly bound to PRODUCTION_DB_NAME
+  if (mongoose.connection && mongoose.connection.readyState === 1) {
+    if (mongoose.connection.name && mongoose.connection.name !== PRODUCTION_DB_NAME) {
+      console.warn(`[DB Lock Guard] Active DB "${mongoose.connection.name}" does not match locked target "${PRODUCTION_DB_NAME}". Forcing reconnect...`);
+      await mongoose.disconnect().catch(() => {});
+      cached.conn = null;
+      cached.promise = null;
+      isMongoConnected = false;
+    } else {
+      isMongoConnected = true;
+      return cached.conn || mongoose.connection;
+    }
   }
 
   // If connection is in connecting state (2), wait for existing promise
   if (mongoose.connection && mongoose.connection.readyState === 2 && cached.promise) {
     try {
       cached.conn = await cached.promise;
-      isMongoConnected = true;
-      return cached.conn;
+      if (mongoose.connection.name && mongoose.connection.name !== PRODUCTION_DB_NAME) {
+        console.warn(`[DB Lock Guard] Promise connected to mismatched DB "${mongoose.connection.name}". Resetting...`);
+        await mongoose.disconnect().catch(() => {});
+        cached.conn = null;
+        cached.promise = null;
+        isMongoConnected = false;
+      } else {
+        isMongoConnected = true;
+        return cached.conn;
+      }
     } catch (e) {
       cached.promise = null;
       cached.conn = null;
+      isMongoConnected = false;
     }
   }
 
   if (!cached.promise) {
-    const mongoUri = process.env.MONGODB_URI || MONGODB_URI;
-    if (!mongoUri) {
+    const rawUri = process.env.MONGODB_URI || MONGODB_URI;
+    if (!rawUri) {
       isMongoConnected = false;
       return null;
     }
 
+    const lockedUri = lockMongoUriToTargetDb(rawUri, PRODUCTION_DB_NAME);
+
     const opts = {
-      dbName: process.env.MONGODB_DB || "bjs_academy",
+      dbName: PRODUCTION_DB_NAME,
       maxPoolSize: 5,
       minPoolSize: 0,
       serverSelectionTimeoutMS: 5000,
@@ -570,25 +625,28 @@ async function ensureDbConnected() {
       socketTimeoutMS: 30000,
       family: 4, // Force IPv4 to prevent IPv6 TLS handshake timeouts on Vercel
       bufferCommands: false, // Instant fail-safe without waiting on cold starts
+      autoIndex: false, // Prevent index lockups during serverless cold starts
       retryWrites: true,
       w: "majority"
     };
 
-    cached.promise = mongoose.connect(mongoUri, opts).then((m) => {
-      isMongoConnected = true;
+    cached.promise = mongoose.connect(lockedUri, opts).then((m) => {
+      const activeDb = mongoose.connection?.name || m?.connection?.name;
+      console.log(`[DB Lock] MongoDB successfully connected and locked to database: "${activeDb}" (Target: "${PRODUCTION_DB_NAME}")`);
+      isMongoConnected = (activeDb === PRODUCTION_DB_NAME);
       return m;
     }).catch((err) => {
       cached.promise = null;
       cached.conn = null;
       isMongoConnected = false;
-      console.error("MongoDB Connection Error:", err?.message || err);
+      console.error("[DB Lock] MongoDB Connection Error:", err?.message || err);
       throw err;
     });
   }
 
   try {
     cached.conn = await cached.promise;
-    isMongoConnected = true;
+    isMongoConnected = (mongoose.connection.readyState === 1 && mongoose.connection.name === PRODUCTION_DB_NAME);
     // Fast non-blocking background sync of siteSettings only
     if (!memoryDb.siteSettings.heroTitle) {
       SiteSetting.findOne().lean().then(s => {
@@ -655,13 +713,27 @@ ensureDbConnected();
 // 1. Health Check (Strict & Truthful: reports actual MongoDB connection status and database name)
 app.get("/api/health", (req, res) => {
   const currentDbName = mongoose.connection?.name || null;
-  const statusCode = isMongoConnected ? 200 : 503;
+  const isTargetDb = currentDbName === PRODUCTION_DB_NAME;
+  const isHealthy = isMongoConnected && isTargetDb && (mongoose.connection?.readyState === 1);
+  const statusCode = isHealthy ? 200 : 503;
+
+  console.log(`[Health Verification] Active DB: "${currentDbName}", Target: "${PRODUCTION_DB_NAME}", ReadyState: ${mongoose.connection?.readyState}, Status: ${statusCode}`);
+
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
   res.status(statusCode).json({
-    ok: isMongoConnected,
-    status: isMongoConnected ? "BJS & Bar Academy API Service Operational" : "MongoDB Service Disconnected",
-    dbMode: isMongoConnected ? "MongoDB Atlas Connected" : "Disconnected",
+    ok: isHealthy,
+    status: isHealthy ? "BJS & Bar Academy API Service Operational" : "MongoDB Service Disconnected or Incorrect DB",
+    dbMode: isHealthy ? "MongoDB Atlas Connected" : "Disconnected",
     database: currentDbName,
-    atlasIpNotice: isMongoConnected ? null : "Please whitelist 0.0.0.0/0 in MongoDB Atlas Network Access if using live cloud DB."
+    targetDatabase: PRODUCTION_DB_NAME,
+    isTargetDb,
+    readyState: mongoose.connection?.readyState || 0,
+    readyStateText: ["Disconnected", "Connected", "Connecting", "Disconnecting"][mongoose.connection?.readyState] || "Unknown",
+    timestamp: new Date().toISOString(),
+    atlasIpNotice: isHealthy ? null : "Please whitelist 0.0.0.0/0 in MongoDB Atlas Network Access if using live cloud DB."
   });
 });
 
