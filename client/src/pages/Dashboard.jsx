@@ -565,15 +565,15 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
   const progressPercent = lessons.length > 0 ? Math.round((completedCount / lessons.length) * 100) : 0;
 
   return (
-    <div className="space-y-8 pb-16 animate-fadeIn">
+    <div className="space-y-6 sm:space-y-8 pb-16 animate-fadeIn">
       {/* Pending Admin Approval Warning Banner */}
       {!isApproved && (
-        <div className="p-5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs sm:text-sm space-y-2 shadow-xl animate-fadeIn">
-          <div className="flex items-center gap-2 text-amber-300 font-extrabold text-sm">
+        <div className="p-4 sm:p-5 rounded-2xl bg-amber-50 dark:bg-amber-500/15 border border-amber-300 dark:border-amber-500/40 text-amber-950 dark:text-amber-200 text-xs sm:text-sm space-y-2 shadow-sm animate-fadeIn">
+          <div className="flex items-center gap-2 text-amber-900 dark:text-amber-300 font-extrabold text-sm">
             <span className="text-xl">⏳</span>
             <span>আপনার অ্যাকাউন্টটি বর্তমানে এডমিন এপ্রুভালের জন্য অপেক্ষমাণ রয়েছে (Awaiting Admin Approval)</span>
           </div>
-          <p className="text-slate-300 leading-relaxed">
+          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
             আপনার রেজিস্ট্রেশন সফলভাবে গৃহীত হয়েছে। এডমিন আপনার আবেদন যাঁচাই করে এপ্রুভ ও কোর্স অ্যাক্সেস প্রদান করার পর ভিডিও ক্লাসগুলো দেখতে পারবেন। হেল্পলাইন: <strong>01800077663</strong>
           </p>
         </div>
@@ -581,33 +581,34 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
       {/* Admin Popup Message Alert */}
       {user?.popupMessage?.body && (
-        <div className="p-4 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs shadow-lg space-y-1">
-          <div className="flex justify-between items-center font-bold text-amber-300">
+        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-500/40 text-amber-950 dark:text-amber-200 text-xs shadow-sm space-y-1">
+          <div className="flex justify-between items-center font-bold text-amber-900 dark:text-amber-300">
             <span>📢 {user.popupMessage.title || 'Notice from Academy Admin'}</span>
-            <span className="font-mono text-[10px] text-slate-400">
+            <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400">
               {new Date(user.popupMessage.sentAt).toLocaleDateString()}
             </span>
           </div>
-          <p className="leading-relaxed text-slate-100">{user.popupMessage.body}</p>
+          <p className="leading-relaxed text-slate-800 dark:text-slate-100">{user.popupMessage.body}</p>
         </div>
       )}
 
-      {/* Top Welcome Banner */}
-      <section className="glass-card rounded-2xl p-6 sm:p-8 border border-amber-500/20 shadow-2xl relative overflow-hidden">
+      {/* Top Welcome Banner - High Contrast in Light/Dark & Zero Awkward Wrapping */}
+      <section className="rounded-2xl p-5 sm:p-8 border border-slate-200 dark:border-amber-500/20 bg-white dark:bg-slate-900/80 shadow-md dark:shadow-2xl relative overflow-hidden transition-colors">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold border border-emerald-500/30">
+          <div className="space-y-3">
+            {/* Top Student Profile Badges - Clean Alignment on Mobile */}
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <span className="px-2.5 sm:px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-mono text-xs font-extrabold border border-emerald-300 dark:border-emerald-500/30 whitespace-nowrap shadow-xs">
                 ● STATUS: {user?.status || 'Active'}
               </span>
-              <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-amber-500/30">
+              <span className="px-2.5 sm:px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 font-mono text-xs font-extrabold border border-amber-300 dark:border-amber-500/30 whitespace-nowrap shadow-xs">
                 ID: {user?.id || 'STU-2026-001'}
               </span>
               {openProfileModal && (
                 <button
                   type="button"
                   onClick={openProfileModal}
-                  className="px-3 py-1 rounded-full bg-slate-900/90 hover:bg-slate-800 text-amber-300 hover:text-amber-200 font-bold text-xs border border-amber-500/30 hover:border-amber-400 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  className="px-2.5 sm:px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800 text-slate-800 dark:text-amber-300 hover:text-slate-950 dark:hover:text-amber-200 font-bold text-xs border border-slate-300 dark:border-amber-500/30 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
                   title="প্রোফাইল দেখুন ও ইমেইল পরিবর্তন করুন"
                 >
                   <span>👤</span>
@@ -616,20 +617,20 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
               )}
             </div>
 
-            <h1 className="text-2xl sm:text-3xl font-black text-white">
+            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
               স্বাগতম, <span className="text-gradient-gold">{user?.name || 'শিক্ষার্থী'}</span>!
             </h1>
             <div className="flex flex-wrap items-center gap-1.5 pt-1">
-              <span className="text-xs text-slate-400 font-bold">আপনার এনরোলকৃত কোর্সসমূহ:</span>
+              <span className="text-xs text-slate-600 dark:text-slate-400 font-bold">আপনার এনরোলকৃত কোর্সসমূহ:</span>
               {courses
                 .filter(c => checkCourseEnrolled(c))
                 .map(c => (
-                  <span key={c.id} className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
+                  <span key={c.id} className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/15 border border-amber-300 dark:border-amber-500/30 text-amber-900 dark:text-amber-300 text-xs font-bold shadow-xs whitespace-nowrap">
                     📚 {c.shortTitle || c.title}
                   </span>
                 ))}
               {courses.filter(c => checkCourseEnrolled(c)).length === 0 && (
-                <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold shadow-sm">
+                <span className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/15 border border-amber-300 dark:border-amber-500/30 text-amber-900 dark:text-amber-300 text-xs font-bold shadow-xs whitespace-nowrap">
                   📚 {isApproved ? (user?.batch || 'BJS & Bar Masterclass') : 'কোনো সক্রিয় কোর্স নেই (পেন্ডিং)'}
                 </span>
               )}
@@ -638,7 +639,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
           {/* Quick-Resume & Learning Progress Widget */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
-            {/* Quick-Resume Button: সর্বশেষ ক্লাস থেকে পড়া চালিয়ে যান */}
+            {/* Quick-Resume Button */}
             {lessons.length > 0 && (
               <button
                 type="button"
@@ -659,18 +660,18 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
             )}
 
             {/* Learning Progress Widget */}
-            <div className="bg-slate-950/90 p-4 rounded-xl border border-slate-800 space-y-2 min-w-[220px]">
+            <div className="bg-slate-100 dark:bg-slate-950/90 p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2 min-w-[220px] transition-colors">
               <div className="flex justify-between text-xs font-bold">
-                <span className="text-slate-400">কোর্স অগ্রগতি (Progress)</span>
-                <span className="text-amber-400 font-mono">{progressPercent}%</span>
+                <span className="text-slate-600 dark:text-slate-400">কোর্স অগ্রগতি (Progress)</span>
+                <span className="text-amber-600 dark:text-amber-400 font-mono">{progressPercent}%</span>
               </div>
-              <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+              <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-500"
                   style={{ width: `${progressPercent}%` }}
                 ></div>
               </div>
-              <p className="text-[10px] text-slate-500 text-right font-mono">
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 text-right font-mono">
                 {completedCount} / {lessons.length} লেকচার সম্পন্ন
               </p>
             </div>
@@ -679,13 +680,13 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       </section>
 
       {/* Segmented Tab Navigation: 5 Smooth Horizontal Pill Tabs */}
-      <div className="flex flex-wrap bg-slate-950/95 p-1.5 rounded-2xl border border-slate-800 gap-1.5 shadow-xl">
+      <div className="flex flex-wrap bg-white dark:bg-slate-950/95 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 gap-1.5 shadow-md dark:shadow-xl transition-colors">
         <button
           onClick={() => setSelectedTab('lectures')}
           className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center cursor-pointer ${
             selectedTab === 'lectures'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
           }`}
         >
           📚 ক্লাস ও কোর্স
@@ -694,8 +695,8 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           onClick={() => setSelectedTab('exams')}
           className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
             selectedTab === 'exams'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
           }`}
         >
           <span>📝 মডেল টেস্ট ({studentExams.length})</span>
@@ -704,8 +705,8 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           onClick={() => setSelectedTab('assignments')}
           className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
             selectedTab === 'assignments'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
           }`}
         >
           <span>📂 অ্যাসাইনমেন্ট ({studentAssignments.length})</span>
@@ -714,8 +715,8 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           onClick={() => setSelectedTab('payments')}
           className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
             selectedTab === 'payments'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
           }`}
         >
           <span>🧾 মানি রিসিট ({studentReceipts.length})</span>
@@ -724,8 +725,8 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           onClick={() => setSelectedTab('certificates')}
           className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
             selectedTab === 'certificates'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
           }`}
         >
           <span>🎓 সার্টিফিকেট ({studentCertificates.length})</span>
@@ -738,13 +739,13 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           {/* Course Switcher Tabs */}
           <section className="space-y-4">
             <div className="flex justify-between items-center">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <span>📚 নিবন্ধিত ও লার্নিং কোর্সসমূহ</span>
               </h2>
               <button
                 type="button"
                 onClick={() => setShowCoursesSection(!showCoursesSection)}
-                className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-amber-400 hover:text-amber-300 transition-all flex items-center gap-1.5 shadow-sm"
+                className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
               >
                 <span>{showCoursesSection ? '👁️ হাইড করুন (Hide)' : '👁️ দেখান (Show Courses)'}</span>
               </button>
@@ -760,39 +761,39 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                     <button
                       key={c.id}
                       onClick={() => handleSelectCourse(c)}
-                      className={`p-4 rounded-2xl text-left transition-all border ${
+                      className={`p-4 rounded-2xl text-left transition-all border cursor-pointer ${
                         active
-                          ? 'bg-amber-500/10 border-amber-500 text-white shadow-lg shadow-amber-500/10'
-                          : 'glass-card border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                          ? 'bg-amber-500/10 border-amber-500 text-slate-900 dark:text-white shadow-md'
+                          : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-900 dark:hover:text-slate-200 shadow-xs'
                       }`}
                     >
                       <div className="flex justify-between items-start mb-2">
-                        <span className="text-xs font-bold font-mono text-amber-400">{c.shortTitle || c.title}</span>
+                        <span className="text-xs font-bold font-mono text-amber-700 dark:text-amber-400">{c.shortTitle || c.title}</span>
                         {!isApproved ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-500/30">
                             ⏳ Pending Approval
                           </span>
                         ) : enrolled ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-500/30">
                             ✓ Enrolled
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
                             🔒 Not Enrolled
                           </span>
                         )}
                       </div>
-                      <h3 className="font-extrabold text-sm text-white line-clamp-1">{c.title}</h3>
-                      <p className="text-[11px] text-slate-500 mt-1">ফ্যাকাল্টি: {c.faculty}</p>
+                      <h3 className="font-extrabold text-sm text-slate-900 dark:text-white line-clamp-1">{c.title}</h3>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">ফ্যাকাল্টি: {c.faculty}</p>
                       {enrolled && (
-                        <div className="mt-2.5 pt-2 border-t border-slate-800/80">
-                          <div className="flex justify-between text-[10px] text-slate-400 font-bold mb-1">
+                        <div className="mt-2.5 pt-2 border-t border-slate-200 dark:border-slate-800/80">
+                          <div className="flex justify-between text-[10px] text-slate-600 dark:text-slate-400 font-bold mb-1">
                             <span>কোর্স অগ্রগতি</span>
-                            <span className="text-amber-400 font-mono">
+                            <span className="text-amber-600 dark:text-amber-400 font-mono">
                               {active ? `${progressPercent}%` : 'সক্রিয়'}
                             </span>
                           </div>
-                          <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                          <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
                             <div
                               className="h-full bg-gradient-to-r from-amber-500 to-emerald-400"
                               style={{ width: active ? `${progressPercent}%` : '50%' }}
@@ -810,11 +811,11 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           {/* Selected Course Modules & Video Matrix */}
           {selectedCourse && (
             <section className="space-y-6">
-              <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+              <div className="rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 space-y-4 shadow-sm transition-colors">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-amber-400 font-mono uppercase tracking-wider">
+                      <span className="text-xs font-bold text-amber-600 dark:text-amber-400 font-mono uppercase tracking-wider">
                         {selectedCourse.category}
                       </span>
                       {isUnlimited && (
@@ -823,17 +824,17 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                         </span>
                       )}
                     </div>
-                    <h2 className="text-xl font-extrabold text-white">{selectedCourse.title}</h2>
+                    <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">{selectedCourse.title}</h2>
                   </div>
                 </div>
 
                 {/* Video Color-Coding Matrix Legend */}
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-wrap items-center gap-4 text-xs">
-                  <span className="text-slate-400 font-medium">ভিডিও স্ট্যাটাস গাইড:</span>
-                  <span className="flex items-center gap-1 text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-500/30 font-semibold">
+                <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800/80 flex flex-wrap items-center gap-4 text-xs">
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">ভিডিও স্ট্যাটাস গাইড:</span>
+                  <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-300 dark:border-emerald-500/30 font-semibold">
                     🟢 Emerald Green: ভিডিও প্রস্তুত ও আনলকড
                   </span>
-                  <span className="flex items-center gap-1 text-rose-400 bg-rose-950/40 px-2.5 py-1 rounded-lg border border-rose-500/30 font-semibold">
+                  <span className="flex items-center gap-1 text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-2.5 py-1 rounded-lg border border-rose-300 dark:border-rose-500/30 font-semibold">
                     🔴 Rose Red: ভিডিও পেন্ডিং / কোর্স আনলকড নয়
                   </span>
                 </div>
@@ -847,9 +848,9 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                   ) : (
                     Object.entries(groupedLessons).map(([groupTitle, groupLessons]) => (
                       <div key={groupTitle} className="space-y-3">
-                        <h3 className="text-xs sm:text-sm font-extrabold text-amber-300 border-l-4 border-amber-500 pl-3 py-1.5 flex items-center justify-between bg-slate-950/80 px-3.5 rounded-r-xl border-y border-r border-slate-800">
+                        <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-amber-300 border-l-4 border-amber-500 pl-3 py-2 flex items-center justify-between bg-slate-50 dark:bg-slate-950/80 px-3.5 rounded-r-xl border-y border-r border-slate-200 dark:border-slate-800 shadow-xs">
                           <span className="flex items-center gap-2">📖 {groupTitle}</span>
-                          <span className="text-[10px] font-mono text-slate-400 font-bold bg-slate-900 px-2.5 py-0.5 rounded-full border border-slate-800">
+                          <span className="text-[10px] font-mono text-slate-600 dark:text-slate-400 font-bold bg-white dark:bg-slate-900 px-2.5 py-0.5 rounded-full border border-slate-200 dark:border-slate-800 shadow-xs">
                             {groupLessons.length} টি ক্লাসের ভিডিও
                           </span>
                         </h3>
@@ -870,52 +871,52 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                             const isUnlocked = l.isUnlocked !== undefined ? Boolean(l.isUnlocked) : (isEnrolled || isOrientation);
                             const canWatch = isUnlocked && hasVideo;
 
-                            let cardClass = 'bg-rose-950/20 border-rose-500/30 text-rose-200';
+                            let cardClass = 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-200';
                             let badgeText = '🔴 Video Pending';
-                            let badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+                            let badgeClass = 'bg-rose-100 dark:bg-rose-500/20 text-rose-900 dark:text-rose-300 border-rose-300 dark:border-rose-500/30';
 
                             if (!isApproved && !isOrientation) {
                               badgeText = '🔒 Awaiting Admin Approval';
-                              badgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/30 font-bold';
+                              badgeClass = 'bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-500/30 font-bold';
                             } else if (!isUnlocked) {
                               badgeText = '🔒 Course Locked';
-                              badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30 font-bold';
+                              badgeClass = 'bg-rose-100 dark:bg-rose-500/20 text-rose-900 dark:text-rose-300 border-rose-300 dark:border-rose-500/30 font-bold';
                             } else if (!hasVideo) {
                               badgeText = '🔴 Video Pending';
-                              badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+                              badgeClass = 'bg-rose-100 dark:bg-rose-500/20 text-rose-900 dark:text-rose-300 border-rose-300 dark:border-rose-500/30';
                             } else {
-                              cardClass = 'bg-emerald-950/25 border-emerald-500/30 text-emerald-200 hover:border-emerald-400';
+                              cardClass = 'bg-emerald-50/70 dark:bg-emerald-950/25 border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-200 hover:border-emerald-400';
                               badgeText = isOrientation ? '🟢 Free Preview / Demo' : '🟢 Video Unlocked';
-                              badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+                              badgeClass = 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/30';
                             }
 
                             if (isCompleted) {
-                              cardClass = 'bg-emerald-900/40 border-emerald-400 text-emerald-100';
+                              cardClass = 'bg-emerald-100 dark:bg-emerald-900/40 border-emerald-300 dark:border-emerald-400 text-emerald-950 dark:text-emerald-100';
                             }
 
                             return (
                               <div
                                 key={l.id}
-                                className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${cardClass}`}
+                                className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs ${cardClass}`}
                               >
                                 <div className="space-y-1">
                                   <div className="flex items-center gap-2">
                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass}`}>
                                       {badgeText}
                                     </span>
-                                    <span className="font-mono text-[10px] text-slate-500">Released: {l.releaseDate}</span>
+                                    <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">Released: {l.releaseDate}</span>
                                   </div>
-                                  <h4 className="font-bold text-white text-sm">{l.title}</h4>
-                                  <p className="text-xs text-slate-300">{l.description}</p>
+                                  <h4 className="font-bold text-slate-900 dark:text-white text-sm">{l.title}</h4>
+                                  <p className="text-xs text-slate-600 dark:text-slate-300">{l.description}</p>
                                 </div>
 
                                 <div className="flex items-center gap-3 flex-shrink-0">
                                   <button
                                     onClick={() => toggleComplete(l.id)}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
                                       isCompleted
                                         ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                                        : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
+                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400 border-slate-300 dark:border-slate-700 hover:text-slate-950 dark:hover:text-white hover:bg-slate-50'
                                     }`}
                                   >
                                     {isCompleted ? '✓ Completed' : 'Mark Done'}
@@ -936,7 +937,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                                     className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-md transition-all cursor-pointer ${
                                       canWatch
                                         ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-400 hover:to-teal-400 hover:scale-105'
-                                        : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/80 hover:bg-slate-800'
+                                        : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/80 hover:bg-slate-200'
                                     }`}
                                   >
                                     {canWatch ? '▶️ প্লে ভিডিও' : '🔒 ক্লাস লকড্'}
@@ -959,16 +960,16 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       {/* ASSIGNMENTS TAB */}
       {selectedTab === 'assignments' && (
         <section className="space-y-6">
-          <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 space-y-4 shadow-sm transition-colors">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <div>
-                <h2 className="text-lg font-extrabold text-white">নির্ধারিত অ্যাসাইনমেন্ট ও হোমওয়ার্ক</h2>
-                <p className="text-xs text-slate-400">মেন্টর কর্তৃক প্রকাশিত অ্যাসাইনমেন্ট জমা দিন ও রেজাল্ট দেখুন</p>
+                <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">নির্ধারিত অ্যাসাইনমেন্ট ও হোমওয়ার্ক</h2>
+                <p className="text-xs text-slate-600 dark:text-slate-400">মেন্টর কর্তৃক প্রকাশিত অ্যাসাইনমেন্ট জমা দিন ও রেজাল্ট দেখুন</p>
               </div>
             </div>
 
             {studentAssignments.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 text-xs">
+              <div className="p-12 text-center text-slate-500 text-xs bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800">
                 বর্তমানে আপনার জন্য কোনো অ্যাসাইনমেন্ট প্রকাশ করা হয়নি।
               </div>
             ) : (
@@ -981,32 +982,32 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                   const canResubmit = sub?.canResubmit;
 
                   return (
-                    <div key={asn.id} className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+                    <div key={asn.id} className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 space-y-3 shadow-xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800/80 pb-3">
                         <div>
-                          <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">
+                          <span className="px-2.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 text-[10px] font-bold border border-amber-300 dark:border-amber-500/30">
                             {crs ? crs.title : asn.courseId}
                           </span>
-                          <h3 className="text-base font-extrabold text-white mt-1">{asn.title}</h3>
-                          <p className="text-xs text-slate-400 font-medium">মেন্টর: {asn.mentorName || 'Faculty'}</p>
+                          <h3 className="text-base font-extrabold text-slate-900 dark:text-white mt-1">{asn.title}</h3>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">মেন্টর: {asn.mentorName || 'Faculty'}</p>
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <span className="px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 text-amber-400 text-xs font-mono font-bold">
+                          <span className="px-3 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-amber-700 dark:text-amber-400 text-xs font-mono font-bold shadow-xs">
                             🎯 মোট মার্কস: {asn.totalMarks}
                           </span>
                           {isSubmitted ? (
                             isGraded ? (
-                              <span className="px-3 py-1 rounded-xl bg-emerald-950 text-emerald-300 border border-emerald-500/40 text-xs font-bold">
+                              <span className="px-3 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40 text-xs font-bold">
                                 ✓ মার্কস: {sub.marksObtained} / {asn.totalMarks}
                               </span>
                             ) : (
-                              <span className="px-3 py-1 rounded-xl bg-amber-950 text-amber-300 border border-amber-500/40 text-xs font-bold">
+                              <span className="px-3 py-1 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 text-xs font-bold">
                                 ⏳ মূল্যায়নের অপেক্ষায়
                               </span>
                             )
                           ) : (
-                            <span className="px-3 py-1 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold">
+                            <span className="px-3 py-1 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold">
                               পেন্ডিং (জমা দিতে হবে)
                             </span>
                           )}
@@ -1019,60 +1020,60 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
                       {/* SUBMISSION STATE & FORM */}
                       {isSubmitted && !canResubmit ? (
-                        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800/80 space-y-2 text-xs">
-                          <div className="flex items-center justify-between text-emerald-400 font-bold">
+                        <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 space-y-2 text-xs shadow-xs">
+                          <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 font-bold">
                             <span>✓ আপনি অ্যাসাইনমেন্টটি জমা দিয়েছেন</span>
-                            <span className="font-mono text-[10px] text-slate-400">
+                            <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
                               {formatBangladeshTime(sub.createdAt)}
                             </span>
                           </div>
 
                           {sub.submissionText && (
-                            <p className="text-slate-300 bg-slate-950 p-2.5 rounded border border-slate-800">
+                            <p className="text-slate-800 dark:text-slate-300 bg-slate-50 dark:bg-slate-950 p-2.5 rounded border border-slate-200 dark:border-slate-800">
                               {sub.submissionText}
                             </p>
                           )}
 
                           {sub.attachmentUrl && (
-                            <a href={sub.attachmentUrl} target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline font-semibold block">
+                            <a href={sub.attachmentUrl} target="_blank" rel="noreferrer" className="text-cyan-600 dark:text-cyan-400 hover:underline font-semibold block">
                               🔗 সংযুক্ত ফাইল / ডকুমেন্ট লিংক ↗
                             </a>
                           )}
 
                           {isGraded && (
-                            <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl space-y-1 mt-2">
-                              <p className="text-emerald-300 font-extrabold text-xs">
+                            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-500/30 rounded-xl space-y-1 mt-2">
+                              <p className="text-emerald-800 dark:text-emerald-300 font-extrabold text-xs">
                                 🏆 মেন্টর মূল্যায়ন রেজাল্ট: {sub.marksObtained} / {asn.totalMarks}
                               </p>
                               {sub.feedback && (
-                                <p className="text-slate-300 text-xs leading-relaxed">
+                                <p className="text-slate-700 dark:text-slate-300 text-xs leading-relaxed">
                                   💬 <strong>মেন্টর মন্তব্য:</strong> {sub.feedback}
                                 </p>
                               )}
                             </div>
                           )}
 
-                          <p className="text-[10px] text-slate-500 pt-1">
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 pt-1">
                             ⚠️ আপনি ইতোমধ্যে জমা দিয়েছেন। পরিবর্তন করতে চাইলে মেন্টর বা অ্যাডমিনের সাথে যোগাযোগ করুন।
                           </p>
                         </div>
                       ) : (
                         <div className="space-y-3 pt-1">
                           {canResubmit && (
-                            <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-semibold">
+                            <div className="p-2.5 rounded-xl bg-amber-100 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-500/40 text-amber-900 dark:text-amber-300 text-xs font-semibold">
                               🔄 আপনাকে পুনরায় অ্যাসাইনমেন্ট জমা দেওয়ার অনুমতি দেওয়া হয়েছে!
                             </div>
                           )}
 
                            {submittingAsnId === asn.id ? (
-                            <form onSubmit={(e) => handleSubmitAssignment(e, asn.id, asn.courseId)} className="space-y-4 bg-slate-900 p-4 rounded-xl border border-slate-800 text-xs">
+                            <form onSubmit={(e) => handleSubmitAssignment(e, asn.id, asn.courseId)} className="space-y-4 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shadow-xs">
                               {/* Multi-Page Handwritten Exam Paper Photo Upload */}
-                              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+                              <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
                                 <div className="flex items-center justify-between">
-                                  <label className="block text-amber-400 font-bold">
+                                  <label className="block text-amber-700 dark:text-amber-400 font-bold">
                                     📷 খাতার পৃষ্ঠার ছবি আপলোড (Handwritten Answer Sheet Photos)
                                   </label>
-                                  <span className="text-[10px] text-slate-400">একাধিক পেজ সিলেক্ট করুন ({subImages.length}টি যুক্ত)</span>
+                                  <span className="text-[10px] text-slate-500 dark:text-slate-400">একাধিক পেজ সিলেক্ট করুন ({subImages.length}টি যুক্ত)</span>
                                 </div>
 
                                 <input
@@ -1080,14 +1081,14 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                                   accept="image/*"
                                   multiple
                                   onChange={handleImageFilesSelect}
-                                  className="w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-500 file:text-slate-950 hover:file:bg-amber-400 cursor-pointer"
+                                  className="w-full text-xs text-slate-600 dark:text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-500 file:text-slate-950 hover:file:bg-amber-400 cursor-pointer"
                                 />
 
                                 {/* Preview Thumbnails of Uploaded Exam Pages */}
                                 {subImages.length > 0 && (
                                   <div className="pt-2 flex flex-wrap gap-2">
                                     {subImages.map((imgUrl, idx) => (
-                                      <div key={idx} className="relative group w-20 h-24 rounded-lg overflow-hidden border border-slate-700 bg-slate-900">
+                                      <div key={idx} className="relative group w-20 h-24 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900">
                                         <img src={imgUrl} alt={`Page ${idx+1}`} className="w-full h-full object-cover" />
                                         <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-1 text-center">
                                           <span className="text-[9px] text-amber-300 font-bold">Page {idx+1}</span>
@@ -1099,7 +1100,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                                             ✕ মুছে ফেলুন
                                           </button>
                                         </div>
-                                        <span className="absolute bottom-0 left-0 right-0 bg-slate-950/80 text-[8px] text-slate-300 text-center font-mono py-0.5">
+                                        <span className="absolute bottom-0 left-0 right-0 bg-slate-900/80 text-[8px] text-slate-200 text-center font-mono py-0.5">
                                           পৃষ্ঠা {idx+1}
                                         </span>
                                       </div>
@@ -1109,13 +1110,13 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                               </div>
 
                               <div>
-                                <label className="block text-slate-300 font-medium mb-1">গুগল ড্রাইভ / পিডিএফ / এক্সটার্নাল ডকুমেন্ট লিঙ্ক (ঐচ্ছিক)</label>
+                                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">গুগল ড্রাইভ / পিডিএফ / এক্সটার্নাল ডকুমেন্ট লিঙ্ক (ঐচ্ছিক)</label>
                                 <input
                                   type="url"
                                   value={subDocUrl}
                                   onChange={(e) => setSubDocUrl(e.target.value)}
                                   placeholder="https://drive.google.com/file/d/... বা PDF লিঙ্ক"
-                                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                                  className="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-amber-500"
                                 />
                               </div>
 
@@ -1123,14 +1124,14 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                                 <button
                                   type="button"
                                   onClick={() => setSubmittingAsnId(null)}
-                                  className="py-2 px-4 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold"
+                                  className="py-2 px-4 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold cursor-pointer"
                                 >
                                   বাতিল
                                 </button>
                                 <button
                                   type="submit"
                                   disabled={subLoading}
-                                  className="py-2 px-5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 text-xs font-extrabold hover:from-amber-400 shadow-md"
+                                  className="py-2 px-5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 text-xs font-extrabold hover:from-amber-400 shadow-md cursor-pointer"
                                 >
                                   {subLoading ? 'জমা হচ্ছে...' : '📤 জমা দিন (Submit Assignment)'}
                                 </button>
@@ -1143,7 +1144,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                                 setSubText(sub?.submissionText || '');
                                 setSubDocUrl(sub?.attachmentUrl || '');
                               }}
-                              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 text-xs font-extrabold shadow-md transition-all"
+                              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 text-xs font-extrabold shadow-md transition-all cursor-pointer"
                             >
                               ✍️ {canResubmit ? 'পুনরায় উত্তর জমা দিন' : 'উত্তর জমা দিন (Submit Response)'}
                             </button>
@@ -1163,23 +1164,23 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       {selectedTab === 'exams' && (
         <section className="space-y-6">
           {/* Active Available MCQ Exams */}
-          <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+          <div className="rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 space-y-4 shadow-sm transition-colors">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 gap-2">
               <div>
-                <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/30 uppercase">
+                <span className="px-2.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 font-mono text-[10px] font-bold border border-amber-300 dark:border-amber-500/30 uppercase">
                   ONLINE MODEL TESTS
                 </span>
-                <h2 className="text-lg font-extrabold text-white mt-1 flex items-center gap-2">
+                <h2 className="text-lg font-extrabold text-slate-900 dark:text-white mt-1 flex items-center gap-2">
                   <span>🎯 উপলব্ধ অনলাইন এমসিকিউ পরীক্ষা ও মডেল টেস্ট</span>
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
                   নির্ধারিত সময়ের মধ্যে পরীক্ষায় অংশগ্রহণ করুন। সময় শেষ হলে উত্তর স্বয়ংক্রিয়ভাবে জমা হয়ে যাবে।
                 </p>
               </div>
             </div>
 
             {studentExams.length === 0 ? (
-              <div className="p-10 text-center text-slate-500 text-xs bg-slate-950/60 rounded-xl border border-slate-800">
+              <div className="p-10 text-center text-slate-500 text-xs bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800">
                 বর্তমানে আপনার জন্য কোনো সক্রিয় অনলাইন এমসিকিউ পরীক্ষা নেই।
               </div>
             ) : (
@@ -1193,45 +1194,45 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                   return (
                     <div
                       key={ex.id || ex._id}
-                      className="p-5 rounded-2xl bg-slate-950/90 border border-slate-800 hover:border-amber-500/40 transition-all flex flex-col justify-between space-y-4 shadow-xl"
+                      className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950/90 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 transition-all flex flex-col justify-between space-y-4 shadow-xs"
                     >
                       <div className="space-y-2.5">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="px-2.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 font-mono text-[10px] font-bold border border-cyan-500/30">
+                          <span className="px-2.5 py-0.5 rounded bg-cyan-100 dark:bg-cyan-500/15 text-cyan-800 dark:text-cyan-300 font-mono text-[10px] font-bold border border-cyan-300 dark:border-cyan-500/30">
                             {ex.courseTitle || ex.courseId || '🌐 সার্বজনীন পরীক্ষা'}
                           </span>
 
                           {isUpcoming ? (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30">
                               ⏳ আসন্ন
                             </span>
                           ) : isExpired ? (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-500/20 text-rose-900 dark:text-rose-300 border border-rose-300 dark:border-rose-500/30">
                               🔒 বন্ধ
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30 animate-pulse">
                               🟢 লাইভ চলছে
                             </span>
                           )}
                         </div>
 
-                        <h3 className="text-base font-extrabold text-white leading-snug">
+                        <h3 className="text-base font-extrabold text-slate-900 dark:text-white leading-snug">
                           {ex.title}
                         </h3>
 
-                        <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-slate-900 font-sans">
-                          <div className="text-slate-300">
-                            ⏱️ সময়: <strong className="text-amber-400 font-mono">{ex.durationMinutes} মিনিট</strong>
+                        <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-slate-200 dark:border-slate-900 font-sans">
+                          <div className="text-slate-700 dark:text-slate-300">
+                            ⏱️ সময়: <strong className="text-amber-700 dark:text-amber-400 font-mono">{ex.durationMinutes} মিনিট</strong>
                           </div>
-                          <div className="text-slate-300">
-                            🎯 পূর্ণমান: <strong className="text-emerald-400 font-mono">{ex.totalMarks} মার্কস</strong>
+                          <div className="text-slate-700 dark:text-slate-300">
+                            🎯 পূর্ণমান: <strong className="text-emerald-700 dark:text-emerald-400 font-mono">{ex.totalMarks} মার্কস</strong>
                           </div>
-                          <div className="text-slate-300">
-                            📉 ভুল উত্তর: <strong className="text-rose-400 font-mono">-{ex.negativeMarks}</strong>
+                          <div className="text-slate-700 dark:text-slate-300">
+                            📉 ভুল উত্তর: <strong className="text-rose-700 dark:text-rose-400 font-mono">-{ex.negativeMarks}</strong>
                           </div>
-                          <div className="text-slate-300">
-                            🔄 সুযোগ (Limit): <strong className="text-cyan-400 font-mono">
+                          <div className="text-slate-700 dark:text-slate-300">
+                            🔄 সুযোগ (Limit): <strong className="text-cyan-700 dark:text-cyan-400 font-mono">
                               {ex.attemptLimit === 0 ? 'আনলিমিটেড' : `${ex.attemptLimit} বার (${ex.attemptsTaken} বার দেওয়া হয়েছে)`}
                             </strong>
                           </div>
@@ -1239,7 +1240,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
                         {/* Schedule Info */}
                         {(ex.startDate || ex.endDate) && (
-                          <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80 text-[10px] text-slate-400 space-y-0.5 font-mono">
+                          <div className="p-2 rounded-lg bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 text-[10px] text-slate-600 dark:text-slate-400 space-y-0.5 font-mono">
                             {ex.startDate && (
                               <div>📅 শুরু: {new Date(ex.startDate).toLocaleString()}</div>
                             )}
@@ -1250,25 +1251,25 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                         )}
                       </div>
 
-                      <div className="pt-2 border-t border-slate-900">
+                      <div className="pt-2 border-t border-slate-200 dark:border-slate-900">
                         {isUpcoming ? (
                           <button
                             disabled
-                            className="w-full py-2.5 rounded-xl bg-slate-800 text-slate-500 text-xs font-bold cursor-not-allowed"
+                            className="w-full py-2.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-500 text-xs font-bold cursor-not-allowed"
                           >
                             ⏳ নির্ধারিত সময়ে শুরু হবে
                           </button>
                         ) : isExpired ? (
                           <button
                             disabled
-                            className="w-full py-2.5 rounded-xl bg-slate-800 text-slate-500 text-xs font-bold cursor-not-allowed"
+                            className="w-full py-2.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-500 text-xs font-bold cursor-not-allowed"
                           >
                             🔒 পরীক্ষার সময় শেষ হয়েছে
                           </button>
                         ) : !ex.canAttempt ? (
                           <button
                             disabled
-                            className="w-full py-2.5 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 text-xs font-bold cursor-not-allowed flex items-center justify-center gap-1.5"
+                            className="w-full py-2.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700 text-xs font-bold cursor-not-allowed flex items-center justify-center gap-1.5"
                           >
                             <span>✓</span> আপনার সর্বোচ্চ সুযোগ শেষ ({ex.attemptsTaken}/{ex.attemptLimit})
                           </button>
@@ -1286,7 +1287,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                         <button
                           type="button"
                           onClick={() => handleOpenLeaderboard(ex.id || ex._id, ex.title)}
-                          className="w-full mt-2 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm hover:border-amber-400"
+                          className="w-full mt-2 py-2 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs hover:border-amber-400"
                         >
                           <span>🏆</span>
                           <span>সেন্ট্রাল মেরিট লিস্ট ও লিডারবোর্ড</span>
@@ -1300,29 +1301,29 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           </div>
 
           {/* Past MCQ Results & Performance Table */}
-          <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+          <div className="rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 space-y-4 shadow-sm transition-colors">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 gap-2">
               <div>
-                <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold border border-emerald-500/30 uppercase">
+                <span className="px-2.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-mono text-[10px] font-bold border border-emerald-300 dark:border-emerald-500/30 uppercase">
                   ACADEMIC PERFORMANCE
                 </span>
-                <h2 className="text-lg font-extrabold text-white mt-1 flex items-center gap-2">
+                <h2 className="text-lg font-extrabold text-slate-900 dark:text-white mt-1 flex items-center gap-2">
                   <span>🏆 আমার পূর্ববর্তী পরীক্ষার ফলাফল ও পারফরম্যান্স</span>
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
                   আপনার জমা দেওয়া সকল পরীক্ষার নম্বর, প্রাপ্ত গ্রেড ও বিস্তারিত সমাধান দেখুন।
                 </p>
               </div>
             </div>
 
             {studentResults.length === 0 ? (
-              <div className="p-10 text-center text-slate-500 text-xs bg-slate-950/60 rounded-xl border border-slate-800">
+              <div className="p-10 text-center text-slate-500 text-xs bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800">
                 আপনি এখনো কোনো অনলাইন এমসিকিউ পরীক্ষায় অংশগ্রহণ করেননি। উপরের পরীক্ষাগুলো থেকে শুরু করুন।
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-slate-900 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+                <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                  <thead className="bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
                     <tr>
                       <th className="p-3">পরীক্ষার শিরোনাম (Exam Title)</th>
                       <th className="p-3 text-center">প্রাপ্ত নম্বর (Score)</th>
@@ -1332,42 +1333,42 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                       <th className="p-3 text-right">বিস্তারিত রিভিউ</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/60">
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
                     {studentResults.map((r, idx) => (
-                      <tr key={r.id || r.resultId || idx} className="hover:bg-slate-900/50 transition-colors">
+                      <tr key={r.id || r.resultId || idx} className="hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
                         <td className="p-3">
-                          <div className="font-extrabold text-white text-xs">{r.examTitle || 'MCQ Model Test'}</div>
-                          <span className="text-[10px] text-amber-400 font-mono">ID: {r.id || r.resultId}</span>
+                          <div className="font-extrabold text-slate-900 dark:text-white text-xs">{r.examTitle || 'MCQ Model Test'}</div>
+                          <span className="text-[10px] text-amber-600 dark:text-amber-400 font-mono">ID: {r.id || r.resultId}</span>
                         </td>
-                        <td className="p-3 text-center font-mono font-black text-amber-400 text-sm">
+                        <td className="p-3 text-center font-mono font-black text-amber-700 dark:text-amber-400 text-sm">
                           {r.score} <span className="text-xs text-slate-500 font-normal">/ {r.totalMarks}</span>
                         </td>
-                        <td className="p-3 text-center font-mono font-bold text-white">
+                        <td className="p-3 text-center font-mono font-bold text-slate-900 dark:text-white">
                           {r.percentage}%
                         </td>
                         <td className="p-3 text-center">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                            r.percentage >= 80 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' :
-                            r.percentage >= 50 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' :
-                            'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                            r.percentage >= 80 ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-500/30' :
+                            r.percentage >= 50 ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/30' :
+                            'bg-rose-100 dark:bg-rose-500/20 text-rose-900 dark:text-rose-300 border-rose-300 dark:border-rose-500/30'
                           }`}>
                             {r.grade || (r.percentage >= 50 ? 'Passed ✓' : 'Needs Practice')}
                           </span>
                         </td>
-                        <td className="p-3 text-center font-mono text-[11px] text-slate-400">
+                        <td className="p-3 text-center font-mono text-[11px] text-slate-500 dark:text-slate-400">
                           {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : 'N/A'}
                         </td>
                         <td className="p-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               onClick={() => handleOpenReviewModal(r)}
-                              className="px-3 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 font-bold text-xs transition-all shadow-sm cursor-pointer"
+                              className="px-3 py-1.5 rounded-lg bg-cyan-50 hover:bg-cyan-100 dark:bg-cyan-950 dark:hover:bg-cyan-900 text-cyan-800 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-500/40 font-bold text-xs transition-all shadow-xs cursor-pointer"
                             >
                               🔍 উত্তর রিভিউ
                             </button>
                             <button
                               onClick={() => handleOpenLeaderboard(r.examId || r.id, r.examTitle)}
-                              className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold text-xs transition-all shadow-sm cursor-pointer"
+                              className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 font-bold text-xs transition-all shadow-xs cursor-pointer"
                             >
                               🏆 মেরিট
                             </button>
@@ -1387,18 +1388,18 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       {selectedTab === 'payments' && (
         <section className="space-y-6 animate-fadeIn">
           {/* Header Card */}
-          <div className="glass-card rounded-2xl p-6 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-br from-slate-900/90 to-slate-950/90 shadow-xl">
+          <div className="rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-gradient-to-br dark:from-slate-900/90 dark:to-slate-950/90 shadow-sm dark:shadow-xl transition-colors">
             <div>
-              <h2 className="text-lg sm:text-xl font-extrabold text-white flex items-center gap-2">
+              <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
                 <span>💳</span> আমার পেমেন্ট ও মানি রিসিট হিস্ট্রি
               </h2>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
                 আপনার পরিশোধিত কোর্স ফি, পেমেন্ট মেথড ও ভেরিফায়েড ডিজিটাল মানি রিসিট (বাংলাদেশ সময় / BST অনুযায়ী)।
               </p>
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30">
                 ✓ সেন্ট্রাল ভেরিফায়েড অ্যাকাউন্ট
               </span>
             </div>
@@ -1406,37 +1407,37 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
           {/* Quick Metrics */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="glass-card rounded-2xl p-4 border border-slate-800 bg-slate-900/60 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-lg font-bold">
+            <div className="rounded-2xl p-4 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 flex items-center gap-3 shadow-xs">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-500/15 border border-emerald-300 dark:border-emerald-500/30 flex items-center justify-center text-emerald-800 dark:text-emerald-400 text-lg font-bold">
                 ৳
               </div>
               <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">মোট পরিশোধিত ফি</p>
-                <p className="text-xl font-black text-emerald-400 font-mono">
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">মোট পরিশোধিত ফি</p>
+                <p className="text-xl font-black text-emerald-700 dark:text-emerald-400 font-mono">
                   ৳{toBangladeshDigits((studentReceipts.reduce((acc, r) => acc + (Number(r.amount) || 0), 0)).toLocaleString('en-IN'))}
                 </p>
               </div>
             </div>
 
-            <div className="glass-card rounded-2xl p-4 border border-slate-800 bg-slate-900/60 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 text-lg font-bold">
+            <div className="rounded-2xl p-4 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 flex items-center gap-3 shadow-xs">
+              <div className="w-10 h-10 rounded-xl bg-cyan-100 dark:bg-cyan-500/15 border border-cyan-300 dark:border-cyan-500/30 flex items-center justify-center text-cyan-800 dark:text-cyan-400 text-lg font-bold">
                 📜
               </div>
               <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">ইস্যুকৃত মানি রিসিট</p>
-                <p className="text-xl font-black text-cyan-400 font-mono">
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">ইস্যুকৃত মানি রিসিট</p>
+                <p className="text-xl font-black text-cyan-700 dark:text-cyan-400 font-mono">
                   {toBangladeshDigits(studentReceipts.length)} টি
                 </p>
               </div>
             </div>
 
-            <div className="glass-card rounded-2xl p-4 border border-slate-800 bg-slate-900/60 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 text-lg font-bold">
+            <div className="rounded-2xl p-4 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 flex items-center gap-3 shadow-xs">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-500/15 border border-amber-300 dark:border-amber-500/30 flex items-center justify-center text-amber-800 dark:text-amber-400 text-lg font-bold">
                 🇧🇩
               </div>
               <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">সময় জোন (টাইমস্ট্যাম্প)</p>
-                <p className="text-xs font-bold text-amber-300">
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">সময় জোন (টাইমস্ট্যাম্প)</p>
+                <p className="text-xs font-bold text-amber-800 dark:text-amber-300">
                   বাংলাদেশ সময় (BST, UTC+6)
                 </p>
               </div>
@@ -1444,25 +1445,25 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           </div>
 
           {/* Receipts Table */}
-          <div className="glass-card rounded-2xl border border-slate-800 overflow-hidden shadow-2xl bg-slate-950/80">
-            <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm dark:shadow-2xl bg-white dark:bg-slate-950/80 transition-colors">
+            <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <h3 className="font-extrabold text-slate-900 dark:text-white text-sm flex items-center gap-2">
                 <span>📑</span> মানি রিসিটের পূর্ণাঙ্গ তালিকা ({studentReceipts.length})
               </h3>
-              <span className="text-[11px] text-slate-400 font-mono">Official PDF Slips</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">Official PDF Slips</span>
             </div>
 
             {studentReceipts.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 space-y-2">
+              <div className="p-12 text-center text-slate-500 space-y-2 bg-slate-50 dark:bg-slate-950/60">
                 <span className="text-3xl block">📜</span>
-                <p className="text-sm font-bold text-slate-400">এখনো কোনো মানি রিসিট ইস্যু করা হয়নি।</p>
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-400">এখনো কোনো মানি রিসিট ইস্যু করা হয়নি।</p>
                 <p className="text-xs text-slate-500">আপনার ভর্তি বা কোর্স ফি জমা হওয়ার পর অ্যাডমিন প্যানেল থেকে এখানে ডিজিটাল রিসিট ইস্যু করা হবে।</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-800 bg-slate-900/60 text-slate-400 font-mono text-[11px]">
+                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400 font-mono text-[11px]">
                       <th className="p-3.5">রসিদ নম্বর</th>
                       <th className="p-3.5">কোর্স / ব্যাচ</th>
                       <th className="p-3.5">ফি (পরিমাণ)</th>
@@ -1473,29 +1474,29 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                       <th className="p-3.5 text-right">ডাউনলোড</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/60">
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
                     {studentReceipts.map((r, rIdx) => (
-                      <tr key={r.receiptId || rIdx} className="hover:bg-slate-900/40 transition-colors">
-                        <td className="p-3.5 font-mono font-black text-amber-400 text-xs">
+                      <tr key={r.receiptId || rIdx} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors">
+                        <td className="p-3.5 font-mono font-black text-amber-700 dark:text-amber-400 text-xs">
                           {r.receiptId}
                         </td>
-                        <td className="p-3.5 font-bold text-white max-w-[180px] truncate">
+                        <td className="p-3.5 font-bold text-slate-900 dark:text-white max-w-[180px] truncate">
                           {r.batch || 'BJS & Bar Masterclass'}
                         </td>
-                        <td className="p-3.5 font-mono font-bold text-emerald-400">
+                        <td className="p-3.5 font-mono font-bold text-emerald-700 dark:text-emerald-400">
                           ৳{toBangladeshDigits(Number(r.amount || 0).toLocaleString('en-IN'))}
                         </td>
-                        <td className="p-3.5 font-bold text-cyan-300">
+                        <td className="p-3.5 font-bold text-cyan-800 dark:text-cyan-300">
                           {r.paymentMethod || 'bKash'}
                         </td>
-                        <td className="p-3.5 font-mono text-slate-400 text-[11px]">
+                        <td className="p-3.5 font-mono text-slate-500 dark:text-slate-400 text-[11px]">
                           {r.trxId || 'N/A'}
                         </td>
-                        <td className="p-3.5 font-mono text-slate-300 text-[11px] whitespace-nowrap">
+                        <td className="p-3.5 font-mono text-slate-700 dark:text-slate-300 text-[11px] whitespace-nowrap">
                           {formatBangladeshTime(r.paymentTime || r.createdAt)}
                         </td>
                         <td className="p-3.5">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30">
                             ✓ পরিশোধিত
                           </span>
                         </td>
@@ -1503,7 +1504,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                           <button
                             type="button"
                             onClick={() => setViewReceiptModal({ isOpen: true, receipt: r })}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs border border-slate-700 cursor-pointer transition-all active:scale-95"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-amber-300 font-bold text-xs border border-slate-300 dark:border-slate-700 cursor-pointer transition-all active:scale-95"
                             title="ইন-অ্যাপ ভেরিফায়েড মানি রিসিট দেখুন"
                           >
                             <span>👁️</span>
@@ -1532,58 +1533,58 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       {/* MY CERTIFICATES TAB */}
       {selectedTab === 'certificates' && (
         <section className="space-y-6 animate-fadeIn">
-          <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+          <div className="rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 space-y-4 shadow-sm transition-colors">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 gap-2">
               <div>
-                <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/30">
+                <span className="px-2.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 font-mono text-[10px] font-bold border border-amber-300 dark:border-amber-500/30">
                   OFFICIAL DIGITAL CREDENTIALS
                 </span>
-                <h2 className="text-xl font-extrabold text-white mt-1 flex items-center gap-2">
+                <h2 className="text-xl font-extrabold text-slate-900 dark:text-white mt-1 flex items-center gap-2">
                   <span>📜 আমার ডিজিটাল সার্টিফিকেট ও ভেরিফিকেশন</span>
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
                   কোর্স সমাপ্তির পর একাডেমি কর্তৃক প্রদত্ত কিউআর-কোড ভেরিফাইড অফিশিয়াল সার্টিফিকেট।
                 </p>
               </div>
             </div>
 
             {studentCertificates.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 text-xs bg-slate-950/60 rounded-xl border border-slate-800 space-y-3">
+              <div className="p-12 text-center text-slate-500 text-xs bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
                 <div className="text-4xl">🎓</div>
-                <p className="text-slate-300 font-bold text-sm">কোনো সার্টিফিকেট এখনো ইস্যু করা হয়নি</p>
-                <p className="text-slate-400 text-xs max-w-md mx-auto">
+                <p className="text-slate-800 dark:text-slate-300 font-bold text-sm">কোনো সার্টিফিকেট এখনো ইস্যু করা হয়নি</p>
+                <p className="text-slate-600 dark:text-slate-400 text-xs max-w-md mx-auto">
                   আপনার কোর্স সম্পন্ন হওয়ার পর একাডেমি কর্তৃপক্ষ আপনার নামে ডিজিটাল সার্টিফিকেট ইস্যু করবে। সার্টিফিকেট ইস্যু হলে তা এখানে প্রদর্শিত হবে এবং আপনি পিডিএফ ডাউনলোড করতে পারবেন।
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {studentCertificates.map(cert => (
-                  <div key={cert.id || cert.certificateId || cert._id} className="p-6 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-950 border-2 border-amber-500/40 space-y-4 shadow-2xl relative overflow-hidden">
+                  <div key={cert.id || cert.certificateId || cert._id} className="p-6 rounded-2xl bg-white dark:bg-gradient-to-br dark:from-slate-900 dark:to-slate-950 border-2 border-amber-500/40 space-y-4 shadow-md dark:shadow-2xl relative overflow-hidden transition-colors">
                     <div className="flex items-start justify-between">
                       <div>
-                        <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold border border-emerald-500/30">
+                        <span className="px-2.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-mono text-[10px] font-bold border border-emerald-300 dark:border-emerald-500/30">
                           ✓ VERIFIED CREDENTIAL
                         </span>
-                        <h3 className="text-lg font-black text-white mt-1.5">{cert.courseTitle || 'BJS & Bar Masterclass'}</h3>
-                        <p className="text-xs text-amber-400 font-mono">আইডি: {cert.certificateId}</p>
+                        <h3 className="text-lg font-black text-slate-900 dark:text-white mt-1.5">{cert.courseTitle || 'BJS & Bar Masterclass'}</h3>
+                        <p className="text-xs text-amber-700 dark:text-amber-400 font-mono">আইডি: {cert.certificateId}</p>
                       </div>
-                      <div className="w-12 h-12 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center text-2xl border border-amber-500/40">
+                      <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 flex items-center justify-center text-2xl border border-amber-300 dark:border-amber-500/40">
                         ⚖️
                       </div>
                     </div>
 
-                    <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-xs space-y-1.5 font-sans">
-                      <div className="flex justify-between text-slate-300">
-                        <span className="text-slate-500">প্রাপকের নাম:</span>
-                        <strong className="text-white font-bold">{cert.studentName}</strong>
+                    <div className="p-3 bg-slate-50 dark:bg-slate-950/80 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-1.5 font-sans">
+                      <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                        <span className="text-slate-500 dark:text-slate-400">প্রাপকের নাম:</span>
+                        <strong className="text-slate-900 dark:text-white font-bold">{cert.studentName}</strong>
                       </div>
-                      <div className="flex justify-between text-slate-300">
-                        <span className="text-slate-500">স্টুডেন্ট রোল:</span>
-                        <span className="font-mono text-amber-300 font-bold">{cert.studentId}</span>
+                      <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                        <span className="text-slate-500 dark:text-slate-400">স্টুডেন্ট রোল:</span>
+                        <span className="font-mono text-amber-700 dark:text-amber-300 font-bold">{cert.studentId}</span>
                       </div>
-                      <div className="flex justify-between text-slate-300">
-                        <span className="text-slate-500">ইস্যুর তারিখ:</span>
-                        <span className="font-mono text-slate-300">{formatBangladeshTime(cert.issueDate)}</span>
+                      <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                        <span className="text-slate-500 dark:text-slate-400">ইস্যুর তারিখ:</span>
+                        <span className="font-mono text-slate-700 dark:text-slate-300">{formatBangladeshTime(cert.issueDate)}</span>
                       </div>
                     </div>
 
@@ -1600,7 +1601,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                         href={`/verify/${cert.id || cert.certificateId || cert._id}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 font-bold text-xs text-center transition-all flex items-center justify-center gap-1.5"
+                        className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-cyan-300 dark:border-cyan-500/40 text-cyan-800 dark:text-cyan-300 font-bold text-xs text-center transition-all flex items-center justify-center gap-1.5"
                       >
                         <span>🔍</span>
                         <span>অনলাইনে ভেরিফাই</span>
@@ -1619,57 +1620,57 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         <section className="space-y-6 animate-fadeIn">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Student Identity Card */}
-            <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-              <div className="border-b border-slate-800 pb-3">
-                <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/30">
+            <div className="rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 space-y-4 shadow-sm transition-colors">
+              <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
+                <span className="px-2.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 font-mono text-[10px] font-bold border border-amber-300 dark:border-amber-500/30">
                   DIGITAL IDENTITY CARD
                 </span>
-                <h2 className="text-lg font-extrabold text-white mt-1 flex items-center gap-2">
+                <h2 className="text-lg font-extrabold text-slate-900 dark:text-white mt-1 flex items-center gap-2">
                   <span>👤 শিক্ষার্থী পরিচয় ও একাডেমি প্রোফাইল</span>
                 </h2>
               </div>
 
-              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3 text-xs">
-                <div className="flex justify-between border-b border-slate-900 pb-2">
-                  <span className="text-slate-400">নাম:</span>
-                  <span className="text-white font-bold">{user?.name}</span>
+              <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3 text-xs">
+                <div className="flex justify-between border-b border-slate-200 dark:border-slate-900 pb-2">
+                  <span className="text-slate-500 dark:text-slate-400">নাম:</span>
+                  <span className="text-slate-900 dark:text-white font-bold">{user?.name}</span>
                 </div>
-                <div className="flex justify-between border-b border-slate-900 pb-2">
-                  <span className="text-slate-400">রেজিস্ট্রেশন রোল / আইডি:</span>
-                  <span className="text-amber-400 font-mono font-bold">{user?.id}</span>
+                <div className="flex justify-between border-b border-slate-200 dark:border-slate-900 pb-2">
+                  <span className="text-slate-500 dark:text-slate-400">রেজিস্ট্রেশন রোল / আইডি:</span>
+                  <span className="text-amber-700 dark:text-amber-400 font-mono font-bold">{user?.id}</span>
                 </div>
-                <div className="flex justify-between border-b border-slate-900 pb-2">
-                  <span className="text-slate-400">মোবাইল নম্বর:</span>
-                  <span className="text-slate-200 font-mono">{user?.phone}</span>
+                <div className="flex justify-between border-b border-slate-200 dark:border-slate-900 pb-2">
+                  <span className="text-slate-500 dark:text-slate-400">মোবাইল নম্বর:</span>
+                  <span className="text-slate-700 dark:text-slate-200 font-mono">{user?.phone}</span>
                 </div>
-                <div className="flex justify-between border-b border-slate-900 pb-2">
-                  <span className="text-slate-400">ইমেইল ঠিকানা:</span>
-                  <span className="text-slate-200">{user?.email || 'N/A'}</span>
+                <div className="flex justify-between border-b border-slate-200 dark:border-slate-900 pb-2">
+                  <span className="text-slate-500 dark:text-slate-400">ইমেইল ঠিকানা:</span>
+                  <span className="text-slate-700 dark:text-slate-200">{user?.email || 'N/A'}</span>
                 </div>
-                <div className="flex justify-between border-b border-slate-900 pb-2">
-                  <span className="text-slate-400">ব্যাচ:</span>
-                  <span className="text-amber-300 font-bold">{user?.batch || 'BJS & Bar Regular'}</span>
+                <div className="flex justify-between border-b border-slate-200 dark:border-slate-900 pb-2">
+                  <span className="text-slate-500 dark:text-slate-400">ব্যাচ:</span>
+                  <span className="text-amber-800 dark:text-amber-300 font-bold">{user?.batch || 'BJS & Bar Regular'}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">অ্যাকাউন্ট স্ট্যাটাস:</span>
-                  <span className="text-emerald-400 font-bold">● {user?.status || 'Active'}</span>
+                  <span className="text-slate-500 dark:text-slate-400">অ্যাকাউন্ট স্ট্যাটাস:</span>
+                  <span className="text-emerald-700 dark:text-emerald-400 font-bold">● {user?.status || 'Active'}</span>
                 </div>
               </div>
 
               {/* Browser Push Notifications Activation */}
-              <div className="p-4 bg-gradient-to-r from-blue-950/40 to-slate-950 rounded-xl border border-blue-500/30 space-y-2">
+              <div className="p-4 bg-gradient-to-r from-blue-50 to-slate-50 dark:from-blue-950/40 dark:to-slate-950 rounded-xl border border-blue-200 dark:border-blue-500/30 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-blue-300 flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-blue-800 dark:text-blue-300 flex items-center gap-1.5">
                     <span>🔔</span>
                     <span>ব্রাউজার পুশ নোটিফিকেশন</span>
                   </span>
                   <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
-                    pushStatus === 'granted' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'
+                    pushStatus === 'granted' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300' : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
                   }`}>
                     {pushStatus === 'granted' ? 'সক্রিয় (Active)' : 'নিষ্ক্রিয় (Inactive)'}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
                   কোনো ইমেইল কোটা খরচ না করেই নতুন ভিডিও ক্লাস, লাইভ মডেল টেস্ট ও অ্যাকাডেমিক ঘোষণার তাৎক্ষণিক ব্রাউজার নোটিফিকেশন পান।
                 </p>
                 <button
@@ -1678,7 +1679,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                   disabled={pushLoading || pushStatus === 'granted'}
                   className={`w-full py-2 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-2 cursor-pointer ${
                     pushStatus === 'granted'
-                      ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-500/30 cursor-default'
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/30 cursor-default'
                       : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white shadow-md'
                   }`}
                 >
@@ -1690,15 +1691,15 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
             {/* Device Lock & Password Update */}
             <div className="space-y-6">
               {/* Device Security Status (Max 2 Devices Lock) */}
-              <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-3">
-                <div className="border-b border-slate-800 pb-3">
-                  <span className="px-2.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono text-[10px] font-bold border border-rose-500/30">
+              <div className="rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 space-y-3 shadow-sm transition-colors">
+                <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
+                  <span className="px-2.5 py-0.5 rounded bg-rose-100 dark:bg-rose-500/20 text-rose-900 dark:text-rose-300 font-mono text-[10px] font-bold border border-rose-300 dark:border-rose-500/30">
                     DEVICE SECURITY GUARD
                   </span>
-                  <h2 className="text-lg font-extrabold text-white mt-1 flex items-center gap-2">
+                  <h2 className="text-lg font-extrabold text-slate-900 dark:text-white mt-1 flex items-center gap-2">
                     <span>🛡️ ডিভাইস লক ও নিরাপত্তা (সর্বোচ্চ ২টি ডিভাইস)</span>
                   </h2>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
                     ভিডিও পাইরেসি ও অননুমোদিত অ্যাক্সেস রোধে আপনার অ্যাকাউন্টটি সর্বোচ্চ ২টি ডিভাইসে সীমাবদ্ধ।
                   </p>
                 </div>
@@ -1706,67 +1707,67 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                 <div className="space-y-2">
                   {(user?.devices && user.devices.length > 0) ? (
                     user.devices.map((dev, idx) => (
-                      <div key={idx} className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+                      <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2.5">
                           <span className="text-base">💻</span>
                           <div>
-                            <p className="text-white font-bold">{dev.userAgent ? dev.userAgent.substring(0, 35) + '...' : `ডিভাইস #${idx + 1}`}</p>
-                            <p className="text-[10px] text-slate-500 font-mono">লগইন: {formatBangladeshTime(dev.lastLogin || dev.createdAt)}</p>
+                            <p className="text-slate-900 dark:text-white font-bold">{dev.userAgent ? dev.userAgent.substring(0, 35) + '...' : `ডিভাইস #${idx + 1}`}</p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">লগইন: {formatBangladeshTime(dev.lastLogin || dev.createdAt)}</p>
                           </div>
                         </div>
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold">
+                        <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-mono text-[10px] font-bold border border-emerald-300 dark:border-emerald-500/30">
                           অনুমোদিত
                         </span>
                       </div>
                     ))
                   ) : (
-                    <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-400">
+                    <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400">
                       বর্তমান ডিভাইসটি প্রধান অনুমোদিত ডিভাইস হিসেবে সংরক্ষিত রয়েছে।
                     </div>
                   )}
                 </div>
-                <p className="text-[10px] text-amber-400">
+                <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">
                   ⚠️ ডিভাইস রিসেট বা পরিবর্তন করতে চাইলে হেল্পলাইনে যোগাযোগ করুন।
                 </p>
               </div>
 
               {/* Change Password Form */}
-              <div className="glass-card rounded-2xl p-6 border border-slate-800 space-y-3">
-                <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+              <div className="rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 space-y-3 shadow-sm transition-colors">
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
                   <span>🔐 পাসওয়ার্ড পরিবর্তন করুন</span>
                 </h3>
                 <form onSubmit={handleChangePassword} className="space-y-3 text-xs">
                   <div>
-                    <label className="block text-slate-400 font-bold mb-1">বর্তমান পাসওয়ার্ড:</label>
+                    <label className="block text-slate-600 dark:text-slate-400 font-bold mb-1">বর্তমান পাসওয়ার্ড:</label>
                     <input
                       type="password"
                       required
                       value={passForm.oldPassword}
                       onChange={e => setPassForm({ ...passForm, oldPassword: e.target.value })}
                       placeholder="আপনার বর্তমান পাসওয়ার্ড লিখুন"
-                      className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-amber-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-400 font-bold mb-1">নতুন পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর):</label>
+                    <label className="block text-slate-600 dark:text-slate-400 font-bold mb-1">নতুন পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর):</label>
                     <input
                       type="password"
                       required
                       value={passForm.newPassword}
                       onChange={e => setPassForm({ ...passForm, newPassword: e.target.value })}
                       placeholder="নতুন গোপনীয় পাসওয়ার্ড"
-                      className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-amber-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-400 font-bold mb-1">নতুন পাসওয়ার্ড নিশ্চিত করুন:</label>
+                    <label className="block text-slate-600 dark:text-slate-400 font-bold mb-1">নতুন পাসওয়ার্ড নিশ্চিত করুন:</label>
                     <input
                       type="password"
                       required
                       value={passForm.confirmPassword}
                       onChange={e => setPassForm({ ...passForm, confirmPassword: e.target.value })}
                       placeholder="পাসওয়ার্ডটি পুনরায় লিখুন"
-                      className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-amber-500"
                     />
                   </div>
                   <button
@@ -1797,7 +1798,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
               <button
                 type="button"
                 onClick={() => setReviewModal({ isOpen: false, result: null, review: [], loading: false })}
-                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white font-bold text-xs cursor-pointer"
               >
                 বন্ধ করুন (Close Review)
               </button>
@@ -1805,22 +1806,22 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           }
         >
           {/* Scorecard Strip */}
-          <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-950 border border-slate-800 mb-4 text-center">
+          <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 mb-4 text-center">
             <div>
-              <span className="text-[10px] text-slate-400 block font-bold">প্রাপ্ত স্কোর (Score)</span>
-              <span className="text-lg font-black text-amber-400 font-mono">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-bold">প্রাপ্ত স্কোর (Score)</span>
+              <span className="text-lg font-black text-amber-700 dark:text-amber-400 font-mono">
                 {reviewModal.result?.score} <span className="text-xs text-slate-500">/ {reviewModal.result?.totalMarks}</span>
               </span>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block font-bold">শতকরা হার (Percentage)</span>
-              <span className="text-lg font-black text-emerald-400 font-mono">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-bold">শতকরা হার (Percentage)</span>
+              <span className="text-lg font-black text-emerald-700 dark:text-emerald-400 font-mono">
                 {reviewModal.result?.percentage}%
               </span>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block font-bold">ফলাফল গ্রেড</span>
-              <span className="text-sm font-extrabold text-cyan-300">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-bold">ফলাফল গ্রেড</span>
+              <span className="text-sm font-extrabold text-cyan-800 dark:text-cyan-300">
                 {reviewModal.result?.grade || 'Passed'}
               </span>
             </div>
@@ -1829,7 +1830,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           {/* Questions Review List */}
           <div className="space-y-4 pr-1">
               {reviewModal.loading ? (
-                <div className="p-12 text-center text-amber-400 font-bold">
+                <div className="p-12 text-center text-amber-600 dark:text-amber-400 font-bold">
                   ⏳ উত্তরপত্রের বিস্তারিত রিভিউ লোড হচ্ছে...
                 </div>
               ) : reviewModal.review.length === 0 ? (
@@ -1844,26 +1845,26 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                       key={item.questionId || idx}
                       className={`p-4 rounded-xl border space-y-2.5 ${
                         item.isCorrect
-                          ? 'bg-emerald-950/20 border-emerald-500/40'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-500/40'
                           : item.selectedIndex === -1
-                          ? 'bg-slate-950 border-slate-800'
-                          : 'bg-rose-950/20 border-rose-500/40'
+                          ? 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'
+                          : 'bg-rose-50 dark:bg-rose-950/20 border-rose-300 dark:border-rose-500/40'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span className="font-extrabold text-white text-xs leading-relaxed">
+                        <span className="font-extrabold text-slate-900 dark:text-white text-xs leading-relaxed">
                           {item.serial}. {item.questionText}
                         </span>
                         {item.isCorrect ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 shrink-0">
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-500/30 shrink-0">
                             ✓ সঠিক (+১)
                           </span>
                         ) : item.selectedIndex === -1 ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 font-bold shrink-0">
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400 font-bold shrink-0">
                             উত্তর দেওয়া হয়নি (০)
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30 shrink-0">
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-rose-100 dark:bg-rose-500/20 text-rose-900 dark:text-rose-300 font-bold border border-rose-300 dark:border-rose-500/30 shrink-0">
                             ✕ ভুল উত্তর (নেগেটিভ)
                           </span>
                         )}
@@ -1875,11 +1876,11 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                           const isCorrectOpt = oIdx === Number(item.correctIndex);
                           const isUserSelected = oIdx === Number(item.selectedIndex);
 
-                          let optClass = 'bg-slate-900/60 border-slate-800 text-slate-300';
+                          let optClass = 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300';
                           if (isCorrectOpt) {
-                            optClass = 'bg-emerald-950/80 border-emerald-500/60 text-emerald-200 font-bold';
+                            optClass = 'bg-emerald-100 dark:bg-emerald-950/80 border-emerald-300 dark:border-emerald-500/60 text-emerald-900 dark:text-emerald-200 font-bold';
                           } else if (isUserSelected) {
-                            optClass = 'bg-rose-950/80 border-rose-500/60 text-rose-200 font-bold line-through';
+                            optClass = 'bg-rose-100 dark:bg-rose-950/80 border-rose-300 dark:border-rose-500/60 text-rose-900 dark:text-rose-200 font-bold line-through';
                           }
 
                           return (
@@ -1891,8 +1892,8 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                                 <strong className="mr-1.5 font-mono">{optLabels[oIdx] || `[${oIdx + 1}]`}</strong>
                                 {opt}
                               </span>
-                              {isCorrectOpt && <span className="text-emerald-400 font-bold text-[10px]">✓ সঠিক</span>}
-                              {isUserSelected && !isCorrectOpt && <span className="text-rose-400 font-bold text-[10px]">✕ আপনার ভুল</span>}
+                              {isCorrectOpt && <span className="text-emerald-700 dark:text-emerald-400 font-bold text-[10px]">✓ সঠিক</span>}
+                              {isUserSelected && !isCorrectOpt && <span className="text-rose-700 dark:text-rose-400 font-bold text-[10px]">✕ আপনার ভুল</span>}
                             </div>
                           );
                         })}
@@ -1900,8 +1901,8 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
                       {/* Legal Explanation Box */}
                       {item.explanation && (
-                        <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 leading-relaxed space-y-1">
-                          <span className="font-extrabold text-amber-400 block">💡 আইনি ব্যাখ্যা (Mentor Explanation):</span>
+                        <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-[11px] text-amber-950 dark:text-amber-200 leading-relaxed space-y-1">
+                          <span className="font-extrabold text-amber-800 dark:text-amber-400 block">💡 আইনি ব্যাখ্যা (Mentor Explanation):</span>
                           <p>{item.explanation}</p>
                         </div>
                       )}
@@ -1926,7 +1927,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
               <button
                 type="button"
                 onClick={() => setLeaderboardModal({ isOpen: false, examId: null, examTitle: '', leaderboard: [], totalParticipants: 0, loading: false })}
-                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white font-bold text-xs cursor-pointer"
               >
                 বন্ধ করুন (Close Leaderboard)
               </button>
@@ -1935,7 +1936,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         >
           <div className="space-y-4 max-h-[75vh] overflow-y-auto p-1 text-xs">
             {leaderboardModal.loading ? (
-              <div className="p-12 text-center text-amber-400 font-bold space-y-2">
+              <div className="p-12 text-center text-amber-600 dark:text-amber-400 font-bold space-y-2">
                 <div className="w-8 h-8 rounded-full border-2 border-amber-500 border-t-transparent animate-spin mx-auto" />
                 <p>⏳ সেন্ট্রাল মেধা তালিকা ও লিডারবোর্ড লোড হচ্ছে...</p>
               </div>
@@ -1946,14 +1947,14 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs">
-                  <span className="text-slate-400">মোট অংশগ্রহণকারী শিক্ষার্থী:</span>
-                  <span className="text-amber-400 font-mono font-bold">{leaderboardModal.totalParticipants} জন</span>
+                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
+                  <span className="text-slate-600 dark:text-slate-400">মোট অংশগ্রহণকারী শিক্ষার্থী:</span>
+                  <span className="text-amber-700 dark:text-amber-400 font-mono font-bold">{leaderboardModal.totalParticipants} জন</span>
                 </div>
 
-                <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
-                  <table className="w-full text-left text-xs text-slate-300">
-                    <thead className="bg-slate-900 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+                  <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                    <thead className="bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
                       <tr>
                         <th className="p-3 text-center">মেধা স্থান (Rank)</th>
                         <th className="p-3">শিক্ষার্থীর নাম</th>
@@ -1963,31 +1964,31 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                         <th className="p-3 text-center">ব্যয়িত সময়</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/60 font-sans">
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60 font-sans">
                       {leaderboardModal.leaderboard.map((row) => {
                         const medal = row.rank === 1 ? '🥇 1st' : row.rank === 2 ? '🥈 2nd' : row.rank === 3 ? '🥉 3rd' : `#${row.rank}`;
-                        const rowClass = row.rank === 1 ? 'bg-amber-500/10' : row.rank === 2 ? 'bg-slate-800/40' : row.rank === 3 ? 'bg-amber-900/10' : '';
+                        const rowClass = row.rank === 1 ? 'bg-amber-500/10' : row.rank === 2 ? 'bg-slate-100 dark:bg-slate-800/40' : row.rank === 3 ? 'bg-amber-100/50 dark:bg-amber-900/10' : '';
 
                         return (
-                          <tr key={row.rank} className={`hover:bg-slate-900/50 transition-colors ${rowClass}`}>
+                          <tr key={row.rank} className={`hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors ${rowClass}`}>
                             <td className="p-3 text-center font-bold">
                               <span className={`px-2 py-0.5 rounded-full font-mono text-xs ${
                                 row.rank === 1 ? 'bg-amber-500 text-slate-950 font-black' :
                                 row.rank === 2 ? 'bg-slate-300 text-slate-950 font-black' :
-                                row.rank === 3 ? 'bg-amber-700 text-white font-black' :
-                                'text-slate-400'
+                                row.rank === 3 ? 'bg-amber-600 text-white font-black' :
+                                'text-slate-600 dark:text-slate-400'
                               }`}>
                                 {medal}
                               </span>
                             </td>
                             <td className="p-3">
-                              <p className="font-extrabold text-white text-xs">{row.studentName}</p>
+                              <p className="font-extrabold text-slate-900 dark:text-white text-xs">{row.studentName}</p>
                               <p className="text-[10px] text-slate-500 font-mono">{row.studentPhone || '***'}</p>
                             </td>
-                            <td className="p-3 text-center font-mono text-emerald-400 font-bold">+{row.correctCount}</td>
-                            <td className="p-3 text-center font-mono text-rose-400 font-bold">-{row.negativeDeduction || 0} ({row.wrongCount})</td>
-                            <td className="p-3 text-center font-mono text-amber-300 font-black text-sm">{row.netScore}</td>
-                            <td className="p-3 text-center font-mono text-slate-400">
+                            <td className="p-3 text-center font-mono text-emerald-700 dark:text-emerald-400 font-bold">+{row.correctCount}</td>
+                            <td className="p-3 text-center font-mono text-rose-700 dark:text-rose-400 font-bold">-{row.negativeDeduction || 0} ({row.wrongCount})</td>
+                            <td className="p-3 text-center font-mono text-amber-700 dark:text-amber-300 font-black text-sm">{row.netScore}</td>
+                            <td className="p-3 text-center font-mono text-slate-500 dark:text-slate-400">
                               {Math.floor((row.timeTakenSeconds || 0) / 60)}মি. {(row.timeTakenSeconds || 0) % 60}সে.
                             </td>
                           </tr>
@@ -2030,7 +2031,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                 <button
                   type="button"
                   onClick={() => setViewReceiptModal({ isOpen: false, receipt: null })}
-                  className="px-4 py-2 rounded-xl bg-slate-900 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 text-slate-800 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white text-xs font-bold cursor-pointer"
                 >
                   বন্ধ করুন
                 </button>

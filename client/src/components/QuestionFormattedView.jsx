@@ -102,14 +102,14 @@ export default function QuestionFormattedView({ description, title = 'অ্য�
   };
 
   return (
-    <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-4 text-slate-100 shadow-xl">
+    <div className="p-4 rounded-2xl bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 space-y-4 text-slate-800 dark:text-slate-100 shadow-sm transition-colors">
       {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800/80 pb-3">
         <div className="flex items-center gap-2">
-          <span className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-sm border border-amber-500/30">
+          <span className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-400 flex items-center justify-center font-bold text-sm border border-amber-300 dark:border-amber-500/30">
             📌
           </span>
-          <h4 className="font-extrabold text-amber-300 text-sm tracking-wide">
+          <h4 className="font-extrabold text-amber-800 dark:text-amber-300 text-sm tracking-wide">
             {title}
           </h4>
         </div>
@@ -130,7 +130,7 @@ export default function QuestionFormattedView({ description, title = 'অ্য�
           <button
             type="button"
             onClick={handleCopyText}
-            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all flex items-center gap-1.5"
+            className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold border border-slate-300 dark:border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
           >
             <span>{copied ? '✓' : '📋'}</span>
             <span>{copied ? 'কপি হয়েছে!' : 'প্রশ্ন কপি করুন'}</span>
@@ -144,7 +144,7 @@ export default function QuestionFormattedView({ description, title = 'অ্য�
           if (item.type === 'header') {
             return (
               <div key={idx} className="pt-2 pb-1">
-                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-amber-600/20 to-amber-400/10 text-amber-300 font-extrabold text-xs border border-amber-500/30 shadow-sm">
+                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 font-extrabold text-xs border border-amber-300 dark:border-amber-500/30 shadow-xs">
                   <span>🏛️</span>
                   <span>{item.content}</span>
                 </span>
@@ -156,14 +156,14 @@ export default function QuestionFormattedView({ description, title = 'অ্য�
             return (
               <div
                 key={idx}
-                className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800/90 hover:border-amber-500/40 transition-all flex items-start gap-3 group shadow-sm"
+                className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/90 hover:border-amber-500/40 transition-all flex items-start gap-3 group shadow-xs"
               >
                 {item.num && (
                   <span className="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-transform mt-0.5 font-mono">
                     {item.num}
                   </span>
                 )}
-                <div className="flex-1 space-y-1 text-xs sm:text-sm text-slate-200 leading-relaxed font-normal whitespace-pre-wrap break-words">
+                <div className="flex-1 space-y-1 text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed font-normal whitespace-pre-wrap break-words">
                   {item.content}
                 </div>
               </div>
@@ -176,8 +176,8 @@ export default function QuestionFormattedView({ description, title = 'অ্য�
 
       {/* Embedded Drive Links Card Notice */}
       {links.length > 0 && (
-        <div className="p-3.5 rounded-xl bg-gradient-to-r from-slate-900 to-indigo-950/60 border border-cyan-500/30 space-y-2">
-          <p className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-gradient-to-r dark:from-slate-900 dark:to-indigo-950/60 border border-cyan-300 dark:border-cyan-500/30 space-y-2">
+          <p className="text-xs font-bold text-cyan-800 dark:text-cyan-300 flex items-center gap-1.5">
             <span>📥</span>
             <span>অ্যাসাইনমেন্ট সম্পর্কিত সংযুক্ত ড্রাইভ / ফাইল লিঙ্ক:</span>
           </p>
@@ -188,11 +188,11 @@ export default function QuestionFormattedView({ description, title = 'অ্য�
                 href={link}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-cyan-400 hover:text-cyan-200 hover:underline font-mono break-all flex items-center gap-2 bg-slate-950 p-2 rounded-lg border border-slate-800"
+                className="text-xs text-cyan-700 dark:text-cyan-400 hover:text-cyan-900 dark:hover:text-cyan-200 hover:underline font-mono break-all flex items-center gap-2 bg-white dark:bg-slate-950 p-2 rounded-lg border border-slate-200 dark:border-slate-800"
               >
                 <span className="shrink-0">🔗</span>
                 <span className="truncate">{link}</span>
-                <span className="text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded font-sans shrink-0 ml-auto">
+                <span className="text-[10px] bg-cyan-100 dark:bg-cyan-500/20 text-cyan-800 dark:text-cyan-300 px-2 py-0.5 rounded font-sans shrink-0 ml-auto font-bold">
                   Open ↗
                 </span>
               </a>

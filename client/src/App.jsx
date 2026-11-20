@@ -406,7 +406,7 @@ function MainApp() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-between bg-[#0b1325] text-slate-100 font-sans selection:bg-amber-500 selection:text-slate-950">
+    <div className="min-h-screen flex flex-col justify-between bg-slate-50 dark:bg-[#0b1325] text-slate-900 dark:text-slate-100 font-sans selection:bg-amber-500 selection:text-slate-950 transition-colors">
       <Navbar
         activePage={activePage}
         setActivePage={navigatePage}

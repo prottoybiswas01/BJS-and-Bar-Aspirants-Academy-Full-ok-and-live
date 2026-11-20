@@ -19,6 +19,56 @@ const providerCooldowns = new Map();
 // In-Memory 404 / Model Unavailable Circuit Breaker (1 hour)
 const modelUnavailableCooldowns = new Map();
 
+/**
+ * Cloudflare Workers AI Daily Safety Cap
+ * Enforces a strict daily cap of max 8,500 estimated neurons / 45 requests per UTC day,
+ * safely below Cloudflare's 10,000 free daily neuron allocation.
+ * Once reached, Cloudflare is bypassed in 0ms for the rest of the UTC day and routed
+ * to Tier 4 OpenRouter :free models with zero billing risk.
+ */
+const CF_SAFETY_CAPS = {
+  MAX_DAILY_NEURONS: 8500,
+  MAX_DAILY_REQUESTS: 45,
+  ESTIMATED_NEURONS_PER_REQUEST: 185 // 45 * 185 = 8325 <= 8500
+};
+
+const cloudflareDailyTracker = {
+  utcDateString: '',
+  requestsCount: 0,
+  estimatedNeurons: 0
+};
+
+function getUtcDateKey() {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+}
+
+function checkAndSyncCloudflareDailyTracker() {
+  const currentUtcDay = getUtcDateKey();
+  if (cloudflareDailyTracker.utcDateString !== currentUtcDay) {
+    cloudflareDailyTracker.utcDateString = currentUtcDay;
+    cloudflareDailyTracker.requestsCount = 0;
+    cloudflareDailyTracker.estimatedNeurons = 0;
+  }
+}
+
+function isCloudflareDailyCapReached() {
+  checkAndSyncCloudflareDailyTracker();
+  return (
+    cloudflareDailyTracker.requestsCount >= CF_SAFETY_CAPS.MAX_DAILY_REQUESTS ||
+    cloudflareDailyTracker.estimatedNeurons >= CF_SAFETY_CAPS.MAX_DAILY_NEURONS
+  );
+}
+
+function recordCloudflareDailyUsage(estimatedNeurons = CF_SAFETY_CAPS.ESTIMATED_NEURONS_PER_REQUEST) {
+  checkAndSyncCloudflareDailyTracker();
+  cloudflareDailyTracker.requestsCount += 1;
+  cloudflareDailyTracker.estimatedNeurons += estimatedNeurons;
+  if (isCloudflareDailyCapReached()) {
+    console.warn(`[Unified AI] Cloudflare daily hard safety cap reached (${cloudflareDailyTracker.requestsCount}/${CF_SAFETY_CAPS.MAX_DAILY_REQUESTS} requests, ${cloudflareDailyTracker.estimatedNeurons}/${CF_SAFETY_CAPS.MAX_DAILY_NEURONS} neurons). Bypassing Cloudflare in 0ms for remainder of UTC day ${cloudflareDailyTracker.utcDateString} -> failover to OpenRouter :free.`);
+  }
+}
+
 function isProviderInCooldown(providerKey) {
   const expiresAt = providerCooldowns.get(providerKey);
   if (!expiresAt) return false;
@@ -213,6 +263,10 @@ async function callGroqProvider({ model, systemPrompt, userPrompt, jsonMode, tem
  * Tier 3: Cloudflare Workers AI Call
  */
 async function callCloudflareProvider({ model, systemPrompt, userPrompt, jsonMode, temperature, timeoutMs }) {
+  if (isCloudflareDailyCapReached()) {
+    throw new Error(`Cloudflare daily safety cap reached (max ${CF_SAFETY_CAPS.MAX_DAILY_NEURONS} neurons / ${CF_SAFETY_CAPS.MAX_DAILY_REQUESTS} reqs per UTC day). Bypassed in 0ms.`);
+  }
+
   const accountId = sanitizeEnvValue(process.env.CLOUDFLARE_ACCOUNT_ID);
   const apiToken = sanitizeEnvValue(process.env.CLOUDFLARE_API_TOKEN);
   if (!accountId || !apiToken) throw new Error('CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN not configured');
@@ -260,6 +314,10 @@ async function callCloudflareProvider({ model, systemPrompt, userPrompt, jsonMod
     if (!outputText) {
       throw new Error(`Cloudflare AI ${model} returned empty response`);
     }
+
+    // Safely track neuron usage against daily 8,500 neuron safety cap
+    recordCloudflareDailyUsage(CF_SAFETY_CAPS.ESTIMATED_NEURONS_PER_REQUEST);
+
     return outputText;
   } finally {
     clearTimeout(timer);
@@ -443,6 +501,12 @@ async function generateUnifiedAiResponse({
       continue; // 0ms in-memory bypass
     }
 
+    // Check Cloudflare Daily Safety Cap (max 8,500 estimated neurons / 45 requests per UTC day)
+    // 0ms in-memory bypass safely routing to Tier 4 OpenRouter :free models
+    if (provider === 'cloudflare' && isCloudflareDailyCapReached()) {
+      continue; // 0ms in-memory bypass
+    }
+
     // Check In-Memory Model 404 / Unavailable Circuit Breaker
     if (isModelUnavailable(provider, model)) {
       continue; // 0ms in-memory bypass
@@ -561,7 +625,17 @@ function getAiProvidersHealthStatus() {
         accountConfigured: Boolean(cfAccount),
         tokenMask: maskKey(cfToken),
         models: ['@cf/meta/llama-3.1-8b-instruct', '@cf/meta/llama-3.3-70b-instruct-fp8-fast'],
-        ...getCooldownInfo('cloudflare')
+        ...getCooldownInfo('cloudflare'),
+        dailyCap: {
+          utcDate: cloudflareDailyTracker.utcDateString || getUtcDateKey(),
+          requestsToday: cloudflareDailyTracker.requestsCount,
+          maxDailyRequests: CF_SAFETY_CAPS.MAX_DAILY_REQUESTS,
+          estimatedNeuronsToday: cloudflareDailyTracker.estimatedNeurons,
+          maxDailyNeurons: CF_SAFETY_CAPS.MAX_DAILY_NEURONS,
+          isCapReached: isCloudflareDailyCapReached(),
+          bypassActive: isCloudflareDailyCapReached(),
+          failoverTarget: 'OpenRouter :free models (Zero Billing Risk)'
+        }
       },
       openrouter: {
         tier: 4,
@@ -585,5 +659,9 @@ module.exports = {
   isProviderInCooldown,
   markProviderCooldown,
   providerCooldowns,
-  extractJsonFromText
+  extractJsonFromText,
+  isCloudflareDailyCapReached,
+  recordCloudflareDailyUsage,
+  cloudflareDailyTracker,
+  CF_SAFETY_CAPS
 };
