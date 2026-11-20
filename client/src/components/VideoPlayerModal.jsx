@@ -1,7 +1,66 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Maximize2, Minimize2, Smartphone, ShieldCheck, X, BookMarked, FileText, Plus, Trash2, Play } from 'lucide-react';
+import {
+  Maximize2,
+  Minimize2,
+  Smartphone,
+  ShieldCheck,
+  X,
+  BookMarked,
+  FileText,
+  Plus,
+  Trash2,
+  Play,
+  Pause,
+  RotateCcw,
+  RotateCw,
+  Volume2,
+  Volume1,
+  VolumeX,
+  Subtitles,
+  Check
+} from 'lucide-react';
 import { lockBodyScroll, unlockBodyScroll } from './ui/scrollLock';
+
+// Global singleton promise for loading YouTube Iframe API script
+let ytScriptLoadingPromise = null;
+function loadYouTubeIframeApi() {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if (window.YT && window.YT.Player) {
+    return Promise.resolve(window.YT);
+  }
+  if (!ytScriptLoadingPromise) {
+    ytScriptLoadingPromise = new Promise((resolve) => {
+      const existing = document.getElementById('bjs-youtube-iframe-api');
+      if (!existing) {
+        const tag = document.createElement('script');
+        tag.id = 'bjs-youtube-iframe-api';
+        tag.src = 'https://www.youtube.com/iframe_api';
+        const first = document.getElementsByTagName('script')[0];
+        if (first && first.parentNode) {
+          first.parentNode.insertBefore(tag, first);
+        } else {
+          document.head.appendChild(tag);
+        }
+      }
+
+      const prevCallback = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => {
+        if (typeof prevCallback === 'function') prevCallback();
+        resolve(window.YT);
+      };
+
+      // Fallback polling in case callback fired earlier
+      const interval = setInterval(() => {
+        if (window.YT && window.YT.Player) {
+          clearInterval(interval);
+          resolve(window.YT);
+        }
+      }, 80);
+    });
+  }
+  return ytScriptLoadingPromise;
+}
 
 export default function VideoPlayerModal({
   videoId,
@@ -16,8 +75,6 @@ export default function VideoPlayerModal({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showNotesDrawer, setShowNotesDrawer] = useState(false);
   const containerRef = useRef(null);
-  const iframeRef = useRef(null);
-  const [isPlaying, setIsPlaying] = useState(true);
 
   // Dynamic moving watermark position (shifts smoothly every 15s to counter screen recorders)
   const watermarkPositions = [
@@ -32,10 +89,10 @@ export default function VideoPlayerModal({
 
   useEffect(() => {
     const wmTimer = setInterval(() => {
-      setWatermarkIndex(prev => (prev + 1) % watermarkPositions.length);
+      setWatermarkIndex((prev) => (prev + 1) % watermarkPositions.length);
     }, 15000);
     return () => clearInterval(wmTimer);
-  }, []);
+  }, [watermarkPositions.length]);
 
   // De-obfuscate protected video ID if encoded with bjs_enc_ prefix
   const resolveVideoId = (raw) => {
@@ -54,19 +111,30 @@ export default function VideoPlayerModal({
   };
   const activeVideoId = resolveVideoId(videoId);
 
+  // Clip & Course Preview Options
   const canPlayFull = clipOptions ? Boolean(clipOptions.canPlayFull || clipOptions.isEnrolled) : true;
   const initialStartTime = Number(clipOptions?.startTime || 0);
-  const [playStartTime, setPlayStartTime] = useState(initialStartTime);
   const endTime = Number(clipOptions?.endTime || (initialStartTime + 60));
   const clipDuration = Math.max(endTime - initialStartTime, 15);
   const startFmt = clipOptions?.startFormatted || `${Math.floor(initialStartTime / 60)}:${String(initialStartTime % 60).padStart(2, '0')}`;
   const endFmt = clipOptions?.endFormatted || `${Math.floor(endTime / 60)}:${String(endTime % 60).padStart(2, '0')}`;
 
   const [clipEnded, setClipEnded] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(clipDuration);
-  const [playerKey, setPlayerKey] = useState(1);
 
-  // In-Video Timestamp Notepad & Bookmarking State
+  // YouTube Player Instance & Custom Control Bar State
+  const playerId = useRef(`bjs-yt-${Math.random().toString(36).substring(2, 9)}`).current;
+  const playerRef = useRef(null);
+  const [isPlayerReady, setIsPlayerReady] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(initialStartTime);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(100);
+  const [isMuted, setIsMuted] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [isCaptionsOn, setIsCaptionsOn] = useState(false);
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+
+  // Bookmark storage
   const studentStorageKey = `bjs_bookmarks_${student?.id || 'guest'}_${activeVideoId}`;
   const [bookmarks, setBookmarks] = useState(() => {
     try {
@@ -78,37 +146,237 @@ export default function VideoPlayerModal({
   });
   const [newNoteText, setNewNoteText] = useState('');
   const [customTimeInput, setCustomTimeInput] = useState('00:00');
-  const [elapsedSec, setElapsedSec] = useState(0);
 
-  // Track rough playback elapsed timer
+  // Format MM:SS helper
+  const formatTime = (secs) => {
+    if (isNaN(secs) || secs < 0) return '00:00';
+    const totalSecs = Math.floor(secs);
+    const m = Math.floor(totalSecs / 60);
+    const s = totalSecs % 60;
+    const h = Math.floor(m / 60);
+    if (h > 0) {
+      const remM = m % 60;
+      return `${h}:${String(remM).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
+  const currentFormattedTime = formatTime(currentTime);
+
+  // Initialize locked YouTube Player via YT.Player API
   useEffect(() => {
-    const timer = setInterval(() => {
-      setElapsedSec((s) => s + 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [playerKey]);
+    let isMounted = true;
+    let pollTimer = null;
 
-  // Update current time candidate string
-  const currentEstSeconds = playStartTime + elapsedSec;
-  const estMinutes = Math.floor(currentEstSeconds / 60);
-  const estSeconds = currentEstSeconds % 60;
-  const currentEstFmt = `${String(estMinutes).padStart(2, '0')}:${String(estSeconds).padStart(2, '0')}`;
+    if (!activeVideoId) return;
 
-  // Save bookmarks to localStorage
+    loadYouTubeIframeApi().then((YT) => {
+      if (!isMounted || !YT) return;
+
+      // Clean up previous instance
+      if (playerRef.current) {
+        try {
+          playerRef.current.destroy();
+        } catch (_) {}
+        playerRef.current = null;
+      }
+
+      playerRef.current = new YT.Player(playerId, {
+        videoId: activeVideoId,
+        playerVars: {
+          autoplay: 1,
+          controls: 0,         // Hide all native YouTube controls
+          rel: 0,              // Disable related suggested videos
+          modestbranding: 1,   // Remove YouTube logo
+          disablekb: 1,        // Disable iframe keyboard hijacking
+          iv_load_policy: 3,   // Disable annotations & channel overlays
+          playsinline: 1,      // In-page playback on mobile
+          start: initialStartTime,
+          fs: 0,               // Disable native fullscreen button inside iframe
+          enablejsapi: 1,
+          origin: typeof window !== 'undefined' ? window.location.origin : ''
+        },
+        events: {
+          onReady: (event) => {
+            if (!isMounted) return;
+            setIsPlayerReady(true);
+            const dur = event.target.getDuration() || 0;
+            if (dur > 0) setDuration(dur);
+            event.target.playVideo();
+            setIsPlaying(true);
+          },
+          onStateChange: (event) => {
+            if (!isMounted) return;
+            if (event.data === YT.PlayerState.PLAYING) {
+              setIsPlaying(true);
+            } else if (event.data === YT.PlayerState.PAUSED) {
+              setIsPlaying(false);
+            } else if (event.data === YT.PlayerState.ENDED) {
+              setIsPlaying(false);
+              if (!canPlayFull) {
+                setClipEnded(true);
+              }
+            }
+          }
+        }
+      });
+
+      // Synchronize playhead position
+      pollTimer = setInterval(() => {
+        if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+          try {
+            const curr = playerRef.current.getCurrentTime() || 0;
+            const dur = playerRef.current.getDuration() || 0;
+            setCurrentTime(curr);
+            if (dur > 0) setDuration(dur);
+
+            // Handle preview clip auto-cutoff
+            if (!canPlayFull && curr >= endTime) {
+              playerRef.current.pauseVideo();
+              setIsPlaying(false);
+              setClipEnded(true);
+            }
+          } catch (_) {}
+        }
+      }, 250);
+    });
+
+    return () => {
+      isMounted = false;
+      if (pollTimer) clearInterval(pollTimer);
+      if (playerRef.current) {
+        try {
+          playerRef.current.destroy();
+        } catch (_) {}
+        playerRef.current = null;
+      }
+    };
+  }, [activeVideoId, initialStartTime, canPlayFull, endTime, playerId]);
+
+  // Safe Play / Pause Toggle
+  const togglePlay = useCallback((e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!playerRef.current) return;
+    try {
+      if (isPlaying) {
+        playerRef.current.pauseVideo();
+        setIsPlaying(false);
+      } else {
+        playerRef.current.playVideo();
+        setIsPlaying(true);
+      }
+    } catch (_) {}
+  }, [isPlaying]);
+
+  // Skip -10s or +10s
+  const handleSkip = useCallback((seconds, e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!playerRef.current) return;
+    try {
+      const curr = playerRef.current.getCurrentTime() || currentTime;
+      const target = Math.max(0, Math.min(duration || 999999, curr + seconds));
+      playerRef.current.seekTo(target, true);
+      setCurrentTime(target);
+    } catch (_) {}
+  }, [currentTime, duration]);
+
+  // Interactive Seek Slider
+  const handleSeek = (e) => {
+    const target = Number(e.target.value);
+    setCurrentTime(target);
+    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+      try {
+        playerRef.current.seekTo(target, true);
+      } catch (_) {}
+    }
+  };
+
+  // Volume & Mute Controls
+  const handleVolumeChange = (e) => {
+    const newVol = Number(e.target.value);
+    setVolume(newVol);
+    if (playerRef.current) {
+      try {
+        if (newVol === 0) {
+          playerRef.current.mute();
+          setIsMuted(true);
+        } else {
+          if (isMuted) {
+            playerRef.current.unMute();
+            setIsMuted(false);
+          }
+          playerRef.current.setVolume(newVol);
+        }
+      } catch (_) {}
+    }
+  };
+
+  const toggleMute = () => {
+    if (!playerRef.current) return;
+    try {
+      if (isMuted) {
+        playerRef.current.unMute();
+        playerRef.current.setVolume(volume > 0 ? volume : 80);
+        setIsMuted(false);
+      } else {
+        playerRef.current.mute();
+        setIsMuted(true);
+      }
+    } catch (_) {}
+  };
+
+  // Playback Speed Selector
+  const handleSpeedChange = (rate) => {
+    setPlaybackRate(rate);
+    if (playerRef.current && typeof playerRef.current.setPlaybackRate === 'function') {
+      try {
+        playerRef.current.setPlaybackRate(rate);
+      } catch (_) {}
+    }
+    setShowSpeedMenu(false);
+  };
+
+  // Subtitles / Captions Toggle
+  const toggleCaptions = () => {
+    if (!playerRef.current) return;
+    try {
+      if (isCaptionsOn) {
+        if (typeof playerRef.current.unloadModule === 'function') {
+          playerRef.current.unloadModule('captions');
+        }
+        setIsCaptionsOn(false);
+      } else {
+        if (typeof playerRef.current.loadModule === 'function') {
+          playerRef.current.loadModule('captions');
+        }
+        setIsCaptionsOn(true);
+      }
+    } catch (_) {
+      setIsCaptionsOn(!isCaptionsOn);
+    }
+  };
+
+  // Save bookmarks
   const saveBookmarksList = (list) => {
     setBookmarks(list);
     try {
       localStorage.setItem(studentStorageKey, JSON.stringify(list));
-    } catch (e) {}
+    } catch (_) {}
   };
 
   const handleAddBookmark = (e) => {
     e?.preventDefault();
     if (!newNoteText.trim()) return;
 
-    const timeToUse = customTimeInput && customTimeInput !== '00:00' ? customTimeInput : currentEstFmt;
+    const timeToUse = customTimeInput && customTimeInput !== '00:00' ? customTimeInput : currentFormattedTime;
     const parts = timeToUse.split(':').map(Number);
-    const targetSec = parts.length === 2 ? (parts[0] * 60 + parts[1]) : currentEstSeconds;
+    const targetSec = parts.length === 2 ? (parts[0] * 60 + parts[1]) : Math.floor(currentTime);
 
     const newBm = {
       id: `bm-${Date.now()}`,
@@ -129,72 +397,29 @@ export default function VideoPlayerModal({
   };
 
   const handleJumpToBookmark = (sec) => {
-    setPlayStartTime(sec);
-    setElapsedSec(0);
-    setPlayerKey((k) => k + 1);
-  };
-
-  // Auto-pause and show Course Enrollment Card when preview clip completes
-  useEffect(() => {
-    if (canPlayFull) {
-      setClipEnded(false);
-      return;
+    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+      try {
+        playerRef.current.seekTo(sec, true);
+        playerRef.current.playVideo();
+        setIsPlaying(true);
+      } catch (_) {}
     }
-
-    setClipEnded(false);
-    setSecondsLeft(clipDuration);
-
-    const interval = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          setClipEnded(true);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [canPlayFull, playerKey, clipDuration]);
+    setCurrentTime(sec);
+  };
 
   const handleReplayClip = () => {
     setClipEnded(false);
-    setSecondsLeft(clipDuration);
-    setPlayStartTime(initialStartTime);
-    setElapsedSec(0);
-    setPlayerKey((k) => k + 1);
+    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+      try {
+        playerRef.current.seekTo(initialStartTime, true);
+        playerRef.current.playVideo();
+        setIsPlaying(true);
+      } catch (_) {}
+    }
+    setCurrentTime(initialStartTime);
   };
 
-  const iframeSrc = canPlayFull
-    ? `https://www.youtube-nocookie.com/embed/${activeVideoId}?autoplay=1&start=${playStartTime}&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&controls=1&fs=1&disablekb=0&color=amber&enablejsapi=1`
-    : `https://www.youtube-nocookie.com/embed/${activeVideoId}?autoplay=1&start=${playStartTime}&end=${endTime}&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&controls=1&fs=1&disablekb=1&color=amber&enablejsapi=1`;
-
-  // Body Scroll Lock & Anti-Piracy Keyboard Inspect Lock
-  useEffect(() => {
-    lockBodyScroll();
-    const handleKeyDown = (e) => {
-      // Block devtools, inspect shortcuts, view-source and print
-      if (
-        e.key === 'F12' ||
-        (e.ctrlKey && e.shiftKey && ['I', 'J', 'C', 'K'].includes(e.key.toUpperCase())) ||
-        (e.ctrlKey && ['U', 'S', 'P'].includes(e.key.toUpperCase())) ||
-        (e.metaKey && e.altKey && ['I', 'J', 'C', 'U'].includes(e.key.toUpperCase()))
-      ) {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-      if (e.key === 'Escape') onClose?.();
-    };
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-
-    return () => {
-      unlockBodyScroll();
-      window.removeEventListener('keydown', handleKeyDown, { capture: true });
-    };
-  }, [onClose]);
-
+  // Fullscreen Management
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
@@ -222,12 +447,62 @@ export default function VideoPlayerModal({
           window.screen.orientation.unlock();
         }
       }
-    } catch (err) {
+    } catch (_) {
       toggleFullscreen();
     }
   };
 
-  // Intercept right-click and long-press in the entire player container
+  // Anti-Piracy Keyboard Inspect Lock & Global Keybindings
+  useEffect(() => {
+    lockBodyScroll();
+    const handleKeyDown = (e) => {
+      // Allow typing in note text input
+      if (e.target && ['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
+        if (e.key === 'Escape') onClose?.();
+        return;
+      }
+
+      // Block devtools, inspect shortcuts, view-source and print
+      if (
+        e.key === 'F12' ||
+        (e.ctrlKey && e.shiftKey && ['I', 'J', 'C', 'K'].includes(e.key.toUpperCase())) ||
+        (e.ctrlKey && ['U', 'S', 'P'].includes(e.key.toUpperCase())) ||
+        (e.metaKey && e.altKey && ['I', 'J', 'C', 'U'].includes(e.key.toUpperCase()))
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+
+      // Video Controls Keyboard Shortcuts
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        handleSkip(-10);
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        handleSkip(10);
+      } else if (e.code === 'KeyM') {
+        e.preventDefault();
+        toggleMute();
+      } else if (e.code === 'KeyF') {
+        e.preventDefault();
+        toggleFullscreen();
+      } else if (e.key === 'Escape') {
+        onClose?.();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => {
+      unlockBodyScroll();
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    };
+  }, [onClose, togglePlay, handleSkip, isMuted, volume]);
+
+  // Intercept right-click and selection across player modal
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -243,37 +518,6 @@ export default function VideoPlayerModal({
       el.removeEventListener('selectstart', preventContext, { capture: true });
     };
   }, []);
-
-  // Sync play/pause state from YouTube iframe messages
-  useEffect(() => {
-    const handleWindowMessage = (e) => {
-      try {
-        const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-        if (data && data.event === 'onStateChange') {
-          if (data.info === 1) setIsPlaying(true);
-          else if (data.info === 2) setIsPlaying(false);
-        }
-      } catch (_) {}
-    };
-    window.addEventListener('message', handleWindowMessage);
-    return () => window.removeEventListener('message', handleWindowMessage);
-  }, []);
-
-  // Safe bottom-left click handler (toggles play/pause while blocking underlying YouTube link)
-  const handleTogglePlayPause = (e) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    if (iframeRef.current && iframeRef.current.contentWindow) {
-      const cmd = isPlaying ? 'pauseVideo' : 'playVideo';
-      iframeRef.current.contentWindow.postMessage(
-        JSON.stringify({ event: 'command', func: cmd, args: [] }),
-        '*'
-      );
-      setIsPlaying(!isPlaying);
-    }
-  };
 
   return createPortal(
     <div className="fixed inset-0 z-[9990] flex items-center justify-center p-2 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
@@ -319,14 +563,14 @@ export default function VideoPlayerModal({
 
             <button
               onClick={toggleFullscreen}
-              className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-all font-bold text-sm hidden sm:flex"
+              className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-all font-bold text-sm hidden sm:flex cursor-pointer"
               title="ফুলস্ক্রিন"
             >
               {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
             </button>
             <button
               onClick={onClose}
-              className="w-8 h-8 rounded-full bg-slate-800 hover:bg-rose-900/80 text-slate-300 hover:text-white flex items-center justify-center transition-all font-bold text-sm"
+              className="w-8 h-8 rounded-full bg-slate-800 hover:bg-rose-900/80 text-slate-300 hover:text-white flex items-center justify-center transition-all font-bold text-sm cursor-pointer"
               title="বন্ধ করুন (Close)"
             >
               <X className="w-4 h-4" />
@@ -338,7 +582,7 @@ export default function VideoPlayerModal({
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-black">
           {/* Main Video View - Responsive full-width 16:9 container */}
           <div
-            className="w-full aspect-video max-h-[75vh] relative overflow-hidden bg-black select-none flex-1"
+            className="w-full aspect-video max-h-[75vh] relative overflow-hidden bg-black select-none flex-1 group"
             style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -346,72 +590,219 @@ export default function VideoPlayerModal({
               return false;
             }}
           >
-            {/* Anti-Piracy Top Shield */}
+            {/* 1. LOCKED YouTube iframe Container - 100% pointer-events-none to prevent redirects */}
+            <div className="absolute inset-0 w-full h-full pointer-events-none select-none overflow-hidden bg-black">
+              {activeVideoId ? (
+                <div id={playerId} className="w-full h-full pointer-events-none border-0" />
+              ) : (
+                <div className="h-full w-full flex flex-col items-center justify-center text-rose-400 p-6 text-center">
+                  <span className="text-4xl mb-2">📹</span>
+                  <p className="font-bold text-lg">ভিডিও এখনো আপলোড করা হয়নি</p>
+                </div>
+              )}
+            </div>
+
+            {/* 2. Safe Transparent Click-to-Play/Pause Overlay (Covers the whole video) */}
             <div
-              className="absolute top-0 left-0 right-0 h-14 z-30 pointer-events-auto bg-gradient-to-b from-black/85 via-black/40 to-transparent cursor-default select-none"
+              className="absolute inset-0 z-20 cursor-pointer pointer-events-auto flex items-center justify-center"
+              onClick={togglePlay}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 return false;
               }}
-              onClick={(e) => e.stopPropagation()}
+              title="প্লে / পজ করতে ক্লিক করুন"
             >
-              <div className="flex items-center justify-between px-3 pt-2 text-[10px] text-amber-400/90 font-bold pointer-events-none select-none">
+              {/* Centered Pause Indicator Badge */}
+              {!isPlaying && isPlayerReady && !clipEnded && (
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-black/60 backdrop-blur-sm border border-amber-500/50 text-amber-400 flex items-center justify-center shadow-2xl transition-transform hover:scale-110">
+                  <Play className="w-8 h-8 sm:w-10 sm:h-10 ml-1 fill-current" />
+                </div>
+              )}
+            </div>
+
+            {/* 3. Top Security Shield Banner - pointer-events-none */}
+            <div className="absolute top-0 left-0 right-0 h-12 z-30 pointer-events-none bg-gradient-to-b from-black/80 via-black/30 to-transparent select-none">
+              <div className="flex items-center justify-between px-3 pt-2 text-[10px] text-amber-400/90 font-bold select-none">
                 <span className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                   <span>🔒 BJS Academy Protected Stream</span>
                 </span>
-                <span className="text-[9px] text-slate-400 font-mono">STU: {student?.id || 'AUTH-SECURE'}</span>
+                <span className="text-[9px] text-slate-400 font-mono">
+                  STU: {student?.id || 'AUTH-SECURE'}
+                </span>
               </div>
             </div>
 
-            {/* Anti-Piracy Bottom-Left Click-Blocker Shield (Blocks YouTube link & acts as Play/Pause) */}
+            {/* 4. Dynamic Moving Watermark Overlay (Anti-Piracy Screen Recording Protection) */}
             <div
-              className="absolute bottom-0 left-0 z-30 w-16 sm:w-20 h-10 sm:h-11 bg-transparent pointer-events-auto cursor-pointer select-none"
-              style={{ WebkitTouchCallout: 'none', userSelect: 'none' }}
-              onClick={handleTogglePlayPause}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
+              className="pointer-events-none absolute z-30 select-none transition-all duration-1000 ease-in-out"
+              style={{
+                top: watermarkPositions[watermarkIndex].top,
+                left: watermarkPositions[watermarkIndex].left,
+                opacity: 0.35
               }}
-              onTouchStart={(e) => e.stopPropagation()}
-              title="Play / Pause"
-            />
-
-            {/* Anti-Piracy Bottom-Right Click-Blocker Shield (Blocks YouTube Logo / Copy URL) */}
-            <div
-              className="absolute bottom-0 right-0 z-30 w-24 sm:w-28 h-10 sm:h-11 bg-transparent pointer-events-auto cursor-default select-none"
-              style={{ WebkitTouchCallout: 'none', userSelect: 'none' }}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-              }}
-              onTouchStart={(e) => e.stopPropagation()}
-              title="BJS Protected Stream"
-            />
-
-            {activeVideoId ? (
-              <iframe
-                ref={iframeRef}
-                key={playerKey}
-                src={iframeSrc}
-                className="absolute inset-0 w-full h-full border-0 pointer-events-auto"
-                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-                allowFullScreen
-                title={title}
-              />
-            ) : (
-              <div className="h-full w-full flex flex-col items-center justify-center text-rose-400 p-6 text-center">
-                <span className="text-4xl mb-2">📹</span>
-                <p className="font-bold text-lg">ভিডিও এখনো আপলোড করা হয়নি</p>
+            >
+              <div className="bg-black/80 backdrop-blur-[2px] border border-white/20 px-3 py-1.5 rounded-lg text-white font-mono text-[11px] font-bold flex items-center gap-2 shadow-2xl tracking-wider select-none">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>{student?.name || 'BJS STUDENT'}</span>
+                <span className="text-amber-300 font-mono">| {student?.phone || '01XXXXXXXXX'}</span>
+                <span className="text-slate-300 font-mono text-[10px]">
+                  ID: {student?.id || student?.regId || 'SECURE'}
+                </span>
               </div>
-            )}
+            </div>
+
+            {/* 5. Custom Bottom Player Control Bar (Fully Interactive & Safe from YouTube Redirects) */}
+            <div
+              className="absolute bottom-0 left-0 right-0 z-40 pointer-events-auto bg-gradient-to-t from-black via-black/80 to-transparent p-2.5 sm:px-4 sm:py-3 space-y-1.5 sm:space-y-2 select-none"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Seek Bar Timeline Slider */}
+              <div className="relative flex items-center cursor-pointer py-1">
+                <input
+                  type="range"
+                  min={0}
+                  max={duration || 100}
+                  step={0.5}
+                  value={currentTime}
+                  onChange={handleSeek}
+                  className="w-full h-1.5 sm:h-2 bg-slate-700/80 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-400 focus:outline-none transition-all"
+                  style={{
+                    background: `linear-gradient(to right, #f59e0b ${(currentTime / (duration || 1)) * 100}%, rgba(51, 65, 85, 0.8) ${(currentTime / (duration || 1)) * 100}%)`
+                  }}
+                  title="টাইমলাইন এগিয়ে বা পিছিয়ে নিন"
+                />
+              </div>
+
+              {/* Control Buttons Row */}
+              <div className="flex items-center justify-between text-white text-xs gap-2">
+                {/* Left Controls: Play/Pause, -10s, +10s, Volume, Time Display */}
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <button
+                    onClick={togglePlay}
+                    className="p-1.5 sm:p-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 hover:text-amber-300 border border-amber-500/30 transition-all cursor-pointer shadow-md"
+                    title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+                  >
+                    {isPlaying ? (
+                      <Pause className="w-4 h-4 fill-current" />
+                    ) : (
+                      <Play className="w-4 h-4 fill-current ml-0.5" />
+                    )}
+                  </button>
+
+                  <button
+                    onClick={(e) => handleSkip(-10, e)}
+                    className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer flex items-center gap-1"
+                    title="-10 সেকেন্ড পেছনে যান"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-mono hidden sm:inline">-10s</span>
+                  </button>
+
+                  <button
+                    onClick={(e) => handleSkip(10, e)}
+                    className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer flex items-center gap-1"
+                    title="+10 সেকেন্ড সামনে যান"
+                  >
+                    <RotateCw className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-mono hidden sm:inline">+10s</span>
+                  </button>
+
+                  {/* Volume Control */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={toggleMute}
+                      className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer"
+                      title={isMuted ? 'আনমিউট করুন (M)' : 'মিউট করুন (M)'}
+                    >
+                      {isMuted || volume === 0 ? (
+                        <VolumeX className="w-4 h-4 text-rose-400" />
+                      ) : volume < 50 ? (
+                        <Volume1 className="w-4 h-4" />
+                      ) : (
+                        <Volume2 className="w-4 h-4" />
+                      )}
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={isMuted ? 0 : volume}
+                      onChange={handleVolumeChange}
+                      className="w-14 sm:w-20 h-1 bg-slate-700 rounded appearance-none cursor-pointer accent-amber-500 focus:outline-none hidden sm:block"
+                      title={`ভলিউম: ${isMuted ? 0 : volume}%`}
+                    />
+                  </div>
+
+                  {/* Live Duration Display */}
+                  <div className="font-mono text-[10px] sm:text-xs text-slate-300 ml-1">
+                    <span className="text-amber-400 font-bold">{currentFormattedTime}</span>
+                    <span className="text-slate-500 mx-1">/</span>
+                    <span>{formatTime(duration)}</span>
+                  </div>
+                </div>
+
+                {/* Right Controls: CC, Speed, Fullscreen */}
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  {/* Subtitles / CC Toggle */}
+                  <button
+                    onClick={toggleCaptions}
+                    className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold ${
+                      isCaptionsOn
+                        ? 'bg-amber-500/30 text-amber-300 border border-amber-500/50'
+                        : 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                    title="সাবটাইটেল / CC অন/অফ করুন"
+                  >
+                    <Subtitles className="w-3.5 h-3.5" />
+                    <span className="text-[10px] hidden sm:inline">CC</span>
+                  </button>
+
+                  {/* Speed Selector */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] sm:text-[11px] font-mono font-bold transition-all cursor-pointer flex items-center gap-1 border border-slate-700"
+                      title="প্লেব্যাক স্পিড পরিবর্তন করুন"
+                    >
+                      <span>{playbackRate}x</span>
+                    </button>
+
+                    {showSpeedMenu && (
+                      <div className="absolute bottom-full right-0 mb-2 py-1 w-24 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 animate-fadeIn">
+                        <div className="text-[9px] uppercase tracking-wider text-slate-400 px-2.5 py-1 font-bold border-b border-slate-800">
+                          Speed
+                        </div>
+                        {[0.75, 1, 1.25, 1.5, 2].map((spd) => (
+                          <button
+                            key={spd}
+                            onClick={() => handleSpeedChange(spd)}
+                            className={`w-full px-2.5 py-1.5 text-left text-xs font-mono font-bold flex items-center justify-between transition-colors ${
+                              playbackRate === spd
+                                ? 'bg-amber-500/20 text-amber-300'
+                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                            }`}
+                          >
+                            <span>{spd}x</span>
+                            {playbackRate === spd && <Check className="w-3 h-3 text-amber-400" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Fullscreen Button */}
+                  <button
+                    onClick={toggleFullscreen}
+                    className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer"
+                    title={isFullscreen ? 'ফুলস্ক্রিন থেকে বের হন (F)' : 'ফুলস্ক্রিন করুন (F)'}
+                  >
+                    {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
 
             {/* Non-Enrolled Smart Clip Ended: Course Enrollment Overlay */}
             {!canPlayFull && clipEnded && (
@@ -431,36 +822,19 @@ export default function VideoPlayerModal({
                       if (onEnrollClick) onEnrollClick(courseId);
                       else onClose?.();
                     }}
-                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black text-xs sm:text-sm shadow-xl transition-all hover:scale-105"
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black text-xs sm:text-sm shadow-xl transition-all hover:scale-105 cursor-pointer"
                   >
                     🎓 কোর্সে ভর্তি হোন (Enroll Now)
                   </button>
                   <button
                     onClick={handleReplayClip}
-                    className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs sm:text-sm"
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs sm:text-sm cursor-pointer hover:bg-slate-700"
                   >
                     🔄 আবার ক্লিপটি দেখুন
                   </button>
                 </div>
               </div>
             )}
-
-            {/* Dynamic Moving Watermark Overlay (Anti-Piracy Screen Recording Protection) */}
-            <div
-              className="pointer-events-none absolute z-40 select-none transition-all duration-1000 ease-in-out"
-              style={{
-                top: watermarkPositions[watermarkIndex].top,
-                left: watermarkPositions[watermarkIndex].left,
-                opacity: 0.35
-              }}
-            >
-              <div className="bg-black/80 backdrop-blur-[2px] border border-white/20 px-3 py-1.5 rounded-lg text-white font-mono text-[11px] font-bold flex items-center gap-2 shadow-2xl tracking-wider">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>{student?.name || 'BJS STUDENT'}</span>
-                <span className="text-amber-300 font-mono">| {student?.phone || '01XXXXXXXXX'}</span>
-                <span className="text-slate-300 font-mono text-[10px]">ID: {student?.id || student?.regId || 'SECURE'}</span>
-              </div>
-            </div>
           </div>
 
           {/* Collapsible / Side Notepad & Bookmarks Panel */}
@@ -471,7 +845,7 @@ export default function VideoPlayerModal({
                   <FileText className="w-4 h-4" />
                   <span>ক্লাস নোটপ্যাড ও বুকমার্ক</span>
                 </div>
-                <span className="text-[10px] font-mono text-slate-400">সময়: {currentEstFmt}</span>
+                <span className="text-[10px] font-mono text-slate-400">সময়: {currentFormattedTime}</span>
               </div>
 
               {/* Add Bookmark Form */}
@@ -479,11 +853,11 @@ export default function VideoPlayerModal({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setCustomTimeInput(currentEstFmt)}
-                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-mono font-bold border border-slate-700"
+                    onClick={() => setCustomTimeInput(currentFormattedTime)}
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-mono font-bold border border-slate-700 cursor-pointer"
                     title="বর্তমান সময় সেট করুন"
                   >
-                    ⏱️ বর্তমান ({currentEstFmt})
+                    ⏱️ বর্তমান ({currentFormattedTime})
                   </button>
                   <input
                     type="text"
@@ -503,7 +877,7 @@ export default function VideoPlayerModal({
                   />
                   <button
                     type="submit"
-                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1 shrink-0"
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1 shrink-0 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>সেভ</span>
@@ -539,7 +913,7 @@ export default function VideoPlayerModal({
                       </button>
                       <button
                         onClick={() => handleDeleteBookmark(bm.id)}
-                        className="text-slate-600 hover:text-rose-400 p-1 transition-all opacity-0 group-hover:opacity-100"
+                        className="text-slate-600 hover:text-rose-400 p-1 transition-all opacity-0 group-hover:opacity-100 cursor-pointer"
                         title="মুছে ফেলুন"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -559,14 +933,14 @@ export default function VideoPlayerModal({
             <span className="font-medium text-slate-300 truncate">
               {canPlayFull
                 ? 'ভিডিওর যেকোনো পয়েন্টে নোট বা বুকমার্ক যোগ করতে উপরের "নোটস ও বুকমার্ক" বাটনে ক্লিক করুন।'
-                : (clipEnded ? '⚠️ ফ্রি ক্লিপ শেষ হয়েছে।' : `⏳ ক্লিপ বাকি: ${secondsLeft} সেঃ (${startFmt} - ${endFmt})`)}
+                : (clipEnded ? '⚠️ ফ্রি ক্লিপ শেষ হয়েছে।' : `⏳ ক্লিপ বাকি: ${formatTime(endTime - currentTime)} (${startFmt} - ${endFmt})`)}
             </span>
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={toggleLandscapeFullscreen}
-              className="flex items-center gap-1 text-amber-400 hover:text-amber-300 font-bold shrink-0 text-[10px]"
+              className="flex items-center gap-1 text-amber-400 hover:text-amber-300 font-bold shrink-0 text-[10px] cursor-pointer"
             >
               <Smartphone className="w-3.5 h-3.5" />
               <span>মোবাইলে ঘুরিয়ে দেখুন (Landscape)</span>
