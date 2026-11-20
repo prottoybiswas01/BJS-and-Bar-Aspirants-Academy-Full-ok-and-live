@@ -550,8 +550,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   const handleIssueCertificate = async (e) => {
     e.preventDefault();
-    const targetStudent = students.find(s => s.id === certForm.studentId);
-    const targetCourse = courses.find(c => c.id === certForm.courseId);
+    const targetStudent = students.find(s => s.id === certForm.studentId || s._id === certForm.studentId);
+    const targetCourse = courses.find(c => c.id === certForm.courseId || c._id === certForm.courseId);
     if (!targetStudent || !targetCourse) {
       showToast('অনুগ্রহ করে সঠিক শিক্ষার্থী ও কোর্স নির্বাচন করুন।', 'error');
       return;
@@ -559,11 +559,11 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     setCertLoading(true);
     try {
       const res = await api.post('/certificates', {
-        studentId: targetStudent.id,
+        studentId: targetStudent.id || targetStudent._id,
         studentName: targetStudent.name,
-        courseId: targetCourse.id,
+        courseId: targetCourse.id || targetCourse._id,
         courseTitle: targetCourse.title,
-        completionScore: certForm.completionScore || 100
+        completionScore: Number(certForm.completionScore) || 100
       });
       if (res.data?.ok) {
         showToast('✓ ডিজিটাল সার্টিফিকেট সফলভাবে ইস্যু করা হয়েছে!', 'success');
@@ -6980,15 +6980,37 @@ return (
                 className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
               >
                 <option value="">-- যেকোনো একটি লেসন সিলেক্ট করুন --</option>
-                {adminLessons.map(l => {
-                  const course = courses.find(c => c.id === l.courseId);
-                  const courseTitle = course ? course.title : (l.courseTitle || l.courseId || 'সাধারণ');
+                {courses.map(course => {
+                  const courseLessons = adminLessons.filter(l => l.courseId === course.id || l.courseId === course._id);
+                  if (courseLessons.length === 0) return null;
                   return (
-                    <option key={l.id || l._id} value={l.id || l._id}>
-                      {courseTitle} — {l.title}
-                    </option>
+                    <optgroup key={course.id || course._id} label={`📚 ${course.title}`}>
+                      {courseLessons.map(l => {
+                        const hasTranscript = Boolean(l.hasSubtitles || l.transcriptStatus === 'ready' || (l.transcript && l.transcript.length > 20));
+                        const transcriptBadge = hasTranscript ? ' [✓ সাবটাইটেল রেডি]' : ' [⚠️ সাবটাইটেল নেই]';
+                        return (
+                          <option key={l.id || l._id} value={l.id || l._id}>
+                            {course.title} — {l.title}{transcriptBadge}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
                   );
                 })}
+                {/* Fallback for standalone lessons */}
+                {adminLessons.filter(l => !courses.some(c => c.id === l.courseId || c._id === l.courseId)).length > 0 && (
+                  <optgroup label="📌 অন্যান্য ক্লাস লেসন">
+                    {adminLessons.filter(l => !courses.some(c => c.id === l.courseId || c._id === l.courseId)).map(l => {
+                      const hasTranscript = Boolean(l.hasSubtitles || l.transcriptStatus === 'ready' || (l.transcript && l.transcript.length > 20));
+                      const transcriptBadge = hasTranscript ? ' [✓ সাবটাইটেল রেডি]' : ' [⚠️ সাবটাইটেল নেই]';
+                      return (
+                        <option key={l.id || l._id} value={l.id || l._id}>
+                          {l.courseTitle || l.courseId || 'সাধারণ'} — {l.title}{transcriptBadge}
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                )}
               </select>
             </div>
             <div>
@@ -7035,15 +7057,37 @@ return (
                 className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
               >
                 <option value="">-- যেকোনো একটি লেসন সিলেক্ট করুন --</option>
-                {adminLessons.map(l => {
-                  const course = courses.find(c => c.id === l.courseId);
-                  const courseTitle = course ? course.title : (l.courseTitle || l.courseId || 'সাধারণ');
+                {courses.map(course => {
+                  const courseLessons = adminLessons.filter(l => l.courseId === course.id || l.courseId === course._id);
+                  if (courseLessons.length === 0) return null;
                   return (
-                    <option key={l.id || l._id} value={l.id || l._id}>
-                      {courseTitle} — {l.title}
-                    </option>
+                    <optgroup key={course.id || course._id} label={`📚 ${course.title}`}>
+                      {courseLessons.map(l => {
+                        const hasTranscript = Boolean(l.hasSubtitles || l.transcriptStatus === 'ready' || (l.transcript && l.transcript.length > 20));
+                        const transcriptBadge = hasTranscript ? ' [✓ সাবটাইটেল রেডি]' : ' [⚠️ সাবটাইটেল নেই]';
+                        return (
+                          <option key={l.id || l._id} value={l.id || l._id}>
+                            {course.title} — {l.title}{transcriptBadge}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
                   );
                 })}
+                {/* Fallback for standalone lessons */}
+                {adminLessons.filter(l => !courses.some(c => c.id === l.courseId || c._id === l.courseId)).length > 0 && (
+                  <optgroup label="📌 অন্যান্য ক্লাস লেসন">
+                    {adminLessons.filter(l => !courses.some(c => c.id === l.courseId || c._id === l.courseId)).map(l => {
+                      const hasTranscript = Boolean(l.hasSubtitles || l.transcriptStatus === 'ready' || (l.transcript && l.transcript.length > 20));
+                      const transcriptBadge = hasTranscript ? ' [✓ সাবটাইটেল রেডি]' : ' [⚠️ সাবটাইটেল নেই]';
+                      return (
+                        <option key={l.id || l._id} value={l.id || l._id}>
+                          {l.courseTitle || l.courseId || 'সাধারণ'} — {l.title}{transcriptBadge}
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                )}
               </select>
             </div>
             <button

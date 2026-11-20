@@ -7729,6 +7729,7 @@ app.post(["/api/notes", "/api/admin/notes", "/api/admin/notes/save"], async (req
       },
       { upsert: true, new: true }
     ).lean();
+    fastCache.delete("xml_sitemap");
     return res.json({ ok: true, note: updated, message: "✓ আইনি স্টাডি নোট সফলভাবে সংরক্ষিত হয়েছে!" });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "নোট সংরক্ষণ করতে সমস্যা হয়েছে: " + err.message });
@@ -7740,6 +7741,7 @@ app.delete(["/api/notes/:id", "/api/admin/notes/:id"], async (req, res) => {
     await ensureDbConnected();
     const { id } = req.params;
     await StudyNote.deleteOne({ $or: [{ id }, { _id: mongoose.isValidObjectId(id) ? id : null }] });
+    fastCache.delete("xml_sitemap");
     return res.json({ ok: true, message: "✓ আইনি নোট সফলভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "নোট ডিলিট করতে সমস্যা হয়েছে।" });
@@ -7762,6 +7764,7 @@ app.post("/api/admin/study-notes/ai-generate-from-lesson", async (req, res) => {
       Course,
       resolveOptimalGeminiModel
     });
+    fastCache.delete("xml_sitemap");
 
     return res.json({
       ok: true,
@@ -7812,22 +7815,33 @@ app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificat
 
     let student = null;
     if (isMongoConnected) {
-      student = await Student.findOne({ id: studentId }).lean().catch(() => null);
+      student = await Student.findOne({
+        $or: [
+          { id: studentId },
+          ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])
+        ]
+      }).lean().catch(() => null);
     }
     if (!student) {
-      student = (memoryDb.students || []).find(s => s.id === studentId);
+      student = (memoryDb.students || []).find(s => s.id === studentId || s._id === studentId);
     }
 
     let course = null;
     if (isMongoConnected) {
-      course = await Course.findOne({ id: courseId }).lean().catch(() => null);
+      course = await Course.findOne({
+        $or: [
+          { id: courseId },
+          ...(mongoose.Types.ObjectId.isValid(courseId) ? [{ _id: courseId }] : [])
+        ]
+      }).lean().catch(() => null);
     }
     if (!course) {
-      course = (memoryDb.courses || []).find(c => c.id === courseId);
+      course = (memoryDb.courses || []).find(c => c.id === courseId || c._id === courseId);
     }
 
     const finalStudentName = student?.name || studentName || 'Student';
     const finalCourseTitle = course?.title || courseTitle || 'BJS & Bar Masterclass';
+    const finalScore = Number(req.body.marks || completionScore) || 100;
 
     const certId = `CERT-BJS-2026-${Math.floor(1000 + Math.random() * 9000)}`;
     const verificationUrl = `https://bjs.kodl.uk/verify/${certId}`;
@@ -7846,7 +7860,7 @@ app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificat
         studentName: finalStudentName,
         courseId,
         courseTitle: finalCourseTitle,
-        completionScore: Number(completionScore) || 100,
+        completionScore: finalScore,
         verificationUrl,
         qrCodeDataUrl,
         issueDate: new Date()
@@ -7859,7 +7873,7 @@ app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificat
         studentName: finalStudentName,
         courseId,
         courseTitle: finalCourseTitle,
-        completionScore: Number(completionScore) || 100,
+        completionScore: finalScore,
         verificationUrl,
         qrCodeDataUrl,
         issueDate: new Date()
