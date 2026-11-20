@@ -3,6 +3,17 @@ const QRCode = require('qrcode');
 const { generateCertificatePdf } = require('./certificateService');
 const { sendTelegramAlert, notifyNewLesson } = require('./alertService');
 
+function sanitizeGeminiModel(model) {
+  if (!model || typeof model !== 'string') return 'gemini-2.5-flash';
+  const cleaned = model.trim().replace(/[\r\n"']/g, '').replace(/^models\//, '');
+  return cleaned || 'gemini-2.5-flash';
+}
+
+function sanitizeGeminiApiKey(key) {
+  if (!key || typeof key !== 'string') return '';
+  return key.trim().replace(/[\r\n"']/g, '');
+}
+
 /**
  * Dynamic Legal Study Notes (100% database & AI-driven - zero static articles)
  */
@@ -21,12 +32,22 @@ async function generateStudyNotesFromLesson({
   Course,
   resolveOptimalGeminiModel
 }) {
-  const lesson = await Lesson.findOne({ id: lessonId }).lean();
+  const lesson = await Lesson.findOne({
+    $or: [
+      { id: lessonId },
+      ...(mongoose.isValidObjectId(lessonId) ? [{ _id: lessonId }] : [])
+    ]
+  }).lean();
   if (!lesson) {
     throw new Error('লেসন পাওয়া যায়নি।');
   }
 
-  const course = await Course.findOne({ id: lesson.courseId }).lean();
+  const course = await Course.findOne({
+    $or: [
+      { id: lesson.courseId },
+      ...(mongoose.isValidObjectId(lesson.courseId) ? [{ _id: lesson.courseId }] : [])
+    ]
+  }).lean();
   const courseTitle = course ? course.title : (lesson.courseTitle || 'BJS & Bar Masterclass');
 
   const transcript = lesson.transcript || lesson.subtitles || '';
@@ -34,13 +55,20 @@ async function generateStudyNotesFromLesson({
     throw new Error('এই লেসনে কোনো সাবটাইটেল বা ট্রান্সক্রিপ্ট পাওয়া যায়নি। অনুগ্রহ করে প্রথমে ট্রান্সক্রিপ্ট সিঙ্ক করুন।');
   }
 
-  const geminiApiKey = process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY;
+  const geminiApiKey = sanitizeGeminiApiKey(process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
   if (!geminiApiKey) {
     throw new Error('GEMINI_API_KEY কনফিগার করা নেই।');
   }
 
-  const optimalModel = resolveOptimalGeminiModel ? resolveOptimalGeminiModel() : 'gemini-2.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${optimalModel}:generateContent?key=${geminiApiKey}`;
+  let resolvedOptimal = 'gemini-2.5-flash';
+  if (typeof resolveOptimalGeminiModel === 'function') {
+    try {
+      resolvedOptimal = await resolveOptimalGeminiModel(geminiApiKey);
+    } catch (e) {
+      resolvedOptimal = 'gemini-2.5-flash';
+    }
+  }
+  const optimalModel = sanitizeGeminiModel(resolvedOptimal);
 
   const prompt = `You are a Senior Judicial Research Scholar and Supreme Court Advocate specializing in Bangladesh Judicial Service (BJS) & Bangladesh Bar Council examination curriculum.
 
@@ -48,7 +76,7 @@ Analyze the class lecture transcript provided below for lesson: "${lesson.title}
 Extract 3 to 4 distinct, high-demand, complex legal provisions or core concepts (for example: CPC Order 39 Rule 1 & 2, CrPC Section 167, Penal Code 405/420, Evidence Act 27, Limitation Act 5, etc.) that were discussed in this class.
 
 For each provision, you MUST:
-1. Identify the exact video clip segment in seconds (clipStartSeconds and clipEndSeconds, between 120 and 300 seconds long) where this specific provision is actively explained in the transcript. If specific seconds are approximate from transcript timestamps, estimate carefully.
+1. Identify the exact, complete video clip segment in seconds (clipStartSeconds and clipEndSeconds, between 60 and 300 seconds max) where this entire legal provision or topic is explained from beginning to completion. The clip MUST cover a complete section without cutting off mid-sentence or mid-explanation.
 2. Provide a rigorous, BJS standard Bangla explanation formatted in clean Markdown with:
    - প্রবিধানের মূল ভিত্তি ও আইনি সংজ্ঞা
    - উপাদান ও শর্তাবলি (Essential elements)
@@ -61,7 +89,7 @@ Return strictly a valid JSON array of objects in this exact schema (no markdown 
   {
     "title": "সম্পূর্ণ ও আকর্ষণীয় শিরোনাম (বাংলা)",
     "slug": "unique-seo-friendly-english-slug-like-cpc-order-39-temporary-injunction",
-    "category": "দেওয়ানী কার্যবিধি (CPC)",
+    "category": "${courseTitle}",
     "summary": "১-২ লাইনের মূল সারসংক্ষেপ যা স্টুডেন্ট কার্ড ও গুগলে প্রদর্শিত হবে",
     "content": "পূর্ণাঙ্গ আইনি স্টাডি গাইড (Markdown formatted with ##, ###, *, 1., >)",
     "lawSections": ["CPC Order 39 Rule 1", "Specific Relief Act Sec 53"],
@@ -75,26 +103,57 @@ Return strictly a valid JSON array of objects in this exact schema (no markdown 
 ]
 
 Transcript:
-${transcript.slice(0, 16000)}`;
+${transcript.slice(0, 18000)}`;
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.25,
-        topP: 0.85
+  const candidateModels = [
+    process.env.GEMINI_MODEL ? sanitizeGeminiModel(process.env.GEMINI_MODEL) : null,
+    optimalModel,
+    'gemini-flash-lite-latest',
+    'gemini-flash-latest',
+    'gemini-2.5-flash',
+    'gemini-3.8-flash',
+    'gemini-pro-latest'
+  ].filter(Boolean).map(sanitizeGeminiModel).filter((v, i, a) => a.indexOf(v) === i);
+
+  let resData = null;
+  let lastErr = null;
+
+  for (const model of candidateModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': geminiApiKey
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.25,
+            topP: 0.85
+          }
+        })
+      });
+
+      if (response.ok) {
+        resData = await response.json();
+        break;
+      } else {
+        const errorText = await response.text();
+        console.warn(`[Gemini Note Gen] Model ${model} returned ${response.status}: ${errorText.slice(0, 150)}`);
+        lastErr = new Error(`Gemini API Error (${model} - ${response.status}): ${errorText.slice(0, 150)}`);
       }
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini API Error (${response.status}): ${errorText.slice(0, 150)}`);
+    } catch (err) {
+      console.warn(`[Gemini Note Gen] Network error with ${model}:`, err.message);
+      lastErr = err;
+    }
   }
 
-  const resData = await response.json();
+  if (!resData) {
+    throw lastErr || new Error('Gemini API থেকে উত্তর পাওয়া যায়নি।');
+  }
+
   const textOutput = resData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   const jsonMatch = textOutput.match(/\[\s*\{[\s\S]*\}\s*\]/);
   if (!jsonMatch) {
@@ -108,7 +167,9 @@ ${transcript.slice(0, 16000)}`;
     const rawSlug = (item.slug || item.title).toLowerCase().replace(/[^a-z0-9\u0980-\u09FF]+/g, '-').replace(/(^-|-$)/g, '');
     const noteId = `note-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
     const clipStart = Math.max(0, Number(item.clipStartSeconds) || 0);
-    const clipEnd = Math.max(clipStart + 60, Number(item.clipEndSeconds) || (clipStart + 240));
+    const rawClipEnd = Math.max(clipStart + 30, Number(item.clipEndSeconds) || (clipStart + 180));
+    const clipEnd = Math.min(rawClipEnd, clipStart + 300); // 5 minutes max
+    const clipDuration = Math.max(0, clipEnd - clipStart);
 
     const noteDoc = await StudyNote.findOneAndUpdate(
       { slug: rawSlug },
@@ -116,7 +177,7 @@ ${transcript.slice(0, 16000)}`;
         id: noteId,
         title: item.title,
         slug: rawSlug,
-        category: item.category || 'BJS সিলেবাস ও প্রস্তুতি',
+        category: item.category || courseTitle || 'BJS সিলেবাস ও প্রস্তুতি',
         summary: item.summary || '',
         content: item.content,
         detailedExplanation: item.content || '',
@@ -134,7 +195,7 @@ ${transcript.slice(0, 16000)}`;
         youtubeId: lesson.youtubeId || '',
         clipStartSeconds: clipStart,
         clipEndSeconds: clipEnd,
-        clipDuration: clipEnd - clipStart,
+        clipDuration,
         seoTitle: item.seoTitle || item.title,
         seoDescription: item.seoDescription || item.summary,
         seoKeywords: Array.isArray(item.seoKeywords) ? item.seoKeywords : [],
@@ -154,6 +215,8 @@ ${transcript.slice(0, 16000)}`;
 async function generateAiMcqsFromTranscript({
   courseId,
   lessonIds,
+  lessonId,
+  numQuestions,
   questionCount = 10,
   durationMinutes = 20,
   negativeMarks = 0.25,
@@ -161,30 +224,46 @@ async function generateAiMcqsFromTranscript({
   McqExam,
   resolveOptimalGeminiModel
 }) {
-  const query = {};
-  if (Array.isArray(lessonIds) && lessonIds.length > 0) {
-    query.id = { $in: lessonIds };
+  const targetIds = Array.isArray(lessonIds) && lessonIds.length > 0
+    ? lessonIds
+    : (lessonId ? [lessonId] : []);
+
+  let query = {};
+  if (targetIds.length > 0) {
+    query = {
+      $or: [
+        { id: { $in: targetIds } },
+        { _id: { $in: targetIds.filter(id => mongoose.isValidObjectId(id)) } }
+      ]
+    };
   } else if (courseId) {
     query.courseId = courseId;
   }
 
-  const lessons = await Lesson.find(query).limit(5).lean();
+  const lessons = await Lesson.find(query).limit(20).lean();
   if (!lessons || lessons.length === 0) {
     throw new Error('কোনো ক্লাস ভিডিও বা লেকচার ডাটা পাওয়া যায়নি।');
   }
 
-  // Combine transcripts
-  const transcriptText = lessons
-    .map(l => `[${l.title}]: ${l.transcript || l.subtitles || ''}`)
-    .join('\n\n')
-    .slice(0, 15000); // safe limit for prompt
+  // Combine transcripts from all selected lessons
+  const transcriptParts = lessons
+    .map(l => {
+      const text = l.transcript || l.subtitles || '';
+      return `[পাঠ/লেসন: "${l.title}" (${l.courseTitle || l.chapter || 'আইন'})]:\n${text}`;
+    })
+    .filter(p => p.length > 20);
+
+  const transcriptText = transcriptParts.join('\n\n---\n\n').slice(0, 30000);
 
   if (transcriptText.length < 50) {
     throw new Error('নির্বাচিত ক্লাসে পর্যাপ্ত সাবটাইটেল বা ট্রান্সক্রিপ্ট টেক্সট পাওয়া যায়নি।');
   }
 
-  const prompt = `You are a Bangladesh Judicial Service (BJS) and Bar Council Senior Exam Expert.
-Based on the following lecture transcript from BJS Academy, generate exactly ${questionCount} multiple choice questions (MCQ) in Bengali adhering strictly to BJS preliminary examination standards.
+  const finalCount = Math.max(1, Math.min(Number(questionCount || numQuestions) || 10, 100));
+
+  const prompt = `You are a Senior Judicial Research Scholar and Supreme Court Advocate specializing in Bangladesh Judicial Service (BJS) & Bangladesh Bar Council examination curriculum.
+
+Based on the following lecture transcript from BJS Academy (${lessons.length} lesson(s) combined), generate exactly ${finalCount} high-yield multiple choice questions (MCQ) in Bengali adhering strictly to BJS preliminary examination standards.
 
 Each question must test conceptual understanding of Bangladesh law (Penal Code, CPC, CrPC, Evidence Act, Constitution, Family Law, etc.) discussed in the transcript.
 Output ONLY a valid JSON array of objects with the exact schema:
@@ -200,32 +279,70 @@ Output ONLY a valid JSON array of objects with the exact schema:
 Transcript:
 ${transcriptText}`;
 
-  const geminiApiKey = process.env.GEMINI_API_KEY;
+  const geminiApiKey = sanitizeGeminiApiKey(process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
   if (!geminiApiKey) {
     throw new Error('GEMINI_API_KEY কনফিগার করা নেই।');
   }
 
-  const optimalModel = resolveOptimalGeminiModel ? resolveOptimalGeminiModel() : 'gemini-flash-latest';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${optimalModel}:generateContent?key=${geminiApiKey}`;
+  let resolvedOptimal = 'gemini-2.5-flash';
+  if (typeof resolveOptimalGeminiModel === 'function') {
+    try {
+      resolvedOptimal = await resolveOptimalGeminiModel(geminiApiKey);
+    } catch (e) {
+      resolvedOptimal = 'gemini-2.5-flash';
+    }
+  }
+  const optimalModel = sanitizeGeminiModel(resolvedOptimal);
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.2,
-        topP: 0.8
+  const candidateModels = [
+    process.env.GEMINI_MODEL ? sanitizeGeminiModel(process.env.GEMINI_MODEL) : null,
+    optimalModel,
+    'gemini-flash-lite-latest',
+    'gemini-flash-latest',
+    'gemini-2.5-flash',
+    'gemini-3.8-flash',
+    'gemini-pro-latest'
+  ].filter(Boolean).map(sanitizeGeminiModel).filter((v, i, a) => a.indexOf(v) === i);
+
+  let resData = null;
+  let lastErr = null;
+
+  for (const model of candidateModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': geminiApiKey
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.2,
+            topP: 0.85
+          }
+        })
+      });
+
+      if (response.ok) {
+        resData = await response.json();
+        break;
+      } else {
+        const errorText = await response.text();
+        console.warn(`[Gemini MCQ Gen] Model ${model} returned ${response.status}: ${errorText.slice(0, 150)}`);
+        lastErr = new Error(`Gemini API Error (${model} - ${response.status}): ${errorText.slice(0, 150)}`);
       }
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini API Error (${response.status}): ${errorText.slice(0, 150)}`);
+    } catch (err) {
+      console.warn(`[Gemini MCQ Gen] Network error with ${model}:`, err.message);
+      lastErr = err;
+    }
   }
 
-  const resData = await response.json();
+  if (!resData) {
+    throw lastErr || new Error('Gemini API থেকে উত্তর পাওয়া যায়নি।');
+  }
+
   const textOutput = resData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   const jsonMatch = textOutput.match(/\[\s*\{[\s\S]*\}\s*\]/);
   if (!jsonMatch) {
@@ -241,16 +358,22 @@ ${transcriptText}`;
     explanation: q.explanation || ''
   }));
 
-  const courseTitle = lessons[0]?.chapter || lessons[0]?.courseId || 'BJS Law Masterclass';
+  const lessonTitles = lessons.map(l => l.title);
+  const examTitle = lessonTitles.length === 1
+    ? `AI মডেল টেস্ট: ${lessonTitles[0]} (${formattedQuestions.length} প্রশ্ন)`
+    : `AI সমন্বিত মডেল টেস্ট: ${lessonTitles.slice(0, 2).join(' + ')}${lessonTitles.length > 2 ? ` ও আরও ${lessonTitles.length - 2}টি লেসন` : ''} (${formattedQuestions.length} প্রশ্ন)`;
+
+  const courseTitle = lessons[0]?.chapter || lessons[0]?.courseTitle || lessons[0]?.courseId || 'BJS Law Masterclass';
   const newExamId = `EXAM-AI-${Date.now()}`;
   const newExam = await McqExam.create({
     id: newExamId,
-    title: `AI মডেল টেস্ট: ${lessons[0]?.title || 'BJS স্পেশাল'} (${formattedQuestions.length} প্রশ্ন)`,
+    title: examTitle,
     courseId: courseId || lessons[0]?.courseId || '',
     courseTitle,
     subject: lessons[0]?.chapter || 'আইন প্রস্তুতি',
-    durationMinutes: Number(durationMinutes) || 20,
+    durationMinutes: Number(durationMinutes) || Math.max(10, Math.ceil(formattedQuestions.length * 1.5)),
     totalMarks: formattedQuestions.length,
+    totalQuestions: formattedQuestions.length,
     passPercentage: 50,
     isPublic: true,
     isLiveModelTest: false,

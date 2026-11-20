@@ -164,11 +164,12 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   const [noteSaving, setNoteSaving] = useState(false);
   const [adminLessons, setAdminLessons] = useState([]);
   const [aiNoteModal, setAiNoteModal] = useState({ isOpen: false, lessonId: '', loading: false });
+  const [showManualNoteForm, setShowManualNoteForm] = useState(false);
 
   const [pushBroadcast, setPushBroadcast] = useState({ title: '', body: '', courseId: '' });
   const [pushBroadcasting, setPushBroadcasting] = useState(false);
 
-  const [aiMcqModal, setAiMcqModal] = useState({ isOpen: false, lessonId: '', numQuestions: 5, loading: false });
+  const [aiMcqModal, setAiMcqModal] = useState({ isOpen: false, selectedLessonIds: [], lessonId: '', numQuestions: 10, lessonSearch: '', loading: false });
 
   // Exam Merit List Generator State
   const [adminAssignments, setAdminAssignments] = useState([]);
@@ -618,7 +619,23 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       seoTitle: note.seoTitle || '',
       seoKeywords: Array.isArray(note.seoKeywords) ? note.seoKeywords.join(', ') : (note.seoKeywords || '')
     });
+    setShowManualNoteForm(true);
     showToast('✏️ নোটটি এডিট ফর্মে লোড হয়েছে। এডিট শেষে "গাইড সংরক্ষণ" চাপুন।', 'info');
+  };
+
+  const handleDeleteCertificate = async (certId) => {
+    if (!window.confirm(`আপনি কি নিশ্চিত যে সার্টিফিকেট "${certId}" সম্পূর্ণ মুছে ফেলতে চান?`)) return;
+    try {
+      const res = await api.delete(`/admin/certificates/${certId}`);
+      if (res.data?.ok) {
+        showToast(res.data.message || '✓ সার্টিফিকেট সফলভাবে মুছে ফেলা হয়েছে।', 'success');
+        setAdminCertificates(prev => prev.filter(c => c.certificateId !== certId && c.id !== certId && c._id !== certId));
+      } else {
+        showToast(res.data?.message || 'সার্টিফিকেট ডিলিট ব্যর্থ হয়েছে।', 'error');
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || 'সার্টিফিকেট ডিলিট করতে সমস্যা হয়েছে।', 'error');
+    }
   };
 
   const handleGenerateAiStudyNotes = async (e) => {
@@ -681,19 +698,24 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   const handleGenerateAiMcqs = async (e) => {
     e.preventDefault();
-    if (!aiMcqModal.lessonId) {
-      showToast('অনুগ্রহ করে একটি লেসন নির্বাচন করুন।', 'error');
+    const selected = aiMcqModal.selectedLessonIds && aiMcqModal.selectedLessonIds.length > 0
+      ? aiMcqModal.selectedLessonIds
+      : (aiMcqModal.lessonId ? [aiMcqModal.lessonId] : []);
+
+    if (selected.length === 0) {
+      showToast('অনুগ্রহ করে অন্তত একটি লেসন নির্বাচন করুন।', 'error');
       return;
     }
     setAiMcqModal(prev => ({ ...prev, loading: true }));
     try {
       const res = await api.post('/admin/mcq-exams/generate-from-transcript', {
-        lessonId: aiMcqModal.lessonId,
-        numQuestions: aiMcqModal.numQuestions || 5
+        lessonIds: selected,
+        questionCount: Number(aiMcqModal.numQuestions) || 10
       });
       if (res.data?.ok) {
-        showToast(`✓ AI সফলভাবে ${res.data.exam?.totalQuestions || 5}টি MCQ তৈরি করেছে এবং এক্সাম ব্যাংকে যোগ করেছে!`, 'success');
-        setAiMcqModal({ isOpen: false, lessonId: '', numQuestions: 5, loading: false });
+        const count = res.data.exam?.totalQuestions || res.data.exam?.questions?.length || aiMcqModal.numQuestions || 10;
+        showToast(`✓ AI সফলভাবে ${count}টি MCQ তৈরি করেছে এবং এক্সাম ব্যাংকে যোগ করেছে!`, 'success');
+        setAiMcqModal({ isOpen: false, selectedLessonIds: [], lessonId: '', numQuestions: 10, lessonSearch: '', loading: false });
         loadAllAdminData();
       } else {
         showToast(res.data?.message || 'AI MCQ তৈরিতে সমস্যা হয়েছে।', 'error');
@@ -4325,7 +4347,7 @@ return (
               if (adminLessons.length === 0) {
                 api.get('/lessons').then(r => { if (r.data?.ok && Array.isArray(r.data.lessons)) setAdminLessons(r.data.lessons); }).catch(() => {});
               }
-              setAiMcqModal({ isOpen: true, lessonId: '', numQuestions: 5, loading: false });
+              setAiMcqModal({ isOpen: true, selectedLessonIds: [], lessonId: '', numQuestions: 10, lessonSearch: '', loading: false });
             }}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-extrabold text-xs shadow-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95 shrink-0"
           >
@@ -5947,6 +5969,14 @@ return (
                             >
                               🔍 Verify
                             </a>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCertificate(c.certificateId || c.id || c._id)}
+                              className="px-2.5 py-1 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-500/30 text-[11px] font-bold cursor-pointer transition-colors"
+                              title="সার্টিফিকেট ডিলিট করুন"
+                            >
+                              🗑️ ডিলিট
+                            </button>
                           </td>
                         </tr>
                       ))
@@ -5975,23 +6005,32 @@ return (
                   বিজিএস ও বার কাউন্সিল পরীক্ষার জন্য পাবলিক আইন গাইড ও ক্লাস ভিডিও ক্লিপ প্রকাশ, AI জেনারেশন ও এডিট করুন (/notes পেজে প্রদর্শিত)।
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (adminLessons.length === 0) {
-                    api.get('/lessons').then(r => { if (r.data?.ok && Array.isArray(r.data.lessons)) setAdminLessons(r.data.lessons); }).catch(() => {});
-                  }
-                  setAiNoteModal({ isOpen: true, lessonId: '', loading: false });
-                }}
-                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-black text-xs shadow-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95 shrink-0"
-              >
-                <span>🤖</span>
-                <span>লেসন থেকে AI স্টাডি গাইড ও ভিডিও ক্লিপ তৈরি</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowManualNoteForm(prev => !prev)}
+                  className="px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <span>{showManualNoteForm || noteForm.id ? '✕ ফর্ম লুকান' : '➕ নতুন নোট ম্যানুয়ালি লিখুন'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (adminLessons.length === 0) {
+                      api.get('/lessons').then(r => { if (r.data?.ok && Array.isArray(r.data.lessons)) setAdminLessons(r.data.lessons); }).catch(() => {});
+                    }
+                    setAiNoteModal({ isOpen: true, lessonId: '', loading: false });
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-black text-xs shadow-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95 shrink-0"
+                >
+                  <span>✨ AI দিয়ে অটো জেনারেট করুন</span>
+                </button>
+              </div>
             </div>
 
-            {/* Note Creation / Edit Form */}
-            <form onSubmit={handleSaveNote} className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 text-xs">
+            {/* Note Creation / Edit Form (Collapsible) */}
+            {(showManualNoteForm || Boolean(noteForm.id)) && (
+            <form onSubmit={handleSaveNote} className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 text-xs animate-fadeIn">
               <div className="flex items-center justify-between">
                 <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
                   <span>{noteForm.id ? '✏️ স্টাডি গাইড এডিট করুন' : '➕ নতুন স্টাডি গাইড যুক্ত করুন'}</span>
@@ -6099,6 +6138,7 @@ return (
                 {noteSaving ? 'সংরক্ষণ হচ্ছে...' : (noteForm.id ? '✓ আপডেট সংরক্ষণ করুন' : '✓ গাইড সংরক্ষণ ও প্রকাশ করুন')}
               </button>
             </form>
+            )}
 
             {/* Published Notes List */}
             <div className="space-y-3">
@@ -7004,74 +7044,194 @@ return (
       {aiMcqModal.isOpen && (
         <Modal
           isOpen={aiMcqModal.isOpen}
-          onClose={() => setAiMcqModal({ isOpen: false, lessonId: '', numQuestions: 5, loading: false })}
-          title="🤖 Gemini AI অটো-MCQ জেনারেটর (লেসন ট্রান্সক্রিপ্ট থেকে)"
+          onClose={() => setAiMcqModal({ isOpen: false, selectedLessonIds: [], lessonId: '', numQuestions: 10, lessonSearch: '', loading: false })}
+          title="🤖 Gemini AI অটো-MCQ জেনারেটর (মাল্টি-লেসন ট্রান্সক্রিপ্ট থেকে)"
           icon="🤖"
-          maxWidth="max-w-md"
+          maxWidth="max-w-2xl"
         >
           <form onSubmit={handleGenerateAiMcqs} className="space-y-4 p-1 text-xs">
             <p className="text-slate-300">
-              ভিডিও লেসনের ট্রান্সক্রিপ্ট / সাবটাইটেল বিশ্লেষণ করে Gemini AI স্বয়ংক্রিয়ভাবে বিজিএস স্ট্যান্ডার্ড প্রশ্নব্যাংক ও উত্তর তৈরি করবে।
+              এক বা একাধিক ভিডিও লেসন নির্বাচন করুন। Gemini AI সকল নির্বাচিত লেসনের সাবটাইটেল/ট্রান্সক্রিপ্ট একত্র বিশ্লেষণ করে সমন্বিত বিজিএস স্ট্যান্ডার্ড মডেল টেস্ট তৈরি করবে।
             </p>
-            <div>
-              <label className="block text-slate-400 font-bold mb-1">ভিডিও লেসন নির্বাচন করুন:</label>
-              <select
-                value={aiMcqModal.lessonId}
-                onChange={e => setAiMcqModal({ ...aiMcqModal, lessonId: e.target.value })}
-                required
-                className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
-              >
-                <option value="">-- যেকোনো একটি লেসন সিলেক্ট করুন --</option>
+
+            {/* Lesson Search & Multi-Select Section */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-slate-300 font-bold">ভিডিও লেসনসমূহ নির্বাচন করুন (মাল্টি-সিলেক্ট):</label>
+                <span className="px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-mono text-[11px] font-bold border border-purple-500/30">
+                  নির্বাচিত: {(aiMcqModal.selectedLessonIds || []).length} টি
+                </span>
+              </div>
+
+              <input
+                type="text"
+                value={aiMcqModal.lessonSearch || ''}
+                onChange={e => setAiMcqModal({ ...aiMcqModal, lessonSearch: e.target.value })}
+                placeholder="🔍 লেসনের নাম বা বিষয় লিখে ফিল্টার করুন..."
+                className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 text-xs"
+              />
+
+              <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/80 p-2 space-y-3">
                 {courses.map(course => {
-                  const courseLessons = adminLessons.filter(l => l.courseId === course.id || l.courseId === course._id);
-                  if (courseLessons.length === 0) return null;
+                  const courseLessons = adminLessons.filter(l => (l.courseId === course.id || l.courseId === course._id));
+                  const filteredCourseLessons = courseLessons.filter(l => {
+                    if (!aiMcqModal.lessonSearch) return true;
+                    const q = aiMcqModal.lessonSearch.toLowerCase();
+                    return (l.title && l.title.toLowerCase().includes(q)) || (course.title && course.title.toLowerCase().includes(q));
+                  });
+                  if (filteredCourseLessons.length === 0) return null;
+
+                  const allInCourseSelected = filteredCourseLessons.every(l => (aiMcqModal.selectedLessonIds || []).includes(l.id || l._id));
+
+                  const toggleAllInCourse = () => {
+                    const idsInGroup = filteredCourseLessons.map(l => l.id || l._id);
+                    if (allInCourseSelected) {
+                      setAiMcqModal(prev => ({
+                        ...prev,
+                        selectedLessonIds: (prev.selectedLessonIds || []).filter(id => !idsInGroup.includes(id))
+                      }));
+                    } else {
+                      setAiMcqModal(prev => ({
+                        ...prev,
+                        selectedLessonIds: Array.from(new Set([...(prev.selectedLessonIds || []), ...idsInGroup]))
+                      }));
+                    }
+                  };
+
                   return (
-                    <optgroup key={course.id || course._id} label={`📚 ${course.title}`}>
-                      {courseLessons.map(l => {
-                        const hasTranscript = Boolean(l.hasSubtitles || l.transcriptStatus === 'ready' || (l.transcript && l.transcript.length > 20));
-                        const transcriptBadge = hasTranscript ? ' [✓ সাবটাইটেল রেডি]' : ' [⚠️ সাবটাইটেল নেই]';
-                        return (
-                          <option key={l.id || l._id} value={l.id || l._id}>
-                            {course.title} — {l.title}{transcriptBadge}
-                          </option>
-                        );
-                      })}
-                    </optgroup>
+                    <div key={course.id || course._id} className="rounded-lg border border-slate-800/80 p-2.5 bg-slate-900/60 space-y-1.5">
+                      <div className="flex items-center justify-between pb-1 border-b border-slate-800 text-[11px]">
+                        <span className="font-bold text-amber-400">📚 {course.title}</span>
+                        <button
+                          type="button"
+                          onClick={toggleAllInCourse}
+                          className="text-[10px] text-purple-400 hover:text-purple-300 font-bold"
+                        >
+                          {allInCourseSelected ? '✕ সব আনসিলেক্ট' : '✓ সব সিলেক্ট'}
+                        </button>
+                      </div>
+                      <div className="space-y-1 pt-1">
+                        {filteredCourseLessons.map(l => {
+                          const lid = l.id || l._id;
+                          const isChecked = (aiMcqModal.selectedLessonIds || []).includes(lid);
+                          const hasTranscript = Boolean(l.hasSubtitles || l.transcriptStatus === 'ready' || (l.transcript && l.transcript.length > 20));
+                          return (
+                            <label key={lid} className={`flex items-start gap-2 p-1.5 rounded-lg cursor-pointer transition-colors ${isChecked ? 'bg-purple-950/40 text-white' : 'text-slate-300 hover:bg-slate-800/50'}`}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={e => {
+                                  const checked = e.target.checked;
+                                  setAiMcqModal(prev => {
+                                    const current = prev.selectedLessonIds || [];
+                                    const updated = checked ? [...current, lid] : current.filter(id => id !== lid);
+                                    return { ...prev, selectedLessonIds: updated, lessonId: updated[0] || '' };
+                                  });
+                                }}
+                                className="mt-0.5 rounded border-slate-700 text-purple-600 focus:ring-purple-500"
+                              />
+                              <div className="flex-1 leading-tight">
+                                <span className="font-semibold">{l.title}</span>
+                                <span className={`ml-2 text-[10px] font-mono ${hasTranscript ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
+                                  {hasTranscript ? '[✓ সাবটাইটেল রেডি]' : '[⚠️ সাবটাইটেল সিঙ্ক নেই]'}
+                                </span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   );
                 })}
-                {/* Fallback for standalone lessons */}
-                {adminLessons.filter(l => !courses.some(c => c.id === l.courseId || c._id === l.courseId)).length > 0 && (
-                  <optgroup label="📌 অন্যান্য ক্লাস লেসন">
-                    {adminLessons.filter(l => !courses.some(c => c.id === l.courseId || c._id === l.courseId)).map(l => {
-                      const hasTranscript = Boolean(l.hasSubtitles || l.transcriptStatus === 'ready' || (l.transcript && l.transcript.length > 20));
-                      const transcriptBadge = hasTranscript ? ' [✓ সাবটাইটেল রেডি]' : ' [⚠️ সাবটাইটেল নেই]';
-                      return (
-                        <option key={l.id || l._id} value={l.id || l._id}>
-                          {l.courseTitle || l.courseId || 'সাধারণ'} — {l.title}{transcriptBadge}
-                        </option>
-                      );
-                    })}
-                  </optgroup>
-                )}
-              </select>
+
+                {/* Standalone lessons */}
+                {(() => {
+                  const standalone = adminLessons.filter(l => !courses.some(c => c.id === l.courseId || c._id === l.courseId));
+                  const filtered = standalone.filter(l => {
+                    if (!aiMcqModal.lessonSearch) return true;
+                    return l.title && l.title.toLowerCase().includes(aiMcqModal.lessonSearch.toLowerCase());
+                  });
+                  if (filtered.length === 0) return null;
+                  return (
+                    <div className="rounded-lg border border-slate-800/80 p-2.5 bg-slate-900/60 space-y-1.5">
+                      <div className="font-bold text-amber-400 pb-1 border-b border-slate-800 text-[11px]">
+                        📌 অন্যান্য ক্লাস লেসন
+                      </div>
+                      <div className="space-y-1 pt-1">
+                        {filtered.map(l => {
+                          const lid = l.id || l._id;
+                          const isChecked = (aiMcqModal.selectedLessonIds || []).includes(lid);
+                          const hasTranscript = Boolean(l.hasSubtitles || l.transcriptStatus === 'ready' || (l.transcript && l.transcript.length > 20));
+                          return (
+                            <label key={lid} className={`flex items-start gap-2 p-1.5 rounded-lg cursor-pointer transition-colors ${isChecked ? 'bg-purple-950/40 text-white' : 'text-slate-300 hover:bg-slate-800/50'}`}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={e => {
+                                  const checked = e.target.checked;
+                                  setAiMcqModal(prev => {
+                                    const current = prev.selectedLessonIds || [];
+                                    const updated = checked ? [...current, lid] : current.filter(id => id !== lid);
+                                    return { ...prev, selectedLessonIds: updated, lessonId: updated[0] || '' };
+                                  });
+                                }}
+                                className="mt-0.5 rounded border-slate-700 text-purple-600 focus:ring-purple-500"
+                              />
+                              <div className="flex-1 leading-tight">
+                                <span className="font-semibold">{l.title}</span>
+                                <span className={`ml-2 text-[10px] font-mono ${hasTranscript ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
+                                  {hasTranscript ? '[✓ সাবটাইটেল রেডি]' : '[⚠️ সাবটাইটেল সিঙ্ক নেই]'}
+                                </span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
-            <div>
-              <label className="block text-slate-400 font-bold mb-1">প্রশ্নের সংখ্যা (Questions Count):</label>
-              <select
-                value={aiMcqModal.numQuestions}
-                onChange={e => setAiMcqModal({ ...aiMcqModal, numQuestions: Number(e.target.value) })}
-                className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
-              >
-                <option value={5}>৫ টি প্রশ্ন (দ্রুত)</option>
-                <option value={10}>১০ টি প্রশ্ন (মডেল টেস্ট)</option>
-              </select>
+
+            {/* Question Count with Preset Pills & Custom Input */}
+            <div className="space-y-2">
+              <label className="block text-slate-300 font-bold">প্রশ্নের সংখ্যা (Question Count):</label>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[5, 10, 15, 20, 30, 50].map(cnt => (
+                  <button
+                    key={cnt}
+                    type="button"
+                    onClick={() => setAiMcqModal(prev => ({ ...prev, numQuestions: cnt }))}
+                    className={`px-3 py-1.5 rounded-xl font-bold font-mono transition-all ${
+                      Number(aiMcqModal.numQuestions) === cnt
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                    }`}
+                  >
+                    {cnt} টি
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-slate-400 text-xs">বা কাস্টম সংখ্যা:</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={aiMcqModal.numQuestions || ''}
+                  onChange={e => setAiMcqModal({ ...aiMcqModal, numQuestions: Number(e.target.value) })}
+                  className="w-24 p-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-center font-mono font-bold focus:outline-none focus:border-purple-500"
+                />
+                <span className="text-slate-500 text-xs">টি প্রশ্ন (সর্বোচ্চ ১০০)</span>
+              </div>
             </div>
+
             <button
               type="submit"
-              disabled={aiMcqModal.loading}
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+              disabled={aiMcqModal.loading || (aiMcqModal.selectedLessonIds || []).length === 0}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 disabled:opacity-50 text-white font-extrabold text-xs shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
             >
-              {aiMcqModal.loading ? '⏳ AI প্রশ্ন তৈরি করছে...' : '✨ AI প্রশ্ন তৈরি ও যুক্ত করুন'}
+              {aiMcqModal.loading ? '⏳ Gemini AI প্রশ্ন ও ব্যাখ্যা তৈরি করছে...' : `✨ AI প্রশ্ন তৈরি ও পরীক্ষা ব্যাংকে যুক্ত করুন (${(aiMcqModal.selectedLessonIds || []).length} লেসন থেকে ${aiMcqModal.numQuestions || 10} MCQ)`}
             </button>
           </form>
         </Modal>

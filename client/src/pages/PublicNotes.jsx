@@ -1,18 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 
-const CATEGORIES = [
-  'সকল',
-  'দেওয়ানী কার্যবিধি (CPC)',
-  'দণ্ডবিধি (Penal Code)',
-  'ফৌজদারি কার্যবিধি (CrPC)',
-  'বাংলাদেশ সংবিধান',
-  'তামাদি আইন (Limitation Act)',
-  'BJS সিলেবাস ও প্রস্তুতি'
-];
-
 export default function PublicNotes() {
   const [notes, setNotes] = useState([]);
+  const [categories, setCategories] = useState(['সকল']);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('সকল');
   const [searchQuery, setSearchQuery] = useState('');
@@ -22,6 +13,24 @@ export default function PublicNotes() {
     fetchNotes();
   }, [selectedCategory]);
 
+  useEffect(() => {
+    fetchDynamicCategories();
+  }, []);
+
+  const fetchDynamicCategories = async () => {
+    try {
+      const res = await api.get('/courses');
+      if (res.data?.ok && Array.isArray(res.data.courses)) {
+        const courseCats = res.data.courses
+          .map(c => c.category || c.title)
+          .filter(Boolean);
+        setCategories(prev => Array.from(new Set(['সকল', ...prev, ...courseCats])));
+      }
+    } catch (e) {
+      // Courses fetch silent fallback
+    }
+  };
+
   const fetchNotes = async () => {
     setLoading(true);
     try {
@@ -30,6 +39,9 @@ export default function PublicNotes() {
       const res = await api.get('/notes', { params });
       if (res.data?.ok) {
         setNotes(res.data.notes || []);
+        if (Array.isArray(res.data.categories) && res.data.categories.length > 0) {
+          setCategories(prev => Array.from(new Set(['সকল', ...prev, ...res.data.categories])));
+        }
         // Check hash or slug
         const hash = window.location.hash;
         if (hash.startsWith('#notes-') || hash.startsWith('#note-')) {
@@ -103,7 +115,7 @@ export default function PublicNotes() {
 
         {/* Category Pills */}
         <div className="flex flex-wrap items-center justify-center gap-2 pt-4">
-          {CATEGORIES.map(cat => (
+          {categories.map(cat => (
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}

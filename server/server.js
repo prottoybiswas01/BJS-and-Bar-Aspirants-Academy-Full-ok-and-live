@@ -7857,11 +7857,12 @@ app.get("/api/mcq-exams/:id/leaderboard", async (req, res) => {
 app.post("/api/admin/mcq-exams/generate-from-transcript", async (req, res) => {
   try {
     await ensureDbConnected();
-    const { courseId, lessonIds, questionCount, durationMinutes, negativeMarks } = req.body || {};
+    const { courseId, lessonIds, lessonId, questionCount, numQuestions, durationMinutes, negativeMarks } = req.body || {};
     const newExam = await generateAiMcqsFromTranscript({
       courseId,
       lessonIds,
-      questionCount: Number(questionCount) || 10,
+      lessonId,
+      questionCount: Number(questionCount || numQuestions) || 10,
       durationMinutes: Number(durationMinutes) || 20,
       negativeMarks: Number(negativeMarks) || 0.25,
       Lesson,
@@ -7891,10 +7892,18 @@ app.get(["/api/notes", "/notes"], async (req, res) => {
         { lawSections: { $in: [new RegExp(search, 'i')] } }
       ];
     }
-    const notes = await StudyNote.find(filter).sort({ order: 1, createdAt: -1 }).lean();
-    return res.json({ ok: true, notes: notes || [] });
+    const [notes, allCourses, distinctNoteCategories] = await Promise.all([
+      StudyNote.find(filter).sort({ order: 1, createdAt: -1 }).lean(),
+      Course.find({}, 'title category').lean().catch(() => []),
+      StudyNote.distinct('category', { isPublished: true }).catch(() => [])
+    ]);
+
+    const courseCats = (allCourses || []).map(c => c.category || c.title).filter(Boolean);
+    const dynamicCategories = Array.from(new Set(['সকল', ...courseCats, ...distinctNoteCategories])).filter(Boolean);
+
+    return res.json({ ok: true, notes: notes || [], categories: dynamicCategories });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "আইনি নোটস লোড করতে সমস্যা হয়েছে।" });
+    return res.status(500).json({ ok: false, message: "আইনি নোটস লোড করতে সমস্যা হয়েছে: " + err.message });
   }
 });
 
@@ -8027,6 +8036,65 @@ app.post("/api/admin/study-notes/ai-generate-from-lesson", async (req, res) => {
   }
 });
 
+// Daily Autonomous AI Drip Publisher for Study Notes & Video Clips (Cron & On-Demand)
+app.all(["/api/cron/auto-publish-study-notes", "/api/crons/auto-publish-study-notes"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const existingLessonIds = await StudyNote.distinct('lessonId').catch(() => []);
+    // Find lessons that have transcript or subtitles and youtubeId, and have not yet been converted into notes
+    const query = {
+      youtubeId: { $exists: true, $ne: "" },
+      $or: [
+        { hasSubtitles: true },
+        { transcriptStatus: "ready" },
+        { transcript: { $exists: true, $ne: "" } },
+        { subtitles: { $exists: true, $ne: "" } }
+      ]
+    };
+    if (existingLessonIds.length > 0) {
+      query.id = { $nin: existingLessonIds };
+    }
+
+    const candidates = await Lesson.find(query).limit(2).lean();
+    if (!candidates || candidates.length === 0) {
+      return res.json({
+        ok: true,
+        message: "আজকের জন্য কোনো নতুন প্রক্রিয়াবিহীন লেসন নেই অথবা সকল লেসনের নোট ইতিমধ্যে প্রকাশিত হয়েছে।",
+        publishedCount: 0
+      });
+    }
+
+    const publishedNotes = [];
+    for (const lesson of candidates) {
+      try {
+        const notes = await generateStudyNotesFromLesson({
+          lessonId: lesson.id || lesson._id,
+          Lesson,
+          StudyNote,
+          Course,
+          resolveOptimalGeminiModel
+        });
+        if (Array.isArray(notes)) {
+          publishedNotes.push(...notes);
+        }
+      } catch (lessonErr) {
+        console.warn(`[Auto-Publisher] Failed note generation for lesson "${lesson.title}":`, lessonErr.message);
+      }
+    }
+
+    fastCache.delete("xml_sitemap");
+    return res.json({
+      ok: true,
+      message: `✓ অটো-পাবলিশার সফলভাবে ${publishedNotes.length}টি নতুন স্টাডি গাইড ও ভিডিও ক্লিপ ড্রিপ-পাবলিশ করেছে!`,
+      publishedCount: publishedNotes.length,
+      notes: publishedNotes.map(n => ({ title: n.title, slug: n.slug, category: n.category }))
+    });
+  } catch (err) {
+    console.error("Auto Publish Study Notes Cron Error:", err);
+    return res.status(500).json({ ok: false, message: "অটো-পাবলিশার ক্রনে সমস্যা: " + err.message });
+  }
+});
+
 // 4. CERTIFICATES ENGINE (/api/certificates & /api/admin/certificates)
 app.get("/api/certificates/student/:studentId", async (req, res) => {
   try {
@@ -8139,6 +8207,36 @@ app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificat
   } catch (err) {
     console.error("Certificate Issue Error:", err);
     return res.status(500).json({ ok: false, message: "সার্টিফিকেট ইস্যু করতে সমস্যা হয়েছে: " + err.message });
+  }
+});
+
+// Delete Certificate (Admin)
+app.delete(["/api/admin/certificates/:id", "/api/certificates/:id"], async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ ok: false, message: "সার্টিফিকেট আইডি প্রদান আবশ্যক।" });
+    }
+
+    if (isMongoConnected) {
+      await Certificate.deleteOne({
+        $or: [
+          { certificateId: id },
+          { id },
+          ...(mongoose.isValidObjectId(id) ? [{ _id: id }] : [])
+        ]
+      });
+    }
+
+    if (Array.isArray(memoryDb.certificates)) {
+      memoryDb.certificates = memoryDb.certificates.filter(c => c && c.certificateId !== id && c.id !== id && c._id !== id);
+    }
+
+    return res.json({ ok: true, message: `✓ সার্টিফিকেট "${id}" সফলভাবে ডিলিট করা হয়েছে।` });
+  } catch (err) {
+    console.error("Certificate Delete Error:", err);
+    return res.status(500).json({ ok: false, message: "সার্টিফিকেট ডিলিট করতে সমস্যা হয়েছে: " + err.message });
   }
 });
 
