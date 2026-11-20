@@ -8274,7 +8274,8 @@ app.post(["/api/telegram-webhook", "/api/telegram/webhook"], handleTelegramWebho
 
 app.get(["/api/telegram-webhook-setup", "/api/telegram/webhook-setup"], async (req, res) => {
   try {
-    const appUrl = (process.env.APP_URL || `https://${req.headers.host}`).trim();
+    const defaultHost = req.headers.host && !req.headers.host.includes('localhost') ? `https://${req.headers.host}` : 'https://bjs.kodl.uk';
+    const appUrl = (process.env.APP_URL || defaultHost).trim();
     const result = await setupTelegramWebhook(appUrl);
     return res.json({ ok: true, appUrl, result });
   } catch (err) {

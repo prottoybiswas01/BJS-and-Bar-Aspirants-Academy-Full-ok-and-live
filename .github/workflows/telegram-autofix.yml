@@ -42,12 +42,15 @@ jobs:
         env:
           REMOTE_GEMINI_API_KEY: ${{ secrets.REMOTE_GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || '7630488220' }}
           GITHUB_EVENT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
         run: |
           node scripts/telegram_auto_coder.js
 
       - name: Commit & Push Auto-Patches
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || '7630488220' }}
         run: |
           git config --global user.name "BJS Academy Cloud AI"
           git config --global user.email "autocoder@bjs.kodl.uk"
@@ -58,3 +61,29 @@ jobs:
             git commit -m "feat(remote-ai): apply automated patch from Telegram bot [skip ci]"
             git push origin main
           fi
+
+      - name: Notify on Failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || '7630488220' }}
+        run: |
+          node -e "
+          const https = require('https');
+          const token = process.env.TELEGRAM_BOT_TOKEN;
+          const chatId = process.env.TELEGRAM_CHAT_ID;
+          if (!token || !chatId) process.exit(0);
+          const payload = JSON.stringify({
+            chat_id: chatId,
+            text: '❌ *GitHub Actions অটো-কোডার রানার ফেইল্ড!*\n\nওয়ার্কফ্লো চলাকালীন অনাকাঙ্ক্ষিত ত্রুটি ঘটেছে। অনুগ্রহ করে GitHub Actions লগ দেখুন।',
+            parse_mode: 'Markdown'
+          });
+          const req = https.request({
+            hostname: 'api.telegram.org',
+            path: '/bot' + token + '/sendMessage',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+          });
+          req.write(payload);
+          req.end();
+          "

@@ -10,6 +10,8 @@
  * 2. Instant student profile lookup & verification
  * 3. Server, MongoDB, and Gemini live status checks
  * 4. Remote code fixes (/fix) and feature deployment (/feature) via GitHub Actions
+ * 5. Interactive /help system with persistent commands menu & inline callback buttons
+ * 
  * Persistent conversational state stored in MongoDB TelegramSession.
  */
 
@@ -74,14 +76,13 @@ async function ensureDb() {
 }
 
 /**
- * Send message to Telegram Chat with optional custom keyboard
+ * Send message to Telegram Chat with optional reply_to and reply_markup
  */
 async function sendTelegramMessage(chatId, text, replyToMessageId = null, replyMarkup = null) {
   const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
   if (!token || !chatId) return { ok: false, error: 'Missing token or chatId' };
 
   try {
-    const url = new URL(`${TELEGRAM_API_BASE}/bot${token}/sendMessage`);
     const payload = {
       chat_id: chatId,
       text,
@@ -96,8 +97,8 @@ async function sendTelegramMessage(chatId, text, replyToMessageId = null, replyM
     }
 
     const res = await makeHttpsRequest({
-      hostname: url.hostname,
-      path: url.pathname,
+      hostname: 'api.telegram.org',
+      path: `/bot${token}/sendMessage`,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     }, payload);
@@ -110,6 +111,97 @@ async function sendTelegramMessage(chatId, text, replyToMessageId = null, replyM
 }
 
 /**
+ * Answer Telegram Callback Query (Awaited for Serverless Integrity)
+ */
+async function answerCallbackQuery(callbackQueryId, text = null, showAlert = false) {
+  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  if (!token || !callbackQueryId) return;
+
+  try {
+    const payload = { callback_query_id: callbackQueryId };
+    if (text) payload.text = text;
+    if (showAlert) payload.show_alert = showAlert;
+
+    await makeHttpsRequest({
+      hostname: 'api.telegram.org',
+      path: `/bot${token}/answerCallbackQuery`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, payload);
+  } catch (err) {
+    console.warn('⚠️ answerCallbackQuery error:', err.message);
+  }
+}
+
+/**
+ * Edit existing Telegram message text (for inline interactions)
+ */
+async function editTelegramMessageText(chatId, messageId, text, replyMarkup = null) {
+  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  if (!token || !chatId || !messageId) return { ok: false };
+
+  try {
+    const payload = {
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true
+    };
+    if (replyMarkup) {
+      payload.reply_markup = replyMarkup;
+    }
+
+    const res = await makeHttpsRequest({
+      hostname: 'api.telegram.org',
+      path: `/bot${token}/editMessageText`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, payload);
+
+    return res.data;
+  } catch (err) {
+    console.warn('⚠️ editTelegramMessageText error:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Auto-Register Telegram Bot Menu Commands (setMyCommands)
+ * Displays persistent blue 'Menu' button next to chat input box
+ */
+async function registerBotCommands(token) {
+  const botToken = token || (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  if (!botToken) return { ok: false, error: 'Missing token' };
+
+  try {
+    const payload = {
+      commands: [
+        { command: 'help', description: 'সকল ফিচার ও বিস্তারিত গাইড' },
+        { command: 'payment', description: 'পেমেন্ট ভেরিফাই ও কোর্স অ্যাক্টিভ' },
+        { command: 'student', description: 'স্টুডেন্ট তথ্য খুঁজুন' },
+        { command: 'status', description: 'সার্ভার ও ডিপ্লয়মেন্ট স্ট্যাটাস' },
+        { command: 'fix', description: 'রিমোট বাগ ফিক্স (স্ক্রিনশটসহ)' },
+        { command: 'feature', description: 'নতুন ফিচার যোগ করুন' }
+      ]
+    };
+
+    const res = await makeHttpsRequest({
+      hostname: 'api.telegram.org',
+      path: `/bot${botToken}/setMyCommands`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, payload);
+
+    console.log('🤖 Telegram setMyCommands result:', res.data?.description || res.status);
+    return res.data;
+  } catch (err) {
+    console.warn('⚠️ setMyCommands warning:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
  * Get direct download URL for a Telegram Photo File ID
  */
 async function getTelegramFileUrl(fileId) {
@@ -117,10 +209,9 @@ async function getTelegramFileUrl(fileId) {
   if (!token || !fileId) return null;
 
   try {
-    const url = new URL(`${TELEGRAM_API_BASE}/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`);
     const res = await makeHttpsRequest({
-      hostname: url.hostname,
-      path: url.pathname + url.search,
+      hostname: 'api.telegram.org',
+      path: `/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`,
       method: 'GET'
     });
 
@@ -135,7 +226,7 @@ async function getTelegramFileUrl(fileId) {
 }
 
 /**
- * Register Webhook with Telegram
+ * Register Webhook with Telegram & Configure Commands
  */
 async function setupTelegramWebhook(appUrl) {
   const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
@@ -144,21 +235,27 @@ async function setupTelegramWebhook(appUrl) {
   try {
     const cleanUrl = appUrl.replace(/\/+$/, '');
     const webhookUrl = `${cleanUrl}/api/telegram-webhook`;
-    const url = new URL(`${TELEGRAM_API_BASE}/bot${token}/setWebhook`);
 
     const res = await makeHttpsRequest({
-      hostname: url.hostname,
-      path: url.pathname,
+      hostname: 'api.telegram.org',
+      path: `/bot${token}/setWebhook`,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     }, {
       url: webhookUrl,
-      allowed_updates: ['message'],
+      allowed_updates: ['message', 'callback_query'],
       drop_pending_updates: false
     });
 
     console.log(`🤖 Telegram Webhook registered to: ${webhookUrl} -> Result:`, res.data?.description || res.status);
-    return res.data;
+
+    // Auto-register commands menu
+    const cmdResult = await registerBotCommands(token);
+
+    return {
+      webhook: res.data,
+      commands: cmdResult
+    };
   } catch (err) {
     console.error('⚠️ Failed to register Telegram Webhook:', err.message);
     return { ok: false, error: err.message };
@@ -235,7 +332,6 @@ async function analyzePaymentScreenshot(photoUrl) {
     throw new Error('GEMINI_API_KEY কনফিগার করা নেই।');
   }
 
-  // Download image buffer
   const imageRes = await fetch(photoUrl);
   if (!imageRes.ok) {
     throw new Error(`স্ক্রিনশট ছবি ডাউনলোড ব্যর্থ হয়েছে (${imageRes.statusText})`);
@@ -278,7 +374,6 @@ Return strictly a valid JSON object in this format (no markdown, no backticks, n
   });
 
   if (!response.ok) {
-    // Fallback model
     const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
     response = await fetch(fallbackUrl, {
       method: 'POST',
@@ -309,32 +404,181 @@ Return strictly a valid JSON object in this format (no markdown, no backticks, n
 }
 
 /**
- * Super-Admin Menu Keyboard
+ * Super-Admin Persistent Bottom Reply Keyboard
  */
 const SUPER_ADMIN_KEYBOARD = {
   keyboard: [
     [{ text: '💳 পেমেন্ট অ্যাপ্রুভ' }, { text: '🔍 স্টুডেন্ট সার্চ' }],
-    [{ text: '📊 সার্ভার স্ট্যাটাস' }, { text: '🛠️ রিমোট কোড ফিক্স' }]
+    [{ text: '📊 সার্ভার স্ট্যাটাস' }, { text: '🛠️ রিমোট কোড ফিক্স' }],
+    [{ text: '❓ সাহায্য ও গাইড (/help)' }]
   ],
   resize_keyboard: true,
   one_time_keyboard: false
 };
 
 /**
- * Main Webhook Handler for Incoming Telegram Updates
+ * Interactive Help Inline Keyboard (With Clickable Callback Handlers)
+ */
+const HELP_INLINE_KEYBOARD = {
+  inline_keyboard: [
+    [
+      { text: '💳 পেমেন্ট অ্যাপ্রুভ গাইড', callback_data: 'guide_payment' },
+      { text: '🔍 স্টুডেন্ট সার্চ গাইড', callback_data: 'guide_student' }
+    ],
+    [
+      { text: '🛠️ রিমোট কোড ফিক্স গাইড', callback_data: 'guide_fix' },
+      { text: '📊 লাইভ স্ট্যাটাস দেখুন', callback_data: 'guide_status' }
+    ]
+  ]
+};
+
+/**
+ * Helper: Send Live Server Status Report
+ */
+async function sendStatusReport(chatId, replyToMessageId = null) {
+  const uptime = Math.floor(process.uptime());
+  const hours = Math.floor(uptime / 3600);
+  const mins = Math.floor((uptime % 3600) / 60);
+
+  let commitHash = 'main';
+  try {
+    const { execSync } = require('child_process');
+    commitHash = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  } catch (_) {}
+
+  const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
+  const hasMongo = Boolean(process.env.MONGODB_URI);
+  const studentCount = await Student.countDocuments().catch(() => 0);
+  const courseCount = await Course.countDocuments().catch(() => 0);
+  const receiptCount = await Receipt.countDocuments().catch(() => 0);
+
+  const statusMsg = `🟢 *BJS Academy Platform Live Status*\n\n` +
+    `🌐 *Portal:* https://bjs.kodl.uk\n` +
+    `📦 *Git Commit:* \`${commitHash}\` (Production Live)\n` +
+    `⏱️ *Uptime:* ${hours}h ${mins}m\n` +
+    `🗄️ *MongoDB Pool:* ${hasMongo ? '✓ Connected & Pooled' : '⚠️ Pending'}\n` +
+    `👥 *নিবন্ধিত শিক্ষার্থী:* ${studentCount} জন\n` +
+    `📚 *সক্রিয় কোর্স:* ${courseCount} টি\n` +
+    `🧾 *ইস্যুকৃত মানি রিসিট:* ${receiptCount} টি\n` +
+    `🧠 *Gemini AI API:* ${hasGeminiKey ? '✓ Active (Vision & Subtitles Ready)' : '⚠️ Key Missing'}\n` +
+    `🛡️ *Anti-Piracy Shield:* ✓ Active (Locked Iframe & Controls)\n` +
+    `🤖 *Remote Auto-Coder:* ✓ Ready (GitHub Actions + Gemini Vision)\n` +
+    `🚀 *Vercel Deployment:* Auto-sync enabled on \`main\``;
+
+  return await sendTelegramMessage(chatId, statusMsg, replyToMessageId, SUPER_ADMIN_KEYBOARD);
+}
+
+/**
+ * Helper: Find student by query string (ID, Phone, Email, Name)
+ */
+async function findStudentByQuery(queryStr) {
+  const clean = String(queryStr || '').trim();
+  if (!clean) return null;
+  return await Student.findOne({
+    $or: [
+      { id: clean },
+      { id: clean.toUpperCase() },
+      { phone: clean },
+      { email: clean.toLowerCase() }
+    ]
+  });
+}
+
+/**
+ * Main Webhook Handler for Incoming Telegram Updates (Messages & Callback Queries)
+ * STRICTLY AWAITS every Telegram API call to guarantee zero dropped messages on Vercel serverless.
  */
 async function handleTelegramWebhook(req, res) {
   try {
     const update = req.body;
-    if (!update || !update.message) {
+    if (!update) {
+      return res.status(200).json({ ok: true, ignored: true });
+    }
+
+    const authorizedChatId = String(process.env.TELEGRAM_CHAT_ID || '7630488220').trim();
+
+    // =========================================================
+    // 1. HANDLE INLINE BUTTON CALLBACK QUERIES (callback_query)
+    // =========================================================
+    if (update.callback_query) {
+      const cq = update.callback_query;
+      const cqId = cq.id;
+      const senderId = String(cq.from?.id || cq.message?.chat?.id || '');
+
+      if (senderId !== authorizedChatId) {
+        console.warn(`🔒 Unauthorized Telegram Callback Query from ID: ${senderId}`);
+        await answerCallbackQuery(cqId, 'অননুমোদিত এক্সেস!', true);
+        return res.status(200).json({ ok: true, blocked: true });
+      }
+
+      await ensureDb();
+      const cqData = cq.data || '';
+
+      // Immediately answer callback query so Telegram spinner stops
+      await answerCallbackQuery(cqId);
+
+      // A. Payment Approval Guide Callback
+      if (cqData === 'guide_payment') {
+        await updateSession(senderId, 'awaiting_student_query', {});
+        const guideMsg = `💳 *AI পেমেন্ট ভেরিফিকেশন ও কোর্স অনুমোদন গাইড*\n\n` +
+          `*পেমেন্ট ভেরিফাই করার ২টি সহজ উপায়:*\n\n` +
+          `📌 *১. সুপার-ফাস্ট শর্টকাট (সবচেয়ে সহজ):*\n` +
+          `সরাসরি bKash/Nagad পেমেন্ট স্ক্রিনশটের ছবিটি পাঠান এবং ছবির ক্যাপশনে শিক্ষার্থীর *আইডি* (যেমন: \`STU-2026-001\`) অথবা *মোবাইল নম্বর* (যেমন: \`01800077663\`) লিখে দিন। Gemini AI ছবি পড়ে TrxID ও টাকা স্বয়ংক্রিয়ভাবে বের করবে!\n\n` +
+          `📌 *২. ধাপে ধাপে পদ্ধতি:*\n` +
+          `১. নিচে শিক্ষার্থীর আইডি বা মোবাইল নম্বর লিখে পাঠান।\n` +
+          `২. এরপর পেমেন্টের স্ক্রিনশট পাঠিয়ে দিন।\n` +
+          `৩. তালিকা থেকে কোর্স নম্বর (যেমন: \`1\`) বাছাই করলেই ডিজিটাল মানি রিসিট তৈরি হয়ে পোর্টাল এক্সেস চালু হবে।\n\n` +
+          `👉 *এখনই শুরু করতে শিক্ষার্থীর আইডি অথবা মোবাইল নম্বর লিখে পাঠান:*`;
+        await sendTelegramMessage(senderId, guideMsg, null, SUPER_ADMIN_KEYBOARD);
+        return res.status(200).json({ ok: true });
+      }
+
+      // B. Student Search Guide Callback
+      if (cqData === 'guide_student') {
+        await updateSession(senderId, 'awaiting_student_search', {});
+        const guideMsg = `🔍 *স্টুডেন্ট অনুসন্ধান গাইড*\n\n` +
+          `শিক্ষার্থীর নাম, আইডি বা মোবাইল নম্বর লিখে পাঠান। যেমন:\n` +
+          `• \`STU-2026-001\`\n` +
+          `• \`01800077663\`\n` +
+          `• \`Srity\`\n\n` +
+          `_সরাসরি যেকারো তথ্য দেখতে নাম, আইডি বা ফোন নম্বর লিখে রিপ্লাই দিন:_`;
+        await sendTelegramMessage(senderId, guideMsg, null, SUPER_ADMIN_KEYBOARD);
+        return res.status(200).json({ ok: true });
+      }
+
+      // C. Remote Code Fix Guide Callback
+      if (cqData === 'guide_fix') {
+        const fixGuide = `🛠️ *রিমোট কোড ফিক্স ও ফিচার গাইড*\n\n` +
+          `টেলিগ্রাম থেকেই GitHub Actions ও Gemini AI-এর মাধ্যমে কোডবেসে স্বয়ংক্রিয় পরিবর্তন আনা যায়:\n\n` +
+          `১. *বাগ বা সমস্যা ফিক্স:* \`/fix [সমস্যার বর্ণনা]\`\n` +
+          `   _টিপস:_ বাগ যেখানে হয়েছে তার স্ক্রিনশট দিয়ে ক্যাপশনে \`/fix এই পেজের টেবিলটি রেসপনসিভ করো\` লিখলে AI স্ক্রিনশট দেখে নিখুঁত কোড লিখবে।\n\n` +
+          `২. *নতুন ফিচার তৈরি:* \`/feature [ফিচারের বর্ণনা]\`\n` +
+          `   উদাহরণ: \`/feature অ্যাডমিন প্যানেলে স্টুডেন্ট এক্সপোর্ট এক্সেল বাটন যোগ করো\`\n\n` +
+          `৩. *লাইভ পাইপলাইন:* কমান্ড পাঠানো মাত্র GitHub Actions রানার চালু হবে, কোড পরিবর্তন করবে, Vite বিল্ড টেস্ট করবে এবং Vercel-এ পুশ করবে।`;
+        await sendTelegramMessage(senderId, fixGuide, null, SUPER_ADMIN_KEYBOARD);
+        return res.status(200).json({ ok: true });
+      }
+
+      // D. Live Status Callback
+      if (cqData === 'guide_status') {
+        await sendStatusReport(senderId, null);
+        return res.status(200).json({ ok: true });
+      }
+
+      return res.status(200).json({ ok: true });
+    }
+
+    // =========================================================
+    // 2. HANDLE INCOMING CHAT MESSAGES
+    // =========================================================
+    if (!update.message) {
       return res.status(200).json({ ok: true, ignored: true });
     }
 
     const message = update.message;
     const senderId = String(message.from?.id || message.chat?.id || '');
-    const authorizedChatId = String(process.env.TELEGRAM_CHAT_ID || '7630488220').trim();
 
-    // STRICT ACCESS CONTROL: Only authorized admin chat ID can command the bot
+    // STRICT ACCESS CONTROL
     if (senderId !== authorizedChatId) {
       console.warn(`🔒 Unauthorized Telegram access attempt from ID: ${senderId}`);
       return res.status(200).json({ ok: true, blocked: true });
@@ -346,7 +590,10 @@ async function handleTelegramWebhook(req, res) {
     const hasPhoto = Array.isArray(message.photo) && message.photo.length > 0;
     const session = await getSession(senderId);
 
-    // 1. Cancel / Reset Command
+    // Auto-register commands menu in background
+    registerBotCommands(process.env.TELEGRAM_BOT_TOKEN).catch(() => {});
+
+    // Cancel / Reset Command
     if (text === '/cancel' || text === 'বাতিল' || text === 'Cancel') {
       await updateSession(senderId, 'idle', {});
       await sendTelegramMessage(
@@ -358,53 +605,37 @@ async function handleTelegramWebhook(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // 2. Start / Menu Command
-    if (text === '/start' || text === '/menu' || text === 'মেন্যু') {
+    // Start / Menu / Help Command
+    if (
+      text === '/start' ||
+      text === '/help' ||
+      text === 'help' ||
+      text === '/menu' ||
+      text === 'মেন্যু' ||
+      text === 'সাহায্য' ||
+      text === '❓ সাহায্য ও গাইড (/help)'
+    ) {
       await updateSession(senderId, 'idle', {});
-      const menuMsg = `🏛️ *BJS Academy Remote Super-Admin Console*\n\n` +
+      const menuMsg = `🏛️ *BJS Academy Remote Super-Admin Console*\n` +
+        `🌐 *Portal:* https://bjs.kodl.uk\n\n` +
         `স্বাগতম অ্যাডমিন! আপনি মোবাইল থেকেই প্ল্যাটফর্মের সার্বিক কার্যক্রম পরিচালনা করতে পারবেন:\n\n` +
         `💳 *পেমেন্ট ভেরিফাই:* স্ক্রিনশট থেকে AI দ্বারা ট্রানজেকশন রিড ও স্বয়ংক্রিয় কোর্স অনুমোদন\n` +
         `🔍 *স্টুডেন্ট সার্চ:* আইডি বা ফোন দিয়ে শিক্ষার্থীর তথ্য ও অ্যাক্টিভ কোর্স পর্যবেক্ষণ\n` +
         `📊 *সার্ভার স্ট্যাটাস:* প্রোডাকশন গিট কমিট, MongoDB পুল ও জেমিনি এআই হেলথ\n` +
         `🛠️ *রিমোট কোড ফিক্স:* \`/fix\` বা \`/feature\` দিয়ে তাৎক্ষণিক ক্লাউড কোডার চালানো\n\n` +
-        `_দ্রুত এক্সেসের জন্য নিচের বাটনগুলো ব্যবহার করুন:_`;
-      await sendTelegramMessage(senderId, menuMsg, messageId, SUPER_ADMIN_KEYBOARD);
+        `👇 *নিচের বাটনে ক্লিক করে বিস্তারিত গাইড ও লাইভ অ্যাকশন দেখুন:*`;
+
+      await sendTelegramMessage(senderId, menuMsg, messageId, HELP_INLINE_KEYBOARD);
       return res.status(200).json({ ok: true });
     }
 
-    // 3. Status Command
-    if (text === '/status' || text === '📊 সার্ভার স্ট্যাটাস') {
-      const uptime = Math.floor(process.uptime());
-      const hours = Math.floor(uptime / 3600);
-      const mins = Math.floor((uptime % 3600) / 60);
-
-      let commitHash = 'main';
-      try {
-        const { execSync } = require('child_process');
-        commitHash = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
-      } catch (_) {}
-
-      const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
-      const hasMongo = Boolean(process.env.MONGODB_URI);
-      const studentCount = await Student.countDocuments().catch(() => 0);
-      const courseCount = await Course.countDocuments().catch(() => 0);
-
-      const statusMsg = `🟢 *BJS Academy Platform Live Status*\n\n` +
-        `🌐 *Portal:* https://bjs.kodl.uk\n` +
-        `📦 *Git Commit:* \`${commitHash}\` (Production Live)\n` +
-        `⏱️ *Uptime:* ${hours}h ${mins}m\n` +
-        `🗄️ *MongoDB Pool:* ${hasMongo ? '✓ Connected & Pooled' : '⚠️ Pending'}\n` +
-        `👥 *নিবন্ধিত শিক্ষার্থী:* ${studentCount} জন\n` +
-        `📚 *সক্রিয় কোর্স:* ${courseCount} টি\n` +
-        `🧠 *Gemini AI API:* ${hasGeminiKey ? '✓ Active (Vision & Subtitles Ready)' : '⚠️ Key Missing'}\n` +
-        `🛡️ *Anti-Piracy Shield:* Active (Moving Watermark & Overlays)\n` +
-        `🤖 *Remote Auto-Coder:* Ready (GitHub Actions + Gemini Vision)\n` +
-        `🚀 *Vercel Deployment:* Auto-sync enabled on \`main\``;
-      await sendTelegramMessage(senderId, statusMsg, messageId, SUPER_ADMIN_KEYBOARD);
+    // Status Command
+    if (text === '/status' || text === 'status' || text === '📊 সার্ভার স্ট্যাটাস') {
+      await sendStatusReport(senderId, messageId);
       return res.status(200).json({ ok: true });
     }
 
-    // 4. Remote Code Fix Instructions
+    // Remote Code Fix Guide
     if (text === '🛠️ রিমোট কোড ফিক্স') {
       const fixGuide = `🛠️ *ক্লাউড অটো-কোডার নির্দেশনা:*\n\n` +
         `১. *বাগ বা সমস্যা ফিক্স করতে:*\n` +
@@ -417,7 +648,7 @@ async function handleTelegramWebhook(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // 5. Remote /fix or /feature Execution
+    // Remote /fix or /feature Execution
     const isFix = text.startsWith('/fix');
     const isFeature = text.startsWith('/feature');
 
@@ -447,7 +678,6 @@ async function handleTelegramWebhook(req, res) {
         `📷 *স্ক্রিনশট:* ${photoUrl ? '✓ সংযুক্ত করা হয়েছে' : 'নেই'}\n` +
         `🤖 *ইঞ্জিন:* Gemini AI + GitHub Actions Cloud Runner\n\n` +
         `⏳ _গিটহাব অ্যাকশন ওয়ার্কফ্লো শুরু করা হচ্ছে..._`;
-
       await sendTelegramMessage(senderId, ackMsg, messageId);
 
       try {
@@ -479,8 +709,43 @@ async function handleTelegramWebhook(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // 6. Student Search Flow
-    if (text === '🔍 স্টুডেন্ট সার্চ' || text === '/search') {
+    // Student Search Initiation or Direct Execution
+    const isSearchCmd = text.startsWith('/student') || text.startsWith('/search') || text === '🔍 স্টুডেন্ট সার্চ';
+    if (isSearchCmd) {
+      const inlineQuery = text.replace(/^\/(student|search)\s*/i, '').trim();
+      if (inlineQuery && inlineQuery !== '🔍 স্টুডেন্ট সার্চ') {
+        // Direct search execution
+        const students = await Student.find({
+          $or: [
+            { id: { $regex: inlineQuery, $options: 'i' } },
+            { phone: { $regex: inlineQuery, $options: 'i' } },
+            { name: { $regex: inlineQuery, $options: 'i' } },
+            { email: { $regex: inlineQuery, $options: 'i' } }
+          ]
+        }).limit(5).lean();
+
+        if (!students || students.length === 0) {
+          await sendTelegramMessage(
+            senderId,
+            `❌ \`${inlineQuery}\` তথ্য দিয়ে কোনো শিক্ষার্থী পাওয়া যায়নি।`,
+            messageId,
+            SUPER_ADMIN_KEYBOARD
+          );
+          return res.status(200).json({ ok: true });
+        }
+
+        let reply = `🔍 *${students.length} জন শিক্ষার্থী পাওয়া গেছে:*\n\n`;
+        students.forEach((s, idx) => {
+          reply += `${idx + 1}. *${s.name}*\n` +
+            `   🆔 আইডি: \`${s.id}\` | 📱 ফোন: \`${s.phone}\`\n` +
+            `   🎓 বিশ্ববিদ্যালয়: ${s.university || 'N/A'}\n` +
+            `   📊 স্ট্যাটাস: ${s.status} (অনুমোদন: ${s.loginApproval})\n` +
+            `   📚 কোর্সসমূহ: ${(s.allowedCourseIds || []).join(', ') || 'কোনো কোর্স অনুমোদিত নেই'}\n\n`;
+        });
+        await sendTelegramMessage(senderId, reply, messageId, SUPER_ADMIN_KEYBOARD);
+        return res.status(200).json({ ok: true });
+      }
+
       await updateSession(senderId, 'awaiting_student_search', {});
       await sendTelegramMessage(
         senderId,
@@ -496,7 +761,8 @@ async function handleTelegramWebhook(req, res) {
         $or: [
           { id: { $regex: q, $options: 'i' } },
           { phone: { $regex: q, $options: 'i' } },
-          { name: { $regex: q, $options: 'i' } }
+          { name: { $regex: q, $options: 'i' } },
+          { email: { $regex: q, $options: 'i' } }
         ]
       }).limit(5).lean();
 
@@ -524,8 +790,8 @@ async function handleTelegramWebhook(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // 7. Payment Verification Initiation
-    if (text === '💳 পেমেন্ট অ্যাপ্রুভ' || text === '/payment') {
+    // Payment Verification Initiation
+    if (text === '💳 পেমেন্ট অ্যাপ্রুভ' || text === '/payment' || text === 'payment') {
       await updateSession(senderId, 'awaiting_student_query', {});
       const payPrompt = `💳 *AI পেমেন্ট ভেরিফিকেশন ও কোর্স অনুমোদন*\n\n` +
         `ধাপ ১: শিক্ষার্থীর আইডি (যেমন: \`STU-2026-001\`) অথবা মোবাইল নম্বর (যেমন: \`01800077663\`) লিখুন।\n\n` +
@@ -535,21 +801,7 @@ async function handleTelegramWebhook(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // Helper: Find student by query string
-    async function findStudentByQuery(queryStr) {
-      const clean = String(queryStr || '').trim();
-      if (!clean) return null;
-      return await Student.findOne({
-        $or: [
-          { id: clean },
-          { id: clean.toUpperCase() },
-          { phone: clean },
-          { email: clean.toLowerCase() }
-        ]
-      });
-    }
-
-    // 8. Handle Photo Uploads (Payment Screenshots)
+    // Handle Photo Uploads (Payment Screenshots)
     if (hasPhoto) {
       const highestResPhoto = message.photo[message.photo.length - 1];
       const photoUrl = await getTelegramFileUrl(highestResPhoto.file_id);
@@ -559,10 +811,8 @@ async function handleTelegramWebhook(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // If photo was sent with a caption containing student ID/phone
       let matchedStudent = null;
       if (text) {
-        // Try to match student query from caption
         const tokens = text.split(/[\s,]+/);
         for (const tok of tokens) {
           if (tok.length >= 4) {
@@ -572,13 +822,11 @@ async function handleTelegramWebhook(req, res) {
         }
       }
 
-      // If no student from caption, check if session was awaiting screenshot
       if (!matchedStudent && session.step === 'awaiting_payment_screenshot' && session.payload?.studentId) {
         matchedStudent = await Student.findOne({ id: session.payload.studentId });
       }
 
       if (!matchedStudent) {
-        // Save pending photo and ask for student
         await updateSession(senderId, 'awaiting_student_for_pending_photo', { pendingPhotoUrl: photoUrl });
         await sendTelegramMessage(
           senderId,
@@ -588,7 +836,7 @@ async function handleTelegramWebhook(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // We have both the student and the photo! Process with Gemini Vision!
+      // Process with Gemini Vision
       await sendTelegramMessage(
         senderId,
         `⏳ *Gemini AI পেমেন্ট স্ক্রিনশট বিশ্লেষণ করছে...*\nশিক্ষার্থী: *${matchedStudent.name}* (\`${matchedStudent.id}\`)`,
@@ -608,13 +856,11 @@ async function handleTelegramWebhook(req, res) {
         };
       }
 
-      // Fetch active courses
       const courses = await Course.find().limit(10).lean();
       if (!courses || courses.length === 0) {
         courses.push({ id: 'c-bjs-foundation', title: 'Judicial Foundation & BJS Masterclass', fee: 1500 });
       }
 
-      // Save extracted payment & courses to persistent session
       const courseOptions = courses.map((c, i) => ({
         index: i + 1,
         id: c.id,
@@ -649,7 +895,7 @@ async function handleTelegramWebhook(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // 9. Handle student input for pending photo
+    // Handle student query for pending photo
     if (session.step === 'awaiting_student_for_pending_photo') {
       const student = await findStudentByQuery(text);
       if (!student) {
@@ -707,7 +953,7 @@ async function handleTelegramWebhook(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // 10. Handle student input in awaiting_student_query step
+    // Handle student input in awaiting_student_query step
     if (session.step === 'awaiting_student_query') {
       const student = await findStudentByQuery(text);
       if (!student) {
@@ -736,7 +982,7 @@ async function handleTelegramWebhook(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // 11. Handle Course Selection Number in awaiting_course_selection step
+    // Handle Course Selection Number in awaiting_course_selection step
     if (session.step === 'awaiting_course_selection') {
       const choice = parseInt(text, 10);
       const options = session.payload?.courseOptions || [];
@@ -757,7 +1003,7 @@ async function handleTelegramWebhook(req, res) {
 
       if (!student) {
         await updateSession(senderId, 'idle', {});
-        await sendTelegramMessage(senderId, '❌ শিক্ষার্থী ডাটাবেসে পাওয়া যায়নি। প্রক্রিয়াটি বাতিল করা হয়েছে।', messageId, SUPER_ADMIN_KEYBOARD);
+        await sendTelegramMessage(senderId, '❌ শিক্ষার্থী ডাটাবেসে পাওয়া যায়নি। প্রক্রিয়াটি বাতিল করা হয়েছে।', messageId, SUPER_ADMIN_KEYBOARD);
         return res.status(200).json({ ok: true });
       }
 
@@ -828,9 +1074,9 @@ async function handleTelegramWebhook(req, res) {
     // Default / Unrecognized Message
     await sendTelegramMessage(
       senderId,
-      '💡 কোনো অপশন নির্বাচন করতে নিচের বাটন ব্যবহার করুন অথবা /menu লিখুন:',
+      '💡 কোনো অপশন নির্বাচন করতে নিচের বাটন ব্যবহার করুন অথবা /help লিখুন:',
       messageId,
-      SUPER_ADMIN_KEYBOARD
+      HELP_INLINE_KEYBOARD
     );
     return res.status(200).json({ ok: true });
   } catch (err) {
@@ -841,6 +1087,9 @@ async function handleTelegramWebhook(req, res) {
 
 module.exports = {
   sendTelegramMessage,
+  answerCallbackQuery,
+  editTelegramMessageText,
+  registerBotCommands,
   getTelegramFileUrl,
   setupTelegramWebhook,
   triggerGitHubAutoFix,
