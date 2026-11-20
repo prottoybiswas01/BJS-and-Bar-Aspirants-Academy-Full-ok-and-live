@@ -1,4 +1,5 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
+import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider, useToast } from './context/ToastContext';
 import SecurityGuard from './components/SecurityGuard';
@@ -519,11 +520,13 @@ function MainApp() {
 export default function App() {
   return (
     <SecurityGuard>
-      <AuthProvider>
-        <ToastProvider>
-          <MainApp />
-        </ToastProvider>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <MainApp />
+          </ToastProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </SecurityGuard>
   );
 }

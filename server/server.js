@@ -253,6 +253,7 @@ const { seedDefaultStudyNotes, generateAiMcqsFromTranscript, getExamLeaderboard,
 const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId, formatSecondsToTimestamp } = require("./services/transcriptService");
 const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
 const { dispatchNewLessonNotifications } = require("./services/videoNotificationService");
+const { renderAcademyEmailTemplate } = require("./services/emailTemplateService");
 const { processLegalAiQuery, resolveOptimalGeminiModel } = require("./services/legalAiService");
 const {
   syncSingleLessonSubtitle,
@@ -2630,45 +2631,28 @@ async function sendAuthApprovalEmail(targetEmail, studentData) {
 // Automatic Registration Confirmation Email
 async function sendRegistrationConfirmEmail(targetEmail, studentData) {
   const subject = `📋 BJS & Bar Academy - Registration Confirmation (${studentData.id || studentData.regId || 'STU-REF'})`;
-  const html = `
-    <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 550px; margin: auto; border: 1px solid #334155;">
-      <div style="text-align: center; margin-bottom: 20px;">
-        <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
-        <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Judiciary & Advocacy Excellence Portal</p>
-      </div>
-      
-      <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #1e293b;">
-        <h3 style="color: #10b981; margin-top: 0;">✓ Registration Submitted Successfully!</h3>
-        <p style="font-size: 13px; color: #cbd5e1; line-height: 1.6;">
-          Dear <strong>${studentData.name || 'Student'}</strong>,<br/>
-          Thank you for registering at BJS & Bar Aspirants Academy. Your registration details have been received and recorded in our academic database.
-        </p>
+  const summaryRows = [
+    ['🆔 Student Reference ID:', studentData.id || studentData.regId || 'N/A'],
+    ['👤 Full Name:', studentData.name || 'N/A'],
+    ['📧 Email Address:', studentData.email || 'N/A'],
+    ['📞 Mobile Number:', studentData.phone || 'N/A'],
+    ['🎓 Selected Batch:', studentData.batch || 'Regular Batch'],
+    ['📌 Session:', studentData.session || 'Standard Session']
+  ];
 
-        <div style="background: #020617; padding: 15px; border-radius: 8px; border: 1px solid #334155; margin: 15px 0; font-size: 12px; color: #cbd5e1;">
-          <p style="margin: 4px 0;">🆔 <strong>Student Reference ID:</strong> <span style="color: #f59e0b; font-family: monospace;">${studentData.id || studentData.regId || 'N/A'}</span></p>
-          <p style="margin: 4px 0;">👤 <strong>Full Name:</strong> ${studentData.name}</p>
-          <p style="margin: 4px 0;">📧 <strong>Email Address:</strong> ${studentData.email}</p>
-          <p style="margin: 4px 0;">📞 <strong>Mobile Number:</strong> ${studentData.phone}</p>
-          <p style="margin: 4px 0;">🎓 <strong>Selected Batch:</strong> ${studentData.batch}</p>
-          <p style="margin: 4px 0;">📌 <strong>Session:</strong> ${studentData.session || 'Standard Session'}</p>
-        </div>
-
-        <p style="font-size: 12px; color: #94a3b8;">
-          Our academic administration is reviewing your details. Once activated, you can log in to your Student Portal to access all video lectures and study materials.
-        </p>
-
-        <div style="text-align: center; margin-top: 20px;">
-          <a href="${getAppBaseUrl()}" style="background-color: #f59e0b; color: #020617; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 10px; display: inline-block;">
-            🔑 Go to Student Portal Login
-          </a>
-        </div>
-      </div>
-
-      <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
-        © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
-      </p>
-    </div>
-  `;
+  const html = renderAcademyEmailTemplate({
+    title: subject,
+    subtitle: 'Registration Submitted Successfully',
+    preheader: `BJS & Bar Academy Registration Confirmation for ${studentData.name || 'Student'}`,
+    greeting: `Dear ${studentData.name || 'Student'},`,
+    messageHtml: `Thank you for registering at <strong>BJS & Bar Academy</strong>. Your registration details have been received and recorded in our academic database. Our administration is reviewing your application.`,
+    summaryRows,
+    ctaButton: {
+      text: '🔑 Go to Student Portal Login',
+      url: getAppBaseUrl()
+    },
+    footerNote: 'Once activated, you can log in to your Student Portal to access all video lectures and study materials.'
+  });
 
   const res = await sendResendEmail({
     from: OFFICIAL_RESEND_SENDER,
@@ -8960,25 +8944,25 @@ async function sendEmailChangeOtp(targetEmail, otp, studentName) {
   }
 
   const subject = `🔐 BJS & Bar Academy - ইমেইল ভেরিফিকেশন OTP: ${otp}`;
-  const html = `
-    <div style="font-family: Arial, sans-serif; background-color: #0b1325; color: #ffffff; padding: 25px; border-radius: 16px; max-width: 500px; margin: auto; border: 1px solid #334155;">
-      <div style="text-align: center; margin-bottom: 18px;">
-        <h2 style="color: #f59e0b; margin: 0;">⚖️ BJS & Bar Aspirants Academy</h2>
-        <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">অফিসিয়াল শিক্ষার্থী প্রোফাইল ভেরিফিকেশন</p>
-      </div>
-      <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #1e293b; text-align: center;">
-        <p style="font-size: 14px; color: #cbd5e1; margin-bottom: 10px;">প্রিয় <strong>${studentName || 'শিক্ষার্থী'}</strong>,</p>
-        <p style="font-size: 13px; color: #94a3b8; line-height: 1.5;">আপনার শিক্ষার্থী অ্যাকাউন্টে এই নতুন ইমেইল এড্রেসটি যুক্ত করার জন্য নিচে ৬-ডিজিটের ভেরিফিকেশন কোড (OTP) প্রদান করা হলো:</p>
-        <div style="font-size: 34px; font-weight: bold; color: #10b981; letter-spacing: 6px; padding: 14px; background: #020617; border-radius: 10px; margin: 16px 0; border: 1px dashed #10b981;">
+  const html = renderAcademyEmailTemplate({
+    title: subject,
+    subtitle: 'অফিসিয়াল শিক্ষার্থী প্রোফাইল ভেরিফিকেশন',
+    preheader: `আপনার নতুন ইমেইল ভেরিফিকেশন কোড: ${otp}`,
+    greeting: `প্রিয় ${studentName || 'শিক্ষার্থী'},`,
+    messageHtml: `
+      <p style="margin: 0 0 12px 0;">আপনার শিক্ষার্থী অ্যাকাউন্টে এই নতুন ইমেইল এড্রেসটি যুক্ত করার জন্য নিচে ৬-ডিজিটের ভেরিফিকেশন কোড (OTP) প্রদান করা হলো:</p>
+      <div style="text-align: center; margin: 20px 0;">
+        <span style="display: inline-block; font-size: 32px; font-weight: 900; color: #047857; letter-spacing: 6px; padding: 12px 28px; background: #ECFDF5; border-radius: 12px; border: 2px dashed #059669; font-family: monospace;">
           ${otp}
-        </div>
-        <p style="font-size: 11px; color: #f59e0b; margin: 0;">⚠️ এই OTP কোডটি আগামী ১০ মিনিটের জন্য কার্যকর থাকবে। এই পরিবর্তন আপনি না করে থাকলে দ্রুত একাডেমি অ্যাডমিনকে অবহিত করুন।</p>
+        </span>
       </div>
-      <p style="text-align: center; color: #64748b; font-size: 11px; margin-top: 20px;">
-        © 2026 BJS & Bar Aspirants Academy. All Rights Reserved.
-      </p>
-    </div>
-  `;
+    `,
+    summaryRows: [
+      ['📧 ভেরিফাইড ইমেইল:', targetEmail],
+      ['⏳ মেয়াদকাল:', '১০ মিনিট (One-Time Password)']
+    ],
+    footerNote: '⚠️ এই OTP কোডটি আগামী ১০ মিনিটের জন্য কার্যকর থাকবে। এই পরিবর্তন আপনি না করে থাকলে দ্রুত একাডেমি অ্যাডমিনকে অবহিত করুন।'
+  });
 
   try {
     const res = await sendResendEmail({

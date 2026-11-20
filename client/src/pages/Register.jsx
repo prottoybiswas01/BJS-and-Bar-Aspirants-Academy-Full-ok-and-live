@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { signInWithGooglePopup } from '../services/firebase';
 import GoogleCompleteProfileModal from '../components/GoogleCompleteProfileModal';
+import BrandLogo from '../components/BrandLogo';
 import api from '../services/api';
 import { validateRealEmail } from '../utils/emailValidator';
 
@@ -155,8 +156,8 @@ export default function Register({ setActivePage }) {
     <div className="max-w-xl w-full mx-auto py-6 sm:py-12 px-3 sm:px-4 animate-fadeIn">
       <div className="glass-card rounded-2xl p-5 sm:p-8 border border-slate-800 shadow-2xl space-y-5">
         <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-2xl bg-amber-500 text-slate-950 font-bold flex items-center justify-center text-2xl mx-auto shadow-lg shadow-amber-500/20">
-            📝
+          <div className="flex justify-center mb-1">
+            <BrandLogo size="lg" />
           </div>
           <h2 className="text-2xl font-extrabold text-white">নতুন স্টুডেন্ট রেজিস্ট্রেশন</h2>
           <p className="text-xs text-slate-400">

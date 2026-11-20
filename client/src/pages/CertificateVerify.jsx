@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import BrandLogo from '../components/BrandLogo';
 import api from '../services/api';
 
 export default function CertificateVerify() {
@@ -55,16 +56,16 @@ export default function CertificateVerify() {
     <div className="min-h-screen bg-slate-50 text-slate-800 pt-24 pb-16 px-4 sm:px-6 flex items-center justify-center">
       <div className="w-full max-w-2xl bg-white rounded-3xl shadow-xl border border-slate-200/90 overflow-hidden">
         {/* Header Banner */}
-        <div className="p-6 sm:p-8 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white text-center space-y-2">
+        <div className="p-6 sm:p-8 bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 text-white text-center space-y-3">
+          <div className="flex justify-center">
+            <BrandLogo size="lg" />
+          </div>
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-amber-500/30">
             <span>🛡️</span>
-            <span>অফিসিয়াল ডিজিটাল সার্টিফিকেট ভেরিফিকেশন</span>
+            <span>অফিসিয়াল ডিজিটাল সার্টিফিকেট ভেরিফিকেশন পোর্টাল</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-white">
-            BJS & Bar Aspirants Academy
-          </h1>
           <p className="text-xs sm:text-sm text-slate-300">
-            সার্টিফিকেটের সত্যতা যাচাই ও প্রামাণিকতা পর্যবেক্ষণ পোর্টাল
+            সার্টিফিকেটের সত্যতা যাচাই ও প্রামাণিকতা পর্যবেক্ষণ
           </p>
         </div>
 

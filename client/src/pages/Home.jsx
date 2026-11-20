@@ -125,25 +125,25 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
   }, []);
 
   return (
-    <div className="space-y-16 pb-16 animate-fadeIn">
+    <div className="space-y-16 pb-16 animate-fadeIn bg-slate-50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100 transition-colors">
       {/* Hero Section */}
-      <section className="relative overflow-hidden pt-12 pb-20 border-b border-slate-800/80 bg-gradient-to-b from-slate-950 via-[#0b1325] to-[#0d172a]">
+      <section className="relative overflow-hidden pt-12 pb-20 border-b border-slate-200 dark:border-slate-800/80 bg-gradient-to-b from-amber-500/5 via-slate-100/60 to-slate-50 dark:from-slate-950 dark:via-[#0b1325] dark:to-[#0d172a]">
         <div className="absolute top-0 right-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center space-y-6">
           {(siteSettings.badgeText || '🔥 ১৮তম বিজিএস ও বার কাউন্সিল স্পেশাল ব্যাচে ভর্তি চলছে') && (
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] sm:text-xs font-semibold max-w-full text-center leading-snug">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0"></span>
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-300 text-xs font-bold max-w-full text-center leading-snug shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0"></span>
               <span className="line-clamp-2">{siteSettings.badgeText || '🔥 ১৮তম বিজিএস ও বার কাউন্সিল স্পেশাল ব্যাচে ভর্তি চলছে'}</span>
             </div>
           )}
 
-          <h1 className="text-2xl sm:text-5xl font-extrabold text-white tracking-tight leading-snug sm:leading-tight whitespace-pre-line">
+          <h1 className="text-2xl sm:text-5xl font-black text-slate-950 dark:text-white tracking-tight leading-snug sm:leading-tight whitespace-pre-line">
             {siteSettings.heroTitle || "BJS & Bar Aspirants Academy\nJudiciary & Advocacy Excellence Portal"}
           </h1>
 
-          <p className="text-xs sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
+          <p className="text-xs sm:text-base text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
             {siteSettings.heroSubtitle || "বাংলাদেশের অন্যতম প্রধান আইন একাডেমিতে আপনাকে স্বাগতম। জুডিশিয়ারি ও বার কাউন্সিল প্রস্তুতির সেরা গাইডলাইন।"}
           </p>
 
@@ -172,7 +172,7 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                     if (window.history.pushState) window.history.pushState(null, '', '/courses');
                     document.title = '📚 প্রিমিয়াম আইন কোর্সসমূহ | BJS & Bar Aspirants Academy';
                   }}
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-sm transition-all text-center cursor-pointer"
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white font-bold text-sm transition-all text-center cursor-pointer shadow-sm"
                 >
                   📚 কোর্সসমূহ দেখুন (View Courses)
                 </button>
@@ -181,22 +181,30 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
               <>
                 <button
                   onClick={() => setActivePage('register')}
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/25 transition-all active:scale-95"
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/25 transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
-                  📝 এখনই ভর্তি হোন (Register Batch)
+                  <span>📝</span>
+                  <span>এখনই ভর্তি হোন (Register Batch)</span>
+                </button>
+                <button
+                  onClick={() => setActivePage('public-notes')}
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-bold text-sm transition-all shadow-sm flex items-center justify-center gap-2"
+                >
+                  <span>📖</span>
+                  <span>ফ্রি আইন গাইড পড়ুন (Study Guide)</span>
                 </button>
                 <button
                   onClick={() => setActivePage('login')}
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-sm transition-all"
+                  className="w-full sm:w-auto px-5 py-3.5 rounded-xl bg-slate-200/80 dark:bg-slate-900 hover:bg-slate-300 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-800 text-slate-800 dark:text-slate-300 font-bold text-sm transition-all"
                 >
-                  🔑 স্টুডেন্ট লগইন (Login)
+                  🔑 লগইন
                 </button>
               </>
             )}
           </div>
 
           {/* AI Instant Legal & Section Search Bar */}
-          <div className="w-full max-w-2xl mx-auto my-6 p-2 rounded-2xl bg-gradient-to-r from-slate-900/95 via-[#0d1c38]/95 to-slate-900/95 border border-cyan-500/35 shadow-2xl shadow-cyan-950/40 backdrop-blur-md text-left">
+          <div className="w-full max-w-2xl mx-auto my-6 p-2 rounded-2xl bg-white dark:bg-gradient-to-r dark:from-slate-900/95 dark:via-[#0d1c38]/95 dark:to-slate-900/95 border border-cyan-500/40 shadow-xl shadow-cyan-950/20 backdrop-blur-md text-left">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -208,13 +216,13 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
               }}
               className="flex items-center gap-2"
             >
-              <div className="pl-3 text-cyan-400 text-base sm:text-lg shrink-0">⚡</div>
+              <div className="pl-3 text-cyan-500 text-base sm:text-lg shrink-0">⚡</div>
               <input
                 type="text"
                 value={aiSearchInput}
                 onChange={(e) => setAiSearchInput(e.target.value)}
                 placeholder="আইনের যেকোনো ধারা বা প্রশ্ন লিখুন (যেমন: ৩০২ ধারা, ৫৪ ধারা, BJS, বার কাউন্সিল, জামিন)..."
-                className="flex-1 bg-transparent border-0 text-white placeholder-slate-400 text-xs sm:text-sm px-1 py-1.5 focus:outline-none"
+                className="flex-1 bg-transparent border-0 text-slate-900 dark:text-white placeholder-slate-400 text-xs sm:text-sm px-1 py-1.5 focus:outline-none"
               />
               <button
                 type="submit"
@@ -226,8 +234,8 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
             </form>
 
             {/* Clickable Quick Keyword & Section Chips */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-2 px-2 border-t border-slate-800/80 mt-2">
-              <span className="text-slate-400 text-[10px] font-mono shrink-0">জনপ্রিয় শর্টকাট:</span>
+            <div className="flex flex-wrap items-center gap-1.5 pt-2 px-2 border-t border-slate-100 dark:border-slate-800/80 mt-2">
+              <span className="text-slate-500 dark:text-slate-400 text-[10px] font-mono shrink-0">জনপ্রিয় শর্টকাট:</span>
               {[
                 { label: '🏛️ BJS প্রস্তুতি', q: 'সহকারী জজ (BJS) পরীক্ষার প্রিলিমিনারি ও লিখিত সিলেবাস এবং প্রস্তুতি কৌশল' },
                 { label: '📋 বার কাউন্সিল MCQ', q: 'বার কাউন্সিল অ্যাডভোকেটশিপ এমসিকিউ পরীক্ষার পাস মার্কস ও গুরুত্বপূর্ণ বিষয়' },
@@ -244,7 +252,7 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                   onClick={() => {
                     if (window.askLegalAi) window.askLegalAi(chip.q);
                   }}
-                  className="px-2 py-0.5 rounded-lg bg-slate-800/90 hover:bg-cyan-950 hover:border-cyan-500/50 hover:text-cyan-300 border border-slate-700/60 text-slate-300 transition-all text-[10px] font-medium cursor-pointer active:scale-95"
+                  className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800/90 hover:bg-cyan-100 dark:hover:bg-cyan-950 border border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 transition-all text-[10px] font-medium cursor-pointer active:scale-95"
                 >
                   {chip.label}
                 </button>
@@ -253,39 +261,39 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
           </div>
 
           {/* Dynamic 4 Stat Badges */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 border-t border-slate-800/80 max-w-3xl mx-auto">
-            <div>
-              <p className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 border-t border-slate-200 dark:border-slate-800/80 max-w-3xl mx-auto">
+            <div className="p-2">
+              <p className="text-2xl sm:text-3xl font-black text-amber-500 dark:text-amber-400 font-mono">
                 {stats.studentsCount > 0 ? `${stats.studentsCount}+` : '0'}
               </p>
-              <p className="text-xs text-slate-400 font-medium">নিবন্ধিত শিক্ষার্থী</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">নিবন্ধিত শিক্ষার্থী</p>
             </div>
 
             {/* Clickable Mentors Stat Card */}
             <div
               onClick={() => setIsMentorsModalOpen(true)}
-              className="p-2 rounded-xl bg-purple-950/20 border border-purple-500/30 hover:border-purple-400/60 hover:bg-purple-900/30 transition-all cursor-pointer group shadow-lg"
+              className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:border-purple-400/60 hover:bg-purple-500/20 transition-all cursor-pointer group shadow-sm"
               title="মাননীয় বিচারক ও মেন্টরদের প্রোফাইল দেখতে ক্লিক করুন"
             >
-              <p className="text-2xl sm:text-3xl font-black text-purple-400 font-mono group-hover:scale-105 transition-transform flex items-center justify-center gap-1">
+              <p className="text-2xl sm:text-3xl font-black text-purple-600 dark:text-purple-400 font-mono group-hover:scale-105 transition-transform flex items-center justify-center gap-1">
                 <span>{mentors.length > 0 ? `${mentors.length}+` : (stats.mentorsCount > 0 ? `${stats.mentorsCount}+` : '1+')}</span>
                 <span className="text-xs opacity-75">🔍</span>
               </p>
-              <p className="text-xs text-purple-300 font-bold group-hover:text-white transition-colors">
+              <p className="text-xs text-purple-700 dark:text-purple-300 font-bold transition-colors">
                 অভিজ্ঞ মেন্টর ও শিক্ষক
               </p>
-              <span className="text-[9px] text-purple-400/80 block mt-0.5 font-mono">
+              <span className="text-[9px] text-purple-500 dark:text-purple-400/80 block mt-0.5 font-mono">
                 (প্রোফাইল দেখতে ক্লিক করুন)
               </span>
             </div>
 
-            <div>
-              <p className="text-2xl sm:text-3xl font-black text-cyan-400 font-mono">100%</p>
-              <p className="text-xs text-slate-400 font-medium">নিরাপদ ভিডিও লেকচার</p>
+            <div className="p-2">
+              <p className="text-2xl sm:text-3xl font-black text-cyan-600 dark:text-cyan-400 font-mono">100%</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">নিরাপদ ভিডিও লেকচার</p>
             </div>
-            <div>
-              <p className="text-2xl sm:text-3xl font-black text-emerald-400 font-mono">24/7</p>
-              <p className="text-xs text-slate-400 font-medium">Gemini AI Legal Helper</p>
+            <div className="p-2">
+              <p className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 font-mono">24/7</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Gemini AI Legal Helper</p>
             </div>
           </div>
         </div>
@@ -294,14 +302,18 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
       {/* Courses Showcase Section */}
       <section id="courses" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center space-y-3 mb-12">
-          <h2 className="text-2xl sm:text-4xl font-extrabold text-white">আমাদের প্রিমিয়াম কোর্সসমূহ</h2>
-          <p className="text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
-            আপনার লক্ষ্য অনুযায়ী কোর্স নির্বাচন করুন এবং সেরা প্রস্তুতি সম্পন্ন করুন
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-bold uppercase tracking-wider">
+            <span>📚</span>
+            <span>প্রিমিয়াম আইন কোর্সসমূহ</span>
+          </div>
+          <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-950 dark:text-white">আমাদের স্পেশাল মাস্টারক্লাস ব্যাচ</h2>
+          <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
+            সহকারী জজ (BJS) ও বার কাউন্সিল পরীক্ষার সিলেবাসভিত্তিক গভীর প্রস্তুতি নিশ্চিত করতে কোর্স নির্বাচন করুন
           </p>
         </div>
 
         {loading ? (
-          <div className="text-center py-12 text-amber-400 font-mono animate-pulse">
+          <div className="text-center py-12 text-amber-500 font-mono animate-pulse">
             কোর্স ডেটা লোড হচ্ছে...
           </div>
         ) : (
@@ -310,43 +322,49 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
               <div
                 key={c.id}
                 onClick={() => handleOpenCourseDetails(c)}
-                className="glass-card glass-card-hover rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden cursor-pointer group hover:border-amber-500/50 transition-all duration-300"
+                className="bg-white dark:bg-[#0e1726] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 flex flex-col justify-between relative overflow-hidden cursor-pointer group hover:border-amber-500/50 hover:shadow-2xl transition-all duration-300"
               >
-                <div className="absolute top-0 right-0 px-3 py-1 bg-amber-500/20 text-amber-300 text-[10px] font-bold rounded-bl-xl border-l border-b border-amber-500/30">
+                <div className="absolute top-0 right-0 px-3 py-1 bg-amber-500/15 text-amber-600 dark:text-amber-300 text-[10px] font-bold rounded-bl-2xl border-l border-b border-amber-500/30">
                   {c.category || 'Law Course'}
                 </div>
 
                 <div className="space-y-4">
-                  <div className="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-2xl">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center text-2xl shadow-sm">
                     📚
                   </div>
 
                   <div>
-                    <h3 className="font-extrabold text-white text-lg leading-snug">{c.title}</h3>
-                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">{c.description}</p>
+                    <h3 className="font-extrabold text-slate-950 dark:text-white text-lg leading-snug group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
+                      {c.title}
+                    </h3>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                      {c.description}
+                    </p>
                   </div>
 
-                  <div className="space-y-2 text-xs text-slate-300 border-t border-slate-800/80 pt-3">
+                  <div className="space-y-2 text-xs text-slate-700 dark:text-slate-300 border-t border-slate-100 dark:border-slate-800/80 pt-3">
                     <p className="flex justify-between">
                       <span className="text-slate-500">ফ্যাকাল্টি:</span>
-                      <span className="font-semibold text-slate-200">{c.faculty}</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-200">{c.faculty}</span>
                     </p>
                     <p className="flex justify-between">
                       <span className="text-slate-500">ক্লাস সিডিউল:</span>
-                      <span className="font-mono text-amber-300">{c.schedule}</span>
+                      <span className="font-mono text-amber-600 dark:text-amber-300">{c.schedule}</span>
                     </p>
                     <p className="flex justify-between">
                       <span className="text-slate-500">পরবর্তী লাইভ ক্লাস:</span>
-                      <span className="font-mono text-emerald-400">{c.nextLive}</span>
+                      <span className="font-mono text-emerald-600 dark:text-emerald-400">{c.nextLive}</span>
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-6 pt-4 border-t border-slate-800 space-y-3">
+                <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-[10px] text-slate-400">কোর্স ফি</p>
-                      <p className="text-xl font-black text-amber-400 font-mono">৳ {c.price} <span className="text-xs font-normal text-slate-400">BDT</span></p>
+                      <p className="text-[10px] text-slate-500">কোর্স ফি</p>
+                      <p className="text-xl font-black text-amber-600 dark:text-amber-400 font-mono">
+                        ৳ {c.price} <span className="text-xs font-normal text-slate-500">BDT</span>
+                      </p>
                     </div>
 
                     <button
@@ -354,7 +372,7 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                         e.stopPropagation();
                         setEnrollModalCourse(c);
                       }}
-                      className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-extrabold shadow-md transition-all hover:scale-105"
+                      className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black shadow-md transition-all hover:scale-105"
                     >
                       ভর্তি হোন (Enroll)
                     </button>
@@ -367,7 +385,7 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                       rel="noopener noreferrer"
                       download="Class-Schedule.pdf"
                       onClick={(e) => e.stopPropagation()}
-                      className="w-full py-2 rounded-xl bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-500/50 text-emerald-300 hover:text-white text-[11px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm hover:scale-[1.01]"
+                      className="w-full py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-700 dark:text-emerald-300 text-[11px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm"
                       title="ক্লাস শিডিউল ডাউনলোড করুন"
                     >
                       <span>📅</span>
@@ -381,16 +399,16 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                         e.stopPropagation();
                         handleOpenCourseDetails(c);
                       }}
-                      className="w-full py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700/80 text-amber-300 hover:text-white text-[11px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-sm cursor-pointer"
+                      className="w-full py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700/80 text-amber-600 dark:text-amber-300 text-[11px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-sm cursor-pointer"
                     >
-                      <span>📋 সিলেবাস ও ১টি ফ্রী ভিডিও</span>
+                      <span>📋 সিলেবাস ও ফ্রী ক্লাস</span>
                     </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleCopyDemoLink(e, c.id);
                       }}
-                      className="w-full py-2 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 text-cyan-300 hover:text-white text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 shadow-sm cursor-pointer"
+                      className="w-full py-2 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/40 text-cyan-700 dark:text-cyan-300 text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 shadow-sm cursor-pointer"
                       title="ফ্রী ডেমো ভিডিও এর ডিরেক্ট শেয়ারেবল লিংক কপি করুন"
                     >
                       <span>🔗 ডেমো লিংক কপি</span>
@@ -402,6 +420,76 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
           </div>
         )}
       </section>
+
+      {/* Direct Homepage Mentors & Faculty Showcase */}
+      {mentors.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center space-y-3 mb-10">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-600 dark:text-purple-300 text-xs font-bold uppercase tracking-wider">
+              <span>⚖️</span>
+              <span>বিশিষ্ট বিচারক ও মেন্টরবৃন্দ</span>
+            </div>
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-950 dark:text-white">
+              দেশের শীর্ষ জুডিশিয়াল ব্যক্তিত্বদের সরাসরি দিকনির্দেশনা
+            </h2>
+            <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
+              বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) বিচারক ও সুপ্রিম কোর্টের প্রথিতযশা আইনজীবীদের সার্বিক তত্ত্বাবধানে ক্লাস পরিচালিত হয়
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {mentors.slice(0, 6).map((m) => (
+              <div
+                key={m.id}
+                className="p-5 rounded-3xl bg-white dark:bg-[#0e1726] border border-purple-500/20 hover:border-purple-400/50 space-y-3.5 transition-all shadow-md hover:shadow-xl group"
+              >
+                <div className="flex items-start gap-4">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-950 to-indigo-900 border border-purple-500/40 text-purple-300 font-bold flex items-center justify-center text-2xl shrink-0 overflow-hidden shadow-md">
+                    {m.photoUrl ? (
+                      <img src={m.photoUrl} alt={m.name} className="w-full h-full object-cover" />
+                    ) : (
+                      '⚖️'
+                    )}
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <h4 className="font-extrabold text-slate-950 dark:text-white text-base leading-snug truncate group-hover:text-purple-600 dark:group-hover:text-purple-300 transition-colors">
+                      {m.name}
+                    </h4>
+                    <span className="inline-block px-2.5 py-0.5 rounded-full bg-purple-500/15 text-purple-700 dark:text-purple-300 text-[11px] font-extrabold border border-purple-500/30">
+                      {m.designation}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                  <p className="text-slate-600 dark:text-slate-300 flex items-start gap-2">
+                    <span className="text-purple-600 dark:text-purple-400 font-bold shrink-0">📍 পোস্টিং:</span>
+                    <span className="font-medium text-slate-800 dark:text-slate-200">{m.posting}</span>
+                  </p>
+                  <p className="text-slate-600 dark:text-slate-300 flex items-start gap-2">
+                    <span className="text-amber-600 dark:text-amber-400 font-bold shrink-0">📖 বিষয়:</span>
+                    <span className="font-medium text-slate-800 dark:text-slate-200">{m.expertise}</span>
+                  </p>
+                  {m.bio && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 italic pt-1 leading-relaxed border-t border-slate-100 dark:border-slate-800/50 mt-1 line-clamp-2">
+                      "{m.bio}"
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => openMentorProfile && openMentorProfile(m)}
+                  className="w-full py-2 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>⚖️ সম্পূর্ণ জুডিশিয়াল প্রোফাইল দেখুন</span>
+                  <span>→</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Course Enrollment Helpline Notice Modal */}
       {enrollModalCourse && (

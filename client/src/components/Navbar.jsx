@@ -1,155 +1,193 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
+import BrandLogo from './BrandLogo';
 
 export default function Navbar({ activePage, setActivePage, toggleAiDrawer, openProfileModal }) {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme, isDark } = useTheme();
+
+  const handleNavClick = (page, sectionId = null) => {
+    if (setActivePage) setActivePage(page);
+    if (sectionId) {
+      setTimeout(() => {
+        const el = document.getElementById(sectionId);
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  };
 
   return (
-    <nav className="sticky top-0 z-40 w-full bg-[#0b1325]/95 backdrop-blur-md border-b border-slate-800/80">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 sm:h-20">
+    <header className="sticky top-0 z-40 w-full h-16 bg-white/85 dark:bg-[#090D16]/90 backdrop-blur-xl border-b border-slate-200 dark:border-white/10 transition-colors">
+      <div className="max-w-7xl mx-auto h-full px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-full gap-2">
           {/* Brand Logo & Name */}
-          <div 
-            onClick={() => setActivePage('home')} 
-            className="flex items-center space-x-2 sm:space-x-3 cursor-pointer group shrink-0"
+          <div
+            onClick={() => handleNavClick('home')}
+            className="flex items-center cursor-pointer shrink-0"
+            title="BJS & Bar Academy - হোমপেজে যান"
           >
-            <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-tr from-amber-600 via-amber-400 to-amber-200 flex items-center justify-center shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform">
-              <span className="text-lg sm:text-2xl font-bold text-slate-950 font-serif">⚖️</span>
-            </div>
-            <div>
-              <div className="text-xs sm:text-xl font-extrabold tracking-tight text-white flex items-center gap-1.5">
-                <span>BJS & Bar Academy</span>
-                <span className="hidden sm:inline-block text-[9px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
-                  আইন পাঠশালা
-                </span>
-              </div>
-              <p className="hidden sm:block text-xs text-slate-400 font-medium">Judiciary & Advocacy Excellence Portal</p>
-            </div>
+            <BrandLogo size="md" variant={isDark ? 'default' : 'light'} />
           </div>
 
-          {/* Navigation Links */}
-          <div className="hidden md:flex items-center space-x-2">
+          {/* Centered Navigation Links */}
+          <nav className="hidden lg:flex items-center space-x-1 xl:space-x-2">
             <button
-              onClick={() => setActivePage('home')}
-              className={`px-3.5 py-2 rounded-lg font-medium text-sm transition-colors cursor-pointer ${
+              onClick={() => handleNavClick('home')}
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs xl:text-sm transition-all cursor-pointer ${
                 activePage === 'home'
-                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
+                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
               }`}
             >
-              🏠 হোম (Home)
+              🏠 হোম
             </button>
             <button
-              onClick={() => setActivePage('notes')}
-              className={`px-3.5 py-2 rounded-lg font-medium text-sm transition-colors cursor-pointer ${
+              onClick={() => handleNavClick('home', 'courses')}
+              className="px-3 py-1.5 rounded-lg font-bold text-xs xl:text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all cursor-pointer"
+            >
+              📚 কোর্সসমূহ
+            </button>
+            <button
+              onClick={() => handleNavClick('notes')}
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs xl:text-sm transition-all cursor-pointer ${
                 activePage === 'notes'
-                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
+                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
               }`}
             >
               📖 আইন গাইড
             </button>
+            <button
+              onClick={() => {
+                if (user && (user.isMentor || user.role === 'mentor')) {
+                  handleNavClick('mentor-dashboard');
+                } else {
+                  handleNavClick('home', 'mentors');
+                }
+              }}
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs xl:text-sm transition-all cursor-pointer ${
+                activePage === 'mentor-dashboard'
+                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              👨‍🏫 মেন্টর প্যানেল
+            </button>
+
+            {/* Admin Exclusive Link */}
             {user && (user.isAdmin || user.role === 'admin') && (
               <button
-                onClick={() => setActivePage('admin')}
-                className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
+                onClick={() => handleNavClick('admin')}
+                className={`px-3.5 py-1.5 rounded-lg font-extrabold text-xs xl:text-sm transition-all cursor-pointer ${
                   activePage === 'admin'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                    : 'text-amber-400 hover:text-white hover:bg-slate-800/50'
+                    ? 'bg-purple-600 text-white shadow-md'
+                    : 'text-purple-600 dark:text-purple-400 hover:bg-purple-500/10 border border-purple-500/30'
                 }`}
               >
-                🛡️ Admin Panel
+                🛡️ অ্যাডমিন কমান্ড সেন্টার
               </button>
             )}
-            {user && (user.isMentor || user.role === 'mentor') && (
-              <button
-                onClick={() => setActivePage('mentor-dashboard')}
-                className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
-                  activePage === 'mentor-dashboard'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                    : 'text-amber-400 hover:text-white hover:bg-slate-800/50'
-                }`}
-              >
-                👨‍🏫 Mentor Dashboard
-              </button>
-            )}
+
+            {/* Student Dashboard Link */}
             {user && !user.isAdmin && !user.isMentor && user.role !== 'admin' && user.role !== 'mentor' && (
               <button
-                onClick={() => setActivePage('dashboard')}
-                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                onClick={() => handleNavClick('dashboard')}
+                className={`px-3.5 py-1.5 rounded-lg font-extrabold text-xs xl:text-sm transition-all cursor-pointer ${
                   activePage === 'dashboard'
-                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
+                    ? 'bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/40'
+                    : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60'
                 }`}
               >
-                🎓 Student Dashboard
+                🎓 স্টুডেন্ট পোর্টাল
               </button>
             )}
-          </div>
+          </nav>
 
-          {/* Action Buttons & Profile */}
-          <div className="flex items-center space-x-1.5 sm:space-x-3 shrink-0">
-            {/* AI Assistant Button */}
+          {/* Right Action Controls */}
+          <div className="flex items-center space-x-1.5 sm:space-x-2.5 shrink-0">
+            {/* Theme Toggle (Daylight / Obsidian) */}
+            <button
+              onClick={toggleTheme}
+              className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-700 dark:text-amber-300 hover:scale-105 active:scale-95 transition-all shadow-sm cursor-pointer"
+              title={isDark ? "Daylight Reading Mode-এ সুইচ করুন" : "Executive Obsidian Dark Mode-এ সুইচ করুন"}
+              aria-label="Toggle Theme"
+            >
+              {isDark ? (
+                <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+              )}
+            </button>
+
+            {/* AI Assistant Pill */}
             <button
               onClick={toggleAiDrawer}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-gradient-to-r from-cyan-900/60 to-blue-900/60 border border-cyan-500/30 text-cyan-300 hover:border-cyan-400 text-[11px] sm:text-xs font-semibold shadow-md transition-all active:scale-95"
-              title="Open Gemini AI Assistant"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-900/40 to-blue-900/40 dark:from-cyan-950/80 dark:to-blue-950/80 border border-cyan-500/40 text-cyan-600 dark:text-cyan-300 hover:border-cyan-400 text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer"
+              title="Gemini AI Legal Assistant চালু করুন"
             >
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
               </span>
-              <span className="hidden sm:inline">Gemini AI Legal Assistant</span>
-              <span className="sm:hidden font-bold">AI Helper</span>
+              <span className="hidden sm:inline">AI লিগ্যাল সহকারী</span>
+              <span className="sm:hidden font-bold">AI</span>
             </button>
 
+            {/* User Profile / Auth State */}
             {user ? (
               <div className="flex items-center gap-1.5 sm:gap-2">
                 {!user.isAdmin && activePage !== 'admin' && activePage !== 'admin-login' && (
                   <button
                     onClick={openProfileModal}
-                    className="flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 hover:border-amber-500/50 transition-all text-left"
+                    className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 hover:border-amber-500/50 transition-all text-left cursor-pointer"
+                    title="প্রোফাইল সেটিংস দেখুন"
                   >
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-amber-500 text-slate-950 font-bold flex items-center justify-center text-xs">
+                    <div className="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 font-black flex items-center justify-center text-xs shadow-sm">
                       {user.name ? user.name[0].toUpperCase() : 'M'}
                     </div>
                     <div className="hidden md:block">
-                      <p className="text-xs font-bold text-slate-200 line-clamp-1">{user.name}</p>
-                      <p className="text-[10px] text-amber-400 font-mono">{user.isMentor ? 'MENTOR' : (user.id || 'STUDENT')}</p>
+                      <p className="text-xs font-bold text-slate-900 dark:text-slate-200 line-clamp-1">{user.name}</p>
+                      <p className="text-[10px] text-amber-600 dark:text-amber-400 font-mono font-bold leading-none">
+                        {user.isMentor ? 'MENTOR' : (user.id || 'STUDENT')}
+                      </p>
                     </div>
                   </button>
                 )}
 
                 <button
                   onClick={logout}
-                  className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-500/40 text-[11px] sm:text-xs font-extrabold flex items-center gap-1 transition-all shadow-md cursor-pointer"
-                  title="Logout from Account"
+                  className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/70 hover:bg-rose-100 dark:hover:bg-rose-900 text-rose-600 dark:text-rose-200 border border-rose-300 dark:border-rose-500/40 text-xs font-extrabold flex items-center gap-1 transition-all shadow-sm cursor-pointer"
+                  title="অ্যাকাউন্ট থেকে লগআউট করুন"
                 >
                   <span>🚪</span>
-                  <span className="hidden sm:inline">লগআউট (Logout)</span>
-                  <span className="sm:hidden">লগআউট</span>
+                  <span className="hidden sm:inline">লগআউট</span>
                 </button>
               </div>
             ) : (
-              <div className="flex items-center space-x-1.5 sm:space-x-2">
+              <div className="flex items-center space-x-1.5">
                 <button
-                  onClick={() => setActivePage('login')}
-                  className="px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition-colors"
+                  onClick={() => handleNavClick('login')}
+                  className="px-3 py-1.5 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:text-amber-600 dark:hover:text-amber-400 transition-colors cursor-pointer"
                 >
                   লগইন
                 </button>
                 <button
-                  onClick={() => setActivePage('register')}
-                  className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 hover:from-amber-400 hover:to-amber-500 shadow-md shadow-amber-500/20 transition-all active:scale-95 whitespace-nowrap"
+                  onClick={() => handleNavClick('register')}
+                  className="px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-extrabold rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-md shadow-amber-500/20 transition-all active:scale-95 whitespace-nowrap cursor-pointer"
                 >
-                  <span className="hidden sm:inline">রেজিস্ট্রেশন করুন</span>
-                  <span className="sm:hidden">ভর্তি হোন</span>
+                  <span className="hidden sm:inline">ভর্তি ও রেজিস্ট্রেশন</span>
+                  <span className="sm:hidden">ভর্তি</span>
                 </button>
               </div>
             )}
           </div>
         </div>
       </div>
-    </nav>
+    </header>
   );
 }

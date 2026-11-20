@@ -5,6 +5,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import BrandLogo from './components/BrandLogo';
 import './index.css';
 
 // 1. AUTO-RECOVER FROM DYNAMIC IMPORT / CHUNK LOADING ERRORS
@@ -93,11 +94,11 @@ class RootErrorBoundary extends React.Component {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen bg-[#0b1325] text-slate-100 flex flex-col items-center justify-center p-6 text-center select-none font-sans">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-600 to-amber-300 flex items-center justify-center shadow-lg shadow-amber-500/20 mb-5">
-            <span className="text-3xl font-serif">⚖️</span>
+          <div className="mb-5 flex justify-center">
+            <BrandLogo size="xl" showText={false} />
           </div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-amber-400 mb-2">
-            BJS & Bar Aspirants Academy
+            BJS & Bar Academy
           </h1>
           <p className="text-sm text-slate-300 max-w-sm mb-6 leading-relaxed">
             একটি সাময়িক কারিগরি ত্রুটির কারণে পেজটি লোড হতে পারেনি। অনুগ্রহ করে নিচের বাটনে ক্লিক করে পেজটি রিফ্রেশ করুন।

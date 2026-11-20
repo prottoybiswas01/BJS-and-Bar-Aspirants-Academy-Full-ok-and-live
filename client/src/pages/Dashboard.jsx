@@ -636,27 +636,50 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
             </div>
           </div>
 
-          {/* Learning Progress Widget */}
-          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 min-w-[240px]">
-            <div className="flex justify-between text-xs font-bold">
-              <span className="text-slate-400">কোর্স অগ্রগতি (Progress)</span>
-              <span className="text-amber-400 font-mono">{progressPercent}%</span>
+          {/* Quick-Resume & Learning Progress Widget */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+            {/* Quick-Resume Button: সর্বশেষ ক্লাস থেকে পড়া চালিয়ে যান */}
+            {lessons.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const nextLessonToWatch = lessons.find(l => !user?.completedLessonIds?.includes(l.id) && (l.youtubeId || l.youtubeUrl)) || lessons[0];
+                  if (nextLessonToWatch) {
+                    openVideoModal(nextLessonToWatch);
+                  } else {
+                    showToast("কোনো সক্রিয় ভিডিও ক্লাস পাওয়া যায়নি।", "info");
+                  }
+                }}
+                className="px-5 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-amber-500/25 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                title="সর্বশেষ অসম্পূর্ণ ক্লাস থেকে ভিডিও লেকচার শুরু করুন"
+              >
+                <span>▶</span>
+                <span>সর্বশেষ ক্লাস থেকে পড়া চালিয়ে যান</span>
+              </button>
+            )}
+
+            {/* Learning Progress Widget */}
+            <div className="bg-slate-950/90 p-4 rounded-xl border border-slate-800 space-y-2 min-w-[220px]">
+              <div className="flex justify-between text-xs font-bold">
+                <span className="text-slate-400">কোর্স অগ্রগতি (Progress)</span>
+                <span className="text-amber-400 font-mono">{progressPercent}%</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-500"
+                  style={{ width: `${progressPercent}%` }}
+                ></div>
+              </div>
+              <p className="text-[10px] text-slate-500 text-right font-mono">
+                {completedCount} / {lessons.length} লেকচার সম্পন্ন
+              </p>
             </div>
-            <div className="w-full h-2.5 rounded-full bg-slate-800 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-500"
-                style={{ width: `${progressPercent}%` }}
-              ></div>
-            </div>
-            <p className="text-[10px] text-slate-500 text-right">
-              {completedCount} / {lessons.length} লেকচার সম্পন্ন
-            </p>
           </div>
         </div>
       </section>
 
-      {/* Section Tab Navigation: 6 Core Judicial Academy Pillars */}
-      <div className="flex flex-wrap bg-slate-950 p-1.5 rounded-2xl border border-slate-800 gap-1.5 shadow-xl">
+      {/* Segmented Tab Navigation: 5 Smooth Horizontal Pill Tabs */}
+      <div className="flex flex-wrap bg-slate-950/95 p-1.5 rounded-2xl border border-slate-800 gap-1.5 shadow-xl">
         <button
           onClick={() => setSelectedTab('lectures')}
           className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center cursor-pointer ${
@@ -665,7 +688,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
               : 'text-slate-400 hover:text-white hover:bg-slate-900'
           }`}
         >
-          📹 ক্লাস ও কোর্স
+          📚 ক্লাস ও কোর্স
         </button>
         <button
           onClick={() => setSelectedTab('exams')}
@@ -675,7 +698,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
               : 'text-slate-400 hover:text-white hover:bg-slate-900'
           }`}
         >
-          <span>🎯 সেন্ট্রাল মডেল টেস্ট ({studentExams.length})</span>
+          <span>📝 মডেল টেস্ট ({studentExams.length})</span>
         </button>
         <button
           onClick={() => setSelectedTab('assignments')}
@@ -685,7 +708,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
               : 'text-slate-400 hover:text-white hover:bg-slate-900'
           }`}
         >
-          <span>📝 অ্যাসাইনমেন্ট ({studentAssignments.length})</span>
+          <span>📂 অ্যাসাইনমেন্ট ({studentAssignments.length})</span>
         </button>
         <button
           onClick={() => setSelectedTab('payments')}
@@ -695,7 +718,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
               : 'text-slate-400 hover:text-white hover:bg-slate-900'
           }`}
         >
-          <span>💳 মানি রিসিট ({studentReceipts.length})</span>
+          <span>🧾 মানি রিসিট ({studentReceipts.length})</span>
         </button>
         <button
           onClick={() => setSelectedTab('certificates')}
@@ -705,17 +728,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
               : 'text-slate-400 hover:text-white hover:bg-slate-900'
           }`}
         >
-          <span>📜 সার্টিফিকেট ({studentCertificates.length})</span>
-        </button>
-        <button
-          onClick={() => setSelectedTab('profile')}
-          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
-            selectedTab === 'profile'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg'
-              : 'text-slate-400 hover:text-white hover:bg-slate-900'
-          }`}
-        >
-          <span>👤 প্রোফাইল ও নিরাপত্তা</span>
+          <span>🎓 সার্টিফিকেট ({studentCertificates.length})</span>
         </button>
       </div>
 

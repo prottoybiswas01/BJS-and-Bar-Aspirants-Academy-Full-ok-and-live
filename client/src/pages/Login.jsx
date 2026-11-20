@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { signInWithGooglePopup } from '../services/firebase';
 import GoogleCompleteProfileModal from '../components/GoogleCompleteProfileModal';
+import BrandLogo from '../components/BrandLogo';
 import api from '../services/api';
 
 export default function Login({ setActivePage }) {
@@ -217,8 +218,8 @@ export default function Login({ setActivePage }) {
         {mode === 'login' ? (
           <>
             <div className="text-center space-y-2">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-bold flex items-center justify-center text-2xl mx-auto shadow-lg shadow-amber-500/20">
-                🔑
+              <div className="flex justify-center mb-1">
+                <BrandLogo size="lg" />
               </div>
               <h2 className="text-2xl font-extrabold text-white">স্টুডেন্ট লগইন</h2>
               <p className="text-xs text-slate-400">

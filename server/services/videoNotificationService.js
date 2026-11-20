@@ -1,4 +1,5 @@
 const { notifyLessonEmailDispatched } = require('./alertService');
+const { renderAcademyEmailTemplate } = require('./emailTemplateService');
 
 /**
  * Durable Video Notification Outbox & Idempotent Email Dispatcher
@@ -170,58 +171,28 @@ async function dispatchNewLessonNotifications({
       continue; // Skip: already delivered to this recipient
     }
 
-    // Build clean email notification without manual duration row
+    // Build cohesive executive email notification via unified template engine
     const subject = `🎥 [নতুন ভিডিও ক্লাস নোটিশ] ${courseTitle}: ${lesson.title} আপলোড সম্পন্ন!`;
-    const htmlContent = `
-      <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #0b1325; color: #f8fafc; border-radius: 16px; overflow: hidden; border: 1px solid #1e293b; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
-        <div style="background: linear-gradient(135deg, #d97706 0%, #b45309 100%); padding: 24px; text-align: center; color: #0f172a;">
-          <div style="font-size: 34px; margin-bottom: 4px;">🎬</div>
-          <h1 style="margin: 0; font-size: 20px; font-weight: 900; letter-spacing: 0.5px; color: #0f172a;">
-            BJS & BAR ASPIRANTS ACADEMY
-          </h1>
-          <p style="margin: 4px 0 0 0; font-size: 12px; font-weight: 700; opacity: 0.9;">
-            নতুন লেকচার ভিডিও আপলোড ইমেইল নোটিফিকেশন
-          </p>
-        </div>
-        <div style="padding: 24px; line-height: 1.6;">
-          <p style="font-size: 15px; font-weight: 700; color: #f59e0b; margin-top: 0;">
-            প্রিয় ${student.name || 'শিক্ষার্থী'},
-          </p>
-          <p style="font-size: 13px; color: #cbd5e1; margin-bottom: 20px;">
-            আপনার কোর্স <strong>"${courseTitle}"</strong>-এ একটি নতুন লেকচার ভিডিও সফলভাবে আপলোড ও প্রকাশ করা হয়েছে।
-          </p>
-          <div style="background-color: #1e293b; border-radius: 12px; padding: 18px; border-left: 4px solid #f59e0b; margin-bottom: 24px;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-              <tr>
-                <td style="padding: 6px 0; color: #94a3b8; font-weight: 600; width: 120px;">📚 কোর্স:</td>
-                <td style="padding: 6px 0; color: #fbbf24; font-weight: 700;">${courseTitle}</td>
-              </tr>
-              <tr>
-                <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">📖 ক্লাস শিরোনাম:</td>
-                <td style="padding: 6px 0; color: #ffffff; font-weight: 600;">${lesson.title}</td>
-              </tr>
-              ${lesson.chapter ? `
-              <tr>
-                <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">📑 অধ্যায়/বিষয়:</td>
-                <td style="padding: 6px 0; color: #e2e8f0;">${lesson.chapter}</td>
-              </tr>` : ''}
-              <tr>
-                <td style="padding: 6px 0; color: #94a3b8; font-weight: 600;">📅 প্রকাশের তারিখ:</td>
-                <td style="padding: 6px 0; color: #93c5fd;">${lesson.releaseDate || new Date().toISOString().split('T')[0]}</td>
-              </tr>
-            </table>
-          </div>
-          <div style="text-align: center; margin: 30px 0 10px 0;">
-            <a href="https://bjs.kodl.uk/dashboard" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #0f172a; font-weight: 800; font-size: 14px; text-decoration: none; padding: 14px 32px; border-radius: 10px; display: inline-block; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4);">
-              ▶️ ড্যাশবোর্ডে গিয়ে ক্লাসটি দেখুন
-            </a>
-          </div>
-        </div>
-        <div style="background-color: #050b14; padding: 16px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #1e293b;">
-          &copy; ${new Date().getFullYear()} BJS & Bar Aspirants Academy. All rights reserved.
-        </div>
-      </div>
-    `;
+    const summaryRows = [
+      ['📚 কোর্স:', courseTitle],
+      ['📖 ক্লাস শিরোনাম:', lesson.title],
+      ...(lesson.chapter ? [['📑 অধ্যায়/বিষয়:', lesson.chapter]] : []),
+      ['📅 প্রকাশের তারিখ:', lesson.releaseDate || new Date().toISOString().split('T')[0]]
+    ];
+
+    const htmlContent = renderAcademyEmailTemplate({
+      title: subject,
+      subtitle: 'নতুন ভিডিও ক্লাস নোটিফিকেশন',
+      preheader: `${courseTitle} কোর্সে নতুন ক্লাস আপলোড করা হয়েছে: ${lesson.title}`,
+      greeting: `প্রিয় ${student.name || 'শিক্ষার্থী'},`,
+      messageHtml: `আপনার কোর্স <strong>"${courseTitle}"</strong>-এ একটি নতুন লেকচার ভিডিও সফলভাবে আপলোড ও প্রকাশ করা হয়েছে। নিয়মিত পড়াশোনার ধারাবাহিকতা বজায় রাখতে আজই ক্লাসটি সম্পন্ন করুন।`,
+      summaryRows,
+      ctaButton: {
+        text: '▶️ ড্যাশবোর্ডে গিয়ে ক্লাসটি দেখুন',
+        url: 'https://bjs.kodl.uk/dashboard'
+      },
+      footerNote: 'আপনি এই কোর্সে নিবন্ধিত সক্রিয় শিক্ষার্থী হিসেবে এই নোটিফিকেশনটি পেয়েছেন।'
+    });
 
     // Attempt external delivery
     try {

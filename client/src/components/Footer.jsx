@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import BrandLogo from './BrandLogo';
 import api from '../services/api';
 
 export default function Footer({ setActivePage, activePage }) {
@@ -63,14 +64,8 @@ export default function Footer({ setActivePage, activePage }) {
       >
         {/* Brand / Academy Info */}
         <div className={!showCoursesAndLinks ? 'max-w-md' : ''}>
-          <div className="flex items-center space-x-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-amber-500 flex items-center justify-center text-slate-950 font-bold">
-              ⚖️
-            </div>
-            <div>
-              <h3 className="font-extrabold text-white text-base">BJS & Bar Academy</h3>
-              <p className="text-xs text-amber-400">আইন পাঠশালা</p>
-            </div>
+          <div className="mb-4">
+            <BrandLogo size="md" variant="default" />
           </div>
           <p className="text-xs text-slate-400 leading-relaxed mb-4">
             বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল অ্যাডভোকেসি পরীক্ষার প্রস্তুতির একমাত্র বিশ্বস্ত প্রিমিয়াম প্ল্যাটফর্ম।

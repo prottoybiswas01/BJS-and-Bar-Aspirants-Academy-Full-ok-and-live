@@ -3,6 +3,7 @@ import api from '../services/api';
 import Modal from '../components/ui/Modal';
 import { useToast } from '../context/ToastContext';
 import { formatBangladeshTime, toBangladeshDigits } from '../utils/dateUtils';
+import BrandLogo from '../components/BrandLogo';
 
 export default function AdminPanel({ openLessonManager, openVideoModal, openMentorProfile }) {
   const [stats, setStats] = useState({
@@ -119,7 +120,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   });
 
   // Admin Modular Tab Navigation State
-  const [adminTab, setAdminTab] = useState('settings'); // 'settings' | 'students' | 'mentors' | 'courses' | 'payments' | 'mcq' | 'merit'
+  const [adminTab, setAdminTab] = useState('dashboard'); // 'dashboard' | 'students' | 'mentors' | 'courses' | 'payments' | 'mcq' | 'merit' | 'certificates' | 'notes' | 'settings'
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Close open modals when switching admin tabs
@@ -2565,13 +2566,7 @@ return (
           {/* Brand Profile Header & Mobile Toggle */}
           <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-black text-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
-                PN
-              </div>
-              <div>
-                <h3 className="font-extrabold text-white text-sm">আইন পাঠশালা বিডি</h3>
-                <p className="text-[11px] text-amber-400 font-mono font-bold">Admin Control Panel</p>
-              </div>
+              <BrandLogo variant="horizontal" size="sm" />
             </div>
 
             {/* Mobile Expand / Collapse Menu Toggle */}
@@ -2584,186 +2579,212 @@ return (
             </button>
           </div>
 
-          {/* Navigation Group: 4 PRIMARY MANAGEMENT PILLARS */}
-          <div className={`space-y-1.5 ${isMobileMenuOpen ? 'block' : 'hidden lg:block'}`}>
-            <span className="text-[10px] font-mono tracking-widest text-slate-400 font-bold uppercase block px-3">
-              মূল ব্যবস্থাপনা (CORE MODULES)
-            </span>
-
-            {/* (ক) স্টুডেন্ট ব্যবস্থাপনা */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('students'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'students'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">👨‍🎓</span>
-                <span>(ক) স্টুডেন্ট ব্যবস্থাপনা</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {students.length}
+          {/* Navigation Groups: 5 EXECUTIVE COMMAND PILLARS */}
+          <div className={`space-y-4 ${isMobileMenuOpen ? 'block' : 'hidden lg:block'}`}>
+            {/* GROUP 1: OVERVIEW */}
+            <div className="space-y-1">
+              <span className="text-[10px] font-mono tracking-widest text-slate-500 font-bold uppercase block px-3">
+                ওভারভিউ (OVERVIEW)
               </span>
-            </button>
+              <button
+                type="button"
+                onClick={() => { setAdminTab('dashboard'); setIsMobileMenuOpen(false); }}
+                className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                  adminTab === 'dashboard'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-extrabold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">📊</span>
+                  <span>ড্যাশবোর্ড ওভারভিউ</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                  KPI
+                </span>
+              </button>
+            </div>
 
-            {/* (খ) কোর্স ও লেসন ব্যবস্থাপনা */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('courses'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'courses'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">📚</span>
-                <span>(খ) কোর্স ও লেসন ব্যবস্থাপনা</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {courses.length}
+            {/* GROUP 2: ACADEMIC */}
+            <div className="space-y-1">
+              <span className="text-[10px] font-mono tracking-widest text-slate-500 font-bold uppercase block px-3">
+                একাডেমিক (ACADEMIC)
               </span>
-            </button>
+              <button
+                type="button"
+                onClick={() => { setAdminTab('courses'); setIsMobileMenuOpen(false); }}
+                className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                  adminTab === 'courses'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-extrabold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">📚</span>
+                  <span>কোর্স ও লেসন</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                  {courses.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAdminTab('mcq'); setIsMobileMenuOpen(false); }}
+                className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                  adminTab === 'mcq'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-extrabold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">📝</span>
+                  <span>পরীক্ষা ও ফলাফল</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                  {mcqExams.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAdminTab('certificates'); setIsMobileMenuOpen(false); }}
+                className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                  adminTab === 'certificates'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-extrabold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">🎓</span>
+                  <span>ডিজিটাল সার্টিফিকেট</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                  {adminCertificates.length || 'Cert'}
+                </span>
+              </button>
+            </div>
 
-            {/* (গ) পরীক্ষা ও ফলাফল */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('mcq'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'mcq'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">📝</span>
-                <span>(গ) পরীক্ষা ও ফলাফল</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {mcqExams.length}
+            {/* GROUP 3: STUDENTS & FINANCE */}
+            <div className="space-y-1">
+              <span className="text-[10px] font-mono tracking-widest text-slate-500 font-bold uppercase block px-3">
+                স্টুডেন্ট ও অর্থ (STUDENTS & FINANCE)
               </span>
-            </button>
+              <button
+                type="button"
+                onClick={() => { setAdminTab('students'); setIsMobileMenuOpen(false); }}
+                className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                  adminTab === 'students'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-extrabold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">👥</span>
+                  <span>স্টুডেন্ট ব্যবস্থাপনা</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                  {students.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAdminTab('payments'); setIsMobileMenuOpen(false); }}
+                className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                  adminTab === 'payments'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-extrabold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">💳</span>
+                  <span>পেমেন্ট ও মানি রিসিট</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                  {receipts.length}
+                </span>
+              </button>
+            </div>
 
-            {/* (ঘ) পেমেন্ট ও মানি রিসিট */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('payments'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'payments'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">💳</span>
-                <span>(ঘ) পেমেন্ট ও মানি রিসিট</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {receipts.length}
+            {/* GROUP 4: AI & CONTENT */}
+            <div className="space-y-1">
+              <span className="text-[10px] font-mono tracking-widest text-slate-500 font-bold uppercase block px-3">
+                আইন ও কনটেন্ট (AI & CONTENT)
               </span>
-            </button>
+              <button
+                type="button"
+                onClick={() => { setAdminTab('notes'); setIsMobileMenuOpen(false); }}
+                className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                  adminTab === 'notes'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-extrabold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">📖</span>
+                  <span>SEO ও আইন স্টাডি গাইড</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                  {adminNotes.length || 'Notes'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAdminTab('mentors'); setIsMobileMenuOpen(false); }}
+                className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                  adminTab === 'mentors'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-extrabold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">👨‍⚖️</span>
+                  <span>মেন্টর ও ফ্যাকাল্টি</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                  {mentors.length}
+                </span>
+              </button>
+            </div>
 
-            <span className="text-[10px] font-mono tracking-widest text-slate-500 font-bold uppercase block px-3 pt-3">
-              অতিরিক্ত ও সেটিংস
-            </span>
-
-            {/* Site Settings & Banner */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('settings'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'settings'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">⚙️</span>
-                <span>সাইট সেটিংস ও ব্যানার</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                Edit
+            {/* GROUP 5: SYSTEM & AUDIT */}
+            <div className="space-y-1">
+              <span className="text-[10px] font-mono tracking-widest text-slate-500 font-bold uppercase block px-3">
+                সিস্টেম ও অডিট (SYSTEM & AUDIT)
               </span>
-            </button>
-
-            {/* Mentor & Faculty Control */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('mentors'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'mentors'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">👨‍🏫</span>
-                <span>মেন্টর ও ফ্যাকাল্টি</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                {mentors.length}
-              </span>
-            </button>
-
-            {/* Merit List */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('merit'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'merit'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">🏆</span>
-                <span>মেধা তালিকা অডিট</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                Audit
-              </span>
-            </button>
-
-            {/* Digital Certificates */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('certificates'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'certificates'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">📜</span>
-                <span>ডিজিটাল সার্টিফিকেট</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                Cert
-              </span>
-            </button>
-
-            {/* SEO & Public Law Study Notes */}
-            <button
-              type="button"
-              onClick={() => { setAdminTab('notes'); setIsMobileMenuOpen(false); }}
-              className={`w-full px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
-                adminTab === 'notes'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">📖</span>
-                <span>SEO ও আইন স্টাডি গাইড</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
-                Notes
-              </span>
-            </button>
+              <button
+                type="button"
+                onClick={() => { setAdminTab('settings'); setIsMobileMenuOpen(false); }}
+                className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                  adminTab === 'settings'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-extrabold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">⚙️</span>
+                  <span>সাইট সেটিংস ও ব্যানার</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                  Edit
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAdminTab('merit'); setIsMobileMenuOpen(false); }}
+                className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                  adminTab === 'merit'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-extrabold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">🛡️</span>
+                  <span>মেধা তালিকা ও অডিট</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                  Audit
+                </span>
+              </button>
+            </div>
           </div>
         </div>
 

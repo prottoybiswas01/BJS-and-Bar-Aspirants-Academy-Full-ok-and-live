@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { lockBodyScroll, unlockBodyScroll } from './ui/scrollLock';
+import BrandLogo from './BrandLogo';
 import api from '../services/api';
 import {
   User,
@@ -17,7 +18,6 @@ import {
   GraduationCap,
   Sparkles,
   X,
-  ExternalLink,
   Layers,
   HelpCircle,
   Loader2,
@@ -82,17 +82,6 @@ export default function ProfileModal({ isOpen, onClose }) {
     };
   }, [cooldown]);
 
-  // Handle ESC key to close modal
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   if (!isOpen || !user) return null;
 
   const currentDeviceId = getDeviceId ? getDeviceId() : 'DEV-UNKNOWN';
@@ -110,12 +99,6 @@ export default function ProfileModal({ isOpen, onClose }) {
       setCopiedDevId(true);
       setTimeout(() => setCopiedDevId(false), 2500);
     }).catch(() => {});
-  };
-
-  const validateEmailFormat = (email) => {
-    const clean = String(email || '').trim().toLowerCase();
-    const regex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-    return regex.test(clean);
   };
 
   // Step 1: Send OTP to the NEW email address
@@ -223,26 +206,21 @@ export default function ProfileModal({ isOpen, onClose }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-2xl max-h-[calc(100dvh-2rem)] rounded-3xl bg-gradient-to-b from-slate-900 via-[#0d1627] to-slate-950 border border-slate-700/60 shadow-[0_25px_80px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden my-auto">
+      <div className="relative w-full max-w-4xl max-h-[calc(100dvh-2rem)] rounded-3xl bg-[#0B1220] border border-slate-700/60 shadow-[0_25px_80px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden my-auto text-slate-100">
         
-        {/* Top Brand Banner Strip */}
+        {/* Top Sovereign Gold Strip */}
         <div className="h-2 w-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600"></div>
 
         {/* Header Bar */}
-        <div className="px-5 sm:px-7 pt-5 pb-4 border-b border-slate-800/80 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-sm">
-              ⚖️
-            </div>
+        <div className="px-5 sm:px-8 pt-5 pb-4 border-b border-slate-800/80 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <BrandLogo size="sm" />
             <div>
-              <h3 className="font-extrabold text-white text-sm sm:text-base tracking-wide flex items-center gap-2">
-                <span>BJS & Bar Aspirants Academy</span>
-                <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
-                  {user.isMentor ? 'মেন্টর পোর্টাল' : 'স্টুডেন্ট পোর্টাল'}
-                </span>
-              </h3>
+              <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
+                {user.isMentor ? 'মেন্টর পোর্টাল' : 'স্টুডেন্ট পোর্টাল'}
+              </span>
               <p className="text-[11px] text-slate-400">
-                {user.isMentor ? 'সম্মানিত বিচারক ও মেন্টর পরিচিতি' : 'অফিসিয়াল ডিজিটাল শিক্ষার্থী পরিচিতি ও প্রোফাইল'}
+                {user.isMentor ? 'সম্মানিত বিচারক ও মেন্টর পরিচিতি' : 'অফিসিয়াল ডিজিটাল শিক্ষার্থী প্রোফাইল ও নিরাপত্তা'}
               </p>
             </div>
           </div>
@@ -256,108 +234,8 @@ export default function ProfileModal({ isOpen, onClose }) {
           </button>
         </div>
 
-        {/* Modal Scrollable Body */}
-        <div className="p-5 sm:p-7 space-y-6 max-h-[82vh] overflow-y-auto custom-scrollbar">
-
-          {/* Student Hero Identity Card */}
-          <div className="relative p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-amber-500/25 shadow-xl overflow-hidden">
-            {/* Background Watermark Pattern */}
-            <div className="absolute -right-6 -bottom-6 text-slate-800/20 text-8xl font-black pointer-events-none select-none font-serif">
-              BJS
-            </div>
-
-            <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                {/* Avatar with Glow Ring */}
-                <div className="relative shrink-0">
-                  {user.photoUrl ? (
-                    <img
-                      src={user.photoUrl}
-                      alt={user.name}
-                      className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover ring-2 ring-amber-500/50 shadow-lg"
-                    />
-                  ) : (
-                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-slate-950 font-black flex items-center justify-center text-2xl sm:text-3xl shadow-lg ring-4 ring-amber-500/20">
-                      {user.name ? user.name[0].toUpperCase() : 'S'}
-                    </div>
-                  )}
-                  {/* Verified Badge Icon */}
-                  <div
-                    className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-md ring-2 ring-slate-950"
-                    title="যাচাইকৃত সক্রিয় শিক্ষার্থী"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                  </div>
-                </div>
-
-                {/* Name & Academic ID */}
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                      {user.name}
-                    </h2>
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold">
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      {user.isMentor ? 'সম্মানিত মেন্টর ও বিচারক' : 'ভেরিফাইড শিক্ষার্থী'}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="font-mono text-amber-400 font-extrabold bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
-                      ID: {user.id || user.regId || (user.isMentor ? 'MENTOR' : 'STU-2026-001')}
-                    </span>
-                    <button
-                      onClick={handleCopyId}
-                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all flex items-center gap-1 text-[11px] font-bold cursor-pointer border border-slate-700/60"
-                      title="আইডি কপি করুন"
-                    >
-                      {copiedId ? (
-                        <>
-                          <Check className="w-3 h-3 text-emerald-400" />
-                          <span className="text-emerald-400">কপি হয়েছে!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3 h-3" />
-                          <span>কপি আইডি</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  <p className="text-xs text-slate-400 pt-0.5">
-                    {user?.isMentor ? (
-                      <>👨‍🏫 পদবি: <span className="text-amber-300 font-bold">{user?.designation || 'সহকারী জজ ও প্রশিক্ষক'}</span></>
-                    ) : (
-                      <>🎓 ব্যাচ: <span className="text-amber-300 font-bold">{user?.batch || 'Judiciary 2026'}</span> • <span className="text-slate-300">{user?.session || 'Weekend Intensive'}</span></>
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              {/* Status Pill on Desktop */}
-              <div className="hidden sm:flex flex-col items-end gap-1.5 shrink-0">
-                <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-xs border border-emerald-500/30 flex items-center gap-1.5 shadow-sm">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  {user?.status || 'Active'}
-                </span>
-                <span className="text-[10px] text-slate-500 font-mono">
-                  {user?.portalAccessMode || 'Full Access Mode'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Strict Security Policy Alert Banner */}
-          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs shadow-md space-y-1.5">
-            <div className="flex items-center gap-2 font-bold text-amber-300">
-              <Lock className="w-4 h-4 shrink-0 text-amber-400" />
-              <span>একাডেমি প্রোফাইল নিরাপত্তা ও ওটিপি ভেরিফিকেশন নীতিমালা:</span>
-            </div>
-            <p className="leading-relaxed text-slate-300 text-[11px] sm:text-xs">
-              আইনি প্রত্যয়ন ও পরীক্ষার স্বচ্ছতার স্বার্থে শিক্ষার্থীর <strong className="text-white">নাম, মোবাইল নম্বর ও রেজিস্টার্ড ব্যাচ</strong> স্থায়ীভাবে লক করা রয়েছে। শুধুমাত্র আপনার প্রয়োজনীয় <strong className="text-amber-300">ইমেইল এড্রেসটি</strong> পরিবর্তন করতে পারবেন। নিরাপত্তা নিশ্চিত করতে নতুন মেইলে প্রেরিত <strong className="text-emerald-400">ওটিপি (OTP) কোডটি মিললেই কেবল তা অ্যাকাউন্টে যুক্ত হবে</strong>।
-            </p>
-          </div>
+        {/* Modal Scrollable Body: EXECUTIVE 2-COLUMN PROFILE LAYOUT */}
+        <div className="p-5 sm:p-8 space-y-6 max-h-[82vh] overflow-y-auto custom-scrollbar">
 
           {/* Feedback Messages */}
           {successMsg && (
@@ -374,29 +252,138 @@ export default function ProfileModal({ isOpen, onClose }) {
             </div>
           )}
 
-          {/* SECTION 1: ব্যক্তিগত ও যোগাযোগ তথ্য */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs sm:text-sm font-extrabold text-white flex items-center gap-2">
-                <User className="w-4 h-4 text-amber-400" />
-                <span>ব্যক্তিগত ও যোগাযোগ তথ্য</span>
-              </h4>
-              <span className="text-[11px] text-slate-400">
-                ইমেইল ওটিপি ভেরিফায়েড • বাকি তথ্য সুরক্ষিত
-              </span>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            {/* ======================================================== */}
+            {/* LEFT COLUMN: IDENTITY, ACADEMIC BADGES & DEVICE GUARD     */}
+            {/* ======================================================== */}
+            <div className="lg:col-span-5 space-y-4">
+              {/* Identity Card */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-amber-500/30 shadow-xl text-center flex flex-col items-center">
+                {/* Avatar with Glow Ring */}
+                <div className="relative mb-3">
+                  {user.photoUrl ? (
+                    <img
+                      src={user.photoUrl}
+                      alt={user.name}
+                      className="w-20 h-20 rounded-2xl object-cover ring-2 ring-amber-500/50 shadow-lg"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-slate-950 font-black flex items-center justify-center text-3xl shadow-lg ring-4 ring-amber-500/20">
+                      {user.name ? user.name[0].toUpperCase() : 'S'}
+                    </div>
+                  )}
+                  <div
+                    className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-md ring-2 ring-slate-950"
+                    title="যাচাইকৃত সক্রিয় শিক্ষার্থী"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                </div>
+
+                <h2 className="text-lg font-black text-white tracking-tight">{user.name}</h2>
+                <div className="mt-1 flex items-center gap-1.5 flex-wrap justify-center">
+                  <span className="font-mono text-amber-400 font-extrabold bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20 text-xs">
+                    ID: {user.id || user.regId || (user.isMentor ? 'MENTOR' : 'STU-2026')}
+                  </span>
+                  <button
+                    onClick={handleCopyId}
+                    className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all text-[11px] font-bold cursor-pointer border border-slate-700/60"
+                    title="আইডি কপি করুন"
+                  >
+                    {copiedId ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 font-bold text-[11px] border border-emerald-500/30">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>{user.isMentor ? 'সম্মানিত মেন্টর ও বিচারক' : 'অফিসিয়াল সক্রিয় শিক্ষার্থী'}</span>
+                </div>
+              </div>
+
+              {/* Active Courses Badges */}
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800/80 space-y-2.5">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                  📚 নিবন্ধিত কোর্স ও ব্যাচ
+                </span>
+                <div className="space-y-1.5">
+                  <div className="p-2.5 rounded-xl bg-slate-900 border border-amber-500/20 text-xs">
+                    <p className="font-bold text-amber-300">{user.batch || 'Judiciary 2026 Masterclass'}</p>
+                    <p className="text-[11px] text-slate-400 font-mono mt-0.5">{user.session || 'Weekend Intensive'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Registered Device Security Guard */}
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>ডিভাইস নিরাপত্তা (Device Guard)</span>
+                  </span>
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    1/2 Active
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  অ্যাকাউন্ট সুরক্ষায় সর্বোচ্চ ২টি ডিভাইসে বাইন্ডিং সক্রিয় রয়েছে।
+                </p>
+
+                <div className="p-2 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2">
+                  <span className="font-mono text-[10px] text-slate-300 truncate">
+                    {currentDeviceId}
+                  </span>
+                  <button
+                    onClick={handleCopyDevId}
+                    className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all text-xs cursor-pointer shrink-0"
+                    title="ডিভাইস আইডি কপি করুন"
+                  >
+                    {copiedDevId ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Administrative Helpline Notice */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800/80 text-xs space-y-2">
+                <p className="text-[11px] text-slate-400 flex items-center gap-1">
+                  <HelpCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>কোনো তথ্য সংশোধনের প্রয়োজন হলে:</span>
+                </p>
+                <a
+                  href="tel:01800077663"
+                  className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 text-xs font-bold transition-all flex items-center justify-center gap-1.5 border border-amber-500/30"
+                >
+                  <span>📞 একাডেমি হেল্পলাইন: 01800077663</span>
+                </a>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            {/* ======================================================== */}
+            {/* RIGHT COLUMN: EDITABLE FIELDS, EMAIL OTP & PASSWORD      */}
+            {/* ======================================================== */}
+            <div className="lg:col-span-7 space-y-4">
+              
+              {/* Policy Banner */}
+              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-amber-300">
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>প্রোফাইল নিরাপত্তা ও ওটিপি ভেরিফিকেশন নীতিমালা</span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  পরীক্ষার নিরাপত্তা স্বার্থে নাম ও মোবাইল নম্বর স্থায়ী। প্রয়োজনীয় <strong className="text-amber-300">ইমেইল এড্রেসটি ওটিপি কোড দিয়ে তাৎক্ষণিক আপডেট</strong> করতে পারবেন।
+                </p>
+              </div>
 
-              {/* 1. EMAIL FIELD (WITH DUAL-STEP OTP VERIFICATION) */}
-              <div className="sm:col-span-2 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-slate-900 to-slate-900 border-2 border-amber-500/40 shadow-md relative">
-                <div className="flex items-center justify-between mb-2">
+              {/* EMAIL FIELD (WITH DUAL-STEP OTP VERIFICATION) */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-slate-950 border-2 border-amber-500/40 shadow-md relative space-y-3">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Mail className="w-4 h-4 text-amber-400" />
                     <span className="text-xs font-bold text-slate-200">ইমেইল এড্রেস (Email Address)</span>
                     <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-extrabold border border-amber-500/30 flex items-center gap-1">
                       <Sparkles className="w-3 h-3" />
-                      ওটিপি ভেরিফিকেশন সহ এডিটেবল
+                      OTP ভেরিফায়েড
                     </span>
                   </div>
 
@@ -412,7 +399,7 @@ export default function ProfileModal({ isOpen, onClose }) {
                       className="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
-                      <span>ইমেইল পরিবর্তন করুন</span>
+                      <span>পরিবর্তন করুন</span>
                     </button>
                   )}
                 </div>
@@ -424,14 +411,14 @@ export default function ProfileModal({ isOpen, onClose }) {
                       {user.email || 'ইমেইল যুক্ত করা হয়নি'}
                     </p>
                     <span className="text-[11px] text-slate-400 hidden sm:inline-block">
-                      ক্লাস আপডেট ও গুরুত্বপূর্ণ নোটিসের মূল মাধ্যম
+                      ক্লাস আপডেট ও নোটিসের মূল মাধ্যম
                     </span>
                   </div>
                 )}
 
                 {/* STEP 1: INPUT NEW EMAIL & SEND OTP */}
                 {editStep === 'input' && (
-                  <form onSubmit={handleSendOtp} className="mt-3 space-y-3 animate-fadeIn">
+                  <form onSubmit={handleSendOtp} className="space-y-3 animate-fadeIn">
                     <div className="space-y-1">
                       <label className="text-[11px] font-bold text-amber-300">
                         আপনার নতুন ইমেইল এড্রেস লিখুন:
@@ -444,17 +431,10 @@ export default function ProfileModal({ isOpen, onClose }) {
                           placeholder="যেমন: student@gmail.com"
                           disabled={sendingOtp}
                           autoFocus
-                          className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-amber-500/60 focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20 text-white text-sm font-mono outline-none transition-all placeholder:text-slate-600"
+                          className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-amber-500/60 focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20 text-white text-sm font-mono outline-none transition-all placeholder:text-slate-600"
                         />
-                        <span className="absolute right-3 top-2.5 text-xs text-slate-500 font-mono">
-                          New Mail
-                        </span>
                       </div>
                     </div>
-
-                    <p className="text-[11px] text-slate-400 leading-relaxed">
-                      💡 আপনি সাবমিট করলে এই নতুন মেইলে ৬-ডিজিটের একটি ভেরিফিকেশন ওটিপি (OTP) পাঠানো হবে।
-                    </p>
 
                     <div className="flex items-center justify-end gap-2 pt-1">
                       <button
@@ -488,13 +468,13 @@ export default function ProfileModal({ isOpen, onClose }) {
 
                 {/* STEP 2: ENTER OTP RECEIVED ON NEW EMAIL */}
                 {editStep === 'otp' && (
-                  <form onSubmit={handleVerifyOtp} className="mt-3 space-y-3.5 animate-fadeIn">
-                    <div className="p-3 rounded-xl bg-slate-950/80 border border-amber-500/30 space-y-1">
+                  <form onSubmit={handleVerifyOtp} className="space-y-3 animate-fadeIn">
+                    <div className="p-3 rounded-xl bg-slate-900 border border-amber-500/30 space-y-1">
                       <p className="text-xs text-slate-300">
                         ভেরিফিকেশন কোড পাঠানো হয়েছে: <strong className="text-amber-300 font-mono">{emailInput}</strong>
                       </p>
                       <p className="text-[11px] text-slate-400">
-                        আপনার নতুন ইমেইলের ইনবক্স বা স্প্যাম ফোল্ডার চেক করে নিচে ৬-ডিজিটের OTP কোডটি লিখুন।
+                        নতুন ইমেইলের ইনবক্স চেক করে নিচে ৬-ডিজিটের OTP কোডটি লিখুন।
                       </p>
                     </div>
 
@@ -503,22 +483,19 @@ export default function ProfileModal({ isOpen, onClose }) {
                         <KeyRound className="w-3.5 h-3.5" />
                         ৬-ডিজিটের ওটিপি কোড (OTP Code):
                       </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          maxLength={6}
-                          value={otpInput}
-                          onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))}
-                          placeholder="123456"
-                          disabled={verifyingOtp}
-                          autoFocus
-                          className="w-full px-4 py-2.5 text-center rounded-xl bg-slate-950 border-2 border-emerald-500/60 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20 text-emerald-300 text-lg font-mono tracking-[8px] font-extrabold outline-none transition-all placeholder:text-slate-700 placeholder:tracking-normal placeholder:font-normal"
-                        />
-                      </div>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={otpInput}
+                        onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))}
+                        placeholder="123456"
+                        disabled={verifyingOtp}
+                        autoFocus
+                        className="w-full px-4 py-2.5 text-center rounded-xl bg-slate-900 border-2 border-emerald-500/60 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20 text-emerald-300 text-lg font-mono tracking-[8px] font-extrabold outline-none transition-all"
+                      />
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
-                      {/* Change / Resend OTP Controls */}
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
@@ -540,7 +517,7 @@ export default function ProfileModal({ isOpen, onClose }) {
                         >
                           <RotateCw className={`w-3 h-3 ${sendingOtp ? 'animate-spin' : ''}`} />
                           <span>
-                            {cooldown > 0 ? `পুনরায় পাঠান (${cooldown}s)` : 'পুনরায় ওটিপি পাঠান'}
+                            {cooldown > 0 ? `পুনরায় পাঠান (${cooldown}s)` : 'পুনরায় ওটিপি'}
                           </span>
                         </button>
                       </div>
@@ -567,7 +544,7 @@ export default function ProfileModal({ isOpen, onClose }) {
                           ) : (
                             <>
                               <Check className="w-3.5 h-3.5" />
-                              <span>✓ ওটিপি যাচাই ও সেভ করুন</span>
+                              <span>✓ সেভ করুন</span>
                             </>
                           )}
                         </button>
@@ -577,143 +554,66 @@ export default function ProfileModal({ isOpen, onClose }) {
                 )}
               </div>
 
-              {/* 2. FULL NAME (LOCKED) */}
-              <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/80 relative">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-                    <User className="w-3.5 h-3.5 text-slate-500" />
-                    শিক্ষার্থীর পূর্ণ নাম
-                  </span>
-                  <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] text-slate-400 font-bold flex items-center gap-1">
-                    <Lock className="w-2.5 h-2.5 text-amber-500" />
-                    অপরিবর্তনযোগ্য
-                  </span>
+              {/* Full Name & Phone Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {/* Full Name */}
+                <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/80">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-slate-500" />
+                      শিক্ষার্থীর নাম
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                      <Lock className="w-2.5 h-2.5 text-amber-500" />
+                      লকড
+                    </span>
+                  </div>
+                  <p className="font-extrabold text-white text-sm sm:text-base">{user.name}</p>
                 </div>
-                <p className="font-extrabold text-white text-sm sm:text-base">{user.name}</p>
-                <p className="text-[10px] text-slate-500 mt-1">জাতীয় পরিচয়পত্র ও একাডেমি রেজিস্ট্রেশন অনুযায়ী সংরক্ষিত</p>
-              </div>
 
-              {/* 3. PHONE NUMBER (LOCKED) */}
-              <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/80 relative">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5 text-slate-500" />
-                    মোবাইল নম্বর (লগইন আইডি)
-                  </span>
-                  <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] text-slate-400 font-bold flex items-center gap-1">
-                    <Lock className="w-2.5 h-2.5 text-amber-500" />
-                    লকড ও ভেরিফাইড
-                  </span>
+                {/* Phone */}
+                <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/80">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-slate-500" />
+                      মোবাইল নম্বর
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                      <Lock className="w-2.5 h-2.5 text-amber-500" />
+                      লকড
+                    </span>
+                  </div>
+                  <p className="font-extrabold text-white font-mono text-sm sm:text-base">{user.phone || 'N/A'}</p>
                 </div>
-                <p className="font-extrabold text-white font-mono text-sm sm:text-base">{user.phone || 'N/A'}</p>
-                <p className="text-[10px] text-slate-500 mt-1">অফিসিয়াল এসএমএস ও পোর্টাল লগইনে ব্যবহৃত মূল নম্বর</p>
-              </div>
 
-              {/* 4. UNIVERSITY / INSTITUTION (LOCKED) */}
-              <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/80">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-                    <GraduationCap className="w-3.5 h-3.5 text-slate-500" />
-                    আইন শিক্ষাপ্রতিষ্ঠান / বিশ্ববিদ্যালয়
-                  </span>
-                  <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] text-slate-400 font-bold flex items-center gap-1">
-                    <Lock className="w-2.5 h-2.5 text-amber-500" />
-                    স্থায়ী
-                  </span>
+                {/* University */}
+                <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/80 sm:col-span-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+                      <GraduationCap className="w-3.5 h-3.5 text-slate-500" />
+                      আইন শিক্ষাপ্রতিষ্ঠান / বিশ্ববিদ্যালয়
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                      <Lock className="w-2.5 h-2.5 text-amber-500" />
+                      স্থায়ী
+                    </span>
+                  </div>
+                  <p className="font-bold text-slate-200 text-xs sm:text-sm">
+                    {user?.university || 'Department of Law (BJS Track)'}
+                  </p>
                 </div>
-                <p className="font-bold text-slate-200 text-xs sm:text-sm">
-                  {user?.university || 'Department of Law (BJS Track)'}
-                </p>
-                <p className="text-[10px] text-slate-500 mt-1">শিক্ষার্থীর একাডেমিক ব্যাকগ্রাউন্ড রেকর্ড</p>
-              </div>
-
-              {/* 5. ACTIVE BATCH & SESSION (LOCKED) */}
-              <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/80">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-                    <Layers className="w-3.5 h-3.5 text-slate-500" />
-                    নিবন্ধিত ব্যাচ ও সেশন
-                  </span>
-                  <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] text-slate-400 font-bold flex items-center gap-1">
-                    <Lock className="w-2.5 h-2.5 text-amber-500" />
-                    স্থায়ী
-                  </span>
-                </div>
-                <p className="font-bold text-amber-300 text-xs sm:text-sm">
-                  {user?.batch || 'Judiciary 2026'} ({user?.session || 'Weekend Intensive'})
-                </p>
-                <p className="text-[10px] text-slate-500 mt-1">বর্তমান সক্রিয় কোর্সরুম ও লেকচার রুটিন</p>
               </div>
 
             </div>
-          </div>
 
-          {/* SECTION 2: একাডেমি এনরোলমেন্ট ও সিকিউরিটি স্ট্যাটাস */}
-          <div className="space-y-3">
-            <h4 className="text-xs sm:text-sm font-extrabold text-white flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>ডিজিটাল নিরাপত্তা ও ডিভাইস গভর্ন্যান্স</span>
-            </h4>
-
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800/80 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2 border-b border-slate-800/60">
-                <span className="text-xs text-slate-400 font-medium">পোর্টাল অ্যাক্সেস পারমিশন:</span>
-                <span className="px-3 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-bold text-xs border border-emerald-500/30 self-start sm:self-auto">
-                  {user?.portalAccessMode || 'Full Masterclass Access'}
-                </span>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2 border-b border-slate-800/60">
-                <span className="text-xs text-slate-400 font-medium">রেজিস্টার্ড ডিভাইস নিরাপত্তা লিমিট:</span>
-                <span className="font-mono font-bold text-amber-400 text-xs self-start sm:self-auto">
-                  সর্বোচ্চ ২টি সক্রিয় ডিভাইস (2 Devices Max Binding)
-                </span>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <span className="text-xs text-slate-400 font-medium">বর্তমান ব্রাউজার ডিভাইস ফিঙ্গারপ্রিন্ট:</span>
-                <div className="flex items-center gap-1.5 self-start sm:self-auto">
-                  <span className="font-mono text-[11px] text-slate-300 bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-800 max-w-[180px] sm:max-w-[240px] truncate">
-                    {currentDeviceId}
-                  </span>
-                  <button
-                    onClick={handleCopyDevId}
-                    className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all text-xs cursor-pointer border border-slate-700/60"
-                    title="ডিভাইস আইডি কপি করুন"
-                  >
-                    {copiedDevId ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* SECTION 3: প্রশাসনিক সংশোধন সহায়তা ও হেল্পলাইন */}
-          <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="space-y-1">
-              <p className="font-bold text-slate-200 flex items-center gap-1.5">
-                <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
-                নাম বা মোবাইল নম্বরে কোনো ভুল আছে?
-              </p>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                জরুরি প্রয়োজনে নাম বা ফোন নম্বর সংশোধনের জন্য একাডেমি অ্যাডমিন সাপোর্টে সরাসরি যোগাযোগ করুন।
-              </p>
-            </div>
-
-            <a
-              href="tel:01800077663"
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 font-bold transition-all flex items-center justify-center gap-1.5 border border-slate-700/80 shrink-0 text-xs shadow-sm cursor-pointer"
-            >
-              <span>📞 হেল্পলাইন: 01800077663</span>
-            </a>
           </div>
 
         </div>
 
         {/* Modal Footer */}
-        <div className="px-5 sm:px-7 py-4 border-t border-slate-800/80 bg-slate-950/70 flex items-center justify-between">
+        <div className="px-5 sm:px-8 py-4 border-t border-slate-800/80 bg-slate-950/70 flex items-center justify-between">
           <p className="text-[11px] text-slate-500 font-mono hidden sm:block">
-            BJS & Bar Aspirants Academy • Security Shield Active
+            BJS & Bar Academy • Dual-Guard Security Shield Active
           </p>
 
           <button

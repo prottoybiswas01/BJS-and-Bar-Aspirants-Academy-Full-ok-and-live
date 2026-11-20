@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import BrandLogo from '../components/BrandLogo';
 
 export default function AdminLogin({ setActivePage }) {
   const { login } = useAuth();
@@ -41,10 +42,10 @@ export default function AdminLogin({ setActivePage }) {
     <div className="max-w-md w-full mx-auto py-6 sm:py-12 px-3 sm:px-4 animate-fadeIn">
       <div className="glass-card rounded-2xl p-5 sm:p-8 border border-purple-500/30 shadow-2xl shadow-purple-950/40 space-y-5 bg-slate-950/80">
         <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white font-bold flex items-center justify-center text-2xl mx-auto shadow-lg shadow-purple-500/30">
-            ⚙️
+          <div className="flex justify-center mb-1">
+            <BrandLogo size="lg" />
           </div>
-          <h2 className="text-2xl font-extrabold text-purple-300">অ্যাডমিন পোর্টাল লগইন</h2>
+          <h2 className="text-2xl font-extrabold text-purple-300">অ্যাডমিন কমান্ড সেন্টার</h2>
           <p className="text-xs text-slate-400">
             সিকিউর সিস্টেম অ্যাডমিনিস্ট্রেটর প্যানেলে প্রবেশ করতে আপনার আইডি ও পাসওয়ার্ড দিন
           </p>
