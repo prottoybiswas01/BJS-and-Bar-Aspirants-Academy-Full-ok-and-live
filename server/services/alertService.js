@@ -169,6 +169,38 @@ function notifySiteError({ module, endpoint, error }) {
   sendTelegramAlert(msg, 'normal');
 }
 
+function notifySubtitleExtractionFailed({ courseTitle, lessonTitle, youtubeId, reason }) {
+  const msg = `⚠️ <b>ভিডিও সাবটাইটেল এক্সট্রাকশন ব্যর্থতা অ্যালার্ট</b>\n\n` +
+    `📚 <b>কোর্স:</b> ${escapeHtml(courseTitle || 'BJS Course')}\n` +
+    `📌 <b>ক্লাস:</b> ${escapeHtml(lessonTitle || 'N/A')}\n` +
+    `▶️ <b>YouTube ID:</b> <code>${escapeHtml(youtubeId || 'N/A')}</code>\n` +
+    `❌ <b>কারণ:</b> <code>${escapeHtml(String(reason || 'ক্যাপশন পাওয়া যায়নি বা ভিডিও প্রাইভেট/অনুপলব্ধ'))}</code>\n` +
+    `⏰ <b>সময়:</b> ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Dhaka' })} (BST)`;
+  sendTelegramAlert(msg, 'normal');
+}
+
+function notifyAiFailure({ feature, endpoint, error, model }) {
+  const msg = `🤖 <b>Gemini AI অপারেশন ফেইলিউর অ্যালার্ট</b>\n\n` +
+    `🧩 <b>ফিচার:</b> ${escapeHtml(feature || 'AI Service')}\n` +
+    `📍 <b>এন্ডপয়েন্ট:</b> <code>${escapeHtml(endpoint || 'N/A')}</code>\n` +
+    `🤖 <b>মডেল:</b> <code>${escapeHtml(model || 'N/A')}</code>\n` +
+    `❌ <b>এরর:</b> <code>${escapeHtml(String(error).slice(0, 250))}</code>\n` +
+    `⏰ <b>সময়:</b> ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Dhaka' })} (BST)`;
+  sendTelegramAlert(msg, 'urgent');
+}
+
+function notifyLessonEmailDispatched({ courseTitle, lessonTitle, sentCount, skippedCount, failedCount, totalEligible }) {
+  const msg = `📬 <b>নতুন ক্লাসের ইমেইল ডেলিভারি রিপোর্ট</b>\n\n` +
+    `📚 <b>কোর্স:</b> ${escapeHtml(courseTitle || 'BJS Masterclass')}\n` +
+    `📌 <b>ক্লাস:</b> ${escapeHtml(lessonTitle || 'N/A')}\n` +
+    `👥 <b>মোট এনরোল্ড শিক্ষার্থী:</b> ${totalEligible || 0} জন\n` +
+    `✅ <b>সফলভাবে প্রেরিত:</b> ${sentCount || 0} টি\n` +
+    `🛡️ <b>বাউন্স/সাপ্রেসড স্কিপড:</b> ${skippedCount || 0} টি\n` +
+    `❌ <b>ব্যর্থ:</b> ${failedCount || 0} টি\n` +
+    `⏰ <b>সময়:</b> ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Dhaka' })} (BST)`;
+  sendTelegramAlert(msg, 'normal');
+}
+
 module.exports = {
   sendTelegramAlert,
   sendEmergencyEmail,
@@ -177,5 +209,8 @@ module.exports = {
   notifyReceipt,
   notifySecurityAttack,
   notifyAdminDiff,
-  notifySiteError
+  notifySiteError,
+  notifySubtitleExtractionFailed,
+  notifyAiFailure,
+  notifyLessonEmailDispatched
 };

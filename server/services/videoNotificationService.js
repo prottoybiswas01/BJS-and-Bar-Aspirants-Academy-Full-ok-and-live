@@ -1,3 +1,5 @@
+const { notifyLessonEmailDispatched } = require('./alertService');
+
 /**
  * Durable Video Notification Outbox & Idempotent Email Dispatcher
  * Implements Phase 2 Requirements
@@ -93,32 +95,39 @@ async function dispatchNewLessonNotifications({
     });
   }
 
-  // 4. Quota Protection: Bulk video blast emails are disabled by default to protect daily free email quota (Max 100/day)
-  // Notifications are handled via In-App Alerts, Web Push Notifications, and 360-degree Telegram Alerts.
-  const enableBulkVideoEmails = process.env.ENABLE_BULK_VIDEO_EMAILS === 'true';
-  if (!enableBulkVideoEmails) {
-    console.log(`[Video Notification Quota Guard] Bulk class blast emails are DISABLED by default to protect 100/day Resend quota and domain reputation. Notification registered in-app.`);
-    return { ok: true, sentCount: 0, adminNotified: false, reason: 'BULK_EMAIL_DISABLED_FOR_QUOTA_PROTECTION' };
+  // 4. Automatic Class Upload Email Dispatch to Enrolled Students
+  // Active by default for enrolled students. Can be globally paused via DISABLE_CLASS_EMAILS=true
+  const isClassEmailDisabled = process.env.DISABLE_CLASS_EMAILS === 'true';
+  if (isClassEmailDisabled) {
+    console.log(`[Video Notification] Class upload emails explicitly disabled via DISABLE_CLASS_EMAILS.`);
+    return { ok: true, sentCount: 0, skippedCount: 0, failedCount: 0, totalEligible: eligibleStudents.length, adminNotified: false, reason: 'CLASS_EMAILS_DISABLED' };
   }
 
   const adminNotified = false;
 
   if (eligibleStudents.length === 0) {
     console.log(`[Video Notification] No eligible enrolled students found for course "${courseTitle}" (${courseId}).`);
-    return { ok: true, sentCount: 0, adminNotified, reason: 'NO_ELIGIBLE_STUDENTS' };
+    return { ok: true, sentCount: 0, skippedCount: 0, failedCount: 0, totalEligible: 0, adminNotified, reason: 'NO_ELIGIBLE_STUDENTS' };
   }
 
-  console.log(`[Video Notification] Dispatching publication event ${eventId} to ${eligibleStudents.length} eligible students...`);
+  console.log(`[Video Notification] Dispatching publication event ${eventId} to ${eligibleStudents.length} eligible enrolled students...`);
 
   let sentCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
 
   for (const student of eligibleStudents) {
     const email = (student.email || '').trim().toLowerCase();
-    if (!email || !email.includes('@') || email === 'admin@bjs.com' || email.endsWith('@bjs.com') || email.endsWith('@bjs.test')) continue;
+    if (!email || !email.includes('@') || email === 'admin@bjs.com' || email.endsWith('@bjs.com') || email.endsWith('@bjs.test')) {
+      skippedCount++;
+      continue;
+    }
 
-    // Resend Auto-Guard: Skip bounced or suppressed student accounts
-    if (student.emailStatus && student.emailStatus !== 'active') {
+    // Smart Bounce Protection: only skip if student.emailStatus === 'bounced' or 'suppressed' (default/undefined treated as 'active')
+    const isBouncedOrSuppressed = student.emailStatus === 'bounced' || student.emailStatus === 'suppressed';
+    if (isBouncedOrSuppressed) {
       console.log(`🛡️ [Video Notification Auto-Guard] Skipped bounced/suppressed recipient: ${email} (${student.emailStatus})`);
+      skippedCount++;
       continue;
     }
 
@@ -238,6 +247,7 @@ async function dispatchNewLessonNotifications({
           }
         } else {
           // Delivery failed
+          failedCount++;
           if (isMongoConnected && outboxDoc) {
             outboxDoc.status = 'failed';
             outboxDoc.error = sendRes?.error || 'Provider rejected email';
@@ -247,6 +257,7 @@ async function dispatchNewLessonNotifications({
         }
       }
     } catch (sendErr) {
+      failedCount++;
       console.warn(`[Video Notification] Delivery failure for ${email}:`, sendErr.message);
       if (isMongoConnected && outboxDoc) {
         outboxDoc.status = 'failed';
@@ -257,7 +268,23 @@ async function dispatchNewLessonNotifications({
     }
   }
 
-  return { ok: true, sentCount, adminNotified, eventId };
+  console.log(`[Video Notification] Complete: ${sentCount} sent, ${skippedCount} skipped, ${failedCount} failed of ${eligibleStudents.length} eligible students.`);
+
+  // Send real-time summary to Telegram (Chat ID: 7630488220)
+  try {
+    notifyLessonEmailDispatched({
+      courseTitle,
+      lessonTitle: lesson.title,
+      sentCount,
+      skippedCount,
+      failedCount,
+      totalEligible: eligibleStudents.length
+    });
+  } catch (tgErr) {
+    console.warn('[Video Notification] Telegram alert notice:', tgErr.message);
+  }
+
+  return { ok: true, sentCount, skippedCount, failedCount, totalEligible: eligibleStudents.length, adminNotified, eventId };
 }
 
 module.exports = {

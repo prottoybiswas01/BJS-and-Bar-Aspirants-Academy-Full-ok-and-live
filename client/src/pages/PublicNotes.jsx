@@ -21,10 +21,10 @@ export default function PublicNotes() {
     try {
       const res = await api.get('/courses');
       if (res.data?.ok && Array.isArray(res.data.courses)) {
-        const courseCats = res.data.courses
-          .map(c => c.category || c.title)
+        const courseTitles = res.data.courses
+          .map(c => c.title)
           .filter(Boolean);
-        setCategories(prev => Array.from(new Set(['সকল', ...prev, ...courseCats])));
+        setCategories(['সকল', ...Array.from(new Set(courseTitles))]);
       }
     } catch (e) {
       // Courses fetch silent fallback
@@ -40,7 +40,7 @@ export default function PublicNotes() {
       if (res.data?.ok) {
         setNotes(res.data.notes || []);
         if (Array.isArray(res.data.categories) && res.data.categories.length > 0) {
-          setCategories(prev => Array.from(new Set(['সকল', ...prev, ...res.data.categories])));
+          setCategories(Array.from(new Set(res.data.categories)));
         }
         // Check hash or slug
         const hash = window.location.hash;
@@ -235,32 +235,46 @@ export default function PublicNotes() {
                 </div>
               )}
 
-              {/* Timestamped Public Video Clip Player (2-5 min class segment) */}
-              {selectedNote.youtubeId && (
-                <div className="rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-xl space-y-2.5 p-3 sm:p-4 text-white">
-                  <div className="flex items-center justify-between text-xs text-amber-400 font-bold px-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                      <span>🎥 ক্লাসের রেফারেন্স ভিডিও ক্লিপ</span>
-                    </span>
-                    <span className="text-[11px] font-mono text-slate-300 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800">
-                      ⏱️ {Math.floor((Number(selectedNote.clipStartSeconds) || 0) / 60)}:{String((Number(selectedNote.clipStartSeconds) || 0) % 60).padStart(2, '0')} - {Math.floor((Number(selectedNote.clipEndSeconds) || 180) / 60)}:{String((Number(selectedNote.clipEndSeconds) || 180) % 60).padStart(2, '0')}
-                    </span>
+              {/* Timestamped Public Video Clip Player (enforced 2-5 min class segment, max 300s) */}
+              {selectedNote.youtubeId && (() => {
+                const clipStart = Math.max(0, Number(selectedNote.clipStartSeconds) || 0);
+                let clipEnd = Number(selectedNote.clipEndSeconds);
+                if (!clipEnd || clipEnd <= clipStart) {
+                  clipEnd = clipStart + 180;
+                }
+                if (clipEnd - clipStart > 300) {
+                  clipEnd = clipStart + 300; // Enforce max 300s (5 mins) boundary
+                }
+                const embedId = String(selectedNote.youtubeId).startsWith('bjs_enc_')
+                  ? atob(String(selectedNote.youtubeId).replace('bjs_enc_', ''))
+                  : selectedNote.youtubeId;
+
+                return (
+                  <div className="rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-xl space-y-2.5 p-3 sm:p-4 text-white">
+                    <div className="flex items-center justify-between text-xs text-amber-400 font-bold px-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                        <span>🎥 ক্লাসের রেফারেন্স ভিডিও ক্লিপ (আইনি ধারা বিশ্লেষণ)</span>
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-300 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800">
+                        ⏱️ {Math.floor(clipStart / 60)}:{String(clipStart % 60).padStart(2, '0')} - {Math.floor(clipEnd / 60)}:{String(clipEnd % 60).padStart(2, '0')} ({clipEnd - clipStart} সে.)
+                      </span>
+                    </div>
+                    <div className="w-full aspect-video max-h-[48vh] relative overflow-hidden rounded-xl bg-black">
+                      <iframe
+                        src={`https://www.youtube-nocookie.com/embed/${embedId}?start=${clipStart}&end=${clipEnd}&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&controls=1&fs=1`}
+                        className="absolute inset-0 w-full h-full border-0"
+                        allow="autoplay; encrypted-media; fullscreen"
+                        allowFullScreen
+                        title={selectedNote.title}
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400 px-1 italic">
+                      💡 এই আইনি বিধানটির উপর ক্লাসের নির্বাচিত মূল লেকচার ক্লিপটি উপরে সরাসরি প্লে করুন।
+                    </p>
                   </div>
-                  <div className="w-full aspect-video max-h-[48vh] relative overflow-hidden rounded-xl bg-black">
-                    <iframe
-                      src={`https://www.youtube-nocookie.com/embed/${String(selectedNote.youtubeId).startsWith('bjs_enc_') ? atob(String(selectedNote.youtubeId).replace('bjs_enc_', '')) : selectedNote.youtubeId}?start=${selectedNote.clipStartSeconds || 0}&end=${selectedNote.clipEndSeconds || (Number(selectedNote.clipStartSeconds || 0) + 180)}&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&controls=1&fs=1`}
-                      className="absolute inset-0 w-full h-full border-0"
-                      allow="autoplay; encrypted-media; fullscreen"
-                      allowFullScreen
-                      title={selectedNote.title}
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-400 px-1 italic">
-                    💡 এই আইনি বিধানটির উপর ক্লাসের নির্বাচিত মূল লেকচার ক্লিপটি উপরে সরাসরি প্লে করুন।
-                  </p>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Sections badge */}
               {Array.isArray(selectedNote.lawSections) && selectedNote.lawSections.length > 0 && (

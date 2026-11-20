@@ -1,4 +1,5 @@
 const { fetchYoutubeTranscript, extractYoutubeId } = require('./transcriptService');
+const { notifySubtitleExtractionFailed } = require('./alertService');
 
 let schedulerTimer = null;
 let isJobRunning = false;
@@ -68,10 +69,33 @@ async function syncSingleLessonSubtitle(lessonDoc, LessonModel) {
       }
 
       console.log(`[SubtitleSync] ⏳ Pending/Waiting for subtitles: "${lessonDoc.title}" (${result.status}: ${result.message})`);
+
+      // Real-time Telegram alert on subtitle extraction failure (avoid duplicate spam if same error already reported)
+      if (lessonDoc.transcriptLastError !== result.message) {
+        try {
+          notifySubtitleExtractionFailed({
+            courseTitle: lessonDoc.courseTitle || lessonDoc.module || 'BJS Course',
+            lessonTitle: lessonDoc.title || 'ক্লাস',
+            youtubeId: yId,
+            reason: result.message || 'ক্যাপশন পাওয়া যায়নি বা ভিডিও প্রাইভেট'
+          });
+        } catch (tgErr) {
+          console.warn('[SubtitleSync] Telegram alert notice:', tgErr.message);
+        }
+      }
+
       return { ok: false, status: result.status || 'pending', youtubeId: yId, message: result.message };
     }
   } catch (err) {
     console.warn(`[SubtitleSync] ⚠️ Error syncing subtitles for "${lessonDoc.title}":`, err.message);
+    try {
+      notifySubtitleExtractionFailed({
+        courseTitle: lessonDoc?.courseTitle || lessonDoc?.module || 'BJS Course',
+        lessonTitle: lessonDoc?.title || 'ক্লাস',
+        youtubeId: yId,
+        reason: err.message
+      });
+    } catch (_) {}
     return { ok: false, status: 'error', error: err.message };
   }
 }

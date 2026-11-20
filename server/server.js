@@ -5214,17 +5214,20 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
         }
         const canonicalCourse = await resolveCourseByIdOrAlias(saved.courseId);
 
-        dispatchNewLessonNotifications({
-          lesson: saved,
-          course: canonicalCourse || { id: saved.courseId, title: saved.module || saved.courseId },
-          NotificationLogModel: NotificationLog,
-          StudentModel: Student,
-          isMongoConnected,
-          memoryDb,
-          sendEmailFn: sendVideoNotificationEmail
-        }).catch(err => {
-          console.warn("[Video Notification] Dispatch notice:", err.message);
-        });
+        try {
+          const dispatchRes = await dispatchNewLessonNotifications({
+            lesson: saved,
+            course: canonicalCourse || { id: saved.courseId, title: saved.module || saved.courseId },
+            NotificationLogModel: NotificationLog,
+            StudentModel: Student,
+            isMongoConnected,
+            memoryDb,
+            sendEmailFn: sendVideoNotificationEmail
+          });
+          console.log(`[Video Notification] Awaited dispatch finished for "${saved.title}":`, dispatchRes);
+        } catch (dispatchErr) {
+          console.warn("[Video Notification] Dispatch notice:", dispatchErr.message);
+        }
 
         // 360-Degree Real-time Telegram Alert
         notifyNewLesson({
@@ -7964,14 +7967,13 @@ app.get(["/api/notes", "/notes"], async (req, res) => {
         { lawSections: { $in: [new RegExp(search, 'i')] } }
       ];
     }
-    const [notes, allCourses, distinctNoteCategories] = await Promise.all([
+    const [notes, allCourses] = await Promise.all([
       StudyNote.find(filter).sort({ order: 1, createdAt: -1 }).lean(),
-      Course.find({}, 'title category').lean().catch(() => []),
-      StudyNote.distinct('category', { isPublished: true }).catch(() => [])
+      Course.find({}, 'title').lean().catch(() => [])
     ]);
 
-    const courseCats = (allCourses || []).map(c => c.category || c.title).filter(Boolean);
-    const dynamicCategories = Array.from(new Set(['সকল', ...courseCats, ...distinctNoteCategories])).filter(Boolean);
+    const courseTitles = Array.from(new Set((allCourses || []).map(c => c.title).filter(Boolean)));
+    const dynamicCategories = ['সকল', ...courseTitles];
 
     return res.json({ ok: true, notes: notes || [], categories: dynamicCategories });
   } catch (err) {

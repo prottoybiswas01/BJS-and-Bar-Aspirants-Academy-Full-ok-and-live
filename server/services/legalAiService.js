@@ -197,14 +197,11 @@ async function resolveOptimalGeminiModel(apiKey) {
         const modelNames = usable.map(m => sanitizeGeminiModel(m.name));
         console.log(`[Gemini Discovery] Found ${modelNames.length} usable models: ${modelNames.slice(0, 10).join(', ')}`);
 
-        // Preference order: super-fast flash-lite-latest (fastest & lowest latency), then flash-latest, then 2.5-flash
+        // Verified Gemini v1beta priority chain: gemini-2.0-flash -> gemini-2.5-flash -> gemini-1.5-flash
         const pick =
-          modelNames.find(n => n === 'gemini-flash-lite-latest') ||
-          modelNames.find(n => n === 'gemini-flash-latest') ||
-          modelNames.find(n => n === 'gemini-2.5-flash-lite') ||
+          modelNames.find(n => n === 'gemini-2.0-flash') ||
           modelNames.find(n => n === 'gemini-2.5-flash') ||
-          modelNames.find(n => n.includes('3.8-flash')) ||
-          modelNames.find(n => n === 'gemini-pro-latest') ||
+          modelNames.find(n => n === 'gemini-1.5-flash') ||
           modelNames.find(n => n.includes('flash')) ||
           modelNames[0];
 
@@ -223,7 +220,7 @@ async function resolveOptimalGeminiModel(apiKey) {
     console.warn(`[Gemini Discovery] Error checking models: ${err.message}`);
   }
 
-  return 'gemini-2.5-flash';
+  return 'gemini-2.0-flash';
 }
 
 /**
@@ -304,60 +301,67 @@ ${videoContext}
 
   const cleanApiKey = sanitizeGeminiApiKey(apiKey || process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
   const optimalModel = sanitizeGeminiModel(await resolveOptimalGeminiModel(cleanApiKey));
+  // Verified Gemini v1beta chain: gemini-2.0-flash -> gemini-2.5-flash -> gemini-1.5-flash
   const candidateModels = [
     process.env.GEMINI_MODEL ? sanitizeGeminiModel(process.env.GEMINI_MODEL) : null,
     optimalModel,
-    'gemini-flash-lite-latest',
-    'gemini-flash-latest',
+    'gemini-2.0-flash',
     'gemini-2.5-flash',
-    'gemini-3.8-flash',
-    'gemini-pro-latest'
+    'gemini-1.5-flash'
   ].filter(Boolean).map(sanitizeGeminiModel).filter((v, i, a) => a.indexOf(v) === i);
 
   let lastErr = null;
   for (const model of candidateModels) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanApiKey}`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': cleanApiKey
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 1024
-          }
-        })
-      });
+    let attempts = 0;
+    while (attempts < 3) {
+      attempts++;
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanApiKey}`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': cleanApiKey
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.4,
+              maxOutputTokens: 1024
+            }
+          })
+        });
 
-      if (!response.ok) {
-        const errText = await response.text();
-        console.warn(`[Gemini Attempt] Model "${model}" failed (${response.status}): ${errText.substring(0, 160)}`);
-        lastErr = new Error(`Gemini Provider (${model}) Error: ${response.status} - ${errText}`);
-        if (response.status === 404 || response.status === 503 || response.status === 400) {
+        if (!response.ok) {
+          const errText = await response.text();
+          console.warn(`[Gemini Attempt] Model "${model}" (attempt ${attempts}) failed (${response.status}): ${errText.substring(0, 160)}`);
+          lastErr = new Error(`Gemini Provider (${model}) Error: ${response.status} - ${errText}`);
+          if ((response.status === 429 || response.status === 503) && attempts < 3) {
+            const delay = attempts === 1 ? 1000 : 2000;
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          break; // move to next model in fallback chain
+        }
+
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error(`Empty response received from Gemini model ${model}`);
+
+        // Cache working model
+        cachedResolvedModel = model;
+        lastModelCheckTime = Date.now();
+
+        return { text, model };
+      } catch (err) {
+        lastErr = err;
+        if (attempts < 3) {
+          const delay = attempts === 1 ? 1000 : 2000;
+          await new Promise(r => setTimeout(r, delay));
           continue;
         }
-        throw lastErr;
+        break;
       }
-
-      const data = await response.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) throw new Error(`Empty response received from Gemini model ${model}`);
-
-      // Cache working model
-      cachedResolvedModel = model;
-      lastModelCheckTime = Date.now();
-
-      return { text, model };
-    } catch (err) {
-      lastErr = err;
-      if (candidateModels.indexOf(model) < candidateModels.length - 1) {
-        continue;
-      }
-      throw lastErr;
     }
   }
   throw lastErr || new Error("Failed to generate response from Gemini API");
