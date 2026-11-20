@@ -28,13 +28,6 @@ export default function MentorProfileModal({ mentor, isOpen, onClose, setActiveP
     setTimeout(() => setCopied(false), 3500);
   };
 
-  const handleWhatsAppShare = () => {
-    const text = encodeURIComponent(
-      `⚖️ *${mentor.name}* - ${mentor.designation}\n📍 ${mentor.posting || 'BJS & Bar Academy Faculty'}\n📖 Specialization: ${mentor.expertise || 'Judicial Law'}\n\nCheck out the official mentor profile at BJS & Bar Aspirants Academy:\n${shareUrl}`
-    );
-    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
-  };
-
   const handleFacebookShare = () => {
     const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
     window.open(fbUrl, '_blank');
@@ -145,15 +138,6 @@ export default function MentorProfileModal({ mentor, isOpen, onClose, setActiveP
                 className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition-all shadow-md active:scale-95 flex items-center gap-1 cursor-pointer"
               >
                 <span>📋</span> লিংক কপি
-              </button>
-
-              <button
-                type="button"
-                onClick={handleWhatsAppShare}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-md flex items-center gap-1 cursor-pointer"
-                title="Share on WhatsApp"
-              >
-                <span>💬</span> WhatsApp
               </button>
 
               <button

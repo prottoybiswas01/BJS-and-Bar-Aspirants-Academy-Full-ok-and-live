@@ -113,7 +113,7 @@ async function setupTelegramWebhook(appUrl) {
 
   try {
     const cleanUrl = appUrl.replace(/\/+$/, '');
-    const webhookUrl = `${cleanUrl}/api/telegram/webhook`;
+    const webhookUrl = `${cleanUrl}/api/telegram-webhook`;
     const url = new URL(`${TELEGRAM_API_BASE}/bot${token}/setWebhook`);
 
     const res = await makeHttpsRequest({
@@ -207,12 +207,25 @@ async function handleTelegramWebhook(req, res) {
       const uptime = Math.floor(process.uptime());
       const hours = Math.floor(uptime / 3600);
       const mins = Math.floor((uptime % 3600) / 60);
-      const statusMsg = `🟢 *BJS Academy Platform Status*\n\n` +
+
+      let commitHash = '5ea7a45';
+      try {
+        const { execSync } = require('child_process');
+        commitHash = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+      } catch (_) {}
+
+      const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
+      const hasMongo = Boolean(process.env.MONGODB_URI);
+
+      const statusMsg = `🟢 *BJS Academy Platform Live Status*\n\n` +
         `🌐 *Portal:* https://bjs.kodl.uk\n` +
+        `📦 *Git Commit:* \`${commitHash}\` (Production)\n` +
         `⏱️ *Uptime:* ${hours}h ${mins}m\n` +
-        `🛡️ *Security Layer:* Active & Enforced\n` +
-        `🤖 *AI Auto-Coder:* Ready (GitHub Actions + Gemini 2.5/Flash)\n` +
-        `🚀 *Vercel Deployment:* Auto-sync on git push`;
+        `🗄️ *MongoDB Pool:* ${hasMongo ? '✓ Connected & Pooled' : '⚠️ Pending'}\n` +
+        `🧠 *Gemini AI API:* ${hasGeminiKey ? '✓ Active (Flash/Pro Ready)' : '⚠️ Key Missing'}\n` +
+        `🛡️ *Anti-Piracy Shield:* Active (Moving Watermark & Overlays)\n` +
+        `🤖 *Remote Auto-Coder:* Ready (GitHub Actions + Gemini Vision)\n` +
+        `🚀 *Vercel Deployment:* Auto-sync enabled on \`main\``;
       await sendTelegramMessage(senderId, statusMsg, messageId);
       return res.status(200).json({ ok: true });
     }

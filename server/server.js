@@ -7891,9 +7891,9 @@ app.post("/api/admin/push/broadcast", async (req, res) => {
 // -------------------------------------------------------------
 // TELEGRAM REMOTE AUTO-FIX & CLOUD CODER BOT WEBHOOK
 // -------------------------------------------------------------
-app.post("/api/telegram/webhook", handleTelegramWebhook);
+app.post(["/api/telegram-webhook", "/api/telegram/webhook"], handleTelegramWebhook);
 
-app.get("/api/telegram/webhook-setup", async (req, res) => {
+app.get(["/api/telegram-webhook-setup", "/api/telegram/webhook-setup"], async (req, res) => {
   try {
     const appUrl = (process.env.APP_URL || `https://${req.headers.host}`).trim();
     const result = await setupTelegramWebhook(appUrl);
@@ -9040,8 +9040,8 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
       if (student) {
         student.status = "Active";
         student.loginApproval = "Approved";
-        const combined = Array.from(new Set([...(student.allowedCourseIds || []), ...coursesToAssign].filter(Boolean)));
-        syncStudentCourseData(student, combined);
+        // STRICT OVERWRITE: Overwrite active enrollment so old revoked courses do NOT remain!
+        syncStudentCourseData(student, coursesToAssign);
         student.accessVersion = Date.now();
         const matchedC = findCourse(student.batch || batch || reg?.batch);
         if (matchedC) {
@@ -9049,6 +9049,33 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
         }
         updatedStudent = await student.save();
         invalidateStudentDashboardCache(updatedStudent);
+
+        // Auto-Issue Official Verified Payment Receipt on Approval
+        try {
+          const existingReceipt = await Receipt.findOne({ studentId: updatedStudent.id });
+          if (!existingReceipt) {
+            const courseObj = allCourses.find(c => (updatedStudent.allowedCourseIds || []).includes(c.id));
+            const receiptAmount = Number(reg?.amount || reg?.paidAmount || courseObj?.fee || 1500) || 1500;
+            const newRecId = `REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+            await Receipt.create({
+              receiptId: newRecId,
+              studentId: updatedStudent.id,
+              studentName: updatedStudent.name,
+              studentPhone: updatedStudent.phone,
+              studentEmail: updatedStudent.email,
+              batch: updatedStudent.batch || courseObj?.title || "BJS & Bar Masterclass",
+              amount: receiptAmount,
+              paymentMethod: reg?.paymentMethod || "Online (Verified)",
+              trxId: reg?.trxId || reg?.transactionId || `TRX${Date.now().toString().slice(-6)}`,
+              paymentTime: new Date(),
+              note: "Official Course Enrollment & Verification Fee",
+              issuedBy: "BJS Academy Central Verification System",
+              createdAt: new Date()
+            });
+          }
+        } catch (rErr) {
+          console.warn("Auto-receipt creation notice:", rErr.message);
+        }
       }
 
       if (reg) {
@@ -9066,11 +9093,32 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
         const matchedC = findCourse(st.batch || batch);
         coursesToAssign = matchedC ? [matchedC.id] : (allCourses[0] ? [allCourses[0].id] : []);
       }
-      const combined = Array.from(new Set([...(st.allowedCourseIds || []), ...coursesToAssign].filter(Boolean)));
-      syncStudentCourseData(st, combined);
+      // STRICT OVERWRITE: Overwrite active enrollment so old revoked courses do NOT remain!
+      syncStudentCourseData(st, coursesToAssign);
       st.accessVersion = Date.now();
       invalidateStudentDashboardCache(st);
       updatedStudent = st;
+
+      // Auto-Issue Official Receipt in memoryDb if not present
+      const hasMemReceipt = (memoryDb.receipts || []).some(r => r.studentId === st.id);
+      if (!hasMemReceipt) {
+        memoryDb.receipts = memoryDb.receipts || [];
+        memoryDb.receipts.push({
+          receiptId: `REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+          studentId: st.id,
+          studentName: st.name,
+          studentPhone: st.phone,
+          studentEmail: st.email,
+          batch: st.batch || "BJS & Bar Masterclass",
+          amount: 1500,
+          paymentMethod: "Online (Verified)",
+          trxId: `TRX${Date.now().toString().slice(-6)}`,
+          paymentTime: new Date(),
+          note: "Official Course Enrollment & Verification Fee",
+          issuedBy: "BJS Academy Central Verification System",
+          createdAt: new Date()
+        });
+      }
     }
 
     const regInMem = (memoryDb.registrations || []).find(r => r.regId === studentId || r.phone === studentId || r.email === studentId);

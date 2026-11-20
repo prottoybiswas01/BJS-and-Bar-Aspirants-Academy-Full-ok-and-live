@@ -403,7 +403,7 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
         )}
       </section>
 
-      {/* Course Enrollment WhatsApp Notice Modal */}
+      {/* Course Enrollment Helpline Notice Modal */}
       {enrollModalCourse && (
         <Modal
           isOpen={Boolean(enrollModalCourse)}
@@ -420,32 +420,31 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
 
             <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 space-y-2 leading-relaxed text-left">
               <p className="font-bold text-amber-400 flex items-center gap-1.5">
-                <span>⚠️</span> সার্ভিস নোটিশ:
+                <span>⚠️</span> ভর্তি নোটিশ:
               </p>
               <p>
-                অনলাইন সয়ংক্রিয় পেমেন্ট সিস্টেমটি আপাতত বন্ধ রয়েছে। কোর্সে ভর্তি নিশ্চিত করতে ও ক্লাসের এক্সেস পেতে সরাসরি আমাদের অফিশিয়াল <strong>WhatsApp</strong> নম্বরে যোগাযোগ করুন বা সরাসরি কল দিন।
+                কোর্সে ভর্তি নিশ্চিত করতে ও নিয়মিত ক্লাসের এক্সেস পেতে সরাসরি অনলাইন রেজিস্ট্রেশন ফর্ম পূরণ করুন অথবা আমাদের অফিসিয়াল হেল্পলাইনে কল দিন।
               </p>
             </div>
 
             <div className="space-y-2.5 pt-1">
-              <a
-                href="https://wa.me/8801800077663"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition-all hover:scale-[1.02]"
-              >
-                <span>💬</span> WhatsApp-এ সরাসরি যোগাযোগ করুন (01800077663)
-              </a>
-
               <button
+                type="button"
                 onClick={() => {
                   setEnrollModalCourse(null);
                   setActivePage('register');
                 }}
-                className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-all"
+                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all hover:scale-[1.02] cursor-pointer"
               >
-                📝 নতুন একাউন্ট রেজিস্ট্রেশন ফরমটি পূরণ করুন
+                <span>📝</span> কোর্সে অনলাইনে রেজিস্ট্রেশন করুন
               </button>
+
+              <a
+                href="tel:01800077663"
+                className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-all flex items-center justify-center gap-2"
+              >
+                <span>📞</span> সরাসরি কল করুন (01800077663)
+              </a>
             </div>
           </div>
         </Modal>

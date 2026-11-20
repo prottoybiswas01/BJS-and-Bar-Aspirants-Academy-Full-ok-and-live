@@ -3429,6 +3429,22 @@ return (
                     </button>
                     <button
                       type="button"
+                      onClick={() => {
+                        const courseNames = (s.allowedCourseIds || []).map(id => {
+                          const c = courses.find(cItem => cItem.id === id);
+                          return c ? c.title : id;
+                        }).join(', ') || s.batch || 'General Course';
+                        const copyText = `⚖️ BJS & Bar Aspirants Academy - ভর্তির বিবরণ\n\n👤 নাম: ${s.name}\n🆔 স্টুডেন্ট আইডি: ${s.id || s.regId}\n📱 মোবাইল: ${s.phone}\n📧 ইমেইল: ${s.email || 'N/A'}\n📚 অনুমোদিত কোর্স: ${courseNames}\n🌐 পোর্টাল লিংক: https://bjs.kodl.uk\n🔒 পাসওয়ার্ড: (আপনার নিবন্ধিত পাসওয়ার্ড)`;
+                        navigator.clipboard.writeText(copyText);
+                        showToast(`✓ ${s.name} এর ভর্তির বিবরণ ক্লিপবোর্ডে কপি করা হয়েছে!`, 'success');
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-blue-950 hover:bg-blue-900 text-blue-300 border border-blue-500/40 font-bold text-[11px] transition-all cursor-pointer"
+                      title="Copy Student Enrollment Details to Clipboard"
+                    >
+                      📋 Copy Details
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleOpenStudentPreview(s)}
                       className="px-2.5 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/30 font-bold text-[11px] transition-all"
                       title="View Student Portal & Video Courses"
@@ -6631,7 +6647,7 @@ return (
                     {tempPasswordModal.copied ? '✓ Copied!' : '📋 Copy Temp Password'}
                   </button>
                 </div>
-                <p className="text-[10px] text-slate-400">এই পাসওয়ার্ডটি কপি করে স্টুডেন্টকে SMS বা WhatsApp এ পাঠিয়ে দিন।</p>
+                <p className="text-[10px] text-slate-400">এই পাসওয়ার্ডটি কপি করে স্টুডেন্টকে SMS বা সরাসরি মেসেজে পাঠিয়ে দিন।</p>
               </div>
             )}
           </div>

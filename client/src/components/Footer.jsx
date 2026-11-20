@@ -149,11 +149,9 @@ export default function Footer({ setActivePage, activePage }) {
               <span>🌐</span> অনলাইন কোচিং সেন্টার
             </p>
             <p>
-              💬 WhatsApp & Call:{" "}
+              📞 হেল্পলাইন ও কল:{" "}
               <a
-                href="https://wa.me/8801800077663"
-                target="_blank"
-                rel="noopener noreferrer"
+                href="tel:01800077663"
                 className="text-amber-400 hover:text-emerald-400 font-mono font-bold transition-colors"
               >
                 01800077663

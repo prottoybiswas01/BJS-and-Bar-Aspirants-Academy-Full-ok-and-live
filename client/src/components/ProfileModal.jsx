@@ -699,13 +699,10 @@ export default function ProfileModal({ isOpen, onClose }) {
             </div>
 
             <a
-              href="https://wa.me/8801800077663?text=আসসালামু%20আলাইকুম,%20আমার%20স্টুডেন্ট%20প্রোফাইলের%20তথ্য%20সংশোধনের%20অনুরোধ।"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="tel:01800077663"
               className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 font-bold transition-all flex items-center justify-center gap-1.5 border border-slate-700/80 shrink-0 text-xs shadow-sm cursor-pointer"
             >
-              <span>💬 অ্যাডমিন হেল্পলাইন</span>
-              <ExternalLink className="w-3 h-3" />
+              <span>📞 হেল্পলাইন: 01800077663</span>
             </a>
           </div>
 

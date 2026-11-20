@@ -19,6 +19,24 @@ export default function VideoPlayerModal({
   const iframeRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(true);
 
+  // Dynamic moving watermark position (shifts smoothly every 15s to counter screen recorders)
+  const watermarkPositions = [
+    { top: '18%', left: '12%' },
+    { top: '65%', left: '20%' },
+    { top: '35%', left: '55%' },
+    { top: '75%', left: '60%' },
+    { top: '48%', left: '35%' },
+    { top: '22%', left: '68%' }
+  ];
+  const [watermarkIndex, setWatermarkIndex] = useState(0);
+
+  useEffect(() => {
+    const wmTimer = setInterval(() => {
+      setWatermarkIndex(prev => (prev + 1) % watermarkPositions.length);
+    }, 15000);
+    return () => clearInterval(wmTimer);
+  }, []);
+
   // De-obfuscate protected video ID if encoded with bjs_enc_ prefix
   const resolveVideoId = (raw) => {
     if (!raw) return '';
@@ -152,17 +170,28 @@ export default function VideoPlayerModal({
     ? `https://www.youtube-nocookie.com/embed/${activeVideoId}?autoplay=1&start=${playStartTime}&rel=0&modestbranding=1&controls=1&showinfo=1&iv_load_policy=3&fs=1&disablekb=0&color=amber&enablejsapi=1`
     : `https://www.youtube-nocookie.com/embed/${activeVideoId}?autoplay=1&start=${playStartTime}&end=${endTime}&rel=0&modestbranding=1&controls=1&showinfo=1&iv_load_policy=3&fs=1&disablekb=1&color=amber&enablejsapi=1`;
 
-  // Body Scroll Lock & ESC key handling
+  // Body Scroll Lock & Anti-Piracy Keyboard Inspect Lock
   useEffect(() => {
     lockBodyScroll();
     const handleKeyDown = (e) => {
+      // Block devtools, inspect shortcuts, view-source and print
+      if (
+        e.key === 'F12' ||
+        (e.ctrlKey && e.shiftKey && ['I', 'J', 'C', 'K'].includes(e.key.toUpperCase())) ||
+        (e.ctrlKey && ['U', 'S', 'P'].includes(e.key.toUpperCase())) ||
+        (e.metaKey && e.altKey && ['I', 'J', 'C', 'U'].includes(e.key.toUpperCase()))
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
       if (e.key === 'Escape') onClose?.();
     };
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
 
     return () => {
       unlockBodyScroll();
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
   }, [onClose]);
 
@@ -416,12 +445,20 @@ export default function VideoPlayerModal({
               </div>
             )}
 
-            {/* Micro-Watermark Overlay */}
-            <div className="pointer-events-none absolute top-3 left-3 z-40">
-              <div className="bg-slate-950/70 backdrop-blur-sm border border-slate-800/80 px-2.5 py-1 rounded-lg text-slate-300/80 text-[10px] font-mono font-bold flex items-center gap-1.5 shadow-sm">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                <span>{student?.name || 'Student'}</span>
-                <span className="text-amber-400/90 font-mono text-[9px]">({student?.id || 'STU-2026'})</span>
+            {/* Dynamic Moving Watermark Overlay (Anti-Piracy Screen Recording Protection) */}
+            <div
+              className="pointer-events-none absolute z-40 select-none transition-all duration-1000 ease-in-out"
+              style={{
+                top: watermarkPositions[watermarkIndex].top,
+                left: watermarkPositions[watermarkIndex].left,
+                opacity: 0.35
+              }}
+            >
+              <div className="bg-black/80 backdrop-blur-[2px] border border-white/20 px-3 py-1.5 rounded-lg text-white font-mono text-[11px] font-bold flex items-center gap-2 shadow-2xl tracking-wider">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>{student?.name || 'BJS STUDENT'}</span>
+                <span className="text-amber-300 font-mono">| {student?.phone || '01XXXXXXXXX'}</span>
+                <span className="text-slate-300 font-mono text-[10px]">ID: {student?.id || student?.regId || 'SECURE'}</span>
               </div>
             </div>
           </div>
