@@ -93,7 +93,14 @@ async function dispatchNewLessonNotifications({
     });
   }
 
-  // 4. Admin upload confirmation email is explicitly removed per request to preserve Resend quota
+  // 4. Quota Protection: Bulk video blast emails are disabled by default to protect daily free email quota (Max 100/day)
+  // Notifications are handled via In-App Alerts, Web Push Notifications, and 360-degree Telegram Alerts.
+  const enableBulkVideoEmails = process.env.ENABLE_BULK_VIDEO_EMAILS === 'true';
+  if (!enableBulkVideoEmails) {
+    console.log(`[Video Notification Quota Guard] Bulk class blast emails are DISABLED by default to protect 100/day Resend quota and domain reputation. Notification registered in-app.`);
+    return { ok: true, sentCount: 0, adminNotified: false, reason: 'BULK_EMAIL_DISABLED_FOR_QUOTA_PROTECTION' };
+  }
+
   const adminNotified = false;
 
   if (eligibleStudents.length === 0) {
@@ -108,6 +115,12 @@ async function dispatchNewLessonNotifications({
   for (const student of eligibleStudents) {
     const email = (student.email || '').trim().toLowerCase();
     if (!email || !email.includes('@') || email === 'admin@bjs.com' || email.endsWith('@bjs.com') || email.endsWith('@bjs.test')) continue;
+
+    // Resend Auto-Guard: Skip bounced or suppressed student accounts
+    if (student.emailStatus && student.emailStatus !== 'active') {
+      console.log(`🛡️ [Video Notification Auto-Guard] Skipped bounced/suppressed recipient: ${email} (${student.emailStatus})`);
+      continue;
+    }
 
     // Check Outbox record in MongoDB to guarantee idempotency across concurrent/retry attempts
     let alreadySent = false;

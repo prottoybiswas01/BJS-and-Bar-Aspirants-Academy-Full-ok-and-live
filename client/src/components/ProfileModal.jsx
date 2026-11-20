@@ -25,6 +25,7 @@ import {
   RotateCw,
   ArrowLeft
 } from 'lucide-react';
+import { validateRealEmail } from '../utils/emailValidator';
 
 export default function ProfileModal({ isOpen, onClose }) {
   const { user, updateUserProfile, getDeviceId } = useAuth();
@@ -127,8 +128,9 @@ export default function ProfileModal({ isOpen, onClose }) {
       return;
     }
 
-    if (!validateEmailFormat(cleanEmail)) {
-      setErrorMsg('ইমেইল ফরম্যাট সঠিক নয় (যেমন: student@gmail.com)।');
+    const emailCheck = validateRealEmail(cleanEmail);
+    if (!emailCheck.ok) {
+      setErrorMsg(emailCheck.message || 'ইমেইল ফরম্যাট সঠিক নয় (যেমন: student@gmail.com)।');
       return;
     }
 

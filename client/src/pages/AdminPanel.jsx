@@ -1380,6 +1380,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       name: s.name,
       phone: s.phone,
       email: s.email,
+      emailStatus: s.emailStatus || 'active',
       batch: s.batch || 'Wed,Sat',
       session: s.session || '2026-04-01',
       password: '',
@@ -3351,7 +3352,17 @@ return (
                         )}
                       </div>
                       <p className="font-mono text-[10px] text-amber-300">{s.id}</p>
-                      <p className="text-[10px] text-slate-400">{s.email}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-[10px] text-slate-400">{s.email}</p>
+                        {(s.emailStatus === 'bounced' || s.emailStatus === 'suppressed') && (
+                          <span 
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[9px] font-bold border border-rose-500/40"
+                            title={s.bouncedReason ? `বাউন্স কারণ: ${s.bouncedReason}` : 'ইমেইল বাউন্সড (Resend Suppressed)'}
+                          >
+                            ⚠️ বাউন্সড ইমেইল
+                          </span>
+                        )}
+                      </div>
 
                       {/* Multi-Course Enrolled Badges */}
                       <div className="flex flex-wrap gap-1 mt-1 max-w-[220px]">
@@ -3602,7 +3613,14 @@ return (
                   </div>
 
                   <div>
-                    <label className="block text-slate-400 text-[10px] font-bold mb-1">EMAIL ADDRESS</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-slate-400 text-[10px] font-bold">EMAIL ADDRESS</label>
+                      {studentForm.emailStatus && studentForm.emailStatus !== 'active' && (
+                        <span className="text-[10px] text-rose-400 font-bold flex items-center gap-1">
+                          ⚠️ {String(studentForm.emailStatus).toUpperCase()} (বাউন্সড)
+                        </span>
+                      )}
+                    </div>
                     <input
                       type="email"
                       placeholder="Email Address (e.g. sritypaul294@gmail.com)"
@@ -3611,6 +3629,20 @@ return (
                       className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-white"
                       required
                     />
+                    {studentForm.emailStatus && studentForm.emailStatus !== 'active' && (
+                      <div className="mt-1.5 p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-rose-300">
+                          বাউন্স নোটিশ: এই ইমেইলে মেসেজ ডেলিভারি ব্যর্থ হয়েছিল।
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setStudentForm({ ...studentForm, emailStatus: 'active' })}
+                          className="px-2 py-0.5 rounded bg-emerald-600/30 text-emerald-300 hover:bg-emerald-600/50 text-[10px] font-bold border border-emerald-500/40 transition shrink-0"
+                        >
+                          ✓ রিস্টোর / আন-বাউন্স করুন
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -5339,7 +5371,17 @@ return (
                         </td>
                         <td className="p-3">
                           <p className="font-mono text-slate-200 text-[11px]">{s.phone || 'N/A'}</p>
-                          <p className="text-[10px] text-slate-400">{s.email || 'N/A'}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-[10px] text-slate-400">{s.email || 'N/A'}</p>
+                            {(s.emailStatus === 'bounced' || s.emailStatus === 'suppressed') && (
+                              <span 
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[9px] font-bold border border-rose-500/40"
+                                title={s.bouncedReason ? `বাউন্স কারণ: ${s.bouncedReason}` : 'ইমেইল বাউন্সড (Resend Suppressed)'}
+                              >
+                                ⚠️ বাউন্সড
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3">
                           <span className="text-[11px] font-semibold text-slate-300">

@@ -46,6 +46,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
+const dns = require("dns").promises;
 const { Resend } = require("resend");
 
 // Dynamic Resend Client Factory (Guarantees active API Key from memoryDb, process.env, or parameter)
@@ -800,6 +801,108 @@ function validateRealEmail(email) {
   return { ok: true, cleanEmail: clean };
 }
 
+// Common typo domains to block and offer smart correction
+const COMMON_DOMAIN_TYPOS = {
+  "gmai.com": "gmail.com",
+  "gmaill.com": "gmail.com",
+  "gmial.com": "gmail.com",
+  "gamil.com": "gmail.com",
+  "gmal.com": "gmail.com",
+  "gmaik.com": "gmail.com",
+  "gmaii.com": "gmail.com",
+  "gmaiil.com": "gmail.com",
+  "gmaul.com": "gmail.com",
+  "yaho.com": "yahoo.com",
+  "yahooo.com": "yahoo.com",
+  "yhaoo.com": "yahoo.com",
+  "hotmial.com": "hotmail.com",
+  "hotmai.com": "hotmail.com",
+  "hotmaill.com": "hotmail.com",
+  "outlok.com": "outlook.com",
+  "outloo.com": "outlook.com",
+  "ootlook.com": "outlook.com",
+  "iclud.com": "icloud.com",
+  "iclou.com": "icloud.com"
+};
+
+// In-memory DNS MX record cache to prevent repeated DNS queries
+const domainMxCache = new Map([
+  ["gmail.com", { valid: true, expiresAt: Infinity }],
+  ["yahoo.com", { valid: true, expiresAt: Infinity }],
+  ["outlook.com", { valid: true, expiresAt: Infinity }],
+  ["hotmail.com", { valid: true, expiresAt: Infinity }],
+  ["icloud.com", { valid: true, expiresAt: Infinity }],
+  ["live.com", { valid: true, expiresAt: Infinity }],
+  ["msn.com", { valid: true, expiresAt: Infinity }],
+  ["bjs.kodl.uk", { valid: true, expiresAt: Infinity }],
+  ["du.ac.bd", { valid: true, expiresAt: Infinity }],
+  ["ru.ac.bd", { valid: true, expiresAt: Infinity }],
+  ["cu.ac.bd", { valid: true, expiresAt: Infinity }],
+  ["ju.ac.bd", { valid: true, expiresAt: Infinity }],
+  ["bup.edu.bd", { valid: true, expiresAt: Infinity }]
+]);
+
+/**
+ * Strict MX & DNS Real-Time Email Verification
+ * Validates syntax, blocks disposable services, detects typos, and performs live DNS MX lookup.
+ */
+async function verifyEmailDomainMx(email) {
+  const basic = validateRealEmail(email);
+  if (!basic.ok) return basic;
+
+  const domain = basic.cleanEmail.split("@")[1];
+  if (!domain) {
+    return { ok: false, message: "অবৈধ ইমেইল ডোমেইন।" };
+  }
+
+  // 1. Check known common typos (e.g. gmai.com)
+  if (COMMON_DOMAIN_TYPOS[domain]) {
+    const suggested = COMMON_DOMAIN_TYPOS[domain];
+    return {
+      ok: false,
+      message: `ইমেইল ডোমেইনে টাইপো লক্ষ্য করা গেছে (@${domain})। আপনি কি @${suggested} লিখতে চেয়েছেন? অনুগ্রহ করে সঠিক বানান লিখুন।`
+    };
+  }
+
+  // 2. Check in-memory DNS MX cache
+  const cached = domainMxCache.get(domain);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (!cached.valid) {
+      return { ok: false, message: `ডোমেইন "${domain}"-এর কোনো কার্যকর মেইল সার্ভার নেই। অনুগ্রহ করে একটি সঠিক ও সক্রিয় ইমেইল এড্রেস লিখুন।` };
+    }
+    return { ok: true, cleanEmail: basic.cleanEmail };
+  }
+
+  // 3. Real-time DNS MX resolution with 3.5s timeout guard
+  try {
+    const mxLookup = dns.resolveMx(domain);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('DNS_TIMEOUT')), 3500));
+    const records = await Promise.race([mxLookup, timeoutPromise]);
+
+    if (!records || !Array.isArray(records) || records.length === 0) {
+      domainMxCache.set(domain, { valid: false, expiresAt: Date.now() + 300000 });
+      return {
+        ok: false,
+        message: `ডোমেইন "${domain}"-এর কোনো কার্যকর মেইল সার্ভার (MX Record) পাওয়া যায়নি। অনুগ্রহ করে একটি সক্রিয় ও আসল ইমেইল এড্রেস ব্যবহার করুন।`
+      };
+    }
+
+    domainMxCache.set(domain, { valid: true, expiresAt: Date.now() + 86400000 });
+    return { ok: true, cleanEmail: basic.cleanEmail };
+  } catch (err) {
+    if (err.code === "ENOTFOUND" || err.code === "ENODATA" || err.code === "SERVFAIL") {
+      domainMxCache.set(domain, { valid: false, expiresAt: Date.now() + 300000 });
+      return {
+        ok: false,
+        message: `ডোমেইন "${domain}" অকার্যকর বা এর কোনো বৈধ ইমেইল সার্ভার নেই। অনুগ্রহ করে একটি সক্রিয় ইমেইল এড্রেস লিখুন।`
+      };
+    }
+    // For DNS timeouts or transient network glitches on serverless, log and allow if basic format was valid
+    console.warn(`[DNS MX Lookup Bypass on Timeout/Transient] Domain: ${domain}, Error: ${err.message}`);
+    return { ok: true, cleanEmail: basic.cleanEmail };
+  }
+}
+
 // -------------------------------------------------------------
 // SECURE USER SESSION & ROLE AUTHENTICATION HELPERS
 // -------------------------------------------------------------
@@ -911,7 +1014,7 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(400).json({ ok: false, message: "Please fill all required fields." });
     }
 
-    const emailCheck = validateRealEmail(email);
+    const emailCheck = await verifyEmailDomainMx(email);
     if (!emailCheck.ok) {
       return res.status(400).json({ ok: false, message: emailCheck.message });
     }
@@ -1034,7 +1137,7 @@ app.post(["/api/auth/mentor/register", "/auth/mentor/register"], async (req, res
       return res.status(400).json({ ok: false, message: "পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।" });
     }
 
-    const emailCheck = validateRealEmail(email);
+    const emailCheck = await verifyEmailDomainMx(email);
     if (!emailCheck.ok) {
       return res.status(400).json({ ok: false, message: emailCheck.message });
     }
@@ -1670,6 +1773,35 @@ function isAlwaysAllowedEmail(subject = "", emailType = "") {
   return false;
 }
 
+// Helper to immediately mark a student's email as bounced in MongoDB and memoryDb
+async function handleEmailBounced(email, reason = "Bounced or Suppressed") {
+  if (!email) return;
+  const cleanEmail = String(email).toLowerCase().trim();
+  try {
+    if (isMongoConnected) {
+      await Student.updateMany(
+        { email: cleanEmail },
+        {
+          $set: {
+            emailStatus: "bounced",
+            bouncedReason: String(reason).slice(0, 300),
+            bouncedAt: new Date()
+          }
+        }
+      );
+    }
+    const mem = (memoryDb.students || []).find(s => s && s.email && s.email.toLowerCase().trim() === cleanEmail);
+    if (mem) {
+      mem.emailStatus = "bounced";
+      mem.bouncedReason = String(reason).slice(0, 300);
+      mem.bouncedAt = new Date();
+    }
+    console.log(`🛡️ [Auto-Suppression Activated] Marked ${cleanEmail} as 'bounced' in DB. Reason: ${reason}`);
+  } catch (err) {
+    console.warn(`[Auto-Suppression Notice] Failed to mark ${cleanEmail} as bounced:`, err.message);
+  }
+}
+
 // Enterprise Native Resend API Dispatcher (Using Verified Custom Domain bjs.kodl.uk)
 async function sendResendEmail({ from, to, subject, html, attachments, isExempt, emailType }) {
   if (!to) {
@@ -1708,13 +1840,53 @@ async function sendResendEmail({ from, to, subject, html, attachments, isExempt,
     return { ok: true, skipped: true, message: "Recipient is blacklisted dummy address (admin@bjs.com). Dispatch skipped." };
   }
 
+  // Resend Bounce & Suppression Auto-Guard: Check if recipient was previously bounced / suppressed
+  const activeRecipients = [];
+  for (const rawEmail of recipientArray) {
+    const lowerEmail = rawEmail.toLowerCase().trim();
+    let isSuppressed = false;
+    let statusReason = "";
+
+    if (isMongoConnected) {
+      try {
+        const student = await Student.findOne({ email: lowerEmail }).select("emailStatus bouncedReason").lean();
+        if (student && student.emailStatus && student.emailStatus !== "active") {
+          isSuppressed = true;
+          statusReason = `${student.emailStatus}: ${student.bouncedReason || 'Bounced/Suppressed'}`;
+        }
+      } catch (stErr) {}
+    } else if (memoryDb && memoryDb.students) {
+      const student = memoryDb.students.find(s => s && s.email && s.email.toLowerCase().trim() === lowerEmail);
+      if (student && student.emailStatus && student.emailStatus !== "active") {
+        isSuppressed = true;
+        statusReason = `${student.emailStatus}: ${student.bouncedReason || 'Bounced/Suppressed'}`;
+      }
+    }
+
+    if (isSuppressed) {
+      console.log(`🛡️ [Resend Auto-Guard] Suppressed dispatch to ${lowerEmail} (${statusReason}). Skipping to protect domain reputation & quota.`);
+      continue;
+    }
+    activeRecipients.push(lowerEmail);
+  }
+
+  if (activeRecipients.length === 0) {
+    return { ok: true, skipped: true, reason: 'ALL_RECIPIENTS_BOUNCED_OR_SUPPRESSED', message: "All recipients are bounced or suppressed. Dispatch prevented." };
+  }
+
   // 1. Primary Dispatch via Official Resend SDK (Using Verified Domain bjs.kodl.uk)
+  const plainText = (html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || subject;
   try {
     const payload = {
       from: sender,
-      to: recipientArray,
+      to: activeRecipients,
+      reply_to: "support@bjs.kodl.uk",
+      headers: {
+        "List-Unsubscribe": "<mailto:support@bjs.kodl.uk?subject=unsubscribe>"
+      },
       subject: subject || "Notification from BJS & Bar Academy",
-      html: html || "<p>Notification from BJS & Bar Academy</p>"
+      html: html || "<p>Notification from BJS & Bar Academy</p>",
+      text: plainText
     };
 
     if (Array.isArray(attachments) && attachments.length > 0) {
@@ -1725,28 +1897,45 @@ async function sendResendEmail({ from, to, subject, html, attachments, isExempt,
 
     if (response && (response.id || response.data?.id)) {
       const emailId = response.id || response.data?.id;
-      console.log(`✉️ [Resend API Success] Delivered to ${recipientArray.join(', ')} via ${sender} (ID: ${emailId})`);
+      console.log(`✉️ [Resend API Success] Delivered to ${activeRecipients.join(', ')} via ${sender} (ID: ${emailId})`);
       return { ok: true, data: response.data || response, id: emailId };
     } else if (response && response.error) {
-      console.warn(`⚠️ [Resend API Notice]: ${response.error.message || JSON.stringify(response.error)}`);
+      const errMsg = response.error.message || JSON.stringify(response.error);
+      console.warn(`⚠️ [Resend API Notice]: ${errMsg}`);
+      if (errMsg.toLowerCase().includes("bounced") || errMsg.toLowerCase().includes("suppressed") || errMsg.includes("422")) {
+        for (const rEmail of activeRecipients) {
+          await handleEmailBounced(rEmail, errMsg);
+        }
+      }
     } else if (response) {
       console.log(`✉️ [Resend API Delivered]: ${JSON.stringify(response)}`);
       return { ok: true, data: response };
     }
   } catch (resendErr) {
-    console.warn(`⚠️ [Resend API Exception, Attempting SMTP Fallback]: ${resendErr.message}`);
+    const errMsg = resendErr.message || String(resendErr);
+    console.warn(`⚠️ [Resend API Exception, Attempting SMTP Fallback]: ${errMsg}`);
+    if (errMsg.toLowerCase().includes("bounced") || errMsg.toLowerCase().includes("suppressed") || errMsg.includes("422")) {
+      for (const rEmail of activeRecipients) {
+        await handleEmailBounced(rEmail, errMsg);
+      }
+    }
   }
 
   // 2. High-Grade Fallback Dispatcher via SMTP
   try {
     const mailOptions = {
       from: '"BJS & Bar Academy Official" <bjsacademy38@gmail.com>',
-      to: recipientArray.join(','),
+      to: activeRecipients.join(','),
+      replyTo: "support@bjs.kodl.uk",
+      headers: {
+        "List-Unsubscribe": "<mailto:support@bjs.kodl.uk?subject=unsubscribe>"
+      },
       subject: subject || "Notification from BJS & Bar Academy",
-      html: html || ""
+      html: html || "",
+      text: plainText
     };
     const smtpInfo = await smtpFallbackTransporter.sendMail(mailOptions);
-    console.log(`✉️ [SMTP Fallback Success] Delivered to ${recipientArray.join(', ')} (MsgId: ${smtpInfo.messageId})`);
+    console.log(`✉️ [SMTP Fallback Success] Delivered to ${activeRecipients.join(', ')} (MsgId: ${smtpInfo.messageId})`);
     return { ok: true, data: smtpInfo };
   } catch (smtpErr) {
     console.error(`❌ [Email Dispatch Failed]: ${smtpErr.message}`);
@@ -1767,12 +1956,39 @@ async function sendResendBatchEmails(batchItems) {
 
   try {
     const resendClient = getResendClient();
-    const formattedBatch = batchItems.map(item => ({
-      from: item.from || OFFICIAL_RESEND_SENDER,
-      to: Array.isArray(item.to) ? item.to : [item.to],
-      subject: item.subject || "Notification from BJS & Bar Academy",
-      html: item.html || ""
-    }));
+    const formattedBatch = [];
+    for (const item of batchItems) {
+      const itemTo = Array.isArray(item.to) ? item.to : [item.to];
+      const validTo = [];
+      for (const t of itemTo) {
+        if (!t) continue;
+        const low = String(t).toLowerCase().trim();
+        if (low === 'admin@bjs.com' || low.endsWith('@bjs.com') || low.endsWith('@bjs.test')) continue;
+        // Check suppression
+        if (isMongoConnected) {
+          const st = await Student.findOne({ email: low }).select("emailStatus").lean();
+          if (st && st.emailStatus && st.emailStatus !== "active") continue;
+        }
+        validTo.push(low);
+      }
+      if (validTo.length === 0) continue;
+      const plain = (item.html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || item.subject;
+      formattedBatch.push({
+        from: item.from || OFFICIAL_RESEND_SENDER,
+        to: validTo,
+        reply_to: "support@bjs.kodl.uk",
+        headers: {
+          "List-Unsubscribe": "<mailto:support@bjs.kodl.uk?subject=unsubscribe>"
+        },
+        subject: item.subject || "Notification from BJS & Bar Academy",
+        html: item.html || "",
+        text: plain
+      });
+    }
+
+    if (formattedBatch.length === 0) {
+      return { ok: true, skipped: true, message: "All batch recipients are suppressed or dummy addresses." };
+    }
 
     const response = await resendClient.batch.send(formattedBatch);
     console.log(`✉️ [Resend Batch API Success] Dispatched ${formattedBatch.length} email(s) via Resend Batch!`);
@@ -1849,6 +2065,39 @@ app.post("/api/admin/test-resend", async (req, res) => {
   } catch (err) {
     console.error("🧪 [Test Resend Exception]:", err);
     return res.status(500).json({ ok: false, error: err.message || "Resend test dispatch error." });
+  }
+});
+
+// -------------------------------------------------------------
+// RESEND BOUNCE & SUPPRESSION WEBHOOK HANDLER
+// -------------------------------------------------------------
+app.post("/api/webhooks/resend", async (req, res) => {
+  try {
+    const event = req.body;
+    if (!event || !event.type) {
+      return res.status(200).json({ ok: true, message: "Ignored empty payload" });
+    }
+
+    const eventType = String(event.type).toLowerCase();
+    const eventData = event.data || {};
+    const recipients = Array.isArray(eventData.to)
+      ? eventData.to
+      : (eventData.to ? [eventData.to] : []);
+
+    console.log(`📬 [Resend Webhook Event] Type: ${eventType}, Recipients: ${recipients.join(', ')}`);
+
+    if (eventType === "email.bounced" || eventType === "email.complained" || eventType === "email.suppressed") {
+      const bounceReason = eventData.bounce?.message || eventData.error?.message || eventData.reason || `Resend ${eventType}`;
+      for (const rec of recipients) {
+        if (!rec) continue;
+        await handleEmailBounced(rec, `Webhook ${eventType}: ${bounceReason}`);
+      }
+    }
+
+    return res.status(200).json({ ok: true, received: true, type: eventType });
+  } catch (webhookErr) {
+    console.error("❌ [Resend Webhook Error]:", webhookErr.message);
+    return res.status(200).json({ ok: false, error: webhookErr.message });
   }
 });
 
@@ -8347,7 +8596,7 @@ app.post(["/api/student/update-profile", "/api/student/update-email", "/student/
     const cleanEmail = rawEmail.trim().toLowerCase();
 
     // 3. Email format & disposable domain validation
-    const emailValidation = validateRealEmail(cleanEmail);
+    const emailValidation = await verifyEmailDomainMx(cleanEmail);
     if (!emailValidation.ok) {
       return res.status(400).json({
         ok: false,
@@ -8544,7 +8793,7 @@ app.post(["/api/student/send-email-otp", "/student/send-email-otp"], async (req,
     const cleanEmail = rawEmail.trim().toLowerCase();
 
     // Validate email format and check disposable/burner domains
-    const validation = validateRealEmail(cleanEmail);
+    const validation = await verifyEmailDomainMx(cleanEmail);
     if (!validation.ok) {
       return res.status(400).json({ ok: false, message: validation.message });
     }
@@ -8912,6 +9161,18 @@ app.post("/api/admin/students/save", requireAdmin, async (req, res) => {
     const cleanEmail = body.email ? String(body.email).trim().toLowerCase() : "";
     const cleanId = body.id ? String(body.id).trim() : "";
     const cleanRegId = body.regId ? String(body.regId).trim() : "";
+
+    if (cleanEmail) {
+      const emailCheck = await verifyEmailDomainMx(cleanEmail);
+      if (!emailCheck.ok) {
+        return res.status(400).json({ ok: false, message: emailCheck.message });
+      }
+    }
+
+    if (body.emailStatus === 'active') {
+      body.bouncedReason = "";
+      body.bouncedAt = null;
+    }
 
     let oldAllowed = [];
     const existingSt = (memoryDb.students || []).find(s =>

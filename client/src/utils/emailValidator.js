@@ -1,5 +1,29 @@
 // Utility to validate authentic personal and educational emails
 // Blocks disposable, temporary, burner, and spam email domains
+// Detects common typo domains (e.g. gmai.com, yaho.com)
+
+export const COMMON_DOMAIN_TYPOS = {
+  "gmai.com": "gmail.com",
+  "gmaill.com": "gmail.com",
+  "gmial.com": "gmail.com",
+  "gamil.com": "gmail.com",
+  "gmal.com": "gmail.com",
+  "gmaik.com": "gmail.com",
+  "gmaii.com": "gmail.com",
+  "gmaiil.com": "gmail.com",
+  "gmaul.com": "gmail.com",
+  "yaho.com": "yahoo.com",
+  "yahooo.com": "yahoo.com",
+  "yhaoo.com": "yahoo.com",
+  "hotmial.com": "hotmail.com",
+  "hotmai.com": "hotmail.com",
+  "hotmaill.com": "hotmail.com",
+  "outlok.com": "outlook.com",
+  "outloo.com": "outlook.com",
+  "ootlook.com": "outlook.com",
+  "iclud.com": "icloud.com",
+  "iclou.com": "icloud.com"
+};
 
 export const DISPOSABLE_OR_SPAM_DOMAINS = new Set([
   // Popular disposable / temp mail services
@@ -49,9 +73,9 @@ const DISPOSABLE_PATTERNS = [
 
 /**
  * Validates whether an email is authentic, personal or educational.
- * Blocks disposable, spam, or fake test emails.
+ * Blocks disposable, spam, or fake test emails and catches common typos.
  * @param {string} email
- * @returns {{ ok: boolean, message?: string, cleanEmail?: string }}
+ * @returns {{ ok: boolean, message?: string, cleanEmail?: string, suggestion?: string }}
  */
 export function validateRealEmail(email) {
   if (!email || typeof email !== "string") {
@@ -88,8 +112,19 @@ export function validateRealEmail(email) {
     return { ok: false, message: "ইমেইল ডোমেইনটি অবৈধ।" };
   }
 
+  // Check known typos (e.g. gmai.com -> gmail.com)
+  const domainLower = domain.toLowerCase();
+  if (COMMON_DOMAIN_TYPOS[domainLower]) {
+    const suggested = COMMON_DOMAIN_TYPOS[domainLower];
+    return {
+      ok: false,
+      message: `ইমেইল ডোমেইনে টাইপো রয়েছে (@${domainLower})। আপনি কি @${suggested} বুঝিয়েছেন? অনুগ্রহ করে সঠিক বানান লিখুন।`,
+      suggestion: suggested
+    };
+  }
+
   // Check known disposable domain set
-  if (DISPOSABLE_OR_SPAM_DOMAINS.has(domain)) {
+  if (DISPOSABLE_OR_SPAM_DOMAINS.has(domainLower)) {
     return {
       ok: false,
       message: "স্প্যাম, অস্থায়ী বা ফেক ইমেইল গ্রহণযোগ্য নয়। অনুগ্রহ করে আপনার আসল ব্যক্তিগত (Gmail, Yahoo, Outlook) বা প্রাতিষ্ঠানিক (.edu/.ac.bd) ইমেইল ব্যবহার করুন।"
@@ -98,7 +133,7 @@ export function validateRealEmail(email) {
 
   // Check pattern matching in domain
   for (const pattern of DISPOSABLE_PATTERNS) {
-    if (pattern.test(domain)) {
+    if (pattern.test(domainLower)) {
       return {
         ok: false,
         message: "অস্থায়ী বা স্প্যাম ইমেইল সার্ভিস গ্রহণযোগ্য নয়। আপনার আসল ব্যক্তিগত বা এডুকেশন ইমেইল ব্যবহার করুন।"
@@ -107,7 +142,7 @@ export function validateRealEmail(email) {
   }
 
   // Check domain structure & TLD
-  const domainParts = domain.split(".");
+  const domainParts = domainLower.split(".");
   const tld = domainParts[domainParts.length - 1];
   if (!tld || tld.length < 2 || /^\d+$/.test(tld)) {
     return { ok: false, message: "ইমেইল ডোমেইন বা TLD সঠিক নয়।" };

@@ -92,11 +92,17 @@ function sendTelegramAlert(htmlMessage, priority = 'normal') {
 async function sendEmergencyEmail(subject, htmlBody, resendClient) {
   try {
     if (!resendClient) return;
+    const plainText = (htmlBody || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || subject;
     await resendClient.emails.send({
       from: 'BJS Security Alert <noreply@bjs.kodl.uk>',
       to: [ALERT_EMAIL],
+      reply_to: 'support@bjs.kodl.uk',
+      headers: {
+        'List-Unsubscribe': '<mailto:support@bjs.kodl.uk?subject=unsubscribe>'
+      },
       subject: `🚨 [CRITICAL ALERT] ${subject}`,
-      html: htmlBody
+      html: htmlBody,
+      text: plainText
     });
   } catch (err) {
     console.warn('Emergency email notice:', err.message);
