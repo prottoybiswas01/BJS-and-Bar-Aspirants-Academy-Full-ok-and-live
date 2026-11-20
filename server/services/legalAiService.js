@@ -1,5 +1,6 @@
 const { retrieveVerifiedSources } = require('./bdLawSourceService');
 const { searchLessonsForQuery } = require('./transcriptService');
+const { generateUnifiedAiResponse } = require('./unifiedAiClient');
 
 /**
  * Production-Grade Agentic RAG Architecture for BJS & Bar Academy Legal Assistant
@@ -300,71 +301,24 @@ ${videoContext}
   - প্রশ্নটি যদি বাংলাদেশি আইন, ফৌজদারি, দেওয়ানী, পারিবারিক, সাংবিধানিক বা বিজিএস/বার কাউন্সিল পরীক্ষার সাথে সম্পর্কিত না হয়, তবে বিনীতভাবে বলবে: "আমি শুধুমাত্র বাংলাদেশের আইন, বিজেএস এবং বার কাউন্সিল পরীক্ষার প্রস্তুতি সংক্রান্ত আইনি সহায়তার জন্য নিবেদিত।"`;
 
   const cleanApiKey = sanitizeGeminiApiKey(apiKey || process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
-  const optimalModel = sanitizeGeminiModel(await resolveOptimalGeminiModel(cleanApiKey));
-  // Verified Gemini v1beta chain: gemini-2.0-flash -> gemini-2.5-flash -> gemini-1.5-flash
-  const candidateModels = [
-    process.env.GEMINI_MODEL ? sanitizeGeminiModel(process.env.GEMINI_MODEL) : null,
-    optimalModel,
-    'gemini-2.0-flash',
-    'gemini-2.5-flash',
-    'gemini-1.5-flash'
-  ].filter(Boolean).map(sanitizeGeminiModel).filter((v, i, a) => a.indexOf(v) === i);
 
-  let lastErr = null;
-  for (const model of candidateModels) {
-    let attempts = 0;
-    while (attempts < 3) {
-      attempts++;
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanApiKey}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': cleanApiKey
-          },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.4,
-              maxOutputTokens: 1024
-            }
-          })
-        });
+  try {
+    const aiRes = await generateUnifiedAiResponse({
+      userPrompt: prompt,
+      temperature: 0.4,
+      maxTokens: 1024,
+      geminiApiKey: cleanApiKey
+    });
 
-        if (!response.ok) {
-          const errText = await response.text();
-          console.warn(`[Gemini Attempt] Model "${model}" (attempt ${attempts}) failed (${response.status}): ${errText.substring(0, 160)}`);
-          lastErr = new Error(`Gemini Provider (${model}) Error: ${response.status} - ${errText}`);
-          if ((response.status === 429 || response.status === 503) && attempts < 3) {
-            const delay = attempts === 1 ? 1000 : 2000;
-            await new Promise(r => setTimeout(r, delay));
-            continue;
-          }
-          break; // move to next model in fallback chain
-        }
-
-        const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) throw new Error(`Empty response received from Gemini model ${model}`);
-
-        // Cache working model
-        cachedResolvedModel = model;
-        lastModelCheckTime = Date.now();
-
-        return { text, model };
-      } catch (err) {
-        lastErr = err;
-        if (attempts < 3) {
-          const delay = attempts === 1 ? 1000 : 2000;
-          await new Promise(r => setTimeout(r, delay));
-          continue;
-        }
-        break;
-      }
-    }
+    return {
+      text: aiRes.text,
+      model: `${aiRes.provider}:${aiRes.model}`,
+      provider: aiRes.provider
+    };
+  } catch (err) {
+    console.error('[Unified AI Error in Legal Assistant]:', err.message);
+    throw err;
   }
-  throw lastErr || new Error("Failed to generate response from Gemini API");
 }
 
 /**
@@ -595,30 +549,36 @@ async function processLegalAiQuery({ query, studentName = 'শিক্ষার
   const matchedLessons = searchLessonsForQuery(contextualQuery, allLessons, 2, intentMeta);
   const hasSuggestedVideo = (matchedLessons && matchedLessons.length > 0);
 
-  // Synthesize Answer: Gemini API if key is present, otherwise Smart Fallback Engine
+  // Synthesize Answer: Instant Zero-Delay 4-Provider Auto-Failover AI Engine
   let aiAnswer = '';
   let provider = 'bdlaws_statutory_grounded';
   let isAiGenerated = false;
 
-  const geminiKey = process.env.GEMINI_API_KEY || '';
+  const hasAnyAiProvider = Boolean(
+    process.env.GEMINI_API_KEY ||
+    process.env.REMOTE_GEMINI_API_KEY ||
+    process.env.GROQ_API_KEY ||
+    (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN) ||
+    process.env.OPENROUTER_API_KEY
+  );
 
-  if (geminiKey) {
+  if (hasAnyAiProvider) {
     try {
-      const geminiRes = await callGroundedGeminiAi({
+      const aiRes = await callGroundedGeminiAi({
         query: contextualQuery,
         intentMeta,
         verifiedSources,
         matchedLessons,
         studentName,
-        apiKey: geminiKey,
+        apiKey: process.env.GEMINI_API_KEY || '',
         conversationHistory
       });
-      aiAnswer = typeof geminiRes === 'string' ? geminiRes : (geminiRes?.text || '');
-      const usedModel = typeof geminiRes === 'object' && geminiRes?.model ? geminiRes.model : 'gemini-2.5-flash';
-      provider = `gemini_${usedModel.replace(/[\.\-]/g, '_')}`;
+      aiAnswer = typeof aiRes === 'string' ? aiRes : (aiRes?.text || '');
+      const usedModel = typeof aiRes === 'object' && aiRes?.model ? aiRes.model : 'unified-ai';
+      provider = `unified_${usedModel.replace(/[^a-zA-Z0-9_]/g, '_')}`;
       isAiGenerated = true;
     } catch (err) {
-      console.error('Gemini Provider Error:', err.message);
+      console.error('[Unified AI Auto-Failover Exhausted]:', err.message);
       aiAnswer = synthesizeDynamicAnswer({
         query: contextualQuery,
         intentMeta,

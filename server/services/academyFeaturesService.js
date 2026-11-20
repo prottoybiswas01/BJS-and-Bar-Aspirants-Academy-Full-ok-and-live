@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const QRCode = require('qrcode');
 const { generateCertificatePdf } = require('./certificateService');
 const { sendTelegramAlert, notifyNewLesson, notifyAiFailure } = require('./alertService');
+const { generateUnifiedAiResponse } = require('./unifiedAiClient');
 
 function sanitizeGeminiModel(model) {
   if (!model || typeof model !== 'string') return 'gemini-2.5-flash';
@@ -55,21 +56,6 @@ async function generateStudyNotesFromLesson({
     throw new Error('এই লেসনে কোনো সাবটাইটেল বা ট্রান্সক্রিপ্ট পাওয়া যায়নি। অনুগ্রহ করে প্রথমে ট্রান্সক্রিপ্ট সিঙ্ক করুন।');
   }
 
-  const geminiApiKey = sanitizeGeminiApiKey(process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
-  if (!geminiApiKey) {
-    throw new Error('GEMINI_API_KEY কনফিগার করা নেই।');
-  }
-
-  let resolvedOptimal = 'gemini-2.5-flash';
-  if (typeof resolveOptimalGeminiModel === 'function') {
-    try {
-      resolvedOptimal = await resolveOptimalGeminiModel(geminiApiKey);
-    } catch (e) {
-      resolvedOptimal = 'gemini-2.5-flash';
-    }
-  }
-  const optimalModel = sanitizeGeminiModel(resolvedOptimal);
-
   const prompt = `You are a Senior Judicial Research Scholar and Supreme Court Advocate specializing in Bangladesh Judicial Service (BJS) & Bangladesh Bar Council examination curriculum.
 
 Analyze the class lecture transcript provided below for lesson: "${lesson.title}" (${courseTitle}).
@@ -105,86 +91,30 @@ Return strictly a valid JSON array of objects in this exact schema (no markdown 
 Transcript:
 ${transcript.slice(0, 18000)}`;
 
-  // Verified Gemini v1beta priority chain: gemini-2.0-flash -> gemini-2.5-flash -> gemini-1.5-flash
-  const candidateModels = [
-    process.env.GEMINI_MODEL ? sanitizeGeminiModel(process.env.GEMINI_MODEL) : null,
-    optimalModel,
-    'gemini-2.0-flash',
-    'gemini-2.5-flash',
-    'gemini-1.5-flash'
-  ].filter(Boolean).map(sanitizeGeminiModel).filter((v, i, a) => a.indexOf(v) === i);
-
-  let resData = null;
-  let lastErr = null;
-
-  for (const model of candidateModels) {
-    let attempts = 0;
-    while (attempts < 3) {
-      attempts++;
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': geminiApiKey
-          },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.4,
-              topP: 0.85
-            }
-          })
-        });
-
-        if (response.ok) {
-          resData = await response.json();
-          break;
-        } else {
-          const errorText = await response.text();
-          console.warn(`[Gemini Note Gen] Model ${model} (attempt ${attempts}) returned ${response.status}: ${errorText.slice(0, 150)}`);
-          lastErr = new Error(`Gemini API Error (${model} - ${response.status}): ${errorText.slice(0, 150)}`);
-          if ((response.status === 429 || response.status === 503) && attempts < 3) {
-            const delay = attempts === 1 ? 1000 : 2000;
-            await new Promise(r => setTimeout(r, delay));
-            continue;
-          }
-          break;
-        }
-      } catch (err) {
-        console.warn(`[Gemini Note Gen] Network error with ${model}:`, err.message);
-        lastErr = err;
-        if (attempts < 3) {
-          const delay = attempts === 1 ? 1000 : 2000;
-          await new Promise(r => setTimeout(r, delay));
-          continue;
-        }
-        break;
-      }
-    }
-    if (resData) break;
-  }
-
-  if (!resData) {
+  let generated = null;
+  try {
+    const aiResult = await generateUnifiedAiResponse({
+      userPrompt: prompt,
+      jsonMode: true,
+      temperature: 0.4
+    });
+    generated = aiResult.data || (Array.isArray(aiResult.text) ? aiResult.text : null);
+  } catch (err) {
     try {
       notifyAiFailure({
-        feature: 'Gemini AI Study Note Generator',
-        endpoint: '/api/admin/notes/generate-ai',
-        error: lastErr?.message || 'Gemini API থেকে উত্তর পাওয়া যায়নি।',
-        model: 'gemini-chain'
+        feature: 'Unified AI Study Note Generator',
+        endpoint: '/api/admin/study-notes/ai-generate-from-lesson',
+        error: err?.message || 'AI সেবা থেকে উত্তর পাওয়া যায়নি।',
+        model: 'unified-auto-failover'
       });
     } catch (_) {}
-    throw lastErr || new Error('Gemini API থেকে উত্তর পাওয়া যায়নি।');
+    throw err;
   }
 
-  const textOutput = resData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  const jsonMatch = textOutput.match(/\[\s*\{[\s\S]*\}\s*\]/);
-  if (!jsonMatch) {
-    throw new Error('Gemini did not return valid JSON array: ' + textOutput.slice(0, 200));
+  if (!Array.isArray(generated) || generated.length === 0) {
+    throw new Error('AI ইঞ্জিন থেকে সঠিক স্টাডি গাইড ফরম্যাট পাওয়া যায়নি।');
   }
 
-  const generated = JSON.parse(jsonMatch[0]);
   const savedNotes = [];
 
   for (const item of generated) {
@@ -303,101 +233,32 @@ Output ONLY a valid JSON array of objects with the exact schema:
 Transcript:
 ${transcriptText}`;
 
-  const geminiApiKey = sanitizeGeminiApiKey(process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
-  if (!geminiApiKey) {
-    throw new Error('GEMINI_API_KEY কনফিগার করা নেই।');
-  }
-
-  let resolvedOptimal = 'gemini-2.0-flash';
-  if (typeof resolveOptimalGeminiModel === 'function') {
-    try {
-      resolvedOptimal = await resolveOptimalGeminiModel(geminiApiKey);
-    } catch (e) {
-      resolvedOptimal = 'gemini-2.0-flash';
-    }
-  }
-  const optimalModel = sanitizeGeminiModel(resolvedOptimal);
-
-  // Verified Gemini v1beta priority chain: gemini-2.0-flash -> gemini-2.5-flash -> gemini-1.5-flash
-  const candidateModels = [
-    process.env.GEMINI_MODEL ? sanitizeGeminiModel(process.env.GEMINI_MODEL) : null,
-    optimalModel,
-    'gemini-2.0-flash',
-    'gemini-2.5-flash',
-    'gemini-1.5-flash'
-  ].filter(Boolean).map(sanitizeGeminiModel).filter((v, i, a) => a.indexOf(v) === i);
-
-  let resData = null;
-  let lastErr = null;
-
-  for (const model of candidateModels) {
-    let attempts = 0;
-    while (attempts < 3) {
-      attempts++;
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': geminiApiKey
-          },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.4,
-              topP: 0.85
-            }
-          })
-        });
-
-        if (response.ok) {
-          resData = await response.json();
-          break;
-        } else {
-          const errorText = await response.text();
-          console.warn(`[Gemini MCQ Gen] Model ${model} (attempt ${attempts}) returned ${response.status}: ${errorText.slice(0, 150)}`);
-          lastErr = new Error(`Gemini API Error (${model} - ${response.status}): ${errorText.slice(0, 150)}`);
-          if ((response.status === 429 || response.status === 503) && attempts < 3) {
-            const delay = attempts === 1 ? 1000 : 2000;
-            await new Promise(r => setTimeout(r, delay));
-            continue;
-          }
-          break;
-        }
-      } catch (err) {
-        console.warn(`[Gemini MCQ Gen] Network error with ${model}:`, err.message);
-        lastErr = err;
-        if (attempts < 3) {
-          const delay = attempts === 1 ? 1000 : 2000;
-          await new Promise(r => setTimeout(r, delay));
-          continue;
-        }
-        break;
-      }
-    }
-    if (resData) break;
-  }
-
-  if (!resData) {
+  let rawQuestions = null;
+  let aiSourceInfo = 'Unified AI';
+  try {
+    const aiResult = await generateUnifiedAiResponse({
+      userPrompt: prompt,
+      jsonMode: true,
+      temperature: 0.4
+    });
+    rawQuestions = aiResult.data || (Array.isArray(aiResult.text) ? aiResult.text : null);
+    aiSourceInfo = `${aiResult.provider}:${aiResult.model}`;
+  } catch (err) {
     try {
       notifyAiFailure({
-        feature: 'Gemini AI Auto-MCQ Generator',
+        feature: 'Unified AI Auto-MCQ Generator',
         endpoint: '/api/admin/exams/generate-ai',
-        error: lastErr?.message || 'Gemini API থেকে উত্তর পাওয়া যায়নি।',
-        model: 'gemini-chain'
+        error: err?.message || 'AI সেবা থেকে উত্তর পাওয়া যায়নি।',
+        model: 'unified-auto-failover'
       });
     } catch (_) {}
-    throw lastErr || new Error('Gemini API থেকে উত্তর পাওয়া যায়নি।');
+    throw err;
   }
 
-  const textOutput = resData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  const jsonMatch = textOutput.match(/\[\s*\{[\s\S]*\}\s*\]/);
-  if (!jsonMatch) {
-    throw new Error('Gemini থেকে সঠিক MCQ ফরম্যাট তৈরি করা যায়নি।');
+  if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
+    throw new Error('AI ইঞ্জিন থেকে সঠিক MCQ ফরম্যাট তৈরি করা যায়নি।');
   }
 
-  const rawQuestions = JSON.parse(jsonMatch[0]);
   const formattedQuestions = rawQuestions.map((q, idx) => ({
     id: `q-ai-${Date.now()}-${idx + 1}`,
     questionText: q.questionText,
@@ -427,7 +288,7 @@ ${transcriptText}`;
     isLiveModelTest: false,
     negativeMarks: Number(negativeMarks) || 0.25,
     questions: formattedQuestions,
-    createdBy: 'Gemini AI Auto-Generator'
+    createdBy: `Unified AI Auto-Generator (${aiSourceInfo})`
   });
 
   return newExam;

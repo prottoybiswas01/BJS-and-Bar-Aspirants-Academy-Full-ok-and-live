@@ -26,6 +26,7 @@ const path = require("path");
 
 // Load environment variables immediately before any other module initialization
 require("dotenv").config({ path: path.join(__dirname, ".env") });
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 // -------------------------------------------------------------
 // GLOBAL SERVERLESS PROCESS & EXCEPTION RESILIENCE GUARDS
@@ -255,6 +256,7 @@ const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = requi
 const { dispatchNewLessonNotifications } = require("./services/videoNotificationService");
 const { renderAcademyEmailTemplate } = require("./services/emailTemplateService");
 const { processLegalAiQuery, resolveOptimalGeminiModel } = require("./services/legalAiService");
+const { getAiProvidersHealthStatus } = require("./services/unifiedAiClient");
 const {
   syncSingleLessonSubtitle,
   syncPendingSubtitlesBatch,
@@ -6238,9 +6240,19 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
   }
 });
 
-// AI Service Health and Diagnostic Status
+// AI Service Health and Diagnostic Status (Unified 4-Provider Failover)
+app.get(["/api/ai/providers-health", "/api/ai/health"], async (req, res) => {
+  try {
+    const health = getAiProvidersHealthStatus();
+    return res.json(health);
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get("/api/ai/status", async (req, res) => {
   try {
+    const health = getAiProvidersHealthStatus();
     const hasKey = !!process.env.GEMINI_API_KEY;
     let keySnippet = 'none';
     if (hasKey) {
@@ -6253,6 +6265,7 @@ app.get("/api/ai/status", async (req, res) => {
       geminiKeyConfigured: hasKey,
       keySnippet: hasKey ? keySnippet : 'none',
       activeModel: resolvedModel,
+      providersHealth: health,
       timestamp: new Date().toISOString()
     });
   } catch (err) {
@@ -7991,12 +8004,16 @@ app.post("/api/admin/mcq-exams/generate-from-transcript", async (req, res) => {
   }
 });
 
-// 3. PUBLIC LEGAL STUDY NOTES & EXAM GUIDES (/api/notes)
-app.get(["/api/notes", "/notes"], async (req, res) => {
+// 3. PUBLIC & ADMIN LEGAL STUDY NOTES & EXAM GUIDES
+app.get(["/api/notes", "/notes", "/api/admin/notes", "/api/admin/study-notes"], async (req, res) => {
   try {
     await ensureDbConnected();
-    const { category, search } = req.query;
-    const filter = { isPublished: true };
+    const { category, search, includeDrafts, all } = req.query;
+    const isAdminQuery = req.originalUrl?.includes('/admin') || includeDrafts === 'true' || all === 'true';
+    const filter = {};
+    if (!isAdminQuery) {
+      filter.isPublished = true;
+    }
     if (category && category !== 'All' && category !== 'সকল') {
       filter.category = category;
     }
@@ -8021,12 +8038,12 @@ app.get(["/api/notes", "/notes"], async (req, res) => {
   }
 });
 
-app.get(["/api/notes/:idOrSlug", "/notes/:idOrSlug"], async (req, res) => {
+app.get(["/api/notes/:idOrSlug", "/notes/:idOrSlug", "/api/admin/notes/:idOrSlug", "/api/admin/study-notes/:idOrSlug"], async (req, res) => {
   try {
     await ensureDbConnected();
     const { idOrSlug } = req.params;
     const note = await StudyNote.findOneAndUpdate(
-      { $or: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      { $or: [{ id: idOrSlug }, { slug: idOrSlug }, ...(mongoose.isValidObjectId(idOrSlug) ? [{ _id: idOrSlug }] : [])] },
       { $inc: { views: 1 } },
       { new: true }
     ).lean();
@@ -8039,7 +8056,7 @@ app.get(["/api/notes/:idOrSlug", "/notes/:idOrSlug"], async (req, res) => {
   }
 });
 
-app.post(["/api/notes", "/api/admin/notes", "/api/admin/notes/save"], async (req, res) => {
+app.post(["/api/notes", "/api/admin/notes", "/api/admin/notes/save", "/api/admin/study-notes", "/api/admin/study-notes/save"], async (req, res) => {
   try {
     await ensureDbConnected();
     const {
@@ -8074,7 +8091,7 @@ app.post(["/api/notes", "/api/admin/notes", "/api/admin/notes/save"], async (req
     const endSec = Math.max(startSec, Number(clipEndSeconds) || 0);
 
     const updated = await StudyNote.findOneAndUpdate(
-      { $or: [{ id: noteId }, { slug: safeSlug }] },
+      { $or: [{ id: noteId }, { slug: safeSlug }, ...(id && mongoose.isValidObjectId(id) ? [{ _id: id }] : [])] },
       {
         id: noteId,
         title,
@@ -8108,11 +8125,15 @@ app.post(["/api/notes", "/api/admin/notes", "/api/admin/notes/save"], async (req
   }
 });
 
-app.delete(["/api/notes/:id", "/api/admin/notes/:id"], async (req, res) => {
+app.delete(["/api/notes/:id", "/api/admin/notes/:id", "/api/admin/study-notes/:id"], async (req, res) => {
   try {
     await ensureDbConnected();
     const { id } = req.params;
-    await StudyNote.deleteOne({ $or: [{ id }, { _id: mongoose.isValidObjectId(id) ? id : null }] });
+    const orClauses = [{ id }, { slug: id }];
+    if (mongoose.isValidObjectId(id)) {
+      orClauses.push({ _id: id });
+    }
+    await StudyNote.deleteOne({ $or: orClauses });
     fastCache.delete("xml_sitemap");
     return res.json({ ok: true, message: "✓ আইনি নোট সফলভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
@@ -8121,7 +8142,7 @@ app.delete(["/api/notes/:id", "/api/admin/notes/:id"], async (req, res) => {
 });
 
 // AI Auto-Generate Study Notes from Lesson Transcript
-app.post("/api/admin/study-notes/ai-generate-from-lesson", async (req, res) => {
+app.post(["/api/admin/study-notes/ai-generate-from-lesson", "/api/admin/notes/generate-ai"], async (req, res) => {
   try {
     await ensureDbConnected();
     const { lessonId } = req.body || {};
@@ -8142,7 +8163,7 @@ app.post("/api/admin/study-notes/ai-generate-from-lesson", async (req, res) => {
       ok: true,
       count: generatedNotes.length,
       notes: generatedNotes,
-      message: `✓ Gemini AI সফলভাবে ${generatedNotes.length}টি হাই-ইল্ড আইনি স্টাডি গাইড ও ভিডিও ক্লিপ তৈরি করেছে!`
+      message: `✓ AI ইঞ্জিন সফলভাবে ${generatedNotes.length}টি হাই-ইল্ড আইনি স্টাডি গাইড ও ভিডিও ক্লিপ তৈরি করেছে!`
     });
   } catch (err) {
     console.error("AI Study Note Generation Error:", err);
