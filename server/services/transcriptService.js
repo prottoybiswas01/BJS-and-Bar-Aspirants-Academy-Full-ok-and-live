@@ -579,13 +579,147 @@ async function fetchViaFallbackChain(youtubeId) {
 }
 
 /**
+ * Gemini AI Direct Video-to-Transcript Multimodal Generator
+ * - Connects directly to YouTube video URL via Google Generative Language v1beta API
+ * - Listens to Bengali and English spoken legal lecture audio
+ * - Generates clean, timestamped legal transcript segments
+ * - Immune to Vercel Server IP blocks & handles videos with zero caption tracks
+ */
+async function fetchViaGeminiMultimodal(youtubeId) {
+  const apiKey = (process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY || '').trim().replace(/[\r\n"']/g, '');
+  if (!apiKey) {
+    return { ok: false, error: 'NO_GEMINI_KEY', tier: 'tier_gemini_multimodal' };
+  }
+
+  const candidateModels = ['gemini-2.0-flash', 'gemini-2.5-flash'];
+  const videoUrl = `https://www.youtube.com/watch?v=${youtubeId}`;
+
+  const prompt = `You are a professional legal stenographer and judicial researcher. Transcribe the spoken audio in this YouTube law lecture video completely and chronologically. The video is a Bangladesh Judicial Service (BJS) / Bar Council lecture in Bengali with legal terminology in Bengali and English.
+Output strictly a valid JSON array of segment objects formatted like:
+[
+  { "start": 0.0, "dur": 4.0, "timestamp": "00:00", "text": "..." }
+]
+Transcribe every significant sentence and legal section discussion from the beginning to the end. Output strictly raw JSON array (no markdown code blocks, just raw JSON array).`;
+
+  for (const model of candidateModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const payload = {
+        contents: [
+          {
+            parts: [
+              {
+                fileData: {
+                  fileUri: videoUrl
+                }
+              },
+              {
+                text: prompt
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 8192
+        }
+      };
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (text && text.trim().length > 30) {
+          // 1. JSON Array parsing
+          const jsonMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
+          if (jsonMatch) {
+            try {
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                const segments = parsed.map(p => ({
+                  timestamp: p.timestamp || formatSecondsToTimestamp(p.start || 0),
+                  offsetSeconds: Number(p.start) || 0,
+                  text: String(p.text || '').trim()
+                })).filter(s => !!s.text);
+
+                if (segments.length > 0) {
+                  return {
+                    ok: true,
+                    tier: 'tier_gemini_multimodal',
+                    source: 'gemini_multimodal',
+                    language: 'bn',
+                    segments
+                  };
+                }
+              }
+            } catch (_) {}
+          }
+
+          // 2. Parse with parseSrtOrVtt if format includes timestamps
+          const parsedVtt = parseSrtOrVtt(text);
+          if (parsedVtt.ok && parsedVtt.segments && parsedVtt.segments.length > 0) {
+            return {
+              ok: true,
+              tier: 'tier_gemini_multimodal',
+              source: 'gemini_multimodal',
+              language: 'bn',
+              segments: parsedVtt.segments
+            };
+          }
+
+          // 3. Split plain text into 15-second segments
+          const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5);
+          if (lines.length > 0) {
+            let offset = 0;
+            const segments = lines.map(line => {
+              const seg = {
+                timestamp: formatSecondsToTimestamp(offset),
+                offsetSeconds: offset,
+                text: line
+              };
+              offset += 15;
+              return seg;
+            });
+            return {
+              ok: true,
+              tier: 'tier_gemini_multimodal',
+              source: 'gemini_multimodal',
+              language: 'bn',
+              segments
+            };
+          }
+        }
+      } else {
+        const errTxt = await response.text();
+        console.warn(`[Gemini Multimodal] Model ${model} returned ${response.status}: ${errTxt.slice(0, 160)}`);
+        if (errTxt.toLowerCase().includes('private') || errTxt.toLowerCase().includes('permission_denied') || errTxt.toLowerCase().includes('unauthorized')) {
+          return { ok: false, isPrivate: true, error: 'VIDEO_PRIVATE_OR_UNAVAILABLE', tier: 'tier_gemini_multimodal' };
+        }
+      }
+    } catch (err) {
+      console.warn(`[Gemini Multimodal] Network error with ${model}:`, err.message);
+    }
+  }
+
+  return { ok: false, error: 'GEMINI_MULTIMODAL_FAILED', tier: 'tier_gemini_multimodal' };
+}
+
+/**
  * Permanent Multi-Tier Subtitle Extraction Pipeline with Accurate Diagnostic Logging
  * - Tier 1: YouTube Innertube Android Client API
  * - Tier 2: Web Watch Page HTML Scraper + TimedText XML
  * - Tier 3: Direct YouTube TimedText Gateway
  * - Tier 4: YoutubeTranscript Library / Fallback Chain
+ * - Tier 5: Gemini AI Multimodal Video-to-Transcript Fallback (Direct YouTube Audio Ingestion)
  * - Quality Gate: >= 50 words required (rejects bogus titles/descriptions)
- * - Precise Error Classification: IP_BLOCKED_BY_YOUTUBE vs NO_CAPTIONS_AVAILABLE
  */
 async function fetchYoutubeTranscript(videoIdOrUrl) {
   const youtubeId = extractYoutubeId(videoIdOrUrl);
@@ -638,44 +772,34 @@ async function fetchYoutubeTranscript(videoIdOrUrl) {
     }
   }
 
-  // If no tier succeeded, accurately classify the root cause
+  let geminiReport = null;
+  // 5. Tier 5: Gemini Multimodal Fallback (Direct YouTube Audio Ingestion)
+  // Invoked whenever YouTube scraper is IP-blocked or captions are not available
   if (!successfulResult || !successfulResult.segments || successfulResult.segments.length === 0) {
-    const anyTierBlocked = tierReports.some(r => r && r.isBlocked);
-    const allHadNoCaptions = tierReports.every(r => r && !r.isBlocked && (r.error === 'NO_CAPTION_TRACKS' || r.error === 'NO_CAPTION_TRACKS_IN_HTML' || r.error === 'NO_TIMEDTEXT_STREAM'));
-
-    if (anyTierBlocked) {
-      console.warn(`[Subtitle Diagnostic] YouTube Bot Protection blocked Server IP for ${youtubeId}:`, tierReports.map(r => `${r?.tier}: ${r?.error}`));
-      return {
-        ok: false,
-        status: 'IP_BLOCKED_BY_YOUTUBE',
-        errorCode: 'IP_BLOCKED_BY_YOUTUBE',
-        retryable: true,
-        youtubeId,
-        tierReports,
-        message: 'ইউটিউব বট প্রোটেকশন দ্বারা Vercel ক্লাউড সার্ভারের IP সাময়িকভাবে সীমাবদ্ধ (IP_BLOCKED_BY_YOUTUBE)। অনুগ্রহ করে ব্রাউজার দিয়ে সিঙ্ক করুন অথবা "📋 ম্যানুয়াল সাবটাইটেল (Paste)" বাটন ব্যবহার করুন।'
-      };
+    console.log(`[Transcript Pipeline] YouTube captions missing or server IP restricted for ${youtubeId}. Invoking Gemini Multimodal Fallback...`);
+    geminiReport = await fetchViaGeminiMultimodal(youtubeId);
+    tierReports.push(geminiReport);
+    if (geminiReport && geminiReport.ok && geminiReport.segments?.length > 0) {
+      successfulResult = geminiReport;
     }
+  }
 
-    if (allHadNoCaptions) {
-      return {
-        ok: false,
-        status: 'NO_CAPTIONS_AVAILABLE',
-        errorCode: 'NO_CAPTIONS_AVAILABLE',
-        retryable: false,
-        youtubeId,
-        tierReports,
-        message: 'এই ভিডিওটির জন্য ইউটিউবে কোনো বাংলা বা ইংরেজি সাবটাইটেল এখনও তৈরি করা হয়নি (NO_CAPTIONS_AVAILABLE)।'
-      };
-    }
+  // If no tier succeeded (including Gemini Multimodal), accurately classify root cause
+  if (!successfulResult || !successfulResult.segments || successfulResult.segments.length === 0) {
+    const isPrivate = tierReports.some(r => r && (r.error === 'VIDEO_PRIVATE_OR_UNAVAILABLE' || r.isPrivate)) || (geminiReport && geminiReport.isPrivate);
+    const failureStatus = isPrivate ? 'private_or_unavailable' : 'failed';
+    const failureMsg = isPrivate
+      ? 'ভিডিওটি ইউটিউবে Private করা রয়েছে। দয়া করে ইউটিউব স্টুডিওতে গিয়ে ভিডিওটি Unlisted অথবা Public করুন।'
+      : 'ইউটিউব ক্যাপশন ও AI ট্রান্সক্রিপশন সম্পন্ন করা যায়নি। দয়া করে "📋 ম্যানুয়াল পেস্ট" দিয়ে সাবটাইটেল যুক্ত করুন।';
 
     return {
       ok: false,
-      status: 'IP_BLOCKED_BY_YOUTUBE',
-      errorCode: 'IP_BLOCKED_BY_YOUTUBE',
-      retryable: true,
+      status: failureStatus,
+      errorCode: isPrivate ? 'VIDEO_PRIVATE_OR_UNAVAILABLE' : 'TRANSCRIPT_UNAVAILABLE',
+      retryable: !isPrivate,
       youtubeId,
       tierReports,
-      message: 'ক্লাউড সার্ভার থেকে ইউটিউব ক্যাপশন ফেচ করা যায়নি। দয়া করে ব্রাউজার সিঙ্ক অথবা "📋 ম্যানুয়াল পেস্ট" দিয়ে সাবটাইটেল যুক্ত করুন।'
+      message: failureMsg
     };
   }
 
@@ -985,6 +1109,7 @@ function searchLessonsForQuery(query, lessons = [], maxResults = 2, intentMeta =
 
 module.exports = {
   fetchYoutubeTranscript,
+  fetchViaGeminiMultimodal,
   parseSrtOrVtt,
   parseTimestampToSeconds,
   extractYoutubeId,

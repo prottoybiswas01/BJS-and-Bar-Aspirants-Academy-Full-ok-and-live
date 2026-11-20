@@ -201,6 +201,22 @@ function notifyLessonEmailDispatched({ courseTitle, lessonTitle, sentCount, skip
   sendTelegramAlert(msg, 'normal');
 }
 
+function notifyPermanentTranscriptFailure({ courseTitle, lessonTitle, youtubeId, reason }) {
+  let fixInstruction = "দয়া করে ইউটিউব স্টুডিওতে ভিডিওটি Private থেকে Unlisted অথবা Public করুন, যাতে Gemini AI এবং অটোপ্লেয়ার ভিডিওটি অ্যাক্সেস করতে পারে।";
+  const lowReason = String(reason || '').toLowerCase();
+  if (lowReason.includes("invalid") || lowReason.includes("id")) {
+    fixInstruction = "ভিডিওর YouTube লিঙ্ক বা আইডি সঠিক কিনা পরীক্ষা করুন।";
+  }
+  const msg = `⚠️ <b>ভিডিও ট্রান্সক্রিপ্ট পার্মানেন্ট ফেইলিউর অ্যালার্ট</b>\n\n` +
+    `📚 <b>কোর্স:</b> ${escapeHtml(courseTitle || 'BJS Course')}\n` +
+    `📌 <b>ক্লাস:</b> ${escapeHtml(lessonTitle || 'N/A')}\n` +
+    `▶️ <b>YouTube ID:</b> <code>${escapeHtml(youtubeId || 'N/A')}</code>\n` +
+    `❌ <b>সমস্যা:</b> <code>${escapeHtml(String(reason || 'ভিডিও প্রাইভেট অথবা ক্যাপশন অনুপলব্ধ'))}</code>\n\n` +
+    `💡 <b>সমাধান নির্দেশনা:</b>\n👉 <b>${fixInstruction}</b>\n\n` +
+    `⏰ <b>সময়:</b> ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Dhaka' })} (BST)`;
+  sendTelegramAlert(msg, 'urgent');
+}
+
 module.exports = {
   sendTelegramAlert,
   sendEmergencyEmail,
@@ -212,5 +228,6 @@ module.exports = {
   notifySiteError,
   notifySubtitleExtractionFailed,
   notifyAiFailure,
-  notifyLessonEmailDispatched
+  notifyLessonEmailDispatched,
+  notifyPermanentTranscriptFailure
 };

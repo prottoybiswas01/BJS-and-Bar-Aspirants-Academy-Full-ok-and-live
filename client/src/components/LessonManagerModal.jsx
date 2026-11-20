@@ -202,9 +202,25 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
 
     const finalTitle = form.title.trim() || form.chapter.trim() || form.module.trim() || 'Class Video';
     const isEdit = Boolean(form.id);
+    const yId = getYoutubeId(form.youtubeUrl);
 
     setIsSaving(true);
     setMsg({ type: 'success', text: isEdit ? '⏳ ভিডিও আপডেট হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...' : '⏳ ভিডিও আপলোড ও সেভ হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...' });
+
+    // Task 1: Attempt direct browser-side timedtext extraction (clean residential IP)
+    let browserSegments = null;
+    let browserTranscript = null;
+    if (yId && (!form.id || !form.hasSubtitles)) {
+      try {
+        setMsg({ type: 'success', text: '🌐 ব্রাউজার (রেসিডেন্সিয়াল IP) দিয়ে সরাসরি ইউটিউব সাবটাইটেল চেক করা হচ্ছে...' });
+        const browserSub = await fetchSubtitleFromBrowser(yId);
+        if (browserSub && browserSub.ok && browserSub.segments?.length > 0) {
+          browserSegments = browserSub.segments;
+          browserTranscript = browserSub.text;
+          setMsg({ type: 'success', text: `✓ ব্রাউজার থেকে ${browserSegments.length}টি সাবটাইটেল সেগমেন্ট পাওয়া গেছে! সেভ হচ্ছে...` });
+        }
+      } catch (_) {}
+    }
 
     try {
       const res = await api.post('/admin/lessons/save', {
@@ -213,6 +229,8 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
         order: form.order !== '' && !isNaN(Number(form.order)) ? Number(form.order) : 0,
         title: finalTitle,
         courseId: targetCourseId,
+        browserSegments,
+        browserTranscript
       });
 
       if (res.data.ok) {
@@ -305,36 +323,136 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
     return match ? match[1] : '';
   };
 
+  // Parse raw XML timedtext (<text start="X" dur="Y">...</text> or <p t="X" d="Y">...</p>)
+  const parseBrowserXmlSegments = (xmlStr) => {
+    if (!xmlStr || typeof xmlStr !== 'string') return [];
+    const segments = [];
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlStr, 'text/xml');
+      const textNodes = xmlDoc.getElementsByTagName('text');
+      if (textNodes && textNodes.length > 0) {
+        for (let i = 0; i < textNodes.length; i++) {
+          const node = textNodes[i];
+          const start = parseFloat(node.getAttribute('start') || '0');
+          const dur = parseFloat(node.getAttribute('dur') || '0');
+          const rawText = node.textContent || '';
+          const clean = rawText.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ').trim();
+          if (clean) {
+            const m = Math.floor(start / 60);
+            const s = Math.floor(start % 60);
+            const timestamp = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            segments.push({ start, dur, timestamp, offsetSeconds: start, text: clean });
+          }
+        }
+      } else {
+        const pNodes = xmlDoc.getElementsByTagName('p');
+        if (pNodes && pNodes.length > 0) {
+          for (let i = 0; i < pNodes.length; i++) {
+            const node = pNodes[i];
+            const start = parseFloat(node.getAttribute('t') || '0') / 1000;
+            const dur = parseFloat(node.getAttribute('d') || '0') / 1000;
+            const rawText = node.textContent || '';
+            const clean = rawText.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ').trim();
+            if (clean) {
+              const m = Math.floor(start / 60);
+              const s = Math.floor(start % 60);
+              const timestamp = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+              segments.push({ start, dur, timestamp, offsetSeconds: start, text: clean });
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    if (segments.length === 0) {
+      const regex = /<text\s+start="([\d.]+)"\s+dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/gi;
+      let match;
+      while ((match = regex.exec(xmlStr)) !== null) {
+        const start = parseFloat(match[1]);
+        const dur = parseFloat(match[2]);
+        const rawText = match[3].replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ').trim();
+        if (rawText) {
+          const m = Math.floor(start / 60);
+          const s = Math.floor(start % 60);
+          const timestamp = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+          segments.push({ start, dur, timestamp, offsetSeconds: start, text: rawText });
+        }
+      }
+    }
+    return segments;
+  };
+
   // Browser-Assisted Direct YouTube TimedText Subtitle Fetch (immune to Vercel Cloud IP blocks)
   const fetchSubtitleFromBrowser = async (youtubeId) => {
     if (!youtubeId) return null;
     const candidates = ['bn', 'a.bn', 'en', 'a.en'];
+
+    // 1. Try timedtext json3 format (modern YouTube client format)
+    for (const lang of candidates) {
+      try {
+        const url = `https://www.youtube.com/api/timedtext?v=${youtubeId}&lang=${lang}&fmt=json3`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.events)) {
+            const segments = [];
+            for (const ev of data.events) {
+              if (Array.isArray(ev.segs)) {
+                const text = ev.segs.map(s => s.utf8 || '').join('').trim();
+                if (text && text !== '\n') {
+                  const start = (ev.tStartMs || 0) / 1000;
+                  const dur = (ev.dDurationMs || 0) / 1000;
+                  const m = Math.floor(start / 60);
+                  const s = Math.floor(start % 60);
+                  const timestamp = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+                  segments.push({ start, dur, timestamp, offsetSeconds: start, text });
+                }
+              }
+            }
+            if (segments.length > 0) {
+              const fullText = segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n');
+              return { ok: true, segments, text: fullText, lang, source: 'browser_timedtext_json3' };
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Try srv3 XML format
     for (const lang of candidates) {
       try {
         const url = `https://www.youtube.com/api/timedtext?v=${youtubeId}&lang=${lang}&fmt=srv3`;
         const res = await fetch(url);
         if (res.ok) {
-          const text = await res.text();
-          if (text && text.trim().length > 30 && (text.includes('<p') || text.includes('<text'))) {
-            return { ok: true, text, lang };
+          const raw = await res.text();
+          if (raw && raw.trim().length > 30) {
+            const segments = parseBrowserXmlSegments(raw);
+            if (segments.length > 0) {
+              const fullText = segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n');
+              return { ok: true, segments, text: fullText, lang, source: 'browser_timedtext_srv3' };
+            }
           }
         }
-      } catch (e) {
-        // Try next language candidate
-      }
+      } catch (_) {}
     }
-    // Also try classic XML without fmt=srv3
+
+    // 3. Try standard XML format
     for (const lang of candidates) {
       try {
         const url = `https://www.youtube.com/api/timedtext?v=${youtubeId}&lang=${lang}`;
         const res = await fetch(url);
         if (res.ok) {
-          const text = await res.text();
-          if (text && text.trim().length > 30 && (text.includes('<text') || text.includes('<p'))) {
-            return { ok: true, text, lang };
+          const raw = await res.text();
+          if (raw && raw.trim().length > 30) {
+            const segments = parseBrowserXmlSegments(raw);
+            if (segments.length > 0) {
+              const fullText = segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n');
+              return { ok: true, segments, text: fullText, lang, source: 'browser_timedtext_xml' };
+            }
           }
         }
-      } catch (e) {}
+      } catch (_) {}
     }
     return null;
   };
@@ -343,10 +461,31 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
     const lId = l.id || l._id;
     const yId = l.youtubeId || getYoutubeId(l.youtubeUrl);
     setQuickSyncingId(lId);
-    setMsg({ type: 'success', text: `⏳ "${l.title}" এর জন্য সার্ভার থেকে সাবটাইটেল সিঙ্ক হচ্ছে...` });
+    setMsg({ type: 'success', text: `⏳ "${l.title}" এর জন্য সাবটাইটেল সিঙ্ক হচ্ছে...` });
 
     try {
-      // Step 1: Request multi-tier backend fetch
+      // Step 1: Attempt direct browser extraction first (clean residential IP)
+      if (yId) {
+        setMsg({ type: 'success', text: `🌐 ব্রাউজার রেসিডেন্সিয়াল IP দিয়ে সরাসরি ইউটিউব থেকে সাবটাইটেল খোঁজা হচ্ছে...` });
+        const browserResult = await fetchSubtitleFromBrowser(yId);
+        if (browserResult && browserResult.ok && browserResult.segments?.length > 0) {
+          const saveRes = await api.post(`/admin/lessons/${lId}/save-transcript`, {
+            transcript: browserResult.text,
+            segments: browserResult.segments,
+            source: 'browser_assisted_sync',
+            isSrtOrVtt: true,
+            action: 'save'
+          });
+          if (saveRes.data.ok) {
+            setMsg({ type: 'success', text: `✓ ব্রাউজার-অ্যাসিস্টেড সিঙ্ক সফল! ইউটিউব থেকে ${browserResult.segments.length}টি সাবটাইটেল সেগমেন্ট সরাসরি ডেটাবেজে সংরক্ষিত হয়েছে!` });
+            await loadLessons();
+            return;
+          }
+        }
+      }
+
+      // Step 2: Request backend multi-tier pipeline (invoking Gemini Multimodal Video AI if YouTube has no captions)
+      setMsg({ type: 'success', text: `🤖 সার্ভার ও Gemini Multimodal AI দিয়ে ভিডিওর অডিও ট্রান্সক্রাইব করা হচ্ছে...` });
       const res = await api.post(`/admin/lessons/${lId}/transcript`, { action: 'refetch' });
       if (res.data.ok) {
         setMsg({ type: 'success', text: res.data.message || '✓ সাবটাইটেল সফলভাবে সিঙ্ক হয়েছে!' });
@@ -354,36 +493,19 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
         return;
       }
 
-      // Step 2: If server IP was blocked by YouTube bot protection, attempt Browser-Assisted fetch
-      if (res.data.status === 'IP_BLOCKED_BY_YOUTUBE' || res.data.errorCode === 'IP_BLOCKED_BY_YOUTUBE') {
-        if (yId) {
-          setMsg({ type: 'success', text: `🌐 সার্ভার IP ব্লক হওয়ায় ব্রাউজার (রেসিডেন্সিয়াল IP) দিয়ে সরাসরি ইউটিউব থেকে সাবটাইটেল আনা হচ্ছে...` });
-          const browserResult = await fetchSubtitleFromBrowser(yId);
-          if (browserResult && browserResult.ok) {
-            // Save browser-fetched subtitle to MongoDB via save-transcript endpoint
-            const saveRes = await api.post(`/admin/lessons/${lId}/save-transcript`, {
-              transcript: browserResult.text,
-              source: 'browser_assisted_sync',
-              isSrtOrVtt: true,
-              action: 'save'
-            });
-            if (saveRes.data.ok) {
-              setMsg({ type: 'success', text: `✓ ব্রাউজার-অ্যাসিস্টেড সিঙ্ক সফল! ইউটিউব থেকে সাবটাইটেল সরাসরি ডাটাবেজে সংরক্ষিত হয়েছে!` });
-              await loadLessons();
-              return;
-            }
-          }
-        }
-
-        // Step 3: If direct browser fetch also couldn't get auto-captions, open 1-click manual paste modal
-        handleOpenManualPaste(l);
+      // Step 3: If both failed (e.g. video is Private on YouTube)
+      if (res.data.status === 'private_or_unavailable' || res.data.errorCode === 'VIDEO_PRIVATE_OR_UNAVAILABLE') {
         setMsg({
           type: 'error',
-          text: `⚠️ ইউটিউব ক্লাউড সার্ভার IP সাময়িক সীমাবদ্ধ করেছে। ১-ক্লিক "📋 ম্যানুয়াল পেস্ট" মডাল ওপেন করা হয়েছে—ভিডিওর ট্রান্সক্রিপ্ট পেস্ট করে সংরক্ষণ করুন।`
+          text: `⚠️ ভিডিওটি ইউটিউবে Private থাকায় অ্যাক্সেস করা যায়নি। দয়া করে ইউটিউব স্টুডিওতে Unlisted করুন অথবা নিচে "📋 ম্যানুয়াল পেস্ট" ব্যবহার করুন।`
         });
       } else {
-        setMsg({ type: 'error', text: res.data.message || 'ইউটিউবে এই ভিডিওর কোনো ক্যাপশন ট্র্যাক পাওয়া যায়নি।' });
+        setMsg({
+          type: 'error',
+          text: res.data.message || 'সাবটাইটেল পাওয়া যায়নি। ১-ক্লিক "📋 ম্যানুয়াল পেস্ট" দিয়ে টেক্সট যুক্ত করুন।'
+        });
       }
+      await loadLessons();
     } catch (err) {
       setMsg({ type: 'error', text: err.response?.data?.message || 'সাবটাইটেল সিঙ্ক করতে সমস্যা হয়েছে।' });
     } finally {
@@ -497,7 +619,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
       // Check if server IP blocked -> try browser assisted fetch
       if (res.data.status === 'IP_BLOCKED_BY_YOUTUBE' || res.data.errorCode === 'IP_BLOCKED_BY_YOUTUBE') {
         if (yId) {
-          setMsg({ type: 'success', text: `🌐 সার্ভার IP ব্লক হওয়ায় ব্রাউজার (রেসিডেন্সিয়াল IP) দিয়ে সরাসরি ইউটিউব ক্যাপশন ফেচ করা হচ্ছে...` });
+          setMsg({ type: 'success', text: `🌐 ব্রাউজার দিয়ে সরাসরি ইউটিউব ক্যাপশন ফেচ করা হচ্ছে...` });
           const browserResult = await fetchSubtitleFromBrowser(yId);
           if (browserResult && browserResult.ok) {
             const saveRes = await api.post(`/admin/lessons/${lId}/save-transcript`, {
@@ -520,7 +642,7 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
             }
           }
         }
-        showError('ইউটিউব বট প্রোটেকশন দ্বারা সার্ভার IP সীমাবদ্ধ। নিচে টেক্সট পেস্ট করে "সাবটাইটেল সেভ করুন" চাপুন।');
+        showError('ভিডিওটির সাবটাইটেল স্বয়ংক্রিয়ভাবে সংগ্রহ করা যায়নি। নিচে টেক্সট পেস্ট করে "সাবটাইটেল সেভ করুন" চাপুন অথবা ভিডিওটি Unlisted কিনা নিশ্চিত করুন।');
       } else {
         showError(res.data.message || 'ইউটিউব থেকে সাবটাইটেল পাওয়া যায়নি।');
       }
@@ -727,143 +849,61 @@ export default function LessonManagerModal({ course, isOpen, onClose }) {
                         <td className="p-2.5 font-bold text-white">
                           {l.title}
                           {l.chapter && <span className="block text-[10px] text-slate-400 font-normal italic">{l.chapter}</span>}
-                          {(l.transcriptStatus === 'ready' || l.transcriptStatus === 'manual' || (l.hasSubtitles && ((l.transcriptWordCount && l.transcriptWordCount > 0) || l.transcript))) ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold mt-1 shadow-sm">
-                              ✓ {l.transcriptStatus === 'manual' ? 'ম্যানুয়াল সাবটাইটেল' : 'সাবটাইটেল সিঙ্কড'} ({formatWordCount(l.transcriptWordCount || (l.transcript ? l.transcript.split(/\s+/).filter(Boolean).length : 0))} শব্দ)
-                            </span>
-                          ) : l.transcriptStatus === 'IP_BLOCKED_BY_YOUTUBE' ? (
-                            <div className="flex flex-col gap-0.5 mt-1">
-                              <div className="flex items-center gap-1 flex-wrap">
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-rose-500/15 text-rose-300 border border-rose-500/30 font-medium" title={l.transcriptLastError || "YouTube Bot Protection blocked Server IP"}>
-                                  ⚠️ সার্ভার IP ব্লক (YouTube Bot Block)
+                          {(() => {
+                            const isReady = l.transcriptStatus === 'ready' || l.transcriptStatus === 'manual' || (l.hasSubtitles && ((l.transcriptWordCount && l.transcriptWordCount > 0) || l.transcript));
+                            const isGenerating = quickSyncingId === (l.id || l._id) || l.transcriptStatus === 'generating' || l.transcriptStatus === 'processing' || l.transcriptStatus === 'in_progress';
+                            const isPending = l.transcriptStatus === 'pending' || l.transcriptStatus === 'retry_scheduled' || l.transcriptStatus === 'rate_limited';
+
+                            if (isReady) {
+                              const wordCount = formatWordCount(l.transcriptWordCount || (l.transcript ? l.transcript.split(/\s+/).filter(Boolean).length : 0));
+                              return (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold mt-1 shadow-sm">
+                                  ✅ সাবটাইটেল রেডি ({wordCount} শব্দ)
                                 </span>
-                                <button
-                                  type="button"
-                                  disabled={quickSyncingId === (l.id || l._id)}
-                                  onClick={() => handleQuickSyncSubtitle(l)}
-                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
-                                  title="ব্রাউজার রেসিডেন্সিয়াল IP দিয়ে সরাসরি ফেচ করুন"
-                                >
-                                  {quickSyncingId === (l.id || l._id) ? '...' : '🌐 ব্রাউজার সিঙ্ক'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenManualPaste(l)}
-                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-purple-900 hover:bg-purple-800 text-purple-200 font-extrabold cursor-pointer transition-all shadow-sm"
-                                  title="১-ক্লিক ম্যানুয়াল সাবটাইটেল পেস্ট"
-                                >
-                                  📋 ম্যানুয়াল পেস্ট
-                                </button>
+                              );
+                            }
+
+                            if (isGenerating || isPending) {
+                              return (
+                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold mt-1 animate-pulse shadow-sm">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping" />
+                                  🤖 Gemini AI ট্রান্সক্রিপ্ট তৈরি হচ্ছে...
+                                </span>
+                              );
+                            }
+
+                            return (
+                              <div className="flex flex-col gap-1 mt-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-rose-500/15 text-rose-300 border border-rose-500/30 font-medium">
+                                    ⚠️ ভিডিও প্রাইভেট/অ্যাক্সেসযোগ্য নয়
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={quickSyncingId === (l.id || l._id)}
+                                    onClick={() => handleQuickSyncSubtitle(l)}
+                                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
+                                    title="পুনরায় সিঙ্ক চেষ্টা করুন"
+                                  >
+                                    {quickSyncingId === (l.id || l._id) ? '...' : '🔄 রি-ট্রাই সিঙ্ক'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenManualPaste(l)}
+                                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-purple-900 hover:bg-purple-800 text-purple-200 font-extrabold cursor-pointer transition-all shadow-sm"
+                                    title="১-ক্লিক ম্যানুয়াল সাবটাইটেল পেস্ট"
+                                  >
+                                    📋 ম্যানুয়াল পেস্ট
+                                  </button>
+                                </div>
+                                {l.transcriptLastError && !l.transcriptLastError.includes("Bot Protection") && (
+                                  <span className="text-[8px] text-rose-400/80 font-mono line-clamp-1 max-w-[240px]" title={l.transcriptLastError}>
+                                    {l.transcriptLastError}
+                                  </span>
+                                )}
                               </div>
-                              {l.transcriptLastError && (
-                                <span className="text-[8px] text-rose-400/80 font-mono line-clamp-1 max-w-[240px]" title={l.transcriptLastError}>
-                                  {l.transcriptLastError}
-                                </span>
-                              )}
-                            </div>
-                          ) : (l.transcriptStatus === 'no_captions' || l.transcriptStatus === 'NO_CAPTIONS_AVAILABLE') ? (
-                            <div className="flex flex-col gap-0.5 mt-1">
-                              <div className="flex items-center gap-1 flex-wrap">
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium" title={l.transcriptLastError || "YouTube-এ বাংলা ক্যাপশন পাওয়া যায়নি"}>
-                                  ⚠️ ক্যাপশন তৈরি হয়নি
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenManualPaste(l)}
-                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-purple-900 hover:bg-purple-800 text-purple-200 font-extrabold cursor-pointer transition-all shadow-sm"
-                                  title="ইউটিউব স্টুডিও থেকে সাবটাইটেল টেক্সট কপি করে পেস্ট করুন"
-                                >
-                                  📋 ম্যানুয়াল পেস্ট
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={quickSyncingId === (l.id || l._id)}
-                                  onClick={() => handleQuickSyncSubtitle(l)}
-                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
-                                  title="ইউটিউব থেকে পুনরায় চেষ্টা করুন"
-                                >
-                                  {quickSyncingId === (l.id || l._id) ? '...' : '🔄 রিট্রাই'}
-                                </button>
-                              </div>
-                              {l.transcriptLastError && (
-                                <span className="text-[8px] text-amber-400/80 font-mono line-clamp-1 max-w-[240px]" title={l.transcriptLastError}>
-                                  {l.transcriptLastError}
-                                </span>
-                              )}
-                            </div>
-                          ) : (l.transcriptStatus === 'retry_scheduled' || l.transcriptStatus === 'rate_limited') ? (
-                            <div className="flex items-center gap-1 mt-1">
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-medium">
-                                ⏳ {l.transcriptStatus === 'rate_limited' ? 'রেট লিমিট (রিট্রাই অপেক্ষমাণ)' : `রিট্রাই শিডিউলড (${l.transcriptAttemptCount || 1})`}
-                              </span>
-                              <button
-                                type="button"
-                                disabled={quickSyncingId === (l.id || l._id)}
-                                onClick={() => handleQuickSyncSubtitle(l)}
-                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
-                                title="এখনই রিট্রাই করুন"
-                              >
-                                {quickSyncingId === (l.id || l._id) ? '...' : '🔄 রিট্রাই'}
-                              </button>
-                            </div>
-                          ) : l.transcriptStatus === 'private_or_restricted' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-purple-500/15 text-purple-300 border border-purple-500/30 font-medium mt-1" title="ভিডিওটি প্রাইভেট/অনুপলব্ধ অথবা ইউটিউব ক্যাপশন সুরক্ষিত">
-                              🔒 ভিডিও প্রাইভেট/অনুপলব্ধ
-                            </span>
-                          ) : l.transcriptStatus === 'failed' ? (
-                            <div className="flex flex-col gap-0.5 mt-1">
-                              <div className="flex items-center gap-1 flex-wrap">
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-rose-500/15 text-rose-300 border border-rose-500/30 font-medium" title={l.transcriptLastError || "সাবটাইটেল সংগ্রহ করা যায়নি"}>
-                                  ❌ সিঙ্ক ব্যর্থ
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenManualPaste(l)}
-                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-purple-900 hover:bg-purple-800 text-purple-200 font-extrabold cursor-pointer transition-all shadow-sm"
-                                  title="ক্লিপবোর্ড থেকে সাবটাইটেল টেক্সট পেস্ট করুন"
-                                >
-                                  📋 ম্যানুয়াল পেস্ট
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={quickSyncingId === (l.id || l._id)}
-                                  onClick={() => handleQuickSyncSubtitle(l)}
-                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-rose-500 hover:bg-rose-400 text-white font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
-                                  title="পুনরায় চেষ্টা করুন"
-                                >
-                                  {quickSyncingId === (l.id || l._id) ? '...' : '🔄 রিট্রাই'}
-                                </button>
-                              </div>
-                              {l.transcriptLastError && (
-                                <span className="text-[8px] text-rose-400/80 font-mono line-clamp-1 max-w-[240px]" title={l.transcriptLastError}>
-                                  {l.transcriptLastError}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1 mt-1 flex-wrap">
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium">
-                                ⏳ পেন্ডিং (অপেক্ষমাণ)
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenManualPaste(l)}
-                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-purple-900 hover:bg-purple-800 text-purple-200 font-extrabold cursor-pointer transition-all shadow-sm"
-                                title="সাবটাইটেল সরাসরি পেস্ট করুন"
-                              >
-                                📋 ম্যানুয়াল পেস্ট
-                              </button>
-                              <button
-                                type="button"
-                                disabled={quickSyncingId === (l.id || l._id)}
-                                onClick={() => handleQuickSyncSubtitle(l)}
-                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold cursor-pointer transition-all shadow-sm disabled:opacity-50"
-                                title="ইউটিউব থেকে এখনই সাবটাইটেল সিঙ্ক করুন"
-                              >
-                                {quickSyncingId === (l.id || l._id) ? '...' : '🔄 সিঙ্ক'}
-                              </button>
-                            </div>
-                          )}
+                            );
+                          })()}
                         </td>
                         <td className="p-2.5 font-mono text-cyan-400 max-w-[130px] truncate">
                           {l.youtubeUrl || `https://youtu.be/${l.youtubeId}`}

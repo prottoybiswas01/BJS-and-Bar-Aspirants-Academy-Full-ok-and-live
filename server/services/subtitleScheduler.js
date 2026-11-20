@@ -1,5 +1,5 @@
 const { fetchYoutubeTranscript, extractYoutubeId } = require('./transcriptService');
-const { notifySubtitleExtractionFailed } = require('./alertService');
+const { notifySubtitleExtractionFailed, notifyPermanentTranscriptFailure } = require('./alertService');
 
 let schedulerTimer = null;
 let isJobRunning = false;
@@ -70,15 +70,24 @@ async function syncSingleLessonSubtitle(lessonDoc, LessonModel) {
 
       console.log(`[SubtitleSync] ⏳ Pending/Waiting for subtitles: "${lessonDoc.title}" (${result.status}: ${result.message})`);
 
-      // Real-time Telegram alert on subtitle extraction failure (avoid duplicate spam if same error already reported)
+      // Real-time Telegram alert on subtitle extraction failure
       if (lessonDoc.transcriptLastError !== result.message) {
         try {
-          notifySubtitleExtractionFailed({
-            courseTitle: lessonDoc.courseTitle || lessonDoc.module || 'BJS Course',
-            lessonTitle: lessonDoc.title || 'ক্লাস',
-            youtubeId: yId,
-            reason: result.message || 'ক্যাপশন পাওয়া যায়নি বা ভিডিও প্রাইভেট'
-          });
+          if (result.status === 'private_or_unavailable') {
+            notifyPermanentTranscriptFailure({
+              courseTitle: lessonDoc.courseTitle || lessonDoc.module || 'BJS Course',
+              lessonTitle: lessonDoc.title || 'ক্লাস',
+              youtubeId: yId,
+              reason: result.message || 'ভিডিওটি Private করা আছে, Unlisted করুন'
+            });
+          } else {
+            notifySubtitleExtractionFailed({
+              courseTitle: lessonDoc.courseTitle || lessonDoc.module || 'BJS Course',
+              lessonTitle: lessonDoc.title || 'ক্লাস',
+              youtubeId: yId,
+              reason: result.message || 'ক্যাপশন পাওয়া যায়নি বা ভিডিও প্রাইভেট'
+            });
+          }
         } catch (tgErr) {
           console.warn('[SubtitleSync] Telegram alert notice:', tgErr.message);
         }

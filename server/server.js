@@ -248,7 +248,7 @@ const Certificate = require("./models/Certificate");
 const PushSubscription = require("./models/PushSubscription");
 const StudyNote = require("./models/StudyNote");
 const { generateCertificatePdf } = require("./services/certificateService");
-const { sendTelegramAlert, sendEmergencyEmail, notifyNewLesson, notifyRegistration, notifyReceipt, notifySecurityAttack, notifyAdminDiff, notifySiteError } = require("./services/alertService");
+const { sendTelegramAlert, sendEmergencyEmail, notifyNewLesson, notifyRegistration, notifyReceipt, notifySecurityAttack, notifyAdminDiff, notifySiteError, notifyPermanentTranscriptFailure } = require("./services/alertService");
 const { seedDefaultStudyNotes, generateAiMcqsFromTranscript, getExamLeaderboard, generateStudyNotesFromLesson } = require("./services/academyFeaturesService");
 const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId, formatSecondsToTimestamp } = require("./services/transcriptService");
 const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
@@ -5041,6 +5041,26 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       orderNum = getNextSerial(existingLessons);
     }
 
+    // TASK 1: Check if client browser provided clean transcript segments via residential IP bridge
+    const clientSegments = body.browserSegments || body.transcriptSegments;
+    const clientTranscript = body.browserTranscript || body.transcript;
+    let hasClientSegments = false;
+    let clientSegList = [];
+    if (Array.isArray(clientSegments) && clientSegments.length > 0) {
+      clientSegList = clientSegments.filter(s => s && s.text);
+      if (clientSegList.length >= 3) {
+        hasClientSegments = true;
+      }
+    }
+
+    const initialTranscript = hasClientSegments
+      ? (clientTranscript || clientSegList.map(s => `[${s.timestamp || '00:00'}] ${s.text}`).join('\n'))
+      : (body.transcript || "");
+    const initialWordCount = initialTranscript ? initialTranscript.split(/\s+/).filter(Boolean).length : 0;
+    const initialStatus = hasClientSegments
+      ? "ready"
+      : (body.transcript ? "manual" : "pending");
+
     const lessonData = {
       id: lessonId,
       courseId: body.courseId || "General Class",
@@ -5053,8 +5073,15 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       releaseDate: body.releaseDate || new Date().toISOString().split("T")[0],
       description: body.description || "",
       order: orderNum,
-      transcript: body.transcript || "",
-      transcriptStatus: body.transcript ? "manual" : "none"
+      hasSubtitles: hasClientSegments || Boolean(body.hasSubtitles && initialWordCount >= 50),
+      transcript: initialTranscript,
+      transcriptSegments: hasClientSegments ? clientSegList : [],
+      transcriptWordCount: initialWordCount,
+      transcriptStatus: initialStatus,
+      transcriptSource: hasClientSegments ? "browser_residential_bridge" : (body.transcript ? "manual_paste" : ""),
+      transcriptVideoId: youtubeId,
+      transcriptUpdatedAt: hasClientSegments ? new Date() : null,
+      transcriptLastError: ""
     };
 
     let saved = lessonData;
@@ -5106,13 +5133,13 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       });
     }
 
-    // Synchronous with multi-tier YouTube transcript fetch (Guaranteed on Vercel Serverless)
-    let transcriptSynced = false;
+    // Synchronous with multi-tier YouTube & Gemini Multimodal transcript fetch
+    let transcriptSynced = saved.transcriptStatus === 'ready' && (saved.transcriptWordCount >= 50 || (saved.transcriptSegments && saved.transcriptSegments.length > 0));
     const currentWords = saved.transcriptWordCount || (saved.transcript ? saved.transcript.split(/\s+/).filter(Boolean).length : 0);
-    if (youtubeId && (!saved.transcript || currentWords < 50 || saved.transcriptStatus !== 'ready') && saved.transcriptStatus !== 'manual') {
+    if (!transcriptSynced && youtubeId && (!saved.transcript || currentWords < 50 || saved.transcriptStatus !== 'ready') && saved.transcriptStatus !== 'manual') {
       try {
         const trPromise = fetchYoutubeTranscript(youtubeId);
-        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), 4000));
+        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), 12000));
         const trRes = await Promise.race([trPromise, timeoutPromise]);
 
         if (trRes && trRes.ok && trRes.status === 'ready' && trRes.transcript && trRes.wordCount >= 50) {
@@ -5160,7 +5187,7 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
             mem.transcriptWordCount = trRes.wordCount || 0;
             mem.transcriptUpdatedAt = new Date();
           }
-          console.log(`✓ Synchronously fetched authentic transcript for lesson "${saved.title}" (${trRes.wordCount} words)`);
+          console.log(`✓ Synchronously fetched authentic transcript for lesson "${saved.title}" (${trRes.wordCount} words) via ${trRes.tier || 'pipeline'}`);
         } else if (trRes && !trRes.ok && !trRes.timeout) {
           // Accurate failure status without fabricating fake transcripts
           const finalStatus = trRes.status || 'failed';
@@ -5183,6 +5210,16 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
           if (mem) {
             mem.transcriptStatus = finalStatus;
             mem.transcriptLastError = trRes.message || '';
+          }
+          if (finalStatus === 'private_or_unavailable') {
+            try {
+              notifyPermanentTranscriptFailure({
+                courseTitle: saved.module || saved.courseId,
+                lessonTitle: saved.title,
+                youtubeId,
+                reason: trRes.message || 'ভিডিওটি Private করা আছে, Unlisted করুন'
+              });
+            } catch (_) {}
           }
         } else {
           // Timeout or queued for background worker: leave in pending status, NEVER invent fake transcript text
@@ -5583,7 +5620,7 @@ app.post([
           wordCount: trRes.wordCount
         });
       } else {
-        const finalStatus = trRes?.status || 'no_captions';
+        const finalStatus = trRes?.status || 'failed';
         const finalErrorCode = trRes?.errorCode || finalStatus;
         lsn.hasSubtitles = false;
         lsn.transcriptStatus = finalStatus;
@@ -5595,24 +5632,43 @@ app.post([
           mem.transcriptStatus = finalStatus;
           mem.transcriptLastError = trRes?.message || '';
         }
+        if (finalStatus === 'private_or_unavailable') {
+          try {
+            notifyPermanentTranscriptFailure({
+              courseTitle: lsn.module || lsn.courseTitle,
+              lessonTitle: lsn.title,
+              youtubeId: yId,
+              reason: trRes?.message || 'ভিডিওটি Private করা আছে, Unlisted করুন'
+            });
+          } catch (_) {}
+        }
         fastCache.del("lessons");
         fastCache.flushAll();
         return res.json({
           ok: false,
           status: finalStatus,
           errorCode: finalErrorCode,
-          message: trRes?.message || "ইউটিউব ক্যাপশন এখনও তৈরি হয়নি। আপনি চাইলে '📋 ম্যানুয়াল পেস্ট' দিয়ে সরাসরি সাবটাইটেল যুক্ত করতে পারেন。"
+          message: trRes?.message || "ইউটিউব ক্যাপশন ও AI ট্রান্সক্রিপশন সম্পন্ন করা যায়নি। আপনি চাইলে '📋 ম্যানুয়াল পেস্ট' দিয়ে সরাসরি সাবটাইটেল যুক্ত করতে পারেন।"
         });
       }
     } else {
-      // Manual Save / Browser-Assisted Sync (supports SRT / VTT auto-parsing & YouTube Studio format)
+      // Manual Save / Browser-Assisted Sync (supports SRT / VTT auto-parsing & YouTube Studio format & Browser segments)
       let cleanText = transcript || "";
+      let segments = [];
+      if (Array.isArray(req.body.segments) && req.body.segments.length > 0) {
+        segments = req.body.segments;
+        if (!cleanText) {
+          cleanText = segments.map(s => `[${s.timestamp || '00:00'}] ${s.text}`).join('\n');
+        }
+      }
       const parsed = parseSrtOrVtt(cleanText);
-      const segments = parsed.ok ? (parsed.segments || []) : [];
-      const parsedWordCount = parsed.ok ? parsed.wordCount : cleanText.split(/\s+/).filter(Boolean).length;
+      if (segments.length === 0 && parsed.ok && parsed.segments && parsed.segments.length > 0) {
+        segments = parsed.segments;
+      }
+      const parsedWordCount = segments.length > 0 ? (cleanText.split(/\s+/).filter(Boolean).length) : (parsed.ok ? parsed.wordCount : cleanText.split(/\s+/).filter(Boolean).length);
       const lang = parsed.ok ? parsed.language : (/[\u0980-\u09FF]/.test(cleanText) ? 'bn' : 'en');
       const finalTranscript = (parsed.ok && parsed.transcript) ? parsed.transcript : cleanText;
-      const isManualValid = parsedWordCount >= 5 || cleanText.trim().length >= 10;
+      const isManualValid = parsedWordCount >= 5 || cleanText.trim().length >= 10 || segments.length >= 3;
       const src = source || req.body?.source || 'manual_paste';
 
       lsn.hasSubtitles = isManualValid;
