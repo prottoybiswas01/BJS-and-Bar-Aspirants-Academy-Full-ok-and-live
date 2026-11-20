@@ -54,11 +54,11 @@ function drawOfficialDoubleRingSeal(doc, cx, cy, radius = 34) {
 
   // Seal typography
   doc.font('Helvetica-Bold').fontSize(5.5).fillColor('#0F172A')
-     .text('BJS & BAR ACADEMY', cx - 28, cy - 21, { width: 56, align: 'center' });
+    .text('BJS & BAR ACADEMY', cx - 28, cy - 21, { width: 56, align: 'center' });
   doc.font('Helvetica-Bold').fontSize(5).fillColor('#D97706')
-     .text('VERIFIED & CERTIFIED', cx - 26, cy + 12, { width: 52, align: 'center' });
+    .text('VERIFIED & CERTIFIED', cx - 26, cy + 12, { width: 52, align: 'center' });
   doc.font('Helvetica').fontSize(4.5).fillColor('#64748B')
-     .text('DHAKA, BANGLADESH', cx - 26, cy + 19, { width: 52, align: 'center' });
+    .text('DHAKA, BANGLADESH', cx - 26, cy + 19, { width: 52, align: 'center' });
 
   doc.restore();
 }

@@ -199,7 +199,7 @@ export default function Register({ setActivePage }) {
               ⏳
             </div>
             <h3 className="text-xl font-black text-white">রেজিস্ট্রেশন আবেদন সফল হয়েছে!</h3>
-            
+
             <div className="p-4 bg-slate-950 rounded-xl space-y-2 border border-slate-800 text-left text-xs">
               <div className="flex justify-between items-center border-b border-slate-800/80 pb-2">
                 <span className="text-slate-400">রেজিস্ট্রেশন নম্বর (Reg ID):</span>
