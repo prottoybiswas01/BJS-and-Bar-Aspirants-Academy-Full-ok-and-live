@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import Modal from '../components/ui/Modal';
+import PaymentInvoiceView from '../components/PaymentInvoiceView';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import QuestionFormattedView from '../components/QuestionFormattedView';
@@ -2104,93 +2105,24 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
           </div>
         </Modal>
       )}
-      {/* IN-APP OFFICIAL PAYMENT RECEIPT MODAL */}
+      {/* IN-APP OFFICIAL VIP PAYMENT RECEIPT MODAL */}
       {viewReceiptModal.isOpen && viewReceiptModal.receipt && (
-        <Modal
-          isOpen={viewReceiptModal.isOpen}
-          onClose={() => setViewReceiptModal({ isOpen: false, receipt: null })}
-          title="অফিশিয়াল ডিজিটাল মানি রিসিট"
-          subtitle={`রসিদ নম্বর: ${viewReceiptModal.receipt.receiptId}`}
-          icon="💳"
-          maxWidth="max-w-lg"
-          footer={
-            <div className="w-full flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <span>🖨️</span> প্রিন্ট রিসিট
-              </button>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleDownloadReceiptPdf(viewReceiptModal.receipt.receiptId)}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-900/30"
-                >
-                  <span>📥</span> ডাউনলোড (PDF)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewReceiptModal({ isOpen: false, receipt: null })}
-                  className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 text-slate-800 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white text-xs font-bold cursor-pointer"
-                >
-                  বন্ধ করুন
-                </button>
-              </div>
-            </div>
-          }
-        >
-          <div className="bg-white text-slate-900 p-6 rounded-2xl shadow-inner border border-slate-200 space-y-5 font-sans">
-            {/* Header */}
-            <div className="text-center border-b border-slate-200 pb-4">
-              <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-amber-500 text-slate-950 font-black text-2xl mb-2">
-                ⚖️
-              </div>
-              <h3 className="text-lg font-black text-slate-900 tracking-tight">BJS & Bar Aspirants Academy</h3>
-              <p className="text-[11px] text-slate-500">অনলাইন জুডিশিয়াল সার্ভিস ও বার কাউন্সিল প্রস্তুতি একাডেমি</p>
-              <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-300">
-                <span>✓</span> কেন্দ্রীয়ভাবে যাচাইকৃত পরিশোধ (Verified)
-              </div>
-            </div>
-
-            {/* Receipt Summary Grid */}
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-500 uppercase">শিক্ষার্থীর নাম</p>
-                <p className="font-extrabold text-slate-900 mt-0.5">{viewReceiptModal.receipt.studentName || user?.name}</p>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-500 uppercase">রোল / স্টুডেন্ট আইডি</p>
-                <p className="font-mono font-bold text-amber-700 mt-0.5">{viewReceiptModal.receipt.studentId || user?.id}</p>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-500 uppercase">কোর্স / ব্যাচ</p>
-                <p className="font-bold text-slate-900 mt-0.5">{viewReceiptModal.receipt.batch || 'BJS & Bar Masterclass'}</p>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-500 uppercase">পরিশোধের পরিমাণ</p>
-                <p className="font-mono font-black text-emerald-700 text-sm mt-0.5">
-                  ৳{toBangladeshDigits(Number(viewReceiptModal.receipt.amount || 0).toLocaleString('en-IN'))}
-                </p>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-500 uppercase">পেমেন্ট মেথড</p>
-                <p className="font-bold text-slate-800 mt-0.5">{viewReceiptModal.receipt.paymentMethod || 'Online'}</p>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-500 uppercase">ট্রানজেকশন আইডি (TrxID)</p>
-                <p className="font-mono font-bold text-slate-700 mt-0.5">{viewReceiptModal.receipt.trxId || 'N/A'}</p>
-              </div>
-            </div>
-
-            {/* Timestamp & Issuer */}
-            <div className="text-[11px] text-slate-500 pt-2 border-t border-slate-100 flex items-center justify-between">
-              <span>ইস্যুর সময়: {formatBangladeshTime(viewReceiptModal.receipt.paymentTime || viewReceiptModal.receipt.createdAt)}</span>
-              <span className="font-bold text-slate-700">ইস্যুকারী: {viewReceiptModal.receipt.issuedBy || 'Super Admin'}</span>
-            </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className="relative w-full max-w-3xl my-auto animate-scaleUp py-6">
+            <button
+              type="button"
+              onClick={() => setViewReceiptModal({ isOpen: false, receipt: null })}
+              className="absolute top-2 right-2 sm:-top-2 sm:-right-2 z-50 w-9 h-9 rounded-full bg-slate-900 text-slate-300 hover:text-white border border-slate-700 flex items-center justify-center text-sm font-bold shadow-xl transition-all cursor-pointer"
+              title="বন্ধ করুন"
+            >
+              ✕
+            </button>
+            <PaymentInvoiceView
+              receipt={viewReceiptModal.receipt}
+              onClose={() => setViewReceiptModal({ isOpen: false, receipt: null })}
+            />
           </div>
-        </Modal>
+        </div>
       )}
     </div>
   );

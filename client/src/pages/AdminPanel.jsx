@@ -6,6 +6,7 @@ import { formatBangladeshTime, toBangladeshDigits } from '../utils/dateUtils';
 import BrandLogo from '../components/BrandLogo';
 import GoogleAccountApproval from '../components/GoogleAccountApproval';
 import { downloadCertificate } from '../utils/certificateDownload';
+import PaymentInvoiceView from '../components/PaymentInvoiceView';
 
 async function loadStudentRoster(firstPage) {
   const first = firstPage || (await api.get('/admin/students', { params: { pageSize: 200 } })).data;
@@ -216,6 +217,9 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     setTempPasswordModal({ isOpen: false, student: null, tempPassword: '', generatedPass: '', copied: false });
     setMergeMentorModal({ isOpen: false, targetMentor: null, sourceMentorId: '' });
     setNoteModal({ isOpen: false, student: null, noteText: '', loading: false });
+    if (adminTab === 'tracking') {
+      fetchTrackingAudit();
+    }
   }, [adminTab]);
 
   // Messaging State
@@ -533,6 +537,80 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     } catch (err) {
       showToast('নোট মুছতে সমস্যা হয়েছে।', 'error');
     }
+  };
+
+  // QR & Tracking Portal State
+  const [trackingItems, setTrackingItems] = useState([]);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingSearchId, setTrackingSearchId] = useState('');
+  const [trackingSearchResult, setTrackingSearchResult] = useState(null);
+  const [trackingSearching, setTrackingSearching] = useState(false);
+  const [qrModal, setQrModal] = useState({ isOpen: false, text: '', title: '', qrUrl: '' });
+
+  const fetchTrackingAudit = async () => {
+    try {
+      setTrackingLoading(true);
+      const res = await api.get('/admin/tracking/audit-log');
+      if (res.data?.ok && Array.isArray(res.data.trackingItems)) {
+        setTrackingItems(res.data.trackingItems);
+      }
+    } catch (err) {
+      console.warn('Failed to load tracking audit:', err);
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
+
+  const handleToggleTrackingStatus = async (item) => {
+    try {
+      const newStatus = item.type === 'receipt'
+        ? (item.status === 'Suspended' ? 'Active' : 'Suspended')
+        : (item.status === 'Revoked' ? 'Valid' : 'Revoked');
+
+      const res = await api.post('/admin/tracking/status', {
+        id: item.id,
+        type: item.type,
+        status: newStatus
+      });
+      if (res.data?.ok) {
+        showToast(res.data.message || 'স্ট্যাটাস সফলভাবে পরিবর্তিত হয়েছে', 'success');
+        setTrackingItems(prev => prev.map(t => t.id === item.id ? { ...t, status: newStatus } : t));
+        if (trackingSearchResult && (trackingSearchResult.receipt?.receiptId === item.id || trackingSearchResult.certificate?.certificateId === item.id)) {
+          handleSearchTrackingId();
+        }
+      }
+    } catch (err) {
+      showToast('স্ট্যাটাস পরিবর্তন ব্যর্থ হয়েছে।', 'error');
+    }
+  };
+
+  const handleSearchTrackingId = async () => {
+    if (!trackingSearchId.trim()) return;
+    try {
+      setTrackingSearching(true);
+      setTrackingSearchResult(null);
+      const clean = trackingSearchId.trim();
+      const res = await api.get(`/certificates/verify/${clean}`);
+      if (res.data?.ok) {
+        setTrackingSearchResult(res.data);
+      } else {
+        showToast(res.data?.message || 'আইডি পাওয়া যায়নি।', 'error');
+      }
+    } catch (err) {
+      showToast('খুঁজে পাওয়া যায়নি বা আইডিটি সঠিক নয়।', 'error');
+    } finally {
+      setTrackingSearching(false);
+    }
+  };
+
+  const handleDownloadQrCode = (text, format = 'png', filename = 'qr-code') => {
+    const url = `/api/qr?text=${encodeURIComponent(text)}&format=${format}`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filename}.${format === 'svg' ? 'svg' : 'png'}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const currentStats = getEnrollmentStats();
@@ -2938,6 +3016,23 @@ return (
                   Audit
                 </span>
               </button>
+              <button
+                type="button"
+                onClick={() => { setAdminTab('tracking'); setIsMobileMenuOpen(false); }}
+                className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between cursor-pointer ${
+                  adminTab === 'tracking'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-extrabold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">📱</span>
+                  <span>QR ও ট্র্যাকিং পোর্টাল</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/10">
+                  QR Live
+                </span>
+              </button>
             </div>
           </div>
         </div>
@@ -4519,6 +4614,230 @@ return (
             👆 ড্রপডাউন থেকে পরীক্ষা নির্বাচন করলে সরাসরি লাইভ মেধা তালিকা র‍্যাঙ্কিং ও ১-ক্লিকে পিডিএফ ডাউনলোডের সুবিধা চালু হবে।
           </div>
         )}
+      </section>
+      )}
+
+      {/* 4.5.5 QR CODE SCANNING & CENTRAL TRACKING PORTAL */}
+      {adminTab === 'tracking' && (
+      <section className="glass-card rounded-2xl p-5 sm:p-7 border border-slate-800 space-y-6 animate-fadeIn">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-800 pb-4 gap-4">
+          <div>
+            <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/30">
+              CENTRAL DOCUMENT TRACKING & VERIFICATION ENGINE
+            </span>
+            <h2 className="text-lg font-black text-white mt-1 flex items-center gap-2">
+              <span>📱</span> QR কোড স্ক্যানিং ও সেন্ট্রাল ট্র্যাকিং পোর্টাল
+            </h2>
+            <p className="text-xs text-slate-400">
+              সকল পেমেন্ট রিসিট (REC-...) ও কোর্স সার্টিফিকেট (CERT-...) লাইভ ট্র্যাকিং, স্ট্যাটাস কন্ট্রোল (Active/Suspended) এবং হাই-রেজুলিউশন QR কোড এক্সপোর্টার।
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={fetchTrackingAudit}
+            disabled={trackingLoading}
+            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-slate-700 font-bold text-xs flex items-center gap-2 cursor-pointer transition-all"
+          >
+            <span>🔄</span>
+            <span>{trackingLoading ? 'লোড হচ্ছে...' : 'রিফ্রেশ লিস্ট'}</span>
+          </button>
+        </div>
+
+        {/* Real-time ID Lookup Bar */}
+        <div className="p-4 sm:p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
+          <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
+            <span>🔍</span> লাইভ রেফারেন্স আইডি সার্চ ও অডিট লুকআপ
+          </h3>
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <input
+              type="text"
+              value={trackingSearchId}
+              onChange={(e) => setTrackingSearchId(e.target.value)}
+              placeholder="যেকোনো মানি রিসিট বা সার্টিফিকেট আইডি দিন (যেমন: REC-2026-4136 বা CERT-...)"
+              className="w-full flex-1 rounded-xl bg-slate-900 border border-slate-800 px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-mono"
+              onKeyDown={(e) => e.key === 'Enter' && handleSearchTrackingId()}
+            />
+            <button
+              type="button"
+              onClick={handleSearchTrackingId}
+              disabled={trackingSearching}
+              className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-black text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>{trackingSearching ? '⏳ অনুসন্ধান চলছে...' : '🔎 ভেরিফাই ও সার্চ'}</span>
+            </button>
+          </div>
+
+          {/* Quick Search Result Display */}
+          {trackingSearchResult && (
+            <div className="p-4 rounded-xl bg-slate-900 border border-amber-500/30 space-y-3 animate-fadeIn">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="text-xs font-mono font-bold text-emerald-400 flex items-center gap-1.5">
+                  <span>✓</span> ডকুমেন্ট সিস্টেমে পাওয়া গিয়েছে ({trackingSearchResult.type === 'receipt' ? 'মানি রিসিট' : 'সার্টিফিকেট'})
+                </span>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                  trackingSearchResult.valid
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                }`}>
+                  {trackingSearchResult.valid ? 'VALID & VERIFIED' : 'SUSPENDED / INVALID'}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <span className="text-slate-400 block text-[10px]">রেফারেন্স আইডি:</span>
+                  <span className="font-mono font-bold text-amber-300">
+                    {trackingSearchResult.receipt?.receiptId || trackingSearchResult.certificate?.certificateId}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">শিক্ষার্থীর নাম:</span>
+                  <span className="font-bold text-white">
+                    {trackingSearchResult.receipt?.studentName || trackingSearchResult.certificate?.studentName}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">কোর্স / ব্যাচ:</span>
+                  <span className="font-bold text-slate-300">
+                    {trackingSearchResult.receipt?.batch || trackingSearchResult.certificate?.courseTitle}
+                  </span>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                <a
+                  href={`/verify/${trackingSearchResult.receipt?.receiptId || trackingSearchResult.certificate?.certificateId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-bold text-cyan-400 hover:underline flex items-center gap-1"
+                >
+                  <span>🔗</span> পাবলিক ভেরিফিকেশন পেজ খুলুন (নতুন ট্যাবে)
+                </a>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleTrackingStatus({
+                      id: trackingSearchResult.receipt?.receiptId || trackingSearchResult.certificate?.certificateId,
+                      type: trackingSearchResult.type,
+                      status: trackingSearchResult.valid ? (trackingSearchResult.type === 'receipt' ? 'Active' : 'Valid') : (trackingSearchResult.type === 'receipt' ? 'Suspended' : 'Revoked')
+                    })}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-amber-300 border border-slate-700 cursor-pointer"
+                  >
+                    স্ট্যাটাস পরিবর্তন (Toggle)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadQrCode(
+                      `https://bjs.kodl.uk/verify/${trackingSearchResult.receipt?.receiptId || trackingSearchResult.certificate?.certificateId}`,
+                      'png',
+                      `QR-${trackingSearchResult.receipt?.receiptId || trackingSearchResult.certificate?.certificateId}`
+                    )}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-xs font-bold text-white cursor-pointer"
+                  >
+                    📥 QR ডাউনলোড
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Master Tracking Table */}
+        <div className="rounded-2xl border border-slate-800 overflow-hidden bg-slate-950">
+          <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+            <h3 className="font-bold text-xs text-white uppercase tracking-wider flex items-center gap-2">
+              <span>📋</span> সম্প্রতি ইস্যুকৃত ট্র্যাকিং আইডিসমূহ ({trackingItems.length} টি রেকর্ড)
+            </h3>
+            <span className="text-[10px] font-mono text-slate-400">রিয়েল-টাইম ডাটাবেজ ট্র্যাকিং</span>
+          </div>
+
+          {trackingLoading ? (
+            <div className="p-12 text-center text-xs text-slate-400">⏳ ট্র্যাকিং ডাটা লোড হচ্ছে...</div>
+          ) : trackingItems.length === 0 ? (
+            <div className="p-12 text-center text-xs text-slate-500">কোনো ট্র্যাকিং রেকর্ড পাওয়া যায়নি।</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-900/90 text-slate-400 font-mono text-[10px] uppercase border-b border-slate-800">
+                  <tr>
+                    <th className="p-3.5">টাইপ</th>
+                    <th className="p-3.5">রেফারেন্স ID</th>
+                    <th className="p-3.5">শিক্ষার্থীর নাম</th>
+                    <th className="p-3.5">কোর্স / বিবরণ</th>
+                    <th className="p-3.5">তারিখ</th>
+                    <th className="p-3.5">স্ট্যাটাস</th>
+                    <th className="p-3.5 text-right">অ্যাকশন</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-sans">
+                  {trackingItems.map(item => (
+                    <tr key={item.id} className="hover:bg-slate-900/50 transition-colors">
+                      <td className="p-3.5">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          item.type === 'receipt'
+                            ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                            : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                        }`}>
+                          {item.type === 'receipt' ? '💳 রসিদ' : '🎓 সার্টিফিকেট'}
+                        </span>
+                      </td>
+                      <td className="p-3.5 font-mono font-bold text-amber-300">{item.id}</td>
+                      <td className="p-3.5 font-bold text-white">
+                        {item.ownerName || 'N/A'}
+                        {item.ownerId && <span className="block text-[10px] font-mono text-slate-400 font-normal">{item.ownerId}</span>}
+                      </td>
+                      <td className="p-3.5 text-slate-300">{item.title}</td>
+                      <td className="p-3.5 font-mono text-[11px] text-slate-400">
+                        {formatBangladeshTime(item.date)}
+                      </td>
+                      <td className="p-3.5">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          item.status === 'Active' || item.status === 'Valid'
+                            ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                            : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            item.status === 'Active' || item.status === 'Valid' ? 'bg-emerald-400' : 'bg-rose-400'
+                          }`} />
+                          {item.status}
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-right whitespace-nowrap space-x-2">
+                        <a
+                          href={item.verifyUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs transition-all"
+                          title="পাবলিক পেজে ভেরিফাই করুন"
+                        >
+                          <span>🔗</span> ভিউ
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadQrCode(item.verifyUrl, 'png', `QR-${item.id}`)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-bold text-xs transition-all cursor-pointer"
+                          title="হাই-রেজুলিউশন QR কোড ডাউনলোড"
+                        >
+                          <span>📱</span> QR
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTrackingStatus(item)}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                            item.status === 'Active' || item.status === 'Valid'
+                              ? 'bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/60'
+                              : 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border border-emerald-800/60'
+                          }`}
+                          title="স্ট্যাটাস টগল করুন"
+                        >
+                          {item.status === 'Active' || item.status === 'Valid' ? 'স্থগিত (Suspend)' : 'চালু (Activate)'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </section>
       )}
 
@@ -6807,115 +7126,24 @@ return (
       )}
       </main>
 
-      {/* Printable Money Receipt Slip Modal */}
+      {/* Printable VIP Money Receipt Slip Modal (Pixel-Perfect Matching image_16.png) */}
       {receiptPreviewModal.isOpen && receiptPreviewModal.receipt && (
-        <Modal
-          isOpen={receiptPreviewModal.isOpen}
-          onClose={() => setReceiptPreviewModal({ isOpen: false, receipt: null })}
-          title="অফিশিয়াল মানি রিসিট (Paid Slip)"
-          icon="🧾"
-          maxWidth="max-w-lg"
-          ariaLabel="Official Money Receipt Slip"
-          footer={
-            <div className="w-full flex justify-between items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setReceiptPreviewModal({ isOpen: false, receipt: null })}
-                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-colors cursor-pointer"
-              >
-                বন্ধ করুন (Close)
-              </button>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleCopyReceiptDetails(receiptPreviewModal.receipt)}
-                  className={`px-3.5 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                    copiedReceiptId === receiptPreviewModal.receipt.receiptId
-                      ? 'bg-emerald-600 text-white border-emerald-400'
-                      : 'bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border-cyan-500/30'
-                  }`}
-                  title="পেমেন্ট বিবরণ কপি করুন"
-                >
-                  <span>📋</span> {copiedReceiptId === receiptPreviewModal.receipt.receiptId ? '✓ কপি সম্পন্ন' : 'বিবরণ কপি করুন (Copy)'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDownloadReceiptPdf(receiptPreviewModal.receipt.receiptId)}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                >
-                  <span>📥</span> রসিদ ডাউনলোড (PDF)
-                </button>
-              </div>
-            </div>
-          }
-        >
-          {/* Slip Printable Body */}
-          <div id="printable-receipt-slip" className="p-4 sm:p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4 relative">
-            <div className="text-center border-b border-slate-800 pb-3">
-              <h2 className="text-lg font-black text-amber-400">⚖️ BJS & Bar Aspirants Academy</h2>
-              <p className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Official Money Receipt & Payment Voucher</p>
-            </div>
-
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-xs text-slate-400 font-mono">Receipt Ref: <span className="font-bold text-amber-400">{receiptPreviewModal.receipt.receiptId}</span></p>
-                <p className="text-[11px] text-slate-300 font-mono">{formatBangladeshTime(receiptPreviewModal.receipt.paymentTime || receiptPreviewModal.receipt.createdAt)}</p>
-              </div>
-              <span className="px-3 py-1 rounded-md border border-emerald-500 text-emerald-400 font-bold text-xs uppercase tracking-widest bg-emerald-500/10">
-                ✓ OFFICIAL PAID
-              </span>
-            </div>
-
-            <div className="space-y-2 text-xs bg-slate-950 p-3.5 rounded-xl border border-slate-800">
-              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                <span className="text-slate-400">Student Name:</span>
-                <span className="font-bold text-white">{receiptPreviewModal.receipt.studentName}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                <span className="text-slate-400">Student ID:</span>
-                <span className="font-mono font-bold text-amber-400">{receiptPreviewModal.receipt.studentId}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                <span className="text-slate-400">Registered Email:</span>
-                <span className="text-slate-200">{receiptPreviewModal.receipt.studentEmail}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                <span className="text-slate-400">Phone Number:</span>
-                <span className="text-slate-200">{receiptPreviewModal.receipt.studentPhone}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                <span className="text-slate-400">Course / Batch:</span>
-                <span className="text-cyan-300 font-bold">{receiptPreviewModal.receipt.batch || 'BJS & Bar Masterclass'}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                <span className="text-slate-400">Payment Method:</span>
-                <span className="text-amber-400 font-bold">{receiptPreviewModal.receipt.paymentMethod}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-800/80 pb-1.5">
-                <span className="text-slate-400">TrxID:</span>
-                <span className="font-mono text-emerald-400 font-bold">{receiptPreviewModal.receipt.trxId || 'N/A'}</span>
-              </div>
-              {receiptPreviewModal.receipt.note && (
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Description:</span>
-                  <span className="text-slate-300">{receiptPreviewModal.receipt.note}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-slate-950 border border-emerald-500/40 text-center space-y-0.5">
-              <span className="text-[10px] text-slate-400 font-mono uppercase font-bold">TOTAL AMOUNT RECEIVED</span>
-              <p className="text-2xl font-black text-emerald-400 font-mono">
-                ৳ {Number(receiptPreviewModal.receipt.amount || 0).toLocaleString()} BDT
-              </p>
-            </div>
-
-            <div className="pt-2 text-center text-[10px] text-slate-500 font-mono border-t border-slate-800">
-              Issued & Verified By: Academic Accounts Department | অনলাইন কোচিং সেন্টার
-            </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className="relative w-full max-w-3xl my-auto animate-scaleUp py-6">
+            <button
+              type="button"
+              onClick={() => setReceiptPreviewModal({ isOpen: false, receipt: null })}
+              className="absolute top-2 right-2 sm:-top-2 sm:-right-2 z-50 w-9 h-9 rounded-full bg-slate-900 text-slate-300 hover:text-white border border-slate-700 flex items-center justify-center text-sm font-bold shadow-xl transition-all cursor-pointer"
+              title="বন্ধ করুন"
+            >
+              ✕
+            </button>
+            <PaymentInvoiceView
+              receipt={receiptPreviewModal.receipt}
+              onClose={() => setReceiptPreviewModal({ isOpen: false, receipt: null })}
+            />
           </div>
-        </Modal>
+        </div>
       )}
 
       {/* Student Payment Profile & Receipts History Modal */}

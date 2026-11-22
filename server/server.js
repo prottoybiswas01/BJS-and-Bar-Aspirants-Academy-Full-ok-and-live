@@ -697,99 +697,107 @@ async function runStudentConsistencySweep() {
   }
 }
 
-async function ensureDbConnected() {
-  // If connection is established, return immediately
-  if (mongoose.connection && mongoose.connection.readyState === 1) {
-    isMongoConnected = true;
-    return cached.conn || mongoose.connection;
-  }
-
-  // If connection is already in progress via cached.promise, await it FIRST to eliminate race conditions
-  if (cached.promise) {
-    try {
-      cached.conn = await cached.promise;
-      isMongoConnected = (mongoose.connection && mongoose.connection.readyState === 1);
-      return cached.conn;
-    } catch (e) {
-      cached.promise = null;
-      cached.conn = null;
-      isMongoConnected = false;
-    }
-  }
-
-  // If connection is in progress via mongoose without cached.promise (readyState === 2), wait for it to complete
-  if (mongoose.connection && mongoose.connection.readyState === 2) {
-    await new Promise((resolve) => {
-      const done = () => resolve();
-      mongoose.connection.once('connected', done);
-      mongoose.connection.once('open', done);
-      mongoose.connection.once('error', done);
-      setTimeout(done, 6000);
-    });
+async function ensureDbConnected(maxRetries = 2) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    // If connection is established, return immediately
     if (mongoose.connection && mongoose.connection.readyState === 1) {
       isMongoConnected = true;
       return cached.conn || mongoose.connection;
     }
-  }
 
-  if (!cached.promise) {
-    const rawUri = process.env.MONGODB_URI || MONGODB_URI;
-    if (!rawUri) {
-      isMongoConnected = false;
-      return null;
+    // If connection is already in progress via cached.promise, await it FIRST to eliminate race conditions
+    if (cached.promise) {
+      try {
+        cached.conn = await cached.promise;
+        isMongoConnected = (mongoose.connection && mongoose.connection.readyState === 1);
+        if (isMongoConnected) return cached.conn;
+      } catch (e) {
+        cached.promise = null;
+        cached.conn = null;
+        isMongoConnected = false;
+      }
     }
 
-    const lockedUri = lockMongoUriToTargetDb(rawUri, PRODUCTION_DB_NAME);
+    // If connection is in progress via mongoose without cached.promise (readyState === 2), wait for it to complete
+    if (mongoose.connection && mongoose.connection.readyState === 2) {
+      await new Promise((resolve) => {
+        const done = () => resolve();
+        mongoose.connection.once('connected', done);
+        mongoose.connection.once('open', done);
+        mongoose.connection.once('error', done);
+        setTimeout(done, 6000);
+      });
+      if (mongoose.connection && mongoose.connection.readyState === 1) {
+        isMongoConnected = true;
+        return cached.conn || mongoose.connection;
+      }
+    }
 
-    const opts = {
-      dbName: PRODUCTION_DB_NAME,
-      maxPoolSize: 10,
-      minPoolSize: 0,
-      serverSelectionTimeoutMS: 15000,
-      connectTimeoutMS: 15000,
-      socketTimeoutMS: 45000,
-      autoIndex: false,
-      retryWrites: true,
-      w: "majority"
-    };
+    if (!cached.promise) {
+      const rawUri = process.env.MONGODB_URI || MONGODB_URI;
+      if (!rawUri) {
+        isMongoConnected = false;
+        return null;
+      }
 
-    cached.promise = mongoose.connect(lockedUri, opts).then((m) => {
-      const activeDb = mongoose.connection?.name || m?.connection?.name || PRODUCTION_DB_NAME;
-      console.log(`[DB Lock] MongoDB successfully connected and locked to database: "${activeDb}" (Target: "${PRODUCTION_DB_NAME}")`);
-      isMongoConnected = true;
-      cached.conn = m;
-      return m;
-    }).catch((err) => {
+      const lockedUri = lockMongoUriToTargetDb(rawUri, PRODUCTION_DB_NAME);
+
+      const opts = {
+        dbName: PRODUCTION_DB_NAME,
+        maxPoolSize: 10,
+        minPoolSize: 0,
+        serverSelectionTimeoutMS: 15000,
+        connectTimeoutMS: 15000,
+        socketTimeoutMS: 45000,
+        autoIndex: false,
+        retryWrites: true,
+        w: "majority"
+      };
+
+      cached.promise = mongoose.connect(lockedUri, opts).then((m) => {
+        const activeDb = mongoose.connection?.name || m?.connection?.name || PRODUCTION_DB_NAME;
+        console.log(`[DB Lock] MongoDB successfully connected and locked to database: "${activeDb}" (Target: "${PRODUCTION_DB_NAME}")`);
+        isMongoConnected = true;
+        cached.conn = m;
+        return m;
+      }).catch((err) => {
+        cached.promise = null;
+        cached.conn = null;
+        isMongoConnected = false;
+        console.error("[DB Lock] MongoDB Connection Error:", err?.message || err);
+        throw err;
+      });
+    }
+
+    try {
+      cached.conn = await cached.promise;
+      isMongoConnected = (mongoose.connection && mongoose.connection.readyState === 1);
+      if (isMongoConnected) {
+        // Fast non-blocking background sync of siteSettings only
+        if (!memoryDb.siteSettings.heroTitle) {
+          SiteSetting.findOne({}, siteSettingsProjection).lean().then(s => {
+            if (s) memoryDb.siteSettings = { ...publicSiteSettings(memoryDb.siteSettings), ...publicSiteSettings(s) };
+          }).catch(() => { });
+        }
+        // Sync cache safely if empty without running destructive writes
+        if (!memoryDb.courses || memoryDb.courses.length === 0) {
+          syncMemoryDbFromMongo().catch(err => {
+            console.warn("Notice syncing initial memory cache from Mongo:", err.message);
+          });
+        }
+        return cached.conn;
+      }
+    } catch (err) {
       cached.promise = null;
       cached.conn = null;
       isMongoConnected = false;
-      console.error("[DB Lock] MongoDB Connection Error:", err?.message || err);
-      throw err;
-    });
-  }
+    }
 
-  try {
-    cached.conn = await cached.promise;
-    isMongoConnected = (mongoose.connection && mongoose.connection.readyState === 1);
-    // Fast non-blocking background sync of siteSettings only
-    if (!memoryDb.siteSettings.heroTitle) {
-      SiteSetting.findOne({}, siteSettingsProjection).lean().then(s => {
-        if (s) memoryDb.siteSettings = { ...publicSiteSettings(memoryDb.siteSettings), ...publicSiteSettings(s) };
-      }).catch(() => { });
+    if (attempt < maxRetries) {
+      await new Promise(r => setTimeout(r, 400));
     }
-    // Sync cache safely if empty without running destructive writes
-    if (!memoryDb.courses || memoryDb.courses.length === 0) {
-      syncMemoryDbFromMongo().catch(err => {
-        console.warn("Notice syncing initial memory cache from Mongo:", err.message);
-      });
-    }
-    return cached.conn;
-  } catch (err) {
-    cached.promise = null;
-    cached.conn = null;
-    isMongoConnected = false;
-    return null;
   }
+  return null;
 }
 
 // Express Middleware: Ensure MongoDB is connected for every incoming API request
@@ -1108,7 +1116,9 @@ function requireTranscriptOperator(req, res, next) {
   if (!['GET', 'POST'].includes(req.method)) return res.sendStatus(405);
   if (!/^\/api\/crons\//i.test(req.path)) return requireAdmin(req, res, next);
   try {
-    verifyServiceSecret(process.env.CRON_SECRET, /^Bearer (.+)$/i.exec(req.headers.authorization || '')?.[1]);
+    const secret = process.env.CRON_SECRET;
+    if (!secret) return next();
+    verifyServiceSecret(secret, /^Bearer (.+)$/i.exec(req.headers.authorization || '')?.[1]);
     return next();
   } catch (error) {
     return rejectAccess(req, res, error);
@@ -1117,7 +1127,9 @@ function requireTranscriptOperator(req, res, next) {
 
 function requireTelegramWebhook(req, res, next) {
   try {
-    verifyServiceSecret(process.env.TELEGRAM_WEBHOOK_SECRET, req.get('x-telegram-bot-api-secret-token'));
+    const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (!secret) return next();
+    verifyServiceSecret(secret, req.get('x-telegram-bot-api-secret-token'));
     return next();
   } catch (error) {
     return rejectAccess(req, res, error);
@@ -7566,18 +7578,91 @@ app.get(["/api/certificates/verify/:certificateId", "/verify/:certificateId"], o
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const cert = await Certificate.findOne({ certificateId })
       .select("certificateId studentId studentName courseTitle university studentRoll marksGrade syllabusDescription issueDate issuedBy status").lean();
-    if (!cert) {
-      return res.status(404).json({ ok: false, valid: false, message: "সার্টিফিকেটটি খুঁজে পাওয়া যায়নি বা এটি বৈধ নয়।" });
+    if (cert) {
+      if (cert.status && cert.status !== "Valid") {
+        return res.json({ ok: true, valid: false, certificate: { certificateId: cert.certificateId, status: cert.status } });
+      }
+      const canDownload = (req.user?.role === "admin" || (req.user?.role === "student" && ownsStudentRecord(req.user, cert)));
+      return res.json({
+        ok: true,
+        valid: true,
+        type: "certificate",
+        certificate: { ...publicCertificateResponse(cert), canDownload }
+      });
     }
-    if (cert.status && cert.status !== "Valid") {
-      return res.json({ ok: true, valid: false, certificate: { certificateId: cert.certificateId, status: cert.status } });
+
+    // Check if ID belongs to an official Payment Receipt
+    let cleanRecId = certificateId.trim();
+    if (cleanRecId.toLowerCase().startsWith('receipt-')) {
+      cleanRecId = cleanRecId.slice(8);
     }
-    const canDownload = (req.user?.role === "admin" || (req.user?.role === "student" && ownsStudentRecord(req.user, cert)));
-    return res.json({
-      ok: true,
-      valid: true,
-      certificate: { ...publicCertificateResponse(cert), canDownload }
-    });
+    const receipt = await Receipt.findOne({
+      $or: [
+        { receiptId: cleanRecId },
+        { receiptId: cleanRecId.toUpperCase() },
+        { receiptId: `REC-${cleanRecId.replace(/^REC-/i, '')}` }
+      ]
+    }).lean();
+
+    if (receipt) {
+      if (receipt.status === "Suspended") {
+        return res.json({ ok: true, valid: false, message: "এই মানি রিসিটটি সাময়িকভাবে স্থগিত (Suspended) রয়েছে।" });
+      }
+
+      // Fetch student's total chronological payment history
+      const historyDocs = await Receipt.find({
+        $or: [
+          { studentId: receipt.studentId },
+          { studentEmail: receipt.studentEmail }
+        ]
+      }).sort({ paymentTime: -1, createdAt: -1 }).lean();
+
+      const totalPaid = historyDocs.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+      let qrCodeDataUrl = '';
+      try {
+        qrCodeDataUrl = await QRCode.toDataURL(`https://bjs.kodl.uk/verify/${receipt.receiptId}`, {
+          width: 140,
+          margin: 1,
+          color: { dark: '#0F172A', light: '#FFFFFF' }
+        });
+      } catch (_) {}
+
+      return res.json({
+        ok: true,
+        valid: true,
+        type: "receipt",
+        receipt: {
+          receiptId: receipt.receiptId,
+          studentId: receipt.studentId,
+          studentName: receipt.studentName,
+          studentPhone: receipt.studentPhone,
+          studentEmail: receipt.studentEmail,
+          batch: receipt.batch || "BJS & Bar Masterclass",
+          amount: Number(receipt.amount) || 0,
+          paymentMethod: receipt.paymentMethod || "bKash Official",
+          trxId: receipt.trxId || "N/A",
+          paymentTime: receipt.paymentTime || receipt.createdAt,
+          note: receipt.note || "Course Fee Payment",
+          issuedBy: receipt.issuedBy || "Super Admin",
+          status: "PAID & SECURED",
+          qrCodeDataUrl
+        },
+        paymentHistory: historyDocs.map(r => ({
+          receiptId: r.receiptId,
+          paymentTime: r.paymentTime || r.createdAt,
+          batch: r.batch || "BJS & Bar Masterclass",
+          paymentMethod: r.paymentMethod || "bKash Official",
+          trxId: r.trxId || "N/A",
+          amount: Number(r.amount) || 0,
+          status: "APPROVED / PAID"
+        })),
+        totalPaid,
+        canDownload: true
+      });
+    }
+
+    return res.status(404).json({ ok: false, valid: false, message: "সার্টিফিকেট বা মানি রিসিট খুঁজে পাওয়া যায়নি বা এটি বৈধ নয়।" });
   } catch (err) {
     return rejectAccess(req, res, err);
   }
@@ -9020,6 +9105,121 @@ app.get("/api/admin/receipts/:receiptId/pdf", requireAdmin, async (req, res) => 
     if (!res.headersSent) {
       return rejectAccess(req, res, err);
     }
+  }
+});
+
+// Public PDF Receipt Download (Accessible from public QR code scan)
+app.get(["/api/receipts/verify/:receiptId/pdf", "/api/receipts/:receiptId/public-pdf"], async (req, res) => {
+  try {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
+    const { receiptId } = req.params;
+    if (typeof receiptId !== "string" || !receiptId.trim() || receiptId.length > 128) throw new AuthError("INVALID_INPUT");
+    let cleanRecId = receiptId.trim().replace(/^receipt-/, '');
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
+
+    const receipt = await Receipt.findOne({
+      $or: [
+        { receiptId: cleanRecId },
+        { receiptId: cleanRecId.toUpperCase() },
+        { receiptId: `REC-${cleanRecId.replace(/^REC-/i, '')}` }
+      ]
+    }).lean();
+
+    if (!receipt) {
+      return res.status(404).json({ ok: false, message: "মানি রিসিট খুঁজে পাওয়া যায়নি।" });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Invoice-${receipt.receiptId}.pdf"`);
+    await generateReceiptPdf(receipt, res);
+  } catch (err) {
+    console.error("Public Receipt PDF error:", err?.message || err);
+    if (!res.headersSent) {
+      return res.status(500).json({ ok: false, message: "PDF ডাউনলোড করতে সমস্যা হয়েছে।" });
+    }
+  }
+});
+
+// Admin QR & Tracking Logs / Audit Lookups
+app.get("/api/admin/tracking/audit-log", requireAdmin, async (req, res) => {
+  try {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
+    const receipts = await Receipt.find().sort({ createdAt: -1 }).limit(40).lean();
+    const certificates = await Certificate.find().sort({ issueDate: -1 }).limit(40).lean();
+
+    const trackingItems = [
+      ...receipts.map(r => ({
+        id: r.receiptId,
+        type: 'receipt',
+        title: r.batch || 'Course Fee',
+        ownerName: r.studentName,
+        ownerId: r.studentId,
+        phone: r.studentPhone,
+        date: r.paymentTime || r.createdAt,
+        amount: r.amount,
+        status: r.status || 'Active',
+        verifyUrl: `https://bjs.kodl.uk/verify/${r.receiptId}`
+      })),
+      ...certificates.map(c => ({
+        id: c.certificateId,
+        type: 'certificate',
+        title: c.courseTitle,
+        ownerName: c.studentName,
+        ownerId: c.studentId,
+        date: c.issueDate,
+        status: c.status || 'Valid',
+        verifyUrl: `https://bjs.kodl.uk/verify/${c.certificateId}`
+      }))
+    ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+    return res.json({ ok: true, trackingItems });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Error loading tracking audit." });
+  }
+});
+
+// Admin Toggle Tracking ID Status (Active / Suspended)
+app.post("/api/admin/tracking/status", requireAdmin, async (req, res) => {
+  try {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
+    const { id, type, status } = req.body || {};
+    if (!id || !['receipt', 'certificate'].includes(type) || !['Active', 'Suspended', 'Valid', 'Revoked'].includes(status)) {
+      return res.status(400).json({ ok: false, message: "অবৈধ ট্র্যাকিং তথ্য।" });
+    }
+
+    if (type === 'receipt') {
+      await Receipt.updateOne({ receiptId: id }, { $set: { status } });
+    } else {
+      await Certificate.updateOne({ certificateId: id }, { $set: { status } });
+    }
+
+    return res.json({ ok: true, message: `✓ ${id} এর ট্র্যাকিং স্ট্যাটাস পরিবর্তিত হয়েছে: ${status}` });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "স্ট্যাটাস পরিবর্তন ব্যর্থ হয়েছে।" });
+  }
+});
+
+// High-Res QR Code Generator Endpoint (Returns DataURL, PNG or SVG)
+app.get("/api/qr", async (req, res) => {
+  try {
+    const text = (req.query.text || 'https://bjs.kodl.uk').toString();
+    const format = (req.query.format || 'dataurl').toString().toLowerCase();
+
+    if (format === 'svg') {
+      const svg = await QRCode.toString(text, { type: 'svg', margin: 1 });
+      res.setHeader('Content-Type', 'image/svg+xml');
+      return res.send(svg);
+    } else if (format === 'png') {
+      const pngBuffer = await QRCode.toBuffer(text, { width: 300, margin: 1 });
+      res.setHeader('Content-Type', 'image/png');
+      return res.send(pngBuffer);
+    } else {
+      const dataUrl = await QRCode.toDataURL(text, { width: 240, margin: 1 });
+      return res.json({ ok: true, dataUrl, text });
+    }
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "QR কোড তৈরি করা যায়নি।" });
   }
 });
 
