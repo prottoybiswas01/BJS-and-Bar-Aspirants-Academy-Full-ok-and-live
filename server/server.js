@@ -28,6 +28,10 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
+if (!process.env.JWT_LEGACY_ACCEPT_UNTIL && process.env.NODE_ENV !== 'test') {
+  process.env.JWT_LEGACY_ACCEPT_UNTIL = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
 // -------------------------------------------------------------
 // GLOBAL SERVERLESS PROCESS & EXCEPTION RESILIENCE GUARDS
 // -------------------------------------------------------------
