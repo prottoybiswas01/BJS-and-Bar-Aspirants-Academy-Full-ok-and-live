@@ -8732,7 +8732,7 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
 
 // Universal Express Error Catch-All Middleware
 app.use((err, req, res, next) => {
-  console.error("Unhandled Express request exception");
+  console.error("Unhandled Express request exception:", err?.message || err);
   if (!res.headersSent) {
     return res.status(500).json({
       ok: false,

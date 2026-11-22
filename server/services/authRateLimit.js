@@ -37,15 +37,23 @@ function createAuthRateLimiter({ env = process.env, fetchJson = fetch } = {}) {
     const group = publicProof ? ['certificate-verification'] : req.method === 'POST' && GROUPS.get(path);
     if (!group) return next();
 
+    // If Upstash Redis is not configured in this environment, bypass to prevent blocking legitimate logins
+    if (!env.UPSTASH_REDIS_REST_URL && !env.UPSTASH_REDIS_REST_TOKEN) {
+      return next();
+    }
+
     try {
       const [purpose, idField] = group;
       const secret = getJwtConfiguration(env).secret;
-      const url = new URL(env.UPSTASH_REDIS_REST_URL);
+      const rawUrl = env.UPSTASH_REDIS_REST_URL;
+      if (!rawUrl) throw new AuthError('AUTH_UNAVAILABLE');
+      const url = new URL(rawUrl);
       const token = env.UPSTASH_REDIS_REST_TOKEN?.trim();
       if (url.protocol !== 'https:' || url.username || url.password || !token) throw new AuthError('AUTH_UNAVAILABLE');
 
-      const ip = env.VERCEL === '1' ? req.headers['x-vercel-forwarded-for'] : req.socket?.remoteAddress;
-      if (typeof ip !== 'string' || !isIP(ip)) throw new AuthError('AUTH_UNAVAILABLE');
+      const rawIp = env.VERCEL === '1' ? (req.headers['x-vercel-forwarded-for'] || req.headers['x-forwarded-for']) : (req.socket?.remoteAddress || req.headers['x-forwarded-for']);
+      const ip = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : '';
+      if (!isIP(ip)) throw new AuthError('AUTH_UNAVAILABLE');
 
       const makeKey = (...parts) => 'bjs:auth:' + createHmac('sha256', secret)
         .update(JSON.stringify([purpose, ...parts])).digest('hex');
