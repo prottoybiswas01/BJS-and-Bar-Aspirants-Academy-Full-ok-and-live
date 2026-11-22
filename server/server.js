@@ -44,8 +44,11 @@ const crypto = require("crypto");
 const compression = require("compression");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const { ADMIN_IDENTITY, AuthError, createAuthentication, getJwtConfiguration, isAdminIdentifier,
+  sendAuthFailure, signSession, verifyAdminCredentials, verifyAccountPassword } = require("./services/authSecurity");
+const { SITE_FIELDS, publicSiteSettings, mailSettingsResponse, accountResponse, publicMentorProfile } = require("./services/responseFields");
+const siteSettingsProjection = SITE_FIELDS.join(" ");
 const nodemailer = require("nodemailer");
 const dns = require("dns").promises;
 const { Resend } = require("resend");
@@ -140,7 +143,14 @@ function sanitizeData(data) {
 }
 
 app.use((req, res, next) => {
-  if (req.body) req.body = sanitizeData(req.body);
+  if (req.body) {
+    const original = req.body;
+    req.body = sanitizeData(original);
+    if (typeof original.password === 'string' &&
+        /^\/(?:api\/)?auth\/(?:mentor\/)?login\/?$/i.test(req.path)) {
+      req.body.password = original.password;
+    }
+  }
   if (req.query) req.query = sanitizeData(req.query);
   if (req.params) req.params = sanitizeData(req.params);
   next();
@@ -198,7 +208,6 @@ app.use((req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-const JWT_SECRET = process.env.JWT_SECRET || "bjs_bar_academy_super_secret_jwt_key_2026";
 const MONGODB_URI = process.env.MONGODB_URI || "";
 const PRODUCTION_DB_NAME = (process.env.MONGODB_DB || "bjs_academy").trim().replace(/[\r\n"']/g, "");
 
@@ -298,9 +307,7 @@ const memoryDb = {
   siteSettings: {
     badgeText: "",
     heroTitle: "",
-    heroSubtitle: "",
-    adminUsername: "prttoy",
-    adminPassword: "ADMIN123@"
+    heroSubtitle: ""
   }
 };
 
@@ -487,7 +494,7 @@ async function syncMemoryDbFromMongo() {
       Receipt.find().sort({ paymentTime: -1, createdAt: -1 }).limit(100).lean().catch(() => []),
       McqExam.find().sort({ createdAt: -1 }).limit(50).lean().catch(() => []),
       Assignment.find().sort({ createdAt: -1 }).limit(50).lean().catch(() => []),
-      SiteSetting.findOne({ id: "default_settings" }).lean().catch(() => null),
+      SiteSetting.findOne({ id: "default_settings" }, siteSettingsProjection).lean().catch(() => null),
       MailSetting.findOne().lean().catch(() => null)
     ]);
     if (stus && stus.length > 0) memoryDb.students = stus;
@@ -499,7 +506,7 @@ async function syncMemoryDbFromMongo() {
     if (mcqs && mcqs.length > 0) memoryDb.mcqExams = mcqs;
     if (asns && asns.length > 0) memoryDb.assignments = asns;
     if (siteSet) {
-      memoryDb.siteSettings = { ...memoryDb.siteSettings, ...siteSet };
+      memoryDb.siteSettings = { ...publicSiteSettings(memoryDb.siteSettings), ...publicSiteSettings(siteSet) };
       fastCache.set("site_settings", memoryDb.siteSettings, 300);
     }
     if (mailSet) memoryDb.mailSettings = { ...memoryDb.mailSettings, ...mailSet };
@@ -652,8 +659,8 @@ async function ensureDbConnected() {
     isMongoConnected = (mongoose.connection.readyState === 1 && mongoose.connection.name === PRODUCTION_DB_NAME);
     // Fast non-blocking background sync of siteSettings only
     if (!memoryDb.siteSettings.heroTitle) {
-      SiteSetting.findOne().lean().then(s => {
-        if (s) memoryDb.siteSettings = { ...memoryDb.siteSettings, ...s };
+      SiteSetting.findOne({}, siteSettingsProjection).lean().then(s => {
+        if (s) memoryDb.siteSettings = { ...publicSiteSettings(memoryDb.siteSettings), ...publicSiteSettings(s) };
       }).catch(() => { });
     }
     // Sync cache safely if empty without running destructive writes
@@ -741,47 +748,6 @@ app.get("/api/health", (req, res) => {
 });
 
 // Real-Time Account Session Verification (Triggers Instant Auto-Logout if deleted/deactivated)
-app.get("/api/auth/verify-session", async (req, res) => {
-  try {
-    const { id, isMentor, isAdmin } = req.query;
-    if (isAdmin === "true") return res.json({ ok: true });
-    if (!id) return res.status(401).json({ ok: false, deleted: true });
-
-    if (isMentor === "true") {
-      let mentor = (memoryDb.mentors || []).find(m => m.id === id || m._id === id);
-      if (!mentor && isMongoConnected) {
-        mentor = await Mentor.findOne({
-          $or: [
-            { id: id },
-            ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])
-          ]
-        });
-      }
-      if (!mentor || mentor.status === "Inactive" || mentor.loginApproval === "Rejected") {
-        return res.status(401).json({ ok: false, deleted: true, message: "একাউন্টটি স্থায়ীভাবে অপসারিত বা বাতিল করা হয়েছে।" });
-      }
-      return res.json({ ok: true, status: mentor.status });
-    } else {
-      let student = (memoryDb.students || []).find(s => s && (s.id === id || String(s._id) === id || s.regId === id));
-      if (!student && isMongoConnected) {
-        student = await Student.findOne({
-          $or: [
-            { id: id },
-            { regId: id },
-            ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])
-          ]
-        }).lean();
-      }
-      if (!student || student.status === "Inactive") {
-        return res.status(401).json({ ok: false, deleted: true, message: "একাউন্টটি স্থায়ীভাবে অপসারিত করা হয়েছে।" });
-      }
-      return res.json({ ok: true, status: student.status, student });
-    }
-  } catch (e) {
-    return res.json({ ok: true });
-  }
-});
-
 // Strict email validation to prevent spam, temporary, burner, and fake emails
 const DISPOSABLE_OR_SPAM_DOMAINS = new Set([
   "mailinator.com", "tempmail.com", "temp-mail.org", "temp-mail.io", "tempmail.net",
@@ -981,55 +947,45 @@ async function verifyEmailDomainMx(email) {
 // -------------------------------------------------------------
 // SECURE USER SESSION & ROLE AUTHENTICATION HELPERS
 // -------------------------------------------------------------
-async function getAuthUserFromRequest(req) {
-  try {
-    let token = null;
-    const authHeader = req.headers?.authorization || req.headers?.Authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      token = authHeader.substring(7).trim();
-    }
-
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded && decoded.id) {
-          if (decoded.role === "admin" || decoded.isAdmin) {
-            return { id: decoded.id, name: "Super Admin", role: "admin", isAdmin: true };
-          }
-          if (decoded.role === "mentor" || decoded.isMentor) {
-            let mtr = null;
-            if (isMongoConnected) mtr = await Mentor.findOne({ id: decoded.id }).lean();
-            if (!mtr) mtr = (memoryDb.mentors || []).find(m => m.id === decoded.id);
-            if (mtr) return { ...mtr, isMentor: true, role: "mentor" };
-          }
-          // Student match
-          let stu = null;
-          if (isMongoConnected) {
-            stu = await Student.findOne({ $or: [{ id: decoded.id }, ...(mongoose.Types.ObjectId.isValid(decoded.id) ? [{ _id: decoded.id }] : [])] }).lean();
-          }
-          if (!stu) stu = (memoryDb.students || []).find(s => s.id === decoded.id);
-          if (stu) return { ...stu, role: "student" };
-        }
-      } catch (jwtErr) {
-        // Token invalid or expired
-      }
-    }
-  } catch (e) { }
-  return null;
+function registrationSessionAccount(registration) {
+  return {
+    ...accountResponse(registration),
+    id: registration.regId,
+    batch: registration.batch || "General Class",
+    session: registration.session || "Standard Session",
+    status: registration.status === "Approved" ? "Active" : registration.status || "Pending",
+    loginApproval: registration.status || "Pending",
+    allowedCourseIds: []
+  };
 }
 
-const requireAdmin = async (req, res, next) => {
-  try {
-    const user = await getAuthUserFromRequest(req);
-    if (!user || (!user.isAdmin && user.role !== 'admin')) {
-      return res.status(403).json({ ok: false, message: "অ্যাডমিন অ্যাক্সেস আবশ্যক।" });
-    }
-    req.user = user;
-    next();
-  } catch (err) {
-    return res.status(403).json({ ok: false, message: "অবৈধ সিকিউরিটি ক্রেডেনশিয়াল।" });
+const { getAuthUserFromRequest, requireAuthentication, requireAdmin } = createAuthentication({
+  async findStudent(id) {
+    if (!isMongoConnected) throw new AuthError('AUTH_UNAVAILABLE');
+    const student = await Student.findOne({
+      $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])]
+    }, '-password').lean();
+    if (student) return accountResponse(student);
+
+    // Support accounts that still have only their original registration record.
+    const registration = await Registration.findOne({ regId: id }, '-password').lean();
+    return registration ? registrationSessionAccount(registration) : null;
+  },
+  async findMentor(id) {
+    if (!isMongoConnected) throw new AuthError('AUTH_UNAVAILABLE');
+    const mentor = await Mentor.findOne({
+      $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])]
+    }, '-password').lean();
+    return mentor ? accountResponse(mentor) : null;
   }
-};
+});
+
+app.get("/api/auth/verify-session", requireAuthentication, (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const { user } = req;
+  if (user.role !== 'student') return res.json({ ok: true, status: user.status });
+  return res.json({ ok: true, status: user.status, student: user });
+});
 
 // -------------------------------------------------------------
 // SECURE AUDIT LOGGING ENGINE (Tracks Admin Actions)
@@ -1280,71 +1236,50 @@ app.post(["/api/auth/mentor/register", "/auth/mentor/register"], async (req, res
   }
 });
 
+function validPasswordLogin(identifier, password) {
+  return typeof identifier === "string" && identifier.trim().length > 0 && identifier.length <= 254 &&
+    typeof password === "string" && password.length > 0 && password.length <= 1024;
+}
+
+async function findPasswordAccount(Model, identifier, idField) {
+  const phoneDigits = identifier.replace(/\D/g, "");
+  const last10 = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : null;
+  const exact = [{ phone: identifier }, { email: identifier.toLowerCase() }, { [idField]: identifier }];
+  if (last10) exact.push({ phone: last10 }, { phone: "0" + last10 }, { phone: "880" + last10 }, { phone: "+880" + last10 });
+  const account = await Model.findOne({ $or: exact });
+  if (account) return account;
+
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const caseInsensitive = new RegExp("^" + escaped + "$", "i");
+  const alternatives = [{ email: caseInsensitive }, { [idField]: caseInsensitive }];
+  if (last10) alternatives.push({ phone: new RegExp(last10 + "$") });
+  return Model.findOne({ $or: alternatives });
+}
+
 // Dedicated Mentor Login Endpoint
 app.post(["/api/auth/mentor/login", "/auth/mentor/login"], async (req, res) => {
   try {
-    await ensureDbConnected();
     const { email, password } = req.body || {};
+    if (!validPasswordLogin(email, password)) throw new AuthError("INVALID_CREDENTIALS");
+    getJwtConfiguration(process.env);
+    await ensureDbConnected();
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
 
-    if (!email || !password) {
-      return res.status(400).json({ ok: false, message: "অনুগ্রহ করে আপনার ইমেইল ও পাসওয়ার্ড লিখুন।" });
-    }
+    const mentor = await findPasswordAccount(Mentor, email.trim(), "id");
+    if (!(await verifyAccountPassword(password, mentor?.password))) throw new AuthError("INVALID_CREDENTIALS");
 
-    const cleanEmail = String(email).trim().toLowerCase();
-    const passInput = String(password).trim();
-
-    let mentorUser = null;
-    if (isMongoConnected) {
-      mentorUser = await Mentor.findOne({
-        $or: [
-          { email: new RegExp(`^${cleanEmail.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
-          { id: cleanEmail },
-          { phone: cleanEmail }
-        ]
-      });
-    }
-
-    if (!mentorUser) {
-      mentorUser = (memoryDb.mentors || []).find(m => {
-        if (!m) return false;
-        const mEmail = String(m.email || "").trim().toLowerCase();
-        const mId = String(m.id || "").trim().toLowerCase();
-        const mPhone = String(m.phone || "").trim();
-        return mEmail === cleanEmail || mId === cleanEmail || mPhone === cleanEmail;
-      });
-    }
-
-    if (!mentorUser) {
-      return res.status(401).json({ ok: false, message: "মেন্টর অ্যাকাউন্ট খুঁজে পাওয়া যায়নি।" });
-    }
-
-    const mPass = String(mentorUser.password || "123456").trim();
-    if (passInput !== mPass && passInput !== "123456" && passInput !== "ADMIN123@" && passInput !== "mentor123") {
-      return res.status(401).json({ ok: false, message: "ভুল পাসওয়ার্ড! অনুগ্রহ করে সঠিক পাসওয়ার্ড দিয়ে চেষ্টা করুন।" });
-    }
-
-    if (mentorUser.loginApproval === "Pending") {
+    if (mentor.loginApproval === "Pending") {
       return res.status(403).json({ ok: false, message: "আপনার মেন্টর রেজিস্ট্রেশনটি এখনো সুপার অ্যাডমিন অনুমোদনের অপেক্ষায় আছে।" });
     }
-
-    if (mentorUser.status === "Inactive" || mentorUser.loginApproval === "Rejected") {
-      return res.status(403).json({ ok: false, message: "আপনার মেন্টর অ্যাকাউন্টটি নিষ্ক্রিয় বা প্রত্যাখ্যান করা হয়েছে। অ্যাডমিনের সাথে যোগাযোগ করুন।" });
+    if (["Inactive", "Blocked"].includes(mentor.status) || mentor.loginApproval === "Rejected") {
+      throw new AuthError("FORBIDDEN");
     }
 
-    const mObj = mentorUser.toObject ? mentorUser.toObject() : { ...mentorUser };
-    mObj.isMentor = true;
-    mObj.role = "mentor";
-
-    const token = jwt.sign({ id: mObj.id || mObj._id, isMentor: true, role: "mentor" }, JWT_SECRET, { expiresIn: "7d" });
-    return res.json({
-      ok: true,
-      token,
-      mentor: mObj,
-      user: mObj
-    });
+    const user = { ...accountResponse(mentor), isMentor: true, role: "mentor" };
+    const token = signSession({ id: user.id || user._id, isMentor: true, role: "mentor" });
+    return res.json({ ok: true, token, mentor: user, user });
   } catch (err) {
-    console.error("Mentor login error:", err);
-    return res.status(500).json({ ok: false, message: "মেন্টর লগইন করতে সমস্যা হয়েছে: " + err.message });
+    return sendAuthFailure(res, err);
   }
 });
 
@@ -1373,303 +1308,41 @@ async function notifyStudentLogin(student, method) {
 
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const { identifier, password, isAdminPortal } = req.body;
+    const { identifier, password, isAdminPortal } = req.body || {};
+    if (!validPasswordLogin(identifier, password)) throw new AuthError("INVALID_CREDENTIALS");
+    getJwtConfiguration(process.env);
 
-    if (!identifier || !password) {
-      return res.status(400).json({ ok: false, message: "Please enter your ID/Phone/Email and Password." });
+    if (isAdminPortal === true || isAdminIdentifier(identifier)) {
+      if (!(await verifyAdminCredentials(identifier, password))) throw new AuthError("INVALID_CREDENTIALS");
+      const token = signSession({ id: ADMIN_IDENTITY.id, role: ADMIN_IDENTITY.role });
+      return res.json({ ok: true, token, isAdmin: true, user: ADMIN_IDENTITY });
     }
 
-    let validAdminUser = memoryDb.siteSettings.adminUsername || "prttoy";
-    let validAdminPass = memoryDb.siteSettings.adminPassword || "ADMIN123@";
-
-    const cachedSettings = fastCache.get("site_settings");
-    if (cachedSettings) {
-      if (cachedSettings.adminUsername) validAdminUser = cachedSettings.adminUsername;
-      if (cachedSettings.adminPassword) validAdminPass = cachedSettings.adminPassword;
-    } else if (isMongoConnected) {
-      try {
-        const settings = await SiteSetting.findOne({ id: "default_settings" }).lean();
-        if (settings) {
-          fastCache.set("site_settings", settings, 300);
-          if (settings.adminUsername) validAdminUser = settings.adminUsername;
-          if (settings.adminPassword) validAdminPass = settings.adminPassword;
-        }
-      } catch (e) { }
-    }
-
-    const cleanId = String(identifier || "").trim().toLowerCase();
-    const cleanDigits = cleanId.replace(/\D/g, "");
-    const passInput = String(password || "").trim();
-
-    // Admin Identifiers List
-    const isAdminUsername =
-      cleanId === "admin" ||
-      cleanId === "01800077663_admin" ||
-      cleanId === "01800077663" ||
-      cleanDigits.endsWith("1800077663") ||
-      cleanId === "bjsacademy38@gmail.com" ||
-      cleanId === validAdminUser.toLowerCase();
-
-    // Verify Admin Password safely (matching configured adminPassword or bcrypt)
-    let isAdminPassword = false;
-    if (validAdminPass.startsWith("$2a$") || validAdminPass.startsWith("$2b$")) {
-      try {
-        isAdminPassword = await bcrypt.compare(passInput, validAdminPass);
-      } catch (e) {
-        isAdminPassword = false;
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const lookup = identifier.trim();
+    const mentor = await findPasswordAccount(Mentor, lookup, "id");
+    if (mentor && await verifyAccountPassword(password, mentor.password)) {
+      if (["Inactive", "Blocked"].includes(mentor.status) || mentor.loginApproval === "Rejected") {
+        throw new AuthError("FORBIDDEN");
       }
-    } else {
-      isAdminPassword = passInput === validAdminPass;
+      const user = { ...accountResponse(mentor), isMentor: true, role: "mentor" };
+      const token = signSession({ id: user.id || user._id, isMentor: true, role: "mentor" });
+      return res.json({ ok: true, isMentor: true, isAdmin: false, token, user, mentor: user, student: user });
     }
 
-    // 1. DIRECT ADMIN PORTAL LOGIN
-    if (isAdminPortal || (isAdminUsername && isAdminPassword)) {
-      if (isAdminUsername || isAdminPortal) {
-        if (isAdminPassword) {
-          const token = jwt.sign({ role: "admin", id: "ADMIN-001" }, JWT_SECRET, { expiresIn: "24h" });
-          return res.json({
-            ok: true,
-            isAdmin: true,
-            token,
-            user: { id: "ADMIN-001", name: "Super Admin", role: "admin", isAdmin: true }
-          });
-        } else if (isAdminPortal) {
-          return res.status(401).json({ ok: false, message: "ভুল অ্যাডমিন পাসওয়ার্ড! অনুগ্রহ করে সঠিক পাসওয়ার্ড দিন।" });
-        }
-      }
-    }
-
-    // 2. MENTOR PORTAL LOGIN CHECK (Allows Mentors to log in from the main login portal)
-    const rawQuery = String(identifier).trim();
-    const queryDigits = rawQuery.replace(/\D/g, "");
-    const last10 = queryDigits.length >= 10 ? queryDigits.slice(-10) : null;
-    const queryEmailPrefix = rawQuery.split('@')[0].toLowerCase();
-
-    let mentorUser = null;
-    if (isMongoConnected) {
-      try {
-        const mentorExact = [
-          { phone: rawQuery },
-          { email: cleanId },
-          { id: rawQuery }
-        ];
-        if (last10) {
-          mentorExact.push({ phone: last10 }, { phone: "0" + last10 }, { phone: "880" + last10 }, { phone: "+880" + last10 });
-        }
-        mentorUser = await Mentor.findOne({ $or: mentorExact });
-
-        if (!mentorUser) {
-          const mentorOrConditions = [
-            { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
-            { id: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
-          ];
-          if (last10) {
-            mentorOrConditions.push({ phone: new RegExp(last10 + "$") });
-          }
-          mentorUser = await Mentor.findOne({ $or: mentorOrConditions });
-        }
-      } catch (e) { }
-    }
-
-    if (!mentorUser) {
-      mentorUser = (memoryDb.mentors || []).find((m) => {
-        if (!m) return false;
-        const mPhone = String(m.phone || "").trim();
-        const mEmail = String(m.email || "").trim().toLowerCase();
-        const mId = String(m.id || "").trim().toLowerCase();
-        const cleanQueryLower = rawQuery.toLowerCase();
-        if (mEmail === cleanQueryLower || mId === cleanQueryLower || mPhone === rawQuery) return true;
-        if (last10 && mPhone.replace(/\D/g, "").endsWith(last10)) return true;
-        return false;
-      });
-    }
-
-    if (mentorUser) {
-      const mPass = String(mentorUser.password || "").trim();
-      let isMentorPassValid = false;
-      if (mPass.startsWith("$2a$") || mPass.startsWith("$2b$")) {
-        try {
-          isMentorPassValid = await bcrypt.compare(passInput, mPass);
-        } catch (e) {
-          isMentorPassValid = false;
-        }
-      } else {
-        isMentorPassValid = Boolean(mPass && passInput === mPass);
-      }
-
-      if (isMentorPassValid) {
-        if (mentorUser.status === "Inactive" || mentorUser.loginApproval === "Rejected") {
-          return res.status(403).json({
-            ok: false,
-            message: "আপনার মেন্টর প্রোফাইলটি নিষ্ক্রিয় বা প্রত্যাখ্যান করা হয়েছে। অ্যাডমিনের সাথে যোগাযোগ করুন।"
-          });
-        }
-
-        const mObj = mentorUser.toObject ? mentorUser.toObject() : { ...mentorUser };
-        mObj.isMentor = true;
-        mObj.role = "mentor";
-
-        const token = jwt.sign({ id: mObj.id || mObj._id, isMentor: true, role: "mentor" }, JWT_SECRET, { expiresIn: "7d" });
-        return res.json({
-          ok: true,
-          isMentor: true,
-          isAdmin: false,
-          token,
-          user: mObj,
-          student: mObj,
-          mentor: mObj
-        });
-      }
-    }
-
-    // 3. STUDENT LOGIN FLOW
-    let student = null;
-
-    if (isMongoConnected) {
-      try {
-        const studentExact = [
-          { phone: rawQuery },
-          { email: cleanId },
-          { id: rawQuery }
-        ];
-        if (last10) {
-          studentExact.push({ phone: last10 }, { phone: "0" + last10 }, { phone: "880" + last10 }, { phone: "+880" + last10 });
-        }
-        student = await Student.findOne({ $or: studentExact });
-
-        if (!student) {
-          const mongoOrConditions = [
-            { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
-            { id: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
-          ];
-          if (last10) {
-            mongoOrConditions.push({ phone: new RegExp(last10 + "$") });
-          }
-          student = await Student.findOne({ $or: mongoOrConditions });
-        }
-      } catch (e) {
-        console.warn("Mongo student query warning:", e.message);
-      }
-    }
-
-    // Fallback to Memory DB if not found in Mongo
+    let student = await findPasswordAccount(Student, lookup, "id");
     if (!student) {
-      student = memoryDb.students.find((s) => {
-        if (!s) return false;
-        const sPhone = String(s.phone || "").trim();
-        const sEmail = String(s.email || "").trim().toLowerCase();
-        const sId = String(s.id || "").trim().toLowerCase();
-        const cleanQueryLower = rawQuery.toLowerCase();
-
-        if (sEmail === cleanQueryLower || sId === cleanQueryLower || sPhone === rawQuery) return true;
-        if (last10 && sPhone.replace(/\D/g, "").endsWith(last10)) return true;
-        return false;
-      });
+      const registration = await findPasswordAccount(Registration, lookup, "regId");
+      if (registration) student = { ...registrationSessionAccount(registration), password: registration.password };
     }
+    if (!(await verifyAccountPassword(password, student?.password))) throw new AuthError("INVALID_CREDENTIALS");
+    if (["Inactive", "Blocked"].includes(student.status)) throw new AuthError("FORBIDDEN");
 
-    // Fallback to Registration Records
-    if (!student) {
-      let regRecord = null;
-      if (isMongoConnected) {
-        try {
-          const regExact = [
-            { phone: rawQuery },
-            { email: cleanId },
-            { regId: rawQuery }
-          ];
-          if (last10) {
-            regExact.push({ phone: last10 }, { phone: "0" + last10 }, { phone: "880" + last10 }, { phone: "+880" + last10 });
-          }
-          regRecord = await Registration.findOne({ $or: regExact });
-
-          if (!regRecord) {
-            const regOrConditions = [
-              { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
-              { regId: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
-            ];
-            if (last10) {
-              regOrConditions.push({ phone: new RegExp(last10 + "$") });
-            }
-            regRecord = await Registration.findOne({ $or: regOrConditions });
-          }
-        } catch (e) { }
-      }
-      if (!regRecord) {
-        regRecord = memoryDb.registrations.find((r) => {
-          if (!r) return false;
-          const rPhone = String(r.phone || "").trim();
-          const rEmail = String(r.email || "").trim().toLowerCase();
-          const rId = String(r.regId || "").trim().toLowerCase();
-          const cleanQueryLower = rawQuery.toLowerCase();
-
-          if (rEmail === cleanQueryLower || rId === cleanQueryLower || rPhone === rawQuery) return true;
-          if (last10 && rPhone.replace(/\D/g, "").endsWith(last10)) return true;
-          return false;
-        });
-      }
-
-      if (regRecord) {
-        student = {
-          id: regRecord.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
-          regId: regRecord.regId,
-          name: regRecord.name,
-          phone: regRecord.phone,
-          email: regRecord.email,
-          batch: regRecord.batch || "General Class",
-          session: regRecord.session || "Standard Session",
-          password: regRecord.password,
-          status: regRecord.status === "Approved" ? "Active" : (regRecord.status || "Pending"),
-          loginApproval: regRecord.status === "Approved" ? "Approved" : (regRecord.status || "Pending"),
-          allowedCourseIds: [],
-          createdAt: regRecord.createdAt || new Date()
-        };
-      }
-    }
-
-    // STRICT SECURITY CHECK 1: Account Must Exist (NO auto-creation on login!)
-    if (!student) {
-      return res.status(401).json({
-        ok: false,
-        message: "অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে সঠিক তথ্যে প্রবেশ করুন অথবা রেজিস্ট্রেশন সম্পূর্ণ করুন।"
-      });
-    }
-
-    // STRICT SECURITY CHECK 2: Password Verification
-    const storedPass = String(student.password || "").trim();
-    let isPassValid = false;
-
-    if (storedPass.startsWith("$2a$") || storedPass.startsWith("$2b$")) {
-      try {
-        isPassValid = await bcrypt.compare(passInput, storedPass);
-      } catch (e) {
-        isPassValid = false;
-      }
-    } else {
-      isPassValid = passInput === storedPass || (storedPass && passInput === storedPass);
-    }
-
-    if (!isPassValid) {
-      return res.status(401).json({
-        ok: false,
-        message: "ভুল পাসওয়ার্ড! অনুগ্রহ করে সঠিক পাসওয়ার্ড দিয়ে চেষ্টা করুন।"
-      });
-    }
-
-    // STRICT SECURITY CHECK 3: Active Status Check
-    if (student.status === "Inactive" || student.status === "Blocked") {
-      return res.status(403).json({
-        ok: false,
-        message: "আপনার স্টুডেন্ট অ্যাকাউন্টটি সাময়িকভাবে স্থগিত বা নিষ্ক্রিয় করা হয়েছে।"
-      });
-    }
-
-    // Return Student Profile & Token for Student Dashboard
-    const token = jwt.sign({ id: student.id, phone: student.phone, role: "student" }, JWT_SECRET, { expiresIn: "7d" });
-    await notifyStudentLogin(student, 'ইমেইল / পাসওয়ার্ড');
-    return res.json({ ok: true, token, student, isAdmin: false });
+    const token = signSession({ id: student.id || student._id, phone: student.phone, role: "student" });
+    await notifyStudentLogin(student, "ইমেইল / পাসওয়ার্ড");
+    return res.json({ ok: true, token, student: accountResponse(student), isAdmin: false });
   } catch (err) {
-    console.error("Login endpoint error:", err);
-    res.status(500).json({ ok: false, message: err.message || "Server error during login." });
+    return sendAuthFailure(res, err);
   }
 });
 
@@ -1681,6 +1354,8 @@ app.post(["/api/auth/google", "/api/auth/google-login", "/auth/google-login"], a
       return res.status(400).json({ ok: false, message: "ইমেইল প্রদান করা আবশ্যক।" });
     }
 
+    getJwtConfiguration(process.env);
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
     const cleanEmail = String(email).trim().toLowerCase();
 
     // Google 1-Click login authenticates students and existing mentors.
@@ -1699,10 +1374,8 @@ app.post(["/api/auth/google", "/api/auth/google-login", "/auth/google-login"], a
       if (mentorUser.status === "Inactive" || mentorUser.loginApproval === "Rejected") {
         return res.status(403).json({ ok: false, message: "আপনার মেন্টর প্রোফাইলটি নিষ্ক্রিয় বা স্থগিত রয়েছে।" });
       }
-      const mObj = mentorUser.toObject ? mentorUser.toObject() : { ...mentorUser };
-      mObj.isMentor = true;
-      mObj.role = "mentor";
-      const token = jwt.sign({ id: mObj.id || mObj._id, isMentor: true, role: "mentor" }, JWT_SECRET, { expiresIn: "7d" });
+      const mObj = { ...accountResponse(mentorUser), isMentor: true, role: "mentor" };
+      const token = signSession({ id: mObj.id || mObj._id, isMentor: true, role: "mentor" });
       return res.json({
         ok: true,
         isMentor: true,
@@ -1784,13 +1457,12 @@ app.post(["/api/auth/google", "/api/auth/google-login", "/auth/google-login"], a
       return res.status(403).json({ ok: false, message: "আপনার অ্যাকাউন্টটি স্থগিত বা নিষ্ক্রিয় করা হয়েছে।" });
     }
 
-    const stuData = student.toObject ? student.toObject() : student;
-    const token = jwt.sign({ id: stuData.id, phone: stuData.phone, role: "student" }, JWT_SECRET, { expiresIn: "7d" });
+    const stuData = accountResponse(student);
+    const token = signSession({ id: stuData.id || stuData._id, phone: stuData.phone, role: "student" });
     await notifyStudentLogin(stuData, 'Google');
     return res.json({ ok: true, token, student: stuData, isAdmin: false });
   } catch (err) {
-    console.error("Google login error:", err);
-    return res.status(500).json({ ok: false, message: "Google লগইন ব্যর্থ হয়েছে: " + err.message });
+    return sendAuthFailure(res, err);
   }
 });
 
@@ -2116,7 +1788,7 @@ async function sendVideoNotificationEmail(to, subject, html) {
 const sendStudentEmail = sendVideoNotificationEmail; // Fail-safe alias
 
 // Resend Verification & Diagnostic Test Endpoint
-app.post("/api/admin/test-resend", async (req, res) => {
+app.post("/api/admin/test-resend", requireAdmin, async (req, res) => {
   try {
     const { targetEmail, apiKey } = req.body;
     const emailToUse = targetEmail || "bjsacademy38@gmail.com";
@@ -2142,28 +1814,19 @@ app.post("/api/admin/test-resend", async (req, res) => {
       `
     });
 
-    console.log("🧪 [Test Resend Direct Response]:", response);
-
     if (response && response.error) {
       return res.status(400).json({
         ok: false,
-        error: response.error.message || JSON.stringify(response.error),
-        resendResponse: response,
-        senderUsed: OFFICIAL_RESEND_SENDER,
-        apiKeyUsedMasked: keyToUse.substring(0, 7) + "..."
+        error: "Resend could not send the test email."
       });
     }
 
     return res.json({
       ok: true,
-      message: `সফলভাবে ${emailToUse}-এ টেস্ট ইমেইল প্রেরণ করা হয়েছে!`,
-      resendResponse: response,
-      senderUsed: OFFICIAL_RESEND_SENDER,
-      apiKeyUsedMasked: keyToUse.substring(0, 7) + "..."
+      message: `সফলভাবে ${emailToUse}-এ টেস্ট ইমেইল প্রেরণ করা হয়েছে!`
     });
-  } catch (err) {
-    console.error("🧪 [Test Resend Exception]:", err);
-    return res.status(500).json({ ok: false, error: err.message || "Resend test dispatch error." });
+  } catch (_) {
+    return res.status(500).json({ ok: false, error: "Resend test dispatch error." });
   }
 });
 
@@ -2563,16 +2226,6 @@ const handleResetPasswordReq = async (req, res) => {
         r.password = newPassword;
       }
     });
-
-    // Update Admin Password if matching Admin
-    if (cleanQueryLower === "admin" || cleanQueryLower === "01800077663" || cleanQueryLower === "bjsacademy38@gmail.com") {
-      memoryDb.siteSettings.adminPassword = newPassword;
-      if (isMongoConnected) {
-        try {
-          await SiteSetting.findOneAndUpdate({ id: "default_settings" }, { adminPassword: newPassword }, { upsert: true });
-        } catch (e) { }
-      }
-    }
 
     // Clean up OTP Store
     otpStore.delete(key);
@@ -4227,7 +3880,10 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
 
   const cached = fastCache.get("home_data");
   if (cached) {
-    return res.json({ ok: true, ...cached, source: "fast-cache" });
+    return res.json({
+      ok: true, ...cached, mentors: (cached.mentors || []).map(publicMentorProfile),
+      settings: publicSiteSettings(cached.settings), source: "fast-cache"
+    });
   }
 
   if (!isMongoConnected && (!memoryDb.courses || memoryDb.courses.length === 0)) {
@@ -4250,14 +3906,14 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
         Course.find({ status: { $ne: "Inactive" } }).sort({ createdAt: -1 }).lean(),
         Mentor.find({ status: "Active" }, '-password').sort({ createdAt: -1 }).lean(),
         Student.countDocuments(),
-        SiteSetting.findOne().lean()
+        SiteSetting.findOne({}, siteSettingsProjection).lean()
       ]);
       courses = crsList || [];
       mentors = mtrList || [];
       studentsCount = stusCount || 0;
       mentorsCount = mentors.length;
       if (dbSettings) {
-        settings = { ...memoryDb.siteSettings, ...dbSettings };
+        settings = { ...publicSiteSettings(memoryDb.siteSettings), ...publicSiteSettings(dbSettings) };
         memoryDb.siteSettings = settings;
       }
       if (courses.length > 0) memoryDb.courses = courses;
@@ -4271,38 +3927,38 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
 
     const payload = {
       courses,
-      mentors,
+      mentors: mentors.map(publicMentorProfile),
       stats: {
         studentsCount: Number(studentsCount) || 0,
         mentorsCount: Number(mentorsCount) || 0,
         coursesCount: courses.length,
         examsCount: (memoryDb.mcqExams || []).length
       },
-      settings
+      settings: publicSiteSettings(settings)
     };
 
     fastCache.set("home_data", payload, 60);
     return res.json({ ok: true, ...payload, source: "mongodb" });
   } catch (err) {
-    console.error("Home data fetch database error:", err.message);
+    console.error("Home data fetch database error");
     if (memoryDb.courses && memoryDb.courses.length > 0) {
       const fallbackPayload = {
         courses: (memoryDb.courses || []).filter(c => c && c.status !== "Inactive"),
-        mentors: (memoryDb.mentors || []).filter(m => m && m.status === "Active"),
+        mentors: (memoryDb.mentors || []).filter(m => m && m.status === "Active").map(publicMentorProfile),
         stats: {
           studentsCount: (memoryDb.students || []).length,
           mentorsCount: (memoryDb.mentors || []).length,
           coursesCount: (memoryDb.courses || []).length,
           examsCount: (memoryDb.mcqExams || []).length
         },
-        settings: memoryDb.siteSettings
+        settings: publicSiteSettings(memoryDb.siteSettings)
       };
-      return res.json({ ok: true, ...fallbackPayload, source: "memory_cache", notice: err.message });
+      return res.json({ ok: true, ...fallbackPayload, source: "memory_cache" });
     }
     return res.status(503).json({
       ok: false,
       error: "DATABASE_ERROR",
-      message: "Database query failed while fetching home data: " + err.message
+      message: "Database query failed while fetching home data."
     });
   }
 });
@@ -6971,7 +6627,8 @@ app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], requireAdmin, as
 
   const cachedBundle = fastCache.get("admin_bootstrap_bundle");
   if (cachedBundle) {
-    return res.json({ ok: true, ...cachedBundle, source: "fast-cache" });
+    return res.json({ ok: true, ...cachedBundle, mailSettings: mailSettingsResponse(cachedBundle.mailSettings),
+      siteSettings: publicSiteSettings(cachedBundle.siteSettings), source: "fast-cache" });
   }
 
   try {
@@ -6999,7 +6656,7 @@ app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], requireAdmin, as
         McqExam.find().sort({ createdAt: -1 }).limit(50).lean().catch(() => []),
         McqResult.find().sort({ submittedAt: -1 }).limit(100).lean().catch(() => []),
         MailSetting.findOne().lean().catch(() => null),
-        SiteSetting.findOne({ id: "default_settings" }).lean().catch(() => null)
+        SiteSetting.findOne({ id: "default_settings" }, siteSettingsProjection).lean().catch(() => null)
       ]);
 
       studentsList = stus || [];
@@ -7130,8 +6787,8 @@ app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], requireAdmin, as
       assignments: assignmentsList,
       exams: examsList,
       results: resultsList,
-      mailSettings: mailSet,
-      siteSettings: siteSet
+      mailSettings: mailSettingsResponse(mailSet),
+      siteSettings: publicSiteSettings(siteSet)
     };
 
     fastCache.set("admin_bootstrap_bundle", bundle, 20); // 20s cache
@@ -7289,71 +6946,55 @@ app.get(["/api/admin/assignments", "/api/assignments", "/admin/assignments", "/a
   }
 });
 
-// GET Mail Settings (Admin Control Panel)
+// Mail preferences for the Admin Panel. Credentials are write-only.
 app.get(["/api/admin/mail-settings", "/admin/mail-settings"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
-    let settings = await MailSetting.findOne().lean();
-    if (!settings) {
-      settings = memoryDb.mailSettings || { enabled: true, fallbackEmail: "bjsacademy38@gmail.com", enableAllMails: true };
-    } else {
-      memoryDb.mailSettings = { ...memoryDb.mailSettings, ...settings };
-    }
-    const currentApiKey = memoryDb.mailSettings?.resendApiKey || process.env.RESEND_API_KEY || "";
-    return res.json({ ok: true, settings: { ...memoryDb.mailSettings, resendApiKey: currentApiKey } });
-  } catch (err) {
-    const currentApiKey = memoryDb.mailSettings?.resendApiKey || process.env.RESEND_API_KEY || "";
-    return res.json({ ok: true, settings: { ...memoryDb.mailSettings, resendApiKey: currentApiKey } });
+    const settings = await MailSetting.findOne().lean();
+    if (settings) memoryDb.mailSettings = { ...memoryDb.mailSettings, ...settings };
+  } catch (_) {
+    // Preserve the cached preferences during a transient database outage.
   }
+  return res.json({ ok: true, settings: mailSettingsResponse(memoryDb.mailSettings) });
 });
 
 // Site Settings Endpoint (Public & Admin with Fast Cache)
 app.get(["/api/site-settings", "/api/admin/site-settings", "/site-settings", "/admin/site-settings"], async (req, res) => {
   res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
   const cached = fastCache.get("site_settings");
-  if (cached) {
-    return res.json({ ok: true, settings: cached, source: "fast-cache" });
-  }
+  if (cached) return res.json({ ok: true, settings: publicSiteSettings(cached), source: "fast-cache" });
 
+  let settings = publicSiteSettings(memoryDb.siteSettings);
   try {
-    let settings = null;
     if (isMongoConnected) {
-      settings = await SiteSetting.findOne().lean();
+      const saved = await SiteSetting.findOne({}, siteSettingsProjection).lean();
+      settings = { ...settings, ...publicSiteSettings(saved) };
+      memoryDb.siteSettings = settings;
     }
-    if (!settings) {
-      settings = memoryDb.siteSettings;
-    } else {
-      memoryDb.siteSettings = { ...memoryDb.siteSettings, ...settings };
-    }
-    fastCache.set("site_settings", memoryDb.siteSettings, 60);
-    return res.json({ ok: true, settings: memoryDb.siteSettings });
-  } catch (err) {
-    return res.json({ ok: true, settings: memoryDb.siteSettings });
+    fastCache.set("site_settings", settings, 60);
+  } catch (_) {
+    // The same public projection applies to the in-memory fallback.
   }
+  return res.json({ ok: true, settings });
 });
 
 // SAVE Site Settings (Admin Panel with Instant Cache Invalidation)
-app.post(["/api/admin/site-settings", "/admin/site-settings"], async (req, res) => {
+app.post(["/api/admin/site-settings", "/admin/site-settings"], requireAdmin, async (req, res) => {
   try {
-    const { badgeText, heroTitle, heroSubtitle, adminUsername } = req.body || {};
-    const updateData = {};
-    if (badgeText !== undefined) updateData.badgeText = badgeText;
-    if (heroTitle !== undefined) updateData.heroTitle = heroTitle;
-    if (heroSubtitle !== undefined) updateData.heroSubtitle = heroSubtitle;
-    if (adminUsername !== undefined) updateData.adminUsername = adminUsername;
-
-    let saved = null;
-    if (isMongoConnected) {
-      saved = await SiteSetting.findOneAndUpdate(
-        { id: "default_settings" },
-        { $set: updateData },
-        { new: true, upsert: true }
-      ).lean();
+    const fields = SITE_FIELDS.filter(field => Object.hasOwn(req.body || {}, field));
+    if (!fields.length || fields.some(field => typeof req.body[field] !== "string")) {
+      return res.status(400).json({ ok: false, message: "Valid site presentation settings are required." });
+    }
+    if (!isMongoConnected) {
+      return res.status(503).json({ ok: false, message: "Site settings are temporarily unavailable." });
     }
 
-    memoryDb.siteSettings = { ...memoryDb.siteSettings, ...updateData };
-
-    // Instant cache invalidation
+    const saved = await SiteSetting.findOneAndUpdate(
+      { id: "default_settings" },
+      { $set: publicSiteSettings(req.body) },
+      { new: true, upsert: true, projection: siteSettingsProjection }
+    ).lean();
+    memoryDb.siteSettings = { ...publicSiteSettings(memoryDb.siteSettings), ...publicSiteSettings(saved) };
     fastCache.del("site_settings");
     fastCache.del("home_data");
     invalidateAdminBundle();
@@ -7361,11 +7002,10 @@ app.post(["/api/admin/site-settings", "/admin/site-settings"], async (req, res) 
     return res.json({
       ok: true,
       message: "✓ সাইট সেটিংস সফলভাবে আপডেট করা হয়েছে!",
-      settings: saved || memoryDb.siteSettings
+      settings: memoryDb.siteSettings
     });
-  } catch (err) {
-    console.error("Save site settings error:", err);
-    return res.status(500).json({ ok: false, message: "Error saving site settings: " + err.message });
+  } catch (_) {
+    return res.status(500).json({ ok: false, message: "Unable to save site settings." });
   }
 });
 
@@ -9281,7 +8921,7 @@ app.post("/api/admin/mail-settings", requireAdmin, async (req, res) => {
           fs.writeFileSync(envPath, envContent, "utf8");
         }
       } catch (err) {
-        console.warn("Notice updating .env file with new RESEND_API_KEY:", err.message);
+        console.warn("Unable to update the local mail environment configuration");
       }
     }
 
@@ -9295,14 +8935,14 @@ app.post("/api/admin/mail-settings", requireAdmin, async (req, res) => {
       }
     }
     memoryDb.mailSettings = { ...memoryDb.mailSettings, ...settingsData };
-    res.json({ ok: true, message: "Mail settings saved successfully!", settings: memoryDb.mailSettings });
+    res.json({ ok: true, message: "Mail settings saved successfully!", settings: mailSettingsResponse(memoryDb.mailSettings) });
   } catch (e) {
-    res.status(500).json({ ok: false, message: "Error saving mail settings: " + e.message });
+    res.status(500).json({ ok: false, message: "Unable to save mail settings." });
   }
 });
 
 // Admin Master Email Toggle Endpoint (Instant Kill-Switch / Turn ON-OFF)
-app.post(["/api/admin/mail-toggle", "/admin/mail-toggle"], async (req, res) => {
+app.post(["/api/admin/mail-toggle", "/admin/mail-toggle"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { enabled } = req.body;
@@ -9334,11 +8974,11 @@ app.post(["/api/admin/mail-toggle", "/admin/mail-toggle"], async (req, res) => {
       ok: true,
       enabled: isEnabled,
       message: isEnabled ? "মেইল সার্ভিস সফলভাবে চালু করা হয়েছে!" : "মেইল সার্ভিস সফলভাবে বন্ধ করা হয়েছে! কোনো স্টুডেন্টের কাছে কোনো মেইল যাবে না।",
-      settings: memoryDb.mailSettings
+      settings: mailSettingsResponse(memoryDb.mailSettings)
     });
   } catch (e) {
-    console.error("Mail toggle error:", e);
-    return res.status(500).json({ ok: false, message: "Error updating mail toggle status: " + e.message });
+    console.error("Mail toggle failed");
+    return res.status(500).json({ ok: false, message: "Unable to update mail toggle status." });
   }
 });
 

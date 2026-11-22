@@ -246,30 +246,6 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
   const [selectedBatchFilter, setSelectedBatchFilter] = useState('all');
   const [selectedYearFilter, setSelectedYearFilter] = useState('2026');
 
-  // Super Admin Password Form State
-  const [adminUsernameInput, setAdminUsernameInput] = useState('admin');
-  const [adminPasswordInput, setAdminPasswordInput] = useState('');
-
-  const handleChangeAdminPassword = async (e) => {
-    e.preventDefault();
-    if (!adminPasswordInput) {
-      showToast('Please enter a new Admin Password.', 'error');
-      return;
-    }
-    try {
-      const res = await api.post('/admin/change-password', {
-        newAdminUsername: adminUsernameInput,
-        newAdminPassword: adminPasswordInput
-      });
-      if (res.data.ok) {
-        showToast(res.data.message || 'Super Admin Password updated successfully!', 'success');
-        setAdminPasswordInput('');
-      }
-    } catch (err) {
-      showToast('Failed to update Admin password.', 'error');
-    }
-  };
-
   // Dynamic Year Options (from student records + range)
   const availableYears = Array.from(new Set([
     '2024', '2025', '2026', '2027', '2028', '2029', '2030',

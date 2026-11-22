@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 const API_BASE = '/api';
+const loginRoutes = new Set(['/auth/login', '/auth/mentor/login', '/auth/google', '/auth/google-login']);
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -22,6 +23,8 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const config = error.config;
+    if (loginRoutes.has(config?.url)) return Promise.reject(error);
+
     // Auto-retry up to 2 times for transient network/serverless cold start delays
     if (config && (!config._retryCount || config._retryCount < 2)) {
       if (!error.response || error.response.status >= 500 || error.code === 'ECONNABORTED') {
@@ -31,7 +34,8 @@ api.interceptors.response.use(
       }
     }
 
-    if (error.response && (error.response.status === 401 || error.response.data?.deleted)) {
+    if (config?.url !== '/auth/verify-session' &&
+        error.response && (error.response.status === 401 || error.response.data?.deleted)) {
       const storedUser = localStorage.getItem('bjs_user');
       let isAdminUser = false;
       if (storedUser) {

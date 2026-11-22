@@ -22,7 +22,12 @@ export const AuthProvider = ({ children }) => {
     const storedUser = localStorage.getItem('bjs_user');
     if (storedUser && token) {
       try {
-        setUser(JSON.parse(storedUser));
+        const restoredUser = JSON.parse(storedUser);
+        if (restoredUser && Object.hasOwn(restoredUser, 'password')) {
+          delete restoredUser.password;
+          localStorage.setItem('bjs_user', JSON.stringify(restoredUser));
+        }
+        setUser(restoredUser);
       } catch (e) {
         localStorage.removeItem('bjs_user');
       }
@@ -32,28 +37,18 @@ export const AuthProvider = ({ children }) => {
 
   // Real-Time Account Deletion/Deactivation & Access Sync Monitor (30s interval + visibilitychange)
   useEffect(() => {
-    const userId = user?.id || user?.regId;
-    if (!userId || user?.isAdmin) return;
+    if (!token) return;
 
+    const isCurrentSession = () => localStorage.getItem('bjs_token') === token;
     let isChecking = false;
     const checkSessionStatus = async () => {
       if (isChecking) return;
       isChecking = true;
       try {
-        const res = await api.get('/auth/verify-session', {
-          params: {
-            id: userId,
-            isMentor: !!user?.isMentor,
-            isAdmin: !!user?.isAdmin
-          }
-        });
-        if (res.data && res.data.deleted) {
-          logout();
-          window.location.href = '/';
-          return;
-        }
+        const res = await api.get('/auth/verify-session');
+        if (!isCurrentSession()) return;
 
-        if (res.data && res.data.ok && res.data.student && !user?.isMentor && !user?.isAdmin) {
+        if (res.data?.ok && res.data.student) {
           const freshStudent = res.data.student;
           setUser((prev) => {
             if (!prev) return freshStudent;
@@ -70,7 +65,7 @@ export const AuthProvider = ({ children }) => {
           });
         }
       } catch (err) {
-        if (err.response && (err.response.status === 401 || err.response.data?.deleted)) {
+        if (isCurrentSession() && err.response?.status === 401) {
           logout();
           window.location.href = '/';
         }
@@ -92,7 +87,7 @@ export const AuthProvider = ({ children }) => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [user?.id, user?.regId, user?.isAdmin, user?.isMentor]);
+  }, [token]);
 
   const login = async (identifier, password, isAdminPortal = false) => {
     const deviceId = getDeviceId();
@@ -134,7 +129,6 @@ export const AuthProvider = ({ children }) => {
       }
       return { ok: false, message: res.data?.message || 'লগইন তথ্য সঠিক নয়।' };
     } catch (err) {
-      console.error('Login Error:', err);
       return {
         ok: false,
         message: err.response?.data?.message || 'লগইন করতে সমস্যা হয়েছে। অনুগ্রহ করে আপনার তথ্য যাঁচাই করুন।'
@@ -222,7 +216,6 @@ export const AuthProvider = ({ children }) => {
       }
       return { ok: false, message: res.data?.message || 'Google লগইন সম্পন্ন করা যায়নি।' };
     } catch (err) {
-      console.error('Google Login Error:', err);
       return {
         ok: false,
         message: err.response?.data?.message || 'সার্ভার সংযোগে সমস্যা হয়েছে। আবার চেষ্টা করুন।'
@@ -239,6 +232,7 @@ export const AuthProvider = ({ children }) => {
 
   const updateUserProfile = (updatedData) => {
     const newObj = { ...user, ...updatedData };
+    delete newObj.password;
     setUser(newObj);
     localStorage.setItem('bjs_user', JSON.stringify(newObj));
   };
