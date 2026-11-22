@@ -607,34 +607,18 @@ async function runStudentConsistencySweep() {
 }
 
 async function ensureDbConnected() {
-  // If connection is established, verify it is strictly bound to PRODUCTION_DB_NAME
+  // If connection is established, return immediately
   if (mongoose.connection && mongoose.connection.readyState === 1) {
-    if (mongoose.connection.name && mongoose.connection.name !== PRODUCTION_DB_NAME) {
-      console.warn(`[DB Lock Guard] Active DB "${mongoose.connection.name}" does not match locked target "${PRODUCTION_DB_NAME}". Forcing reconnect...`);
-      await mongoose.disconnect().catch(() => {});
-      cached.conn = null;
-      cached.promise = null;
-      isMongoConnected = false;
-    } else {
-      isMongoConnected = true;
-      return cached.conn || mongoose.connection;
-    }
+    isMongoConnected = true;
+    return cached.conn || mongoose.connection;
   }
 
-  // If connection is in connecting state (2), wait for existing promise
-  if (mongoose.connection && mongoose.connection.readyState === 2 && cached.promise) {
+  // If connection is in progress, await the existing promise
+  if (cached.promise) {
     try {
       cached.conn = await cached.promise;
-      if (mongoose.connection.name && mongoose.connection.name !== PRODUCTION_DB_NAME) {
-        console.warn(`[DB Lock Guard] Promise connected to mismatched DB "${mongoose.connection.name}". Resetting...`);
-        await mongoose.disconnect().catch(() => {});
-        cached.conn = null;
-        cached.promise = null;
-        isMongoConnected = false;
-      } else {
-        isMongoConnected = true;
-        return cached.conn;
-      }
+      isMongoConnected = (mongoose.connection && mongoose.connection.readyState === 1);
+      return cached.conn;
     } catch (e) {
       cached.promise = null;
       cached.conn = null;
@@ -653,22 +637,20 @@ async function ensureDbConnected() {
 
     const opts = {
       dbName: PRODUCTION_DB_NAME,
-      maxPoolSize: 5,
+      maxPoolSize: 10,
       minPoolSize: 0,
-      serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 5000,
-      socketTimeoutMS: 30000,
-      family: 4, // Force IPv4 to prevent IPv6 TLS handshake timeouts on Vercel
-      bufferCommands: false, // Instant fail-safe without waiting on cold starts
-      autoIndex: false, // Prevent index lockups during serverless cold starts
+      serverSelectionTimeoutMS: 15000,
+      connectTimeoutMS: 15000,
+      socketTimeoutMS: 45000,
+      autoIndex: false,
       retryWrites: true,
       w: "majority"
     };
 
     cached.promise = mongoose.connect(lockedUri, opts).then((m) => {
-      const activeDb = mongoose.connection?.name || m?.connection?.name;
+      const activeDb = mongoose.connection?.name || m?.connection?.name || PRODUCTION_DB_NAME;
       console.log(`[DB Lock] MongoDB successfully connected and locked to database: "${activeDb}" (Target: "${PRODUCTION_DB_NAME}")`);
-      isMongoConnected = (activeDb === PRODUCTION_DB_NAME);
+      isMongoConnected = true;
       return m;
     }).catch((err) => {
       cached.promise = null;
@@ -681,7 +663,7 @@ async function ensureDbConnected() {
 
   try {
     cached.conn = await cached.promise;
-    isMongoConnected = (mongoose.connection.readyState === 1 && mongoose.connection.name === PRODUCTION_DB_NAME);
+    isMongoConnected = (mongoose.connection && mongoose.connection.readyState === 1);
     // Fast non-blocking background sync of siteSettings only
     if (!memoryDb.siteSettings.heroTitle) {
       SiteSetting.findOne({}, siteSettingsProjection).lean().then(s => {
@@ -742,18 +724,6 @@ async function autoCleanExpiredScriptImages() {
 
 // Background DB Connection Initiator
 ensureDbConnected();
-
-// Universal Database Connection Middleware for Serverless Runtime
-app.use(async (req, res, next) => {
-  if (process.env.NODE_ENV !== 'test') {
-    try {
-      await ensureDbConnected();
-    } catch (err) {
-      console.warn('[DB Middleware] MongoDB connection attempt error:', err.message || err);
-    }
-  }
-  next();
-});
 
 // REST ENDPOINTS
 
@@ -989,7 +959,8 @@ const {
   },
   async findStudent(id) {
     if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
-    if (!isMongoConnected) throw new AuthError('AUTH_UNAVAILABLE');
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError('AUTH_UNAVAILABLE');
     const student = await Student.findOne({
       $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])]
     }, '-password').lean();
@@ -1001,7 +972,8 @@ const {
   },
   async findMentor(id) {
     if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
-    if (!isMongoConnected) throw new AuthError('AUTH_UNAVAILABLE');
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError('AUTH_UNAVAILABLE');
     const mentor = await Mentor.findOne({
       $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])]
     }, '-password').lean();
@@ -1132,7 +1104,8 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(400).json({ ok: false, message: "Please fill all required fields." });
     }
     await ensureDbConnected();
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
 
     const emailCheck = await verifyEmailDomainMx(email);
     if (!emailCheck.ok) {
@@ -1330,7 +1303,8 @@ app.post(["/api/auth/mentor/login", "/auth/mentor/login"], async (req, res) => {
     if (!validPasswordLogin(email, password)) throw new AuthError("INVALID_CREDENTIALS");
     getJwtConfiguration(process.env);
     await ensureDbConnected();
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
 
     const mentor = await findPasswordAccount(Mentor, email.trim(), "id");
     if (!(await verifyAccountPassword(password, mentor?.password))) throw new AuthError("INVALID_CREDENTIALS");
@@ -1386,7 +1360,8 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const lookup = identifier.trim();
     const mentor = await findPasswordAccount(Mentor, lookup, "id");
     if (mentor && await verifyAccountPassword(password, mentor.password)) {
@@ -1891,7 +1866,8 @@ function maskEmailAddress(email) {
 // Helper to locate user account by identifier (email, phone, student ID, reg ID)
 const accountChallenges = createAccountChallenges({
   collection() {
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     return mongoose.connection.db.collection("account_security_challenges");
   },
   secret: () => getJwtConfiguration(process.env).secret
@@ -4220,7 +4196,8 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], requireAdmin, async
 app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const target = await Course.findOne(recordIdFilter(id)).select("id").lean();
     if (!target) throw new AuthError("RESOURCE_NOT_FOUND");
     const result = await Course.deleteOne({ _id: target._id });
@@ -4251,7 +4228,8 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], re
     if (courseId !== undefined && (typeof courseId !== "string" || courseId.length > 200)) {
       throw new AuthError("INVALID_INPUT");
     }
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const courses = await readCourseScope();
     const selected = courseId ? findScopedCourse(courses, courseId) : null;
     if (courseId && !selected) return res.json({ ok: true, lessons: [], count: 0 });
@@ -5285,7 +5263,8 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], requireStuden
       throw new AuthError("INVALID_INPUT");
     }
 
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
 
     // 1. Fetch courses with database-level status filter and lightweight field projection
     // Enrolled courses are always included for the student even if Deactivated / Inactive on public homepage
@@ -5563,7 +5542,8 @@ app.post("/api/ai/legal-assistant", optionalAuthentication, async (req, res) => 
 app.delete(["/api/admin/lessons/:id", "/api/lessons/:id", "/admin/lessons/:id", "/lessons/:id"], requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const target = await Lesson.findOne(recordIdFilter(id)).select("id").lean();
     if (!target) throw new AuthError("RESOURCE_NOT_FOUND");
     const result = await Lesson.deleteOne({ _id: target._id });
@@ -5922,7 +5902,8 @@ function mergeStudentDirectory(students, registrations) {
 app.get(["/api/admin/students", "/admin/students"], requireAdmin, async (req, res) => {
   try {
     const query = readDirectoryQuery(req.query);
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const [students, registrations] = await Promise.all([
       Student.find().select("-password").lean(),
       Registration.find().select("-password").lean()
@@ -7190,7 +7171,8 @@ app.get(["/api/certificates/verify/:certificateId", "/verify/:certificateId"], o
     await ensureDbConnected();
     const { certificateId } = req.params;
     if (typeof certificateId !== "string" || !certificateId.trim() || certificateId.length > 128) throw new AuthError("INVALID_INPUT");
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const cert = await Certificate.findOne({ certificateId })
       .select("certificateId studentId studentName courseTitle issueDate issuedBy status").lean();
     if (!cert) {
@@ -7215,7 +7197,8 @@ app.get("/api/certificates/:certificateId/download", requireStudentOrAdmin, asyn
     await ensureDbConnected();
     const { certificateId } = req.params;
     if (typeof certificateId !== "string" || !certificateId.trim() || certificateId.length > 128) throw new AuthError("INVALID_INPUT");
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const owner = req.user.role === "student" ? { ...ownerQuery(req.user), status: { $in: ["Valid", null] } } : {};
     const cert = await Certificate.findOne({ certificateId, ...owner }).lean();
     if (!cert) return rejectAccess(req, res, new AuthError(req.user.role === "student" ? "FORBIDDEN" : "RESOURCE_NOT_FOUND"));
@@ -7694,7 +7677,8 @@ app.post(["/api/admin/mail-toggle", "/admin/mail-toggle"], requireAdmin, async (
 app.get("/api/admin/registrations", requireAdmin, async (req, res) => {
   try {
     const query = readDirectoryQuery(req.query);
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const registrations = await Registration.find().select("-password").sort({ createdAt: -1, regId: 1 }).lean();
     const page = directoryPage(registrations, query);
     return res.json({ ok: true, registrations: page.records.map(adminRegistrationResponse), pagination: page.pagination });
@@ -7914,7 +7898,8 @@ app.post("/api/admin/students/save", requireAdmin, async (req, res) => {
 app.post(["/api/admin/students/approve", "/admin/students/approve"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const { studentId, allowedCourseIds, batch } = req.body || {};
     if (typeof studentId !== "string" || (batch !== undefined && typeof batch !== "string") ||
         (allowedCourseIds !== undefined && (!Array.isArray(allowedCourseIds) ||
@@ -8364,7 +8349,8 @@ app.post("/api/admin/students/message", requireAdmin, async (req, res) => {
 app.post("/api/admin/receipts/save", requireAdmin, async (req, res) => {
   try {
 
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const input = pickWritableFields(req.body, ["receiptId", "studentId", "amount", "paymentMethod", "trxId", "paymentTime", "note"]);
     const amount = Number(input.amount);
     if (typeof input.studentId !== "string" || !input.studentId.trim() ||
@@ -8476,7 +8462,8 @@ app.get("/api/admin/receipts/:receiptId/pdf", requireAdmin, async (req, res) => 
     await ensureDbConnected();
     const { receiptId } = req.params;
     if (typeof receiptId !== "string" || !receiptId.trim() || receiptId.length > 128) throw new AuthError("INVALID_INPUT");
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const receipt = await Receipt.findOne({ receiptId }).lean();
     if (!receipt) {
       return res.status(404).json({ ok: false, message: "মানি রিসিট খুঁজে পাওয়া যায়নি।" });
@@ -8499,7 +8486,8 @@ app.post("/api/admin/receipts/resend-email/:receiptId", requireAdmin, async (req
     const { receiptId } = req.params;
 
     if (typeof receiptId !== "string" || !receiptId.trim() || receiptId.length > 128) throw new AuthError("INVALID_INPUT");
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const targetReceipt = await Receipt.findOne({ receiptId }).lean();
 
     if (!targetReceipt) {
@@ -8525,7 +8513,8 @@ app.delete("/api/admin/receipts/:receiptId", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { receiptId } = req.params;
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const deleted = await Receipt.deleteOne({ receiptId });
     if (deleted.deletedCount !== 1) throw new AuthError("RESOURCE_NOT_FOUND");
     await logAuditEvent({ action: "PAYMENT_RECEIPT_DELETE", targetType: "receipt", targetId: receiptId, req });
