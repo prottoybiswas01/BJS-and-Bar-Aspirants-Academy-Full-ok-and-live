@@ -1,1 +1,0 @@
-import{a as n}from"./index-dlQJH4D4.js";async function r(o){const a=await n.get(`/certificates/${encodeURIComponent(o)}/download`,{responseType:"blob"}),t=URL.createObjectURL(a.data);try{const e=document.createElement("a");e.href=t,e.download=`Certificate-${o}.pdf`,e.click()}finally{URL.revokeObjectURL(t)}}export{r as d};

@@ -8,6 +8,10 @@ const CertificateSchema = new mongoose.Schema({
   courseTitle: { type: String, required: true },
   issueDate: { type: Date, default: Date.now },
   completionScore: { type: Number, default: 100 }, // Percentage or mark
+  university: { type: String, default: "" },
+  studentRoll: { type: String, default: "" },
+  marksGrade: { type: String, default: "" },
+  syllabusDescription: { type: String, default: "" },
   verificationUrl: { type: String, required: true },
   qrCodeDataUrl: { type: String, default: "" },
   status: { type: String, default: "Valid" }, // Valid / Revoked

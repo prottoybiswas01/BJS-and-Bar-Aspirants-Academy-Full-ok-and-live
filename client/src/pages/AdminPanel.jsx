@@ -226,8 +226,19 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
 
   // Digital Certificates & Study Notes State
   const [adminCertificates, setAdminCertificates] = useState([]);
-  const [certForm, setCertForm] = useState({ studentId: '', courseId: '', completionScore: 100 });
+  const [certForm, setCertForm] = useState({
+    studentId: '',
+    courseId: '',
+    studentName: '',
+    university: '',
+    studentRoll: '',
+    marksGrade: 'Marks: 88 / 100 (Grade: A+)',
+    syllabusDescription: '',
+    completionScore: 100
+  });
   const [certLoading, setCertLoading] = useState(false);
+  const [certAiLoading, setCertAiLoading] = useState(false);
+  const [previewCertModal, setPreviewCertModal] = useState(null);
 
   const [adminNotes, setAdminNotes] = useState([]);
   const initialNoteForm = {
@@ -314,6 +325,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     nextLive: '',
     price: '',
     schedulePdfUrl: '',
+    certificateDescription: '',
     description: ''
   });
 
@@ -610,6 +622,73 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     }
   };
 
+  const handleCertStudentChange = (studentId) => {
+    const s = students.find(st => st.id === studentId || st._id === studentId);
+    setCertForm(prev => ({
+      ...prev,
+      studentId,
+      studentName: s?.name || '',
+      university: s?.university || 'Department of Law, University of Dhaka',
+      studentRoll: s?.regId || s?.id || (studentId ? `STU-${studentId}` : '')
+    }));
+    if (studentId && certForm.courseId) {
+      fetchCertPrefill(studentId, certForm.courseId);
+    }
+  };
+
+  const handleCertCourseChange = (courseId) => {
+    const c = courses.find(co => co.id === courseId || co._id === courseId);
+    setCertForm(prev => ({
+      ...prev,
+      courseId,
+      syllabusDescription: c?.certificateDescription || prev.syllabusDescription
+    }));
+    if (certForm.studentId && courseId) {
+      fetchCertPrefill(certForm.studentId, courseId);
+    }
+  };
+
+  const fetchCertPrefill = async (studentId, courseId) => {
+    try {
+      const res = await api.get(`/admin/certificates/prefill?studentId=${encodeURIComponent(studentId)}&courseId=${encodeURIComponent(courseId)}`);
+      if (res.data?.ok) {
+        setCertForm(prev => ({
+          ...prev,
+          studentName: res.data.studentName || prev.studentName,
+          university: res.data.university || prev.university,
+          studentRoll: res.data.studentRoll || prev.studentRoll,
+          marksGrade: res.data.marksGrade || prev.marksGrade,
+          syllabusDescription: res.data.syllabusDescription || prev.syllabusDescription
+        }));
+      }
+    } catch (_) {}
+  };
+
+  const handleAiGenerateSyllabus = async () => {
+    if (!certForm.courseId) {
+      showToast('আগে একটি কোর্স নির্বাচন করুন।', 'error');
+      return;
+    }
+    const c = courses.find(co => co.id === certForm.courseId || co._id === certForm.courseId);
+    setCertAiLoading(true);
+    try {
+      const res = await api.post('/admin/certificates/ai-generate-description', {
+        courseId: certForm.courseId,
+        courseTitle: c?.title || ''
+      });
+      if (res.data?.ok && res.data.syllabusDescription) {
+        setCertForm(prev => ({ ...prev, syllabusDescription: res.data.syllabusDescription }));
+        showToast('✓ AI দ্বারা কোর্সের সিলেবাস সারসংক্ষেপ তৈরি সম্পন্ন!', 'success');
+      } else {
+        showToast('AI সিলেবাস তৈরি করতে পারেনি।', 'error');
+      }
+    } catch (err) {
+      showToast('AI সিলেবাস তৈরিতে সমস্যা হয়েছে।', 'error');
+    } finally {
+      setCertAiLoading(false);
+    }
+  };
+
   const handleIssueCertificate = async (e) => {
     e.preventDefault();
     const targetStudent = students.find(s => s.id === certForm.studentId || s._id === certForm.studentId);
@@ -622,15 +701,28 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     try {
       const res = await api.post('/certificates', {
         studentId: targetStudent.id || targetStudent._id,
-        studentName: targetStudent.name,
+        studentName: certForm.studentName || targetStudent.name,
+        university: certForm.university,
+        studentRoll: certForm.studentRoll,
         courseId: targetCourse.id || targetCourse._id,
         courseTitle: targetCourse.title,
+        marksGrade: certForm.marksGrade,
+        syllabusDescription: certForm.syllabusDescription,
         completionScore: Number(certForm.completionScore) || 100
       });
       if (res.data?.ok) {
         showToast('✓ ডিজিটাল সার্টিফিকেট সফলভাবে ইস্যু করা হয়েছে!', 'success');
         api.get('/certificates').then(r => { if (r.data?.ok) setAdminCertificates(r.data.certificates || []); }).catch(() => {});
-        setCertForm({ studentId: '', courseId: '', completionScore: 100 });
+        setCertForm({
+          studentId: '',
+          courseId: '',
+          studentName: '',
+          university: '',
+          studentRoll: '',
+          marksGrade: 'Marks: 88 / 100 (Grade: A+)',
+          syllabusDescription: '',
+          completionScore: 100
+        });
       } else {
         showToast(res.data?.message || 'সার্টিফিকেট তৈরিতে সমস্যা হয়েছে।', 'error');
       }
@@ -1741,6 +1833,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       paymentType: c.paymentType || 'One-time Lifetime Access',
       status: c.status || 'Active',
       schedulePdfUrl: c.schedulePdfUrl || '',
+      certificateDescription: c.certificateDescription || '',
       description: c.description || ''
     });
 
@@ -1769,6 +1862,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       paymentType: 'One-time Lifetime Access',
       status: 'Active',
       schedulePdfUrl: '',
+      certificateDescription: '',
       description: ''
     });
     showToast('Course Launch Form reset.', 'success');
@@ -5058,6 +5152,47 @@ return (
                   className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-slate-300 text-xs placeholder-slate-600"
                 />
               </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[10px] font-bold text-amber-400">
+                    📜 সার্টিফিকেট কোর্স বিবরণ ও সিলেবাস (Certificate Syllabus)
+                  </label>
+                  {courseForm.id && (
+                    <button
+                      type="button"
+                      disabled={certAiLoading}
+                      onClick={async () => {
+                        setCertAiLoading(true);
+                        try {
+                          const res = await api.post('/admin/certificates/ai-generate-description', {
+                            courseId: courseForm.id,
+                            courseTitle: courseForm.title
+                          });
+                          if (res.data?.ok && res.data.syllabusDescription) {
+                            setCourseForm(prev => ({ ...prev, certificateDescription: res.data.syllabusDescription }));
+                            showToast('✓ AI দ্বারা কোর্সের সিলেবাস সারসংক্ষেপ তৈরি সম্পন্ন!', 'success');
+                          }
+                        } catch (err) {
+                          showToast('AI সিলেবাস তৈরিতে সমস্যা হয়েছে।', 'error');
+                        } finally {
+                          setCertAiLoading(false);
+                        }
+                      }}
+                      className="text-[10px] text-indigo-300 hover:text-indigo-200 underline font-bold cursor-pointer"
+                    >
+                      {certAiLoading ? '⏳ AI তৈরি করছে...' : '✨ ভিডিও অনুযায়ী সিলেবাস লিখুন'}
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Sections 1–158 & Orders I–XXI, jurisdiction, res judicata, pleadings, temporary injunctions, and execution of decrees..."
+                  value={courseForm.certificateDescription || ''}
+                  onChange={(e) => setCourseForm({ ...courseForm, certificateDescription: e.target.value })}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-slate-300 text-xs placeholder-slate-600 font-serif"
+                />
+              </div>
             </div>
 
             <button
@@ -5971,17 +6106,43 @@ return (
               </div>
             </div>
 
-            {/* Issue Form */}
-            <form onSubmit={handleIssueCertificate} className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 text-xs">
-              <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
-                <span>➕ নতুন সার্টিফিকেট ইস্যু করুন</span>
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* VIP Issue Form */}
+            <form onSubmit={handleIssueCertificate} className="p-5 sm:p-6 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 text-xs">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
+                  <span>➕ নতুন ভিআইপি সার্টিফিকেট ইস্যু করুন</span>
+                  <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 font-mono text-[10px]">LUXURY EDITION</span>
+                </h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetStudent = students.find(s => s.id === certForm.studentId || s._id === certForm.studentId);
+                      const targetCourse = courses.find(c => c.id === certForm.courseId || c._id === certForm.courseId);
+                      setPreviewCertModal({
+                        certificateId: 'PREVIEW-' + new Date().getFullYear() + '-SAMPLE',
+                        studentName: certForm.studentName || targetStudent?.name || 'Ashrafia Nondini',
+                        university: certForm.university || targetStudent?.university || 'Department of Law, University of Dhaka',
+                        studentRoll: certForm.studentRoll || targetStudent?.regId || 'STU-1789917155102-765',
+                        courseTitle: targetCourse?.title || 'Code of Civil Procedure (CPC)',
+                        marksGrade: certForm.marksGrade || 'Marks Obtained: 88 / 100 (Grade: A+)',
+                        syllabusDescription: certForm.syllabusDescription || 'Sections 1–158 & Orders I–XXI, encompassing jurisdiction, res judicata, pleadings, temporary injunctions, and execution of decrees.',
+                        issueDate: new Date()
+                      });
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold border border-amber-500/30 flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <span>👁️ লাইভ প্রিভিউ</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
-                  <label className="block text-slate-300 font-bold mb-1">শিক্ষার্থী নির্বাচন করুন:</label>
+                  <label className="block text-slate-300 font-bold mb-1">শিক্ষার্থী নির্বাচন করুন: *</label>
                   <select
                     value={certForm.studentId}
-                    onChange={e => setCertForm({ ...certForm, studentId: e.target.value })}
+                    onChange={e => handleCertStudentChange(e.target.value)}
                     required
                     className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
                   >
@@ -5991,11 +6152,12 @@ return (
                     ))}
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-slate-300 font-bold mb-1">কোর্স নির্বাচন করুন:</label>
+                  <label className="block text-slate-300 font-bold mb-1">কোর্স নির্বাচন করুন: *</label>
                   <select
                     value={certForm.courseId}
-                    onChange={e => setCertForm({ ...certForm, courseId: e.target.value })}
+                    onChange={e => handleCertCourseChange(e.target.value)}
                     required
                     className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
                   >
@@ -6005,8 +6167,53 @@ return (
                     ))}
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-slate-300 font-bold mb-1">কমপ্লিশন মার্কস (%):</label>
+                  <label className="block text-slate-300 font-bold mb-1">শিক্ষার্থীর নাম (সার্টিফিকেটে):</label>
+                  <input
+                    type="text"
+                    value={certForm.studentName}
+                    onChange={e => setCertForm({ ...certForm, studentName: e.target.value })}
+                    placeholder="e.g. Ashrafia Nondini"
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">বিশ্ববিদ্যালয় / প্রতিষ্ঠান:</label>
+                  <input
+                    type="text"
+                    value={certForm.university}
+                    onChange={e => setCertForm({ ...certForm, university: e.target.value })}
+                    placeholder="e.g. Department of Law, University of Dhaka"
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">শিক্ষার্থী রোল / আইডি:</label>
+                  <input
+                    type="text"
+                    value={certForm.studentRoll}
+                    onChange={e => setCertForm({ ...certForm, studentRoll: e.target.value })}
+                    placeholder="e.g. STU-1789917155102-765"
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">মার্কস ও গ্রেড বিবরণ:</label>
+                  <input
+                    type="text"
+                    value={certForm.marksGrade}
+                    onChange={e => setCertForm({ ...certForm, marksGrade: e.target.value })}
+                    placeholder="e.g. Marks: 88 / 100 (Grade: A+)"
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">কমপ্লিশন স্কোর (%):</label>
                   <input
                     type="number"
                     min="1"
@@ -6017,13 +6224,38 @@ return (
                   />
                 </div>
               </div>
-              <button
-                type="submit"
-                disabled={certLoading}
-                className="py-2.5 px-6 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer"
-              >
-                {certLoading ? 'ইস্যু হচ্ছে...' : '📜 সার্টিফিকেট তৈরি ও ইস্যু করুন'}
-              </button>
+
+              {/* Dynamic Legal Syllabus Description */}
+              <div className="space-y-1.5 pt-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-300 font-bold">কোর্স সিলেবাস ও আইনগত বিবরণ (সার্টিফিকেটে প্রদর্শিত):</label>
+                  <button
+                    type="button"
+                    onClick={handleAiGenerateSyllabus}
+                    disabled={certAiLoading || !certForm.courseId}
+                    className="px-3 py-1 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-500/30 font-bold text-[11px] flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <span>{certAiLoading ? '⏳ AI তৈরি করছে...' : '✨ AI দিয়ে ভিডিও অনুযায়ী সিলেবাস লিখুন'}</span>
+                  </button>
+                </div>
+                <textarea
+                  rows={3}
+                  value={certForm.syllabusDescription}
+                  onChange={e => setCertForm({ ...certForm, syllabusDescription: e.target.value })}
+                  placeholder="e.g. Sections 1–158 & Orders I–XXI, jurisdiction, res judicata, pleadings, temporary injunctions, and execution of decrees..."
+                  className="w-full p-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-amber-500 font-serif leading-relaxed"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={certLoading}
+                  className="py-2.5 px-6 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <span>{certLoading ? 'ইস্যু হচ্ছে...' : '📜 সার্টিফিকেট তৈরি ও ইস্যু করুন'}</span>
+                </button>
+              </div>
             </form>
 
             {/* Issued Certificates Table */}
@@ -6034,10 +6266,10 @@ return (
                   <thead className="bg-slate-950 text-slate-400 font-mono text-[11px] uppercase border-b border-slate-800">
                     <tr>
                       <th className="p-3">সার্টিফিকেট আইডি</th>
-                      <th className="p-3">শিক্ষার্থীর নাম</th>
-                      <th className="p-3">কোর্স</th>
+                      <th className="p-3">শিক্ষার্থী ও রোল</th>
+                      <th className="p-3">কোর্স ও ফলাফল</th>
                       <th className="p-3">তারিখ</th>
-                      <th className="p-3 text-right">ডাউনলোড ও ভেরিফাই</th>
+                      <th className="p-3 text-right">অ্যাকশন</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/80">
@@ -6051,15 +6283,28 @@ return (
                       adminCertificates.map(c => (
                         <tr key={c.certificateId} className="hover:bg-slate-900/40">
                           <td className="p-3 font-mono font-black text-amber-400">{c.certificateId}</td>
-                          <td className="p-3 font-bold text-white">{c.studentName} <span className="text-[10px] text-slate-500 font-mono">({c.studentId})</span></td>
-                          <td className="p-3 text-slate-300">{c.courseTitle}</td>
+                          <td className="p-3">
+                            <div className="font-bold text-white">{c.studentName}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{c.university || c.studentRoll || c.studentId}</div>
+                          </td>
+                          <td className="p-3">
+                            <div className="text-slate-200 font-medium">{c.courseTitle}</div>
+                            {c.marksGrade && <div className="text-[10px] text-amber-400 font-mono">{c.marksGrade}</div>}
+                          </td>
                           <td className="p-3 font-mono text-[11px] text-slate-400">{formatBangladeshTime(c.issueDate)}</td>
-                          <td className="p-3 text-right space-x-2">
+                          <td className="p-3 text-right space-x-1.5 whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewCertModal(c)}
+                              className="px-2.5 py-1 rounded bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/30 text-[11px] font-bold cursor-pointer"
+                            >
+                              👁️ প্রিভিউ
+                            </button>
                             <button
                               type="button"
                               onClick={() => downloadCertificate(c.certificateId)
                                 .catch(() => showError('সার্টিফিকেট ডাউনলোড করা যায়নি।'))}
-                              className="px-2.5 py-1 rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold"
+                              className="px-2.5 py-1 rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold cursor-pointer"
                             >
                               📥 PDF
                             </button>
@@ -6067,7 +6312,7 @@ return (
                               href={`/verify/${c.certificateId}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="px-2.5 py-1 rounded bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold"
+                              className="px-2.5 py-1 rounded bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold inline-block"
                             >
                               🔍 Verify
                             </a>
@@ -6077,7 +6322,7 @@ return (
                               className="px-2.5 py-1 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-500/30 text-[11px] font-bold cursor-pointer transition-colors"
                               title="সার্টিফিকেট ডিলিট করুন"
                             >
-                              🗑️ ডিলিট
+                              🗑️
                             </button>
                           </td>
                         </tr>
@@ -6088,6 +6333,143 @@ return (
               </div>
             </div>
           </div>
+
+          {/* VIP Luxury Certificate Preview Modal */}
+          {previewCertModal && (
+            <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-fadeIn">
+              <div className="w-full max-w-4xl bg-slate-900 rounded-3xl border-2 border-amber-500/50 shadow-2xl overflow-hidden my-auto space-y-4 p-4 sm:p-6">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse"></span>
+                    <h3 className="font-extrabold text-white text-sm sm:text-base">📜 VIP সার্টিফিকেট প্রিভিউ (Luxury Diploma)</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => downloadCertificate(previewCertModal.certificateId)
+                        .catch(() => showError('সার্টিফিকেট ডাউনলোড করা যায়নি।'))}
+                      className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>📥 PDF ডাউনলোড</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewCertModal(null)}
+                      className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-sm flex items-center justify-center cursor-pointer transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+
+                {/* The Luxury Certificate Frame (A4 Landscape Aspect Ratio) */}
+                <div className="relative rounded-2xl bg-gradient-to-b from-[#091124] via-[#050b18] to-[#020611] text-white p-6 sm:p-10 border-4 border-[#D4AF37] shadow-[0_0_50px_rgba(212,175,55,0.15)] text-center space-y-4 sm:space-y-6 overflow-hidden">
+                  {/* Subtle Inner Gold Pinstripe */}
+                  <div className="absolute inset-2 sm:inset-3 border border-[#D4AF37]/40 pointer-events-none rounded-xl"></div>
+
+                  {/* Corner Flourishes */}
+                  <div className="absolute top-4 left-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+                  <div className="absolute top-4 right-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+                  <div className="absolute bottom-4 left-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+                  <div className="absolute bottom-4 right-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+
+                  {/* Academy Header & Emblem */}
+                  <div className="space-y-1">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full border border-amber-400/40 bg-amber-500/10 text-amber-300 text-2xl shadow-sm">
+                      ⚖️
+                    </div>
+                    <p className="font-cinzel text-[#D4AF37] tracking-[0.25em] text-[11px] sm:text-xs uppercase font-bold">
+                      BJS & BAR ASPIRANTS ACADEMY
+                    </p>
+                    <h2 className="font-cinzel font-extrabold text-white text-base sm:text-2xl tracking-[0.15em] uppercase">
+                      Certificate of Course Completion
+                    </h2>
+                  </div>
+
+                  {/* Preamble */}
+                  <p className="font-cormorant italic text-slate-300 text-xs sm:text-sm">
+                    This is to proudly certify that
+                  </p>
+
+                  {/* Student Name in Large VIP Calligraphy */}
+                  <div className="space-y-1">
+                    <h1 className="font-cursive-vip text-3xl sm:text-5xl text-amber-300 font-normal drop-shadow-md tracking-wide px-2">
+                      {previewCertModal.studentName || 'Ashrafia Nondini'}
+                    </h1>
+                    <div className="w-32 sm:w-48 h-0.5 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent mx-auto"></div>
+                  </div>
+
+                  {/* University & Roll */}
+                  <p className="font-sans text-[11px] sm:text-xs text-slate-400 font-medium">
+                    <span className="text-slate-300 font-semibold">{previewCertModal.university || 'Department of Law, University of Dhaka'}</span>
+                    {(previewCertModal.studentRoll || previewCertModal.studentId) && (
+                      <span className="text-amber-400/80 font-mono"> • Roll / ID: {previewCertModal.studentRoll || previewCertModal.studentId}</span>
+                    )}
+                  </p>
+
+                  <p className="font-cormorant italic text-slate-300 text-xs sm:text-sm">
+                    has successfully completed the comprehensive advanced legal course on
+                  </p>
+
+                  {/* Course Title */}
+                  <h3 className="font-cinzel font-bold text-amber-200 text-base sm:text-xl tracking-wide max-w-xl mx-auto">
+                    {previewCertModal.courseTitle || 'Code of Civil Procedure (CPC)'}
+                  </h3>
+
+                  {/* Formal Syllabus Description */}
+                  {previewCertModal.syllabusDescription && (
+                    <p className="font-cormorant italic text-xs sm:text-sm text-slate-300 max-w-2xl mx-auto leading-relaxed px-4">
+                      {previewCertModal.syllabusDescription}
+                    </p>
+                  )}
+
+                  {/* Marks & Grade Badge */}
+                  {previewCertModal.marksGrade && (
+                    <div>
+                      <span className="font-cinzel font-bold text-[11px] sm:text-xs text-amber-400 border border-amber-500/40 rounded-full px-4 py-1 inline-block bg-amber-500/10">
+                        {previewCertModal.marksGrade}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Footer: Signatures, Seal & QR */}
+                  <div className="pt-4 sm:pt-6 border-t border-slate-800/80 flex items-center justify-between flex-wrap gap-4 text-left">
+                    {/* Director Signature */}
+                    <div className="space-y-1">
+                      <div className="font-cursive-vip text-xl sm:text-2xl text-amber-200">
+                        Shanto Deb Roy Arno
+                      </div>
+                      <div className="w-28 sm:w-36 h-px bg-slate-600"></div>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase font-cinzel">Director & Lead Instructor</p>
+                      <p className="text-[9px] text-slate-500">BJS & Bar Aspirants Academy</p>
+                    </div>
+
+                    {/* Official Seal Emblem */}
+                    <div className="flex flex-col items-center">
+                      <div className="w-16 h-16 rounded-full border-2 border-dashed border-[#D4AF37] flex items-center justify-center bg-[#D4AF37]/5 text-center p-1 shadow-inner">
+                        <div className="text-[9px] font-cinzel font-bold text-[#D4AF37] leading-tight">
+                          OFFICIAL<br/>SEAL<br/>2026
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* QR Code & Verification Block */}
+                    <div className="text-right space-y-1">
+                      <p className="font-mono text-[10px] font-bold text-amber-400">
+                        ID: {previewCertModal.certificateId}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        Issued: {new Date(previewCertModal.issueDate || Date.now()).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </p>
+                      <p className="text-[9px] text-cyan-400 font-mono">
+                        Verify: bjs.kodl.uk/verify
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       )}
 
@@ -6284,6 +6666,143 @@ return (
               </div>
             </div>
           </div>
+
+          {/* VIP Luxury Certificate Preview Modal */}
+          {previewCertModal && (
+            <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-fadeIn">
+              <div className="w-full max-w-4xl bg-slate-900 rounded-3xl border-2 border-amber-500/50 shadow-2xl overflow-hidden my-auto space-y-4 p-4 sm:p-6">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse"></span>
+                    <h3 className="font-extrabold text-white text-sm sm:text-base">📜 VIP সার্টিফিকেট প্রিভিউ (Luxury Diploma)</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => downloadCertificate(previewCertModal.certificateId)
+                        .catch(() => showError('সার্টিফিকেট ডাউনলোড করা যায়নি।'))}
+                      className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>📥 PDF ডাউনলোড</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewCertModal(null)}
+                      className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-sm flex items-center justify-center cursor-pointer transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+
+                {/* The Luxury Certificate Frame (A4 Landscape Aspect Ratio) */}
+                <div className="relative rounded-2xl bg-gradient-to-b from-[#091124] via-[#050b18] to-[#020611] text-white p-6 sm:p-10 border-4 border-[#D4AF37] shadow-[0_0_50px_rgba(212,175,55,0.15)] text-center space-y-4 sm:space-y-6 overflow-hidden">
+                  {/* Subtle Inner Gold Pinstripe */}
+                  <div className="absolute inset-2 sm:inset-3 border border-[#D4AF37]/40 pointer-events-none rounded-xl"></div>
+
+                  {/* Corner Flourishes */}
+                  <div className="absolute top-4 left-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+                  <div className="absolute top-4 right-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+                  <div className="absolute bottom-4 left-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+                  <div className="absolute bottom-4 right-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+
+                  {/* Academy Header & Emblem */}
+                  <div className="space-y-1">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full border border-amber-400/40 bg-amber-500/10 text-amber-300 text-2xl shadow-sm">
+                      ⚖️
+                    </div>
+                    <p className="font-cinzel text-[#D4AF37] tracking-[0.25em] text-[11px] sm:text-xs uppercase font-bold">
+                      BJS & BAR ASPIRANTS ACADEMY
+                    </p>
+                    <h2 className="font-cinzel font-extrabold text-white text-base sm:text-2xl tracking-[0.15em] uppercase">
+                      Certificate of Course Completion
+                    </h2>
+                  </div>
+
+                  {/* Preamble */}
+                  <p className="font-cormorant italic text-slate-300 text-xs sm:text-sm">
+                    This is to proudly certify that
+                  </p>
+
+                  {/* Student Name in Large VIP Calligraphy */}
+                  <div className="space-y-1">
+                    <h1 className="font-cursive-vip text-3xl sm:text-5xl text-amber-300 font-normal drop-shadow-md tracking-wide px-2">
+                      {previewCertModal.studentName || 'Ashrafia Nondini'}
+                    </h1>
+                    <div className="w-32 sm:w-48 h-0.5 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent mx-auto"></div>
+                  </div>
+
+                  {/* University & Roll */}
+                  <p className="font-sans text-[11px] sm:text-xs text-slate-400 font-medium">
+                    <span className="text-slate-300 font-semibold">{previewCertModal.university || 'Department of Law, University of Dhaka'}</span>
+                    {(previewCertModal.studentRoll || previewCertModal.studentId) && (
+                      <span className="text-amber-400/80 font-mono"> • Roll / ID: {previewCertModal.studentRoll || previewCertModal.studentId}</span>
+                    )}
+                  </p>
+
+                  <p className="font-cormorant italic text-slate-300 text-xs sm:text-sm">
+                    has successfully completed the comprehensive advanced legal course on
+                  </p>
+
+                  {/* Course Title */}
+                  <h3 className="font-cinzel font-bold text-amber-200 text-base sm:text-xl tracking-wide max-w-xl mx-auto">
+                    {previewCertModal.courseTitle || 'Code of Civil Procedure (CPC)'}
+                  </h3>
+
+                  {/* Formal Syllabus Description */}
+                  {previewCertModal.syllabusDescription && (
+                    <p className="font-cormorant italic text-xs sm:text-sm text-slate-300 max-w-2xl mx-auto leading-relaxed px-4">
+                      {previewCertModal.syllabusDescription}
+                    </p>
+                  )}
+
+                  {/* Marks & Grade Badge */}
+                  {previewCertModal.marksGrade && (
+                    <div>
+                      <span className="font-cinzel font-bold text-[11px] sm:text-xs text-amber-400 border border-amber-500/40 rounded-full px-4 py-1 inline-block bg-amber-500/10">
+                        {previewCertModal.marksGrade}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Footer: Signatures, Seal & QR */}
+                  <div className="pt-4 sm:pt-6 border-t border-slate-800/80 flex items-center justify-between flex-wrap gap-4 text-left">
+                    {/* Director Signature */}
+                    <div className="space-y-1">
+                      <div className="font-cursive-vip text-xl sm:text-2xl text-amber-200">
+                        Shanto Deb Roy Arno
+                      </div>
+                      <div className="w-28 sm:w-36 h-px bg-slate-600"></div>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase font-cinzel">Director & Lead Instructor</p>
+                      <p className="text-[9px] text-slate-500">BJS & Bar Aspirants Academy</p>
+                    </div>
+
+                    {/* Official Seal Emblem */}
+                    <div className="flex flex-col items-center">
+                      <div className="w-16 h-16 rounded-full border-2 border-dashed border-[#D4AF37] flex items-center justify-center bg-[#D4AF37]/5 text-center p-1 shadow-inner">
+                        <div className="text-[9px] font-cinzel font-bold text-[#D4AF37] leading-tight">
+                          OFFICIAL<br/>SEAL<br/>2026
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* QR Code & Verification Block */}
+                    <div className="text-right space-y-1">
+                      <p className="font-mono text-[10px] font-bold text-amber-400">
+                        ID: {previewCertModal.certificateId}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        Issued: {new Date(previewCertModal.issueDate || Date.now()).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </p>
+                      <p className="text-[9px] text-cyan-400 font-mono">
+                        Verify: bjs.kodl.uk/verify
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       )}
       </main>

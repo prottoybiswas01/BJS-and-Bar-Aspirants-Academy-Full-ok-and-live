@@ -31,6 +31,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
   const [studentExams, setStudentExams] = useState([]);
   const [studentResults, setStudentResults] = useState([]);
   const [studentCertificates, setStudentCertificates] = useState([]);
+  const [previewModalCert, setPreviewModalCert] = useState(null);
   const [dashboardStats, setDashboardStats] = useState(null);
   const [leaderboardModal, setLeaderboardModal] = useState({
     isOpen: false,
@@ -1527,22 +1528,48 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                       </div>
                     </div>
 
-                    <div className="p-3 bg-slate-50 dark:bg-slate-950/80 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-1.5 font-sans">
+                    <div className="p-3.5 bg-slate-50 dark:bg-slate-950/80 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-2 font-sans">
                       <div className="flex justify-between text-slate-700 dark:text-slate-300">
                         <span className="text-slate-500 dark:text-slate-400">প্রাপকের নাম:</span>
                         <strong className="text-slate-900 dark:text-white font-bold">{cert.studentName}</strong>
                       </div>
+                      {cert.university && (
+                        <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                          <span className="text-slate-500 dark:text-slate-400">বিশ্ববিদ্যালয়:</span>
+                          <span className="text-slate-800 dark:text-slate-200 font-medium">{cert.university}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-slate-700 dark:text-slate-300">
-                        <span className="text-slate-500 dark:text-slate-400">স্টুডেন্ট রোল:</span>
-                        <span className="font-mono text-amber-700 dark:text-amber-300 font-bold">{cert.studentId}</span>
+                        <span className="text-slate-500 dark:text-slate-400">স্টুডেন্ট আইডি / রোল:</span>
+                        <span className="font-mono text-amber-700 dark:text-amber-300 font-bold">{cert.studentRoll || cert.studentId}</span>
                       </div>
-                      <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                      {cert.marksGrade && (
+                        <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                          <span className="text-slate-500 dark:text-slate-400">ফলাফল ও গ্রেড:</span>
+                          <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">{cert.marksGrade}</span>
+                        </div>
+                      )}
+                      {cert.syllabusDescription && (
+                        <div className="pt-1 border-t border-slate-200 dark:border-slate-800">
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 italic font-serif line-clamp-2">
+                            "{cert.syllabusDescription}"
+                          </p>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-slate-700 dark:text-slate-300 pt-1 border-t border-slate-200 dark:border-slate-800">
                         <span className="text-slate-500 dark:text-slate-400">ইস্যুর তারিখ:</span>
                         <span className="font-mono text-slate-700 dark:text-slate-300">{formatBangladeshTime(cert.issueDate)}</span>
                       </div>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
+                    <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewModalCert(cert)}
+                        className="py-2.5 px-3 rounded-xl bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 border border-amber-300 dark:border-amber-500/40 text-amber-900 dark:text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        <span>👁️ প্রিভিউ</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleDownloadCertificatePdf(cert.id || cert.certificateId || cert._id)}
@@ -1555,10 +1582,10 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                         href={`/verify/${cert.id || cert.certificateId || cert._id}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-cyan-300 dark:border-cyan-500/40 text-cyan-800 dark:text-cyan-300 font-bold text-xs text-center transition-all flex items-center justify-center gap-1.5"
+                        className="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-cyan-300 dark:border-cyan-500/40 text-cyan-800 dark:text-cyan-300 font-bold text-xs text-center transition-all flex items-center justify-center gap-1.5"
                       >
                         <span>🔍</span>
-                        <span>অনলাইনে ভেরিফাই</span>
+                        <span>যাচাই</span>
                       </a>
                     </div>
                   </div>
@@ -1566,6 +1593,128 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
               </div>
             )}
           </div>
+
+          {/* Student Luxury Certificate Preview Modal */}
+          {previewModalCert && (
+            <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-fadeIn">
+              <div className="w-full max-w-4xl bg-slate-900 rounded-3xl border-2 border-amber-500/50 shadow-2xl overflow-hidden my-auto space-y-4 p-4 sm:p-6">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse"></span>
+                    <h3 className="font-extrabold text-white text-sm sm:text-base">📜 অফিসিয়াল ডিজিটাল সার্টিফিকেট (VIP Diploma)</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadCertificatePdf(previewModalCert.id || previewModalCert.certificateId || previewModalCert._id)}
+                      className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>📥 PDF ডাউনলোড</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewModalCert(null)}
+                      className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-sm flex items-center justify-center cursor-pointer transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+
+                {/* Luxury Certificate Frame */}
+                <div className="relative rounded-2xl bg-gradient-to-b from-[#091124] via-[#050b18] to-[#020611] text-white p-6 sm:p-10 border-4 border-[#D4AF37] shadow-[0_0_50px_rgba(212,175,55,0.15)] text-center space-y-4 sm:space-y-6 overflow-hidden">
+                  <div className="absolute inset-2 sm:inset-3 border border-[#D4AF37]/40 pointer-events-none rounded-xl"></div>
+                  <div className="absolute top-4 left-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+                  <div className="absolute top-4 right-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+                  <div className="absolute bottom-4 left-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+                  <div className="absolute bottom-4 right-4 text-[#D4AF37]/50 font-serif text-lg pointer-events-none">❖</div>
+
+                  <div className="space-y-1">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full border border-amber-400/40 bg-amber-500/10 text-amber-300 text-2xl shadow-sm">
+                      ⚖️
+                    </div>
+                    <p className="font-cinzel text-[#D4AF37] tracking-[0.25em] text-[11px] sm:text-xs uppercase font-bold">
+                      BJS & BAR ASPIRANTS ACADEMY
+                    </p>
+                    <h2 className="font-cinzel font-extrabold text-white text-base sm:text-2xl tracking-[0.15em] uppercase">
+                      Certificate of Course Completion
+                    </h2>
+                  </div>
+
+                  <p className="font-cormorant italic text-slate-300 text-xs sm:text-sm">
+                    This is to proudly certify that
+                  </p>
+
+                  <div className="space-y-1">
+                    <h1 className="font-cursive-vip text-3xl sm:text-5xl text-amber-300 font-normal drop-shadow-md tracking-wide px-2">
+                      {previewModalCert.studentName}
+                    </h1>
+                    <div className="w-32 sm:w-48 h-0.5 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent mx-auto"></div>
+                  </div>
+
+                  <p className="font-sans text-[11px] sm:text-xs text-slate-400 font-medium">
+                    <span className="text-slate-300 font-semibold">{previewModalCert.university || 'Department of Law, University of Dhaka'}</span>
+                    {(previewModalCert.studentRoll || previewModalCert.studentId) && (
+                      <span className="text-amber-400/80 font-mono"> • Roll / ID: {previewModalCert.studentRoll || previewModalCert.studentId}</span>
+                    )}
+                  </p>
+
+                  <p className="font-cormorant italic text-slate-300 text-xs sm:text-sm">
+                    has successfully completed the comprehensive advanced legal course on
+                  </p>
+
+                  <h3 className="font-cinzel font-bold text-amber-200 text-base sm:text-xl tracking-wide max-w-xl mx-auto">
+                    {previewModalCert.courseTitle || 'BJS & Bar Masterclass'}
+                  </h3>
+
+                  {previewModalCert.syllabusDescription && (
+                    <p className="font-cormorant italic text-xs sm:text-sm text-slate-300 max-w-2xl mx-auto leading-relaxed px-4">
+                      {previewModalCert.syllabusDescription}
+                    </p>
+                  )}
+
+                  {previewModalCert.marksGrade && (
+                    <div>
+                      <span className="font-cinzel font-bold text-[11px] sm:text-xs text-amber-400 border border-amber-500/40 rounded-full px-4 py-1 inline-block bg-amber-500/10">
+                        {previewModalCert.marksGrade}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="pt-4 sm:pt-6 border-t border-slate-800/80 flex items-center justify-between flex-wrap gap-4 text-left">
+                    <div className="space-y-1">
+                      <div className="font-cursive-vip text-xl sm:text-2xl text-amber-200">
+                        Shanto Deb Roy Arno
+                      </div>
+                      <div className="w-28 sm:w-36 h-px bg-slate-600"></div>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase font-cinzel">Director & Lead Instructor</p>
+                      <p className="text-[9px] text-slate-500">BJS & Bar Aspirants Academy</p>
+                    </div>
+
+                    <div className="flex flex-col items-center">
+                      <div className="w-16 h-16 rounded-full border-2 border-dashed border-[#D4AF37] flex items-center justify-center bg-[#D4AF37]/5 text-center p-1 shadow-inner">
+                        <div className="text-[9px] font-cinzel font-bold text-[#D4AF37] leading-tight">
+                          OFFICIAL<br/>SEAL<br/>2026
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right space-y-1">
+                      <p className="font-mono text-[10px] font-bold text-amber-400">
+                        ID: {previewModalCert.certificateId}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        Issued: {new Date(previewModalCert.issueDate || Date.now()).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </p>
+                      <p className="text-[9px] text-cyan-400 font-mono">
+                        Verify: bjs.kodl.uk/verify
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       )}
 

@@ -19,6 +19,7 @@ const courseSchema = new mongoose.Schema({
   totalDurationFormatted: { type: String, default: "0h 0m" },
   totalLessons: { type: Number, default: 0 },
   description: { type: String, default: "" },
+  certificateDescription: { type: String, default: "" },
   schedulePdfUrl: { type: String, default: "" },
   status: { type: String, enum: ["Active", "Inactive", "Hidden"], default: "Active" },
 }, { timestamps: true });

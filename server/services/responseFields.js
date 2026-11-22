@@ -31,7 +31,10 @@ const REGISTRATION_FIELDS = [
 const RECEIPT_FIELDS = [
   'receiptId', 'studentId', 'studentName', 'batch', 'amount', 'paymentMethod', 'trxId', 'paymentTime', 'createdAt', 'issuedBy'
 ];
-const CERTIFICATE_FIELDS = ['certificateId', 'studentName', 'courseTitle', 'issueDate', 'issuedBy', 'status'];
+const CERTIFICATE_FIELDS = [
+  'certificateId', 'studentName', 'courseTitle', 'university', 'studentRoll', 'marksGrade', 'syllabusDescription',
+  'issueDate', 'issuedBy', 'status'
+];
 const RESULT_FIELDS = [
   '_id', 'id', 'examId', 'examTitle', 'score', 'totalMarks', 'percentage', 'correctCount', 'wrongCount',
   'unansweredCount', 'negativeDeduction', 'netScore', 'timeTakenSeconds', 'rank', 'grade', 'submittedAt'

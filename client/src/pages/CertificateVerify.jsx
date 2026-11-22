@@ -130,8 +130,20 @@ export default function CertificateVerify() {
                     <p className="font-mono text-sm font-bold text-amber-700 pt-0.5">{data.certificateId}</p>
                   </div>
                   <div>
+                    <span className="text-slate-400 font-bold">বিশ্ববিদ্যালয় / প্রতিষ্ঠান:</span>
+                    <p className="font-bold text-slate-800 pt-0.5">{data.university || 'Department of Law, University of Dhaka'}</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-bold">শিক্ষার্থী রোল / আইডি:</span>
+                    <p className="font-mono font-bold text-slate-800 pt-0.5">{data.studentRoll || 'Verified Student'}</p>
+                  </div>
+                  <div>
                     <span className="text-slate-400 font-bold">কোর্সের নাম:</span>
                     <p className="font-bold text-slate-800 pt-0.5">{data.courseTitle}</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-bold">ফলাফল ও গ্রেড:</span>
+                    <p className="font-mono font-bold text-emerald-700 pt-0.5">{data.marksGrade || 'Marks: 88 / 100 (Grade: A+)'}</p>
                   </div>
                   <div>
                     <span className="text-slate-400 font-bold">ইস্যুর তারিখ:</span>
@@ -143,11 +155,16 @@ export default function CertificateVerify() {
                     <span className="text-slate-400 font-bold">ইস্যুকারী কর্তৃপক্ষ:</span>
                     <p className="font-bold text-slate-800 pt-0.5">{data.issuedBy || 'BJS & Bar Aspirants Academy'}</p>
                   </div>
-                  <div>
-                    <span className="text-slate-400 font-bold">প্রামাণিকতা স্ট্যাটাস:</span>
-                    <p className="font-bold text-emerald-600 pt-0.5">১০০% ভেরিফাইড ও সংরক্ষিত</p>
-                  </div>
                 </div>
+
+                {data.syllabusDescription && (
+                  <div className="pt-2 border-t border-slate-200 text-xs">
+                    <span className="text-slate-400 font-bold block mb-1">পাঠ্যক্রম ও সিলেবাস বিবরণ (Curriculum Covered):</span>
+                    <p className="text-slate-700 font-serif italic bg-white p-3 rounded-xl border border-slate-200 leading-relaxed">
+                      "{data.syllabusDescription}"
+                    </p>
+                  </div>
+                )}
 
                 {data.canDownload && (
                 <div className="pt-3 border-t border-slate-200 flex justify-end">

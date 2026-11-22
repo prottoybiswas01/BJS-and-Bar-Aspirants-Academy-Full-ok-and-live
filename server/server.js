@@ -373,7 +373,7 @@ async function recalculateCourseDuration(courseId) {
     return null;
   }
 }
-const { generateCertificatePdf } = require("./services/certificateService");
+const { generateCertificatePdf, generateCourseSyllabusWithAi, getCuratedSyllabus } = require("./services/certificateService");
 const { sendTelegramAlert, sendEmergencyEmail, notifyNewLesson, notifyRegistration, notifyReceipt, notifySecurityAttack, notifyAdminDiff, notifySiteError, notifyPermanentTranscriptFailure, notifyAiFailure } = require("./services/alertService");
 const { generateAiMcqsFromTranscript, getExamLeaderboard, generateStudyNotesFromLesson } = require("./services/academyFeaturesService");
 const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId, formatSecondsToTimestamp } = require("./services/transcriptService");
@@ -704,20 +704,7 @@ async function ensureDbConnected() {
     return cached.conn || mongoose.connection;
   }
 
-  // If connection is in progress (readyState === 2), wait for it to complete
-  if (mongoose.connection && mongoose.connection.readyState === 2) {
-    await new Promise((resolve) => {
-      mongoose.connection.once('connected', resolve);
-      mongoose.connection.once('error', resolve);
-      setTimeout(resolve, 5000);
-    });
-    if (mongoose.connection && mongoose.connection.readyState === 1) {
-      isMongoConnected = true;
-      return cached.conn || mongoose.connection;
-    }
-  }
-
-  // If connection is in progress, await the existing promise
+  // If connection is already in progress via cached.promise, await it FIRST to eliminate race conditions
   if (cached.promise) {
     try {
       cached.conn = await cached.promise;
@@ -727,6 +714,21 @@ async function ensureDbConnected() {
       cached.promise = null;
       cached.conn = null;
       isMongoConnected = false;
+    }
+  }
+
+  // If connection is in progress via mongoose without cached.promise (readyState === 2), wait for it to complete
+  if (mongoose.connection && mongoose.connection.readyState === 2) {
+    await new Promise((resolve) => {
+      const done = () => resolve();
+      mongoose.connection.once('connected', done);
+      mongoose.connection.once('open', done);
+      mongoose.connection.once('error', done);
+      setTimeout(done, 6000);
+    });
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+      isMongoConnected = true;
+      return cached.conn || mongoose.connection;
     }
   }
 
@@ -755,6 +757,7 @@ async function ensureDbConnected() {
       const activeDb = mongoose.connection?.name || m?.connection?.name || PRODUCTION_DB_NAME;
       console.log(`[DB Lock] MongoDB successfully connected and locked to database: "${activeDb}" (Target: "${PRODUCTION_DB_NAME}")`);
       isMongoConnected = true;
+      cached.conn = m;
       return m;
     }).catch((err) => {
       cached.promise = null;
@@ -1063,7 +1066,12 @@ const {
   },
   async findStudent(id) {
     if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
-    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    let isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady && process.env.NODE_ENV !== 'test') {
+      await new Promise(r => setTimeout(r, 600));
+      await ensureDbConnected();
+      isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    }
     if (!isReady) throw new AuthError('AUTH_UNAVAILABLE');
     const student = await Student.findOne({
       $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])]
@@ -1076,7 +1084,12 @@ const {
   },
   async findMentor(id) {
     if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
-    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    let isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady && process.env.NODE_ENV !== 'test') {
+      await new Promise(r => setTimeout(r, 600));
+      await ensureDbConnected();
+      isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    }
     if (!isReady) throw new AuthError('AUTH_UNAVAILABLE');
     const mentor = await Mentor.findOne({
       $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])]
@@ -1483,7 +1496,12 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
-    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    let isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady && process.env.NODE_ENV !== 'test') {
+      await new Promise(r => setTimeout(r, 600));
+      await ensureDbConnected();
+      isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    }
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const lookup = identifier.trim();
     const mentor = await findPasswordAccount(Mentor, lookup, "id");
@@ -3889,7 +3907,7 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], requireAdmin, async
   let session = null;
   try {
     await ensureDbConnected();
-    const body = pickWritableFields(req.body, ["id","_id","oldId","oldTitle","legacyIds","title","shortTitle","faculty","category","schedule","batchRegText","sessionRegText","nextLive","price","paymentType","studentCount","weeklyFrequency","description","schedulePdfUrl","classScheduleUrl","schedulePdf","status"]);
+    const body = pickWritableFields(req.body, ["id","_id","oldId","oldTitle","legacyIds","title","shortTitle","faculty","category","schedule","batchRegText","sessionRegText","nextLive","price","paymentType","studentCount","weeklyFrequency","description","schedulePdfUrl","classScheduleUrl","schedulePdf","certificateDescription","status"]);
     const title = (body.title || "").trim();
     if (!title) {
       return res.status(400).json({ ok: false, message: "Course title is required." });
@@ -4008,6 +4026,7 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], requireAdmin, async
       paymentType: (body.paymentType || "One-time Lifetime Access").trim(),
       description: (body.description || "").trim(),
       schedulePdfUrl: (body.schedulePdfUrl || body.classScheduleUrl || body.schedulePdf || "").trim(),
+      certificateDescription: (body.certificateDescription || "").trim(),
       status: (body.status || "Active").trim()
     };
 
@@ -7312,6 +7331,100 @@ app.get(["/api/certificates", "/api/admin/certificates"], requireAdmin, async (r
   }
 });
 
+// Prefill Certificate Details (Admin)
+app.get("/api/admin/certificates/prefill", requireAdmin, async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { studentId, courseId } = req.query;
+    if (!studentId || !courseId) {
+      return res.status(400).json({ ok: false, message: "studentId এবং courseId আবশ্যক।" });
+    }
+
+    let student = null;
+    if (isMongoConnected) {
+      student = await Student.findOne({
+        $or: [{ id: studentId }, ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])]
+      }).lean().catch(() => null);
+    }
+    if (!student) {
+      student = (memoryDb.students || []).find(s => s.id === studentId || s._id === studentId);
+    }
+
+    let course = null;
+    if (isMongoConnected) {
+      course = await Course.findOne({
+        $or: [{ id: courseId }, ...(mongoose.Types.ObjectId.isValid(courseId) ? [{ _id: courseId }] : [])]
+      }).lean().catch(() => null);
+    }
+    if (!course) {
+      course = (memoryDb.courses || []).find(c => c.id === courseId || c._id === courseId);
+    }
+
+    let marksGrade = "Marks: 88 / 100 (Grade: A+)";
+    if (isMongoConnected) {
+      const submission = await Submission.findOne({
+        $or: [{ studentId: student?.id || studentId }, { studentEmail: student?.email }],
+        courseId
+      }).sort({ score: -1, gradedAt: -1 }).lean().catch(() => null);
+      if (submission && Number.isFinite(submission.score)) {
+        const sc = Math.round(submission.score);
+        const grade = sc >= 80 ? "A+" : sc >= 70 ? "A" : sc >= 60 ? "A-" : "Pass";
+        marksGrade = `Marks: ${sc} / 100 (Grade: ${grade})`;
+      }
+    }
+
+    const syllabusDescription = (course?.certificateDescription || "").trim() || getCuratedSyllabus(course?.title || "");
+
+    return res.json({
+      ok: true,
+      studentName: student?.name || "",
+      university: student?.university || "Department of Law, University of Dhaka",
+      studentRoll: student?.regId || student?.id || ("STU-" + (studentId || "001")),
+      courseTitle: course?.title || "",
+      marksGrade,
+      syllabusDescription
+    });
+  } catch (err) {
+    console.error("Certificate prefill error:", err);
+    return res.status(500).json({ ok: false, message: "Prefill data load failed." });
+  }
+});
+
+// AI Generate Course Syllabus Description for Certificate
+app.post("/api/admin/certificates/ai-generate-description", requireAdmin, async (req, res) => {
+  try {
+    await ensureDbConnected();
+    const { courseId, courseTitle } = req.body || {};
+    let course = null;
+    if (courseId && isMongoConnected) {
+      course = await Course.findOne({
+        $or: [{ id: courseId }, ...(mongoose.Types.ObjectId.isValid(courseId) ? [{ _id: courseId }] : [])]
+      }).lean().catch(() => null);
+    }
+    const finalCourseTitle = course?.title || courseTitle || "Law Course";
+
+    let lessons = [];
+    if (courseId && isMongoConnected) {
+      lessons = await Lesson.find({
+        $or: [{ courseId }, ...(course?._id ? [{ courseId: String(course._id) }] : [])]
+      }).select("title module chapter duration description").lean().catch(() => []);
+    }
+
+    const syllabusDescription = await generateCourseSyllabusWithAi({
+      courseTitle: finalCourseTitle,
+      lessons
+    });
+
+    return res.json({
+      ok: true,
+      syllabusDescription
+    });
+  } catch (err) {
+    console.error("AI Certificate Description Error:", err);
+    return res.status(500).json({ ok: false, message: "AI সিলেবাস তৈরি করতে পারেনি।" });
+  }
+});
+
 app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificates/issue"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
@@ -7346,9 +7459,14 @@ app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificat
       course = (memoryDb.courses || []).find(c => c.id === courseId || c._id === courseId);
     }
 
-    const finalStudentName = student?.name || studentName || 'Student';
-    const finalCourseTitle = course?.title || courseTitle || 'BJS & Bar Masterclass';
+    const finalStudentName = (student?.name || studentName || 'Student').trim();
+    const finalCourseTitle = (course?.title || courseTitle || 'BJS & Bar Masterclass').trim();
     const finalScore = Number(req.body.marks || completionScore) || 100;
+
+    const finalUniversity = (req.body.university || student?.university || 'Department of Law, University of Dhaka').trim();
+    const finalRoll = (req.body.studentRoll || student?.regId || student?.id || ('STU-' + (studentId || '001'))).trim();
+    const finalMarksGrade = (req.body.marksGrade || (finalScore ? `Marks: ${finalScore} / 100 (Grade: ${finalScore >= 80 ? 'A+' : finalScore >= 70 ? 'A' : 'Pass'})` : 'Marks: 88 / 100 (Grade: A+)')).trim();
+    const finalSyllabus = (req.body.syllabusDescription || course?.certificateDescription || getCuratedSyllabus(finalCourseTitle)).trim();
 
     const certId = "CERT-" + new Date().getFullYear() + "-" + crypto.randomBytes(12).toString("hex").toUpperCase();
     const verificationUrl = `https://bjs.kodl.uk/verify/${certId}`;
@@ -7365,8 +7483,12 @@ app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificat
         certificateId: certId,
         studentId: student?.id || studentId,
         studentName: finalStudentName,
+        university: finalUniversity,
+        studentRoll: finalRoll,
         courseId,
         courseTitle: finalCourseTitle,
+        marksGrade: finalMarksGrade,
+        syllabusDescription: finalSyllabus,
         completionScore: finalScore,
         verificationUrl,
         qrCodeDataUrl,
@@ -7378,8 +7500,12 @@ app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificat
         certificateId: certId,
         studentId: student?.id || studentId,
         studentName: finalStudentName,
+        university: finalUniversity,
+        studentRoll: finalRoll,
         courseId,
         courseTitle: finalCourseTitle,
+        marksGrade: finalMarksGrade,
+        syllabusDescription: finalSyllabus,
         completionScore: finalScore,
         verificationUrl,
         qrCodeDataUrl,
@@ -7395,7 +7521,7 @@ app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificat
       message: `✓ ${finalStudentName} এর জন্য ডিজিটাল সার্টিফিকেট সফলভাবে ইস্যু হয়েছে! (ID: ${certId})`
     });
   } catch (err) {
-    console.error("Certificate Issue Error:");
+    console.error("Certificate Issue Error:", err);
     return res.status(500).json({ ok: false, message: "সার্টিফিকেট ইস্যু করতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
@@ -7439,7 +7565,7 @@ app.get(["/api/certificates/verify/:certificateId", "/verify/:certificateId"], o
     const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const cert = await Certificate.findOne({ certificateId })
-      .select("certificateId studentId studentName courseTitle issueDate issuedBy status").lean();
+      .select("certificateId studentId studentName courseTitle university studentRoll marksGrade syllabusDescription issueDate issuedBy status").lean();
     if (!cert) {
       return res.status(404).json({ ok: false, valid: false, message: "সার্টিফিকেটটি খুঁজে পাওয়া যায়নি বা এটি বৈধ নয়।" });
     }
@@ -7471,7 +7597,11 @@ app.get("/api/certificates/:certificateId/download", requireStudentOrAdmin, asyn
     const pdfBuffer = await generateCertificatePdf({
       certificateId: cert.certificateId,
       studentName: cert.studentName,
+      university: cert.university,
+      studentRoll: cert.studentRoll,
       courseTitle: cert.courseTitle,
+      marksGrade: cert.marksGrade,
+      syllabusDescription: cert.syllabusDescription,
       issueDate: cert.issueDate,
       verificationUrl: cert.verificationUrl
     });
@@ -8757,7 +8887,12 @@ app.post("/api/admin/courses/:id/recalculate-duration", requireAdmin, async (req
 app.post("/api/admin/receipts/save", requireAdmin, async (req, res) => {
   try {
     if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
-    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    let isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady && process.env.NODE_ENV !== 'test') {
+      await new Promise(r => setTimeout(r, 600));
+      await ensureDbConnected();
+      isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    }
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const input = pickWritableFields(req.body, ["receiptId", "studentId", "amount", "paymentMethod", "trxId", "paymentTime", "note"]);
     const amount = Number(input.amount);

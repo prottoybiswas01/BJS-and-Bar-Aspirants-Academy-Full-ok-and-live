@@ -49,6 +49,20 @@
 }
 
 @layer utilities {
+  /* VIP Typography Classes for Luxury Certificates & Diplomas */
+  .font-cinzel {
+    font-family: 'Cinzel', 'Playfair Display', Georgia, serif;
+  }
+  .font-cursive-vip {
+    font-family: 'Great Vibes', 'Pinyon Script', 'Alex Brush', cursive;
+  }
+  .font-cormorant {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+  }
+  .font-playfair {
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+
   .card-themed {
     background-color: var(--bg-card);
     border: 1px solid var(--border-card);
