@@ -35,6 +35,8 @@ const studentSchema = new mongoose.Schema({
   completedLessonIds: [{ type: String }],
   courseRules: [courseRuleSchema],
   maxDeviceCount: { type: Number, default: 2 },
+  isTelegramMuted: { type: Boolean, default: false, index: true },
+  totalWatchSeconds: { type: Number, default: 0 },
   highlight: { type: String, default: "" },
   adminNote: { type: String, default: "" },
   popupMessage: {

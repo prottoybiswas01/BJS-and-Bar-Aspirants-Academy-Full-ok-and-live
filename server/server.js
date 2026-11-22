@@ -282,6 +282,97 @@ const AuditLog = require("./models/AuditLog");
 const Certificate = require("./models/Certificate");
 const PushSubscription = require("./models/PushSubscription");
 const StudyNote = require("./models/StudyNote");
+const StudentActivity = require("./models/StudentActivity");
+
+// ============================================================================
+// DYNAMIC COURSE DURATION & WATCH-TIME PARSER UTILITIES
+// ============================================================================
+function parseDurationToSeconds(duration) {
+  if (typeof duration === 'number' && Number.isFinite(duration)) {
+    return Math.max(0, Math.round(duration));
+  }
+  if (!duration || typeof duration !== 'string') return 0;
+  const str = duration.trim();
+  if (!str) return 0;
+
+  // Pattern: "HH:MM:SS" or "H:MM:SS"
+  const hmsMatch = str.match(/^(\d{1,3}):(\d{2}):(\d{2})$/);
+  if (hmsMatch) {
+    return parseInt(hmsMatch[1], 10) * 3600 + parseInt(hmsMatch[2], 10) * 60 + parseInt(hmsMatch[3], 10);
+  }
+
+  // Pattern: "MM:SS" or "M:SS"
+  const msMatch = str.match(/^(\d{1,3}):(\d{2})$/);
+  if (msMatch) {
+    return parseInt(msMatch[1], 10) * 60 + parseInt(msMatch[2], 10);
+  }
+
+  // Pattern: "X hr Y min", "X hours", "Y mins", "X h Y m", Bengali "ঘণ্টা", "মিনিট"
+  let totalSecs = 0;
+  const hrMatch = str.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h|ঘণ্টা)/i);
+  if (hrMatch) totalSecs += Math.round(parseFloat(hrMatch[1]) * 3600);
+  const minMatch = str.match(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|m|মিনিট)/i);
+  if (minMatch) totalSecs += Math.round(parseFloat(minMatch[1]) * 60);
+  const secMatch = str.match(/(\d+)\s*(?:seconds?|secs?|s|সেকেন্ড)/i);
+  if (secMatch) totalSecs += parseInt(secMatch[1], 10);
+
+  if (totalSecs > 0) return totalSecs;
+
+  // Pure digits: e.g. "3600"
+  if (/^\d+$/.test(str)) {
+    return parseInt(str, 10);
+  }
+
+  return 0;
+}
+
+function formatDurationEnglish(seconds) {
+  const s = Math.max(0, Math.round(seconds || 0));
+  const hours = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  return `${hours}h ${String(mins).padStart(2, '0')}m`;
+}
+
+function formatDurationBangla(seconds) {
+  const s = Math.max(0, Math.round(seconds || 0));
+  const hours = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const hBn = String(hours).replace(/[0-9]/g, d => '০১২৩৪৫৬৭৮৯'[d]);
+  const mBn = String(mins).replace(/[0-9]/g, d => '০১২৩৪৫৬৭৮৯'[d]);
+  if (hours > 0) {
+    return `${hBn} ঘণ্টা ${mBn} মিনিট`;
+  }
+  return `${mBn} মিনিট`;
+}
+
+async function recalculateCourseDuration(courseId) {
+  if (!courseId) return null;
+  try {
+    const lessons = await Lesson.find({
+      courseId,
+      isDraft: { $ne: true },
+      status: { $ne: 'draft' }
+    }, 'duration').lean();
+
+    let totalDurationSeconds = 0;
+    for (const l of lessons) {
+      totalDurationSeconds += parseDurationToSeconds(l.duration);
+    }
+    const totalDurationFormatted = formatDurationEnglish(totalDurationSeconds);
+    const totalLessons = lessons.length;
+
+    await Course.findOneAndUpdate(
+      { $or: [{ id: courseId }, ...(mongoose.Types.ObjectId.isValid(courseId) ? [{ _id: courseId }] : [])] },
+      { $set: { totalDurationSeconds, totalDurationFormatted, totalLessons } }
+    );
+    fastCache.del('courses_public');
+    fastCache.del('home_data');
+    return { totalDurationSeconds, totalDurationFormatted, totalLessons };
+  } catch (err) {
+    console.warn('recalculateCourseDuration notice:', err?.message || err);
+    return null;
+  }
+}
 const { generateCertificatePdf } = require("./services/certificateService");
 const { sendTelegramAlert, sendEmergencyEmail, notifyNewLesson, notifyRegistration, notifyReceipt, notifySecurityAttack, notifyAdminDiff, notifySiteError, notifyPermanentTranscriptFailure, notifyAiFailure } = require("./services/alertService");
 const { generateAiMcqsFromTranscript, getExamLeaderboard, generateStudyNotesFromLesson } = require("./services/academyFeaturesService");
@@ -1328,6 +1419,25 @@ app.post(["/api/auth/mentor/login", "/auth/mentor/login"], async (req, res) => {
 async function notifyStudentLogin(student, method) {
   const loggedInAt = new Date();
   try {
+    const studentId = student.id || student.regId;
+    if (studentId) {
+      // Record login analytics in StudentActivity for today's date (Asia/Dhaka)
+      const dhakaDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(loggedInAt);
+      StudentActivity.findOneAndUpdate(
+        { studentId, date: dhakaDate },
+        {
+          $inc: { loginCount: 1 },
+          $push: { logins: { timestamp: loggedInAt, method: method || 'email/password' } },
+          $set: { lastActiveAt: loggedInAt }
+        },
+        { upsert: true }
+      ).catch(() => {});
+    }
+
+    if (student.isTelegramMuted === true) {
+      return; // 100% suppressed if Telegram notifications are muted for this student
+    }
+
     const enrolledIds = [...(student.allowedCourseIds || []), ...(student.enrolledCourseIds || [])].filter(Boolean);
     if (enrolledIds.length === 0) {
       if (student.course) enrolledIds.push(student.course);
@@ -1341,9 +1451,9 @@ async function notifyStudentLogin(student, method) {
       : await Promise.all([...new Set(enrolledIds)].map(async id => (await resolveCourseByIdOrAlias(id))?.title || id));
 
     const result = await sendStudentLoginAlert(student, [...new Set(courseNames)], method, loggedInAt);
-    if (!result?.ok) console.warn('Student login alert delivery failed');
+    if (!result?.ok) console.warn('Student login alert delivery notice:', result?.reason || 'unspecified');
   } catch (_) {
-    console.warn('Student login alert delivery failed');
+    console.warn('Student login alert delivery notice');
   }
 }
 
@@ -4572,9 +4682,10 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       console.log(`[Video Manager] Lesson "${saved.title}" (${saved.id}) updated / edited. No notification email sent.`);
     }
 
-    // Instant cache invalidation
+    // Instant cache invalidation & recalculate course duration
     fastCache.del("lessons");
     fastCache.flushAll();
+    recalculateCourseDuration(saved.courseId).catch(() => {});
 
     const responseMsg = transcriptSynced
       ? `✓ ভিডিও "${saved.title}" সফলভাবে সেভ করা হয়েছে এবং সাবটাইটেল সিঙ্ক হয়েছে!`
@@ -5218,20 +5329,22 @@ function checkStudentCourseAccess(user, courseId, lesson, course, catalog) {
 }
 
 app.post('/api/student/watch-telemetry', requireStudentSelf, async (req, res) => {
-  const { event, lessonId, watchedSeconds, videoTimestamp } = req.body || {};
+  const { event, lessonId, watchedSeconds = 0, videoTimestamp = 0 } = req.body || {};
   const validSeconds = value => Number.isSafeInteger(value) && value >= 0 && value <= 604800;
-  if (!['started', 'ended'].includes(event) || typeof lessonId !== 'string' || !lessonId.trim() || lessonId.length > 200 ||
+  if (!['started', 'ended', 'progress', 'completed'].includes(event) ||
+      typeof lessonId !== 'string' || !lessonId.trim() || lessonId.length > 200 ||
       !validSeconds(watchedSeconds) || !validSeconds(videoTimestamp)) {
     return res.status(400).json({ ok: false });
   }
 
   try {
     const student = req.user;
+    const studentId = student.id || student.regId;
 
     const id = lessonId.trim();
     const lessonIds = [{ id }];
     if (mongoose.Types.ObjectId.isValid(id)) lessonIds.push({ _id: id });
-    const lesson = await Lesson.findOne({ $or: lessonIds }, 'courseId title isFree module isDraft status').lean();
+    const lesson = await Lesson.findOne({ $or: lessonIds }, 'id courseId title isFree module isDraft status duration').lean();
     if (!lesson || lesson.isDraft || lesson.status === 'draft') {
       return res.status(404).json({ ok: false });
     }
@@ -5242,14 +5355,90 @@ app.post('/api/student/watch-telemetry', requireStudentSelf, async (req, res) =>
       return res.status(403).json({ ok: false });
     }
 
-    const delivered = await sendStudentWatchAlert(student, course?.title || lesson.courseId, lesson.title, {
-      event, watchedSeconds, videoTimestamp
-    });
-    if (!delivered?.ok) return res.status(502).json({ ok: false });
+    // Determine 80% completion based on lesson duration
+    const lessonSecs = parseDurationToSeconds(lesson.duration);
+    const isEightyPercent = (lessonSecs > 0 && videoTimestamp >= 0.8 * lessonSecs) || event === 'completed';
+
+    // 1. SILENT ACTIVITY & TELEMETRY PERSISTENCE IN DATABASE (Always runs even if Telegram is muted)
+    const dhakaDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(new Date());
+    if (watchedSeconds > 0 && studentId) {
+      Student.updateOne(
+        { $or: [{ id: studentId }, ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])] },
+        { $inc: { totalWatchSeconds: watchedSeconds } }
+      ).catch(() => {});
+    }
+
+    if (studentId) {
+      StudentActivity.findOneAndUpdate(
+        { studentId, date: dhakaDate },
+        {
+          $inc: { totalWatchSeconds: Math.max(0, watchedSeconds) },
+          $set: { lastActiveAt: new Date() }
+        },
+        { upsert: true }
+      ).catch(() => {});
+
+      // Record lesson-level detail
+      const existingActivity = await StudentActivity.findOne({ studentId, date: dhakaDate }).lean();
+      const existingLessonIdx = (existingActivity?.lessons || []).findIndex(l => l.lessonId === id);
+      if (existingLessonIdx >= 0) {
+        await StudentActivity.updateOne(
+          { studentId, date: dhakaDate, "lessons.lessonId": id },
+          {
+            $inc: { "lessons.$.secondsWatched": Math.max(0, watchedSeconds) },
+            $set: {
+              "lessons.$.lastTimestamp": videoTimestamp,
+              "lessons.$.completed": isEightyPercent || Boolean(existingActivity.lessons[existingLessonIdx]?.completed),
+              "lessons.$.updatedAt": new Date()
+            }
+          }
+        ).catch(() => {});
+      } else {
+        await StudentActivity.updateOne(
+          { studentId, date: dhakaDate },
+          {
+            $push: {
+              lessons: {
+                lessonId: id,
+                courseId: lesson.courseId || '',
+                lessonTitle: lesson.title || '',
+                secondsWatched: Math.max(0, watchedSeconds),
+                lastTimestamp: videoTimestamp,
+                completed: isEightyPercent,
+                updatedAt: new Date()
+              }
+            }
+          }
+        ).catch(() => {});
+      }
+    }
+
+    // Auto-mark completed lesson in student profile when >= 80% reached
+    if (isEightyPercent && studentId) {
+      Student.updateOne(
+        {
+          $or: [{ id: studentId }, ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])],
+          completedLessonIds: { $ne: id }
+        },
+        { $addToSet: { completedLessonIds: id } }
+      ).catch(() => {});
+    }
+
+    // 2. DISPATCH TELEGRAM ALERT (Only on initial start or >= 80% completion; suppressed if muted/cooldown)
+    if (event === 'started' || isEightyPercent) {
+      sendStudentWatchAlert(student, course?.title || lesson.courseId, lesson.title, {
+        event,
+        watchedSeconds,
+        videoTimestamp,
+        isEightyPercent,
+        lessonId: id
+      }).catch(() => {});
+    }
+
     return res.sendStatus(204);
-  } catch (_) {
-    console.warn('Student watch alert delivery failed');
-    return res.status(500).json({ ok: false });
+  } catch (err) {
+    console.warn('Student watch telemetry notice:', err?.message || err);
+    return res.sendStatus(204);
   }
 });
 
@@ -5414,10 +5603,57 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], requireStuden
       Certificate.find({ ...ownerQuery(student), status: 'Valid' }).sort({ issueDate: -1 }).limit(20).lean()
     ]);
 
-    // Backend-calculate progress
+    // Backend-calculate progress and dynamic course total durations
+    let courseDurationSeconds = 0;
+    if (typeof parseDurationToSeconds === 'function') {
+      processedLessons.forEach(l => {
+        courseDurationSeconds += parseDurationToSeconds(l.duration);
+      });
+    }
+    const courseDurationFormatted = typeof formatDurationEnglish === 'function' ? formatDurationEnglish(courseDurationSeconds) : "0h 0m";
+    const courseDurationBangla = typeof formatDurationBangla === 'function' ? formatDurationBangla(courseDurationSeconds) : "০ মিনিট";
+
+    // Sum student's watched seconds for lessons in this course
+    const studentIdStr = student.id || student.regId;
+    let studentCourseWatchSeconds = 0;
+    if (studentIdStr && selectedCourse && typeof StudentActivity !== 'undefined' && StudentActivity?.find) {
+      try {
+        const studentActivities = await StudentActivity.find({
+          studentId: studentIdStr,
+          "lessons.courseId": selectedCourse.id
+        }, 'lessons').lean();
+        studentActivities.forEach(a => {
+          (a.lessons || []).forEach(l => {
+            if (l.courseId === selectedCourse.id || processedLessons.some(pl => pl.id === l.lessonId)) {
+              studentCourseWatchSeconds += (l.secondsWatched || 0);
+            }
+          });
+        });
+      } catch (_) {}
+    }
+    const studentWatchedFormatted = typeof formatDurationEnglish === 'function' ? formatDurationEnglish(studentCourseWatchSeconds) : "0h 0m";
+    const studentWatchedBangla = typeof formatDurationBangla === 'function' ? formatDurationBangla(studentCourseWatchSeconds) : "০ মিনিট";
+
     const completedLessonIds = student.completedLessonIds || [];
     const completedCount = completedLessonIds.filter(cId => processedLessons.some(l => l.id === cId)).length;
     const progressPercent = processedLessons.length > 0 ? Math.round((completedCount / processedLessons.length) * 100) : 0;
+    const watchProgressPercent = courseDurationSeconds > 0
+      ? Math.min(100, Math.round((studentCourseWatchSeconds / courseDurationSeconds) * 100))
+      : progressPercent;
+
+    const watchProgressText = `Completed ${studentWatchedFormatted} out of ${courseDurationFormatted} total classes`;
+    const watchProgressTextBangla = `মোট ${courseDurationBangla} ক্লাসের মধ্যে ${studentWatchedBangla} সম্পন্ন`;
+
+    // Augment processedCourses with duration and lesson counts
+    const coursesWithDuration = processedCourses.map(c => {
+      const durationSecs = c.totalDurationSeconds || 0;
+      return {
+        ...c,
+        totalDurationSeconds: durationSecs,
+        totalDurationFormatted: c.totalDurationFormatted || (typeof formatDurationEnglish === 'function' ? formatDurationEnglish(durationSecs) : "0h 0m"),
+        totalLessons: c.totalLessons || 0
+      };
+    });
 
     const payload = {
       student: {
@@ -5433,14 +5669,23 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], requireStuden
         isApproved: student.loginApproval === 'Approved' && student.status !== 'Inactive' && student.status !== 'Blocked',
         completedLessonIds
       },
-      courses: processedCourses,
+      courses: coursesWithDuration,
       selectedCourse,
       lessons: processedLessons,
       stats: {
         totalLessons: processedLessons.length,
         completedCount,
         progressPercent,
-        enrolledCount: enrolledCourses.length
+        enrolledCount: enrolledCourses.length,
+        courseDurationSeconds,
+        courseDurationFormatted,
+        courseDurationBangla,
+        studentWatchedSeconds: studentCourseWatchSeconds,
+        studentWatchedFormatted,
+        studentWatchedBangla,
+        watchProgressPercent,
+        watchProgressText,
+        watchProgressTextBangla
       },
       assignments: (dbAssignments || []).filter(a => {
         const course = findScopedCourse(courseScope, a.courseId);
@@ -5544,15 +5789,18 @@ app.delete(["/api/admin/lessons/:id", "/api/lessons/:id", "/admin/lessons/:id", 
     const { id } = req.params;
     const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
-    const target = await Lesson.findOne(recordIdFilter(id)).select("id").lean();
+    const target = await Lesson.findOne(recordIdFilter(id)).select("id courseId").lean();
     if (!target) throw new AuthError("RESOURCE_NOT_FOUND");
     const result = await Lesson.deleteOne({ _id: target._id });
     if (result.deletedCount !== 1) throw new AuthError("RESOURCE_NOT_FOUND");
     await logAuditEvent({ action: "LESSON_DELETE", targetType: "lesson", targetId: target.id, req });
     memoryDb.lessons = (memoryDb.lessons || []).filter(l => l.id !== id && l._id !== id);
 
-    // Instant cache invalidation
+    // Instant cache invalidation & recalculate course duration
     fastCache.del("lessons");
+    if (target.courseId) {
+      recalculateCourseDuration(target.courseId).catch(() => {});
+    }
 
     return res.json({ ok: true, message: "✓ ভিডিওটি সফলভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
@@ -8343,6 +8591,145 @@ app.post("/api/admin/students/message", requireAdmin, async (req, res) => {
     return res.json({ ok: true, message: `Email message dispatched to ${sentCount} student(s)!` });
   } catch (e) {
     return res.status(500).json({ ok: false, message: "Error sending message to students." });
+  }
+});
+
+// Admin Activity & Watch-Time Report Endpoint
+app.get("/api/admin/students/:id/activity-report", requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
+
+    const student = await Student.findOne(recordIdFilter(id), 'id name email phone status loginApproval isTelegramMuted totalWatchSeconds').lean();
+    if (!student) throw new AuthError("RESOURCE_NOT_FOUND");
+
+    const { preset = "last30days", from, to } = req.query;
+    let startDateStr = "";
+    let endDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(new Date());
+
+    const now = new Date();
+    if (preset === "today") {
+      startDateStr = endDateStr;
+    } else if (preset === "last7days") {
+      const d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      startDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(d);
+    } else if (preset === "last3months") {
+      const d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      startDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(d);
+    } else if (preset === "custom" && from && to) {
+      startDateStr = String(from).slice(0, 10);
+      endDateStr = String(to).slice(0, 10);
+    } else {
+      // Default: last30days
+      const d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      startDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(d);
+    }
+
+    const activities = await StudentActivity.find({
+      studentId: student.id,
+      date: { $gte: startDateStr, $lte: endDateStr }
+    }).sort({ date: -1 }).lean();
+
+    const totalLogins = activities.reduce((acc, a) => acc + (a.loginCount || 0), 0);
+    const totalWatchSeconds = activities.reduce((acc, a) => acc + (a.totalWatchSeconds || 0), 0);
+    const activeDays = activities.filter(a => (a.loginCount > 0 || a.totalWatchSeconds > 0)).length;
+
+    // Aggregate unique lessons watched
+    const uniqueLessonsMap = new Map();
+    activities.forEach(a => {
+      (a.lessons || []).forEach(l => {
+        const cur = uniqueLessonsMap.get(l.lessonId) || { seconds: 0, title: l.lessonTitle, courseId: l.courseId, completed: false };
+        cur.seconds += (l.secondsWatched || 0);
+        cur.completed = cur.completed || l.completed;
+        uniqueLessonsMap.set(l.lessonId, cur);
+      });
+    });
+
+    const daily = activities.map(a => ({
+      date: a.date,
+      loginCount: a.loginCount || 0,
+      totalWatchSeconds: a.totalWatchSeconds || 0,
+      watchFormatted: formatDurationEnglish(a.totalWatchSeconds || 0),
+      watchBangla: formatDurationBangla(a.totalWatchSeconds || 0),
+      lastActiveAt: a.lastActiveAt,
+      lessons: (a.lessons || []).map(l => ({
+        lessonId: l.lessonId,
+        lessonTitle: l.lessonTitle,
+        courseId: l.courseId,
+        secondsWatched: l.secondsWatched || 0,
+        formatted: formatDurationEnglish(l.secondsWatched || 0),
+        completed: Boolean(l.completed)
+      }))
+    }));
+
+    return res.json({
+      ok: true,
+      student: {
+        id: student.id,
+        name: student.name,
+        email: student.email,
+        phone: student.phone,
+        status: student.status,
+        loginApproval: student.loginApproval,
+        isTelegramMuted: Boolean(student.isTelegramMuted),
+        lifetimeWatchSeconds: student.totalWatchSeconds || 0,
+        lifetimeWatchFormatted: formatDurationEnglish(student.totalWatchSeconds || 0)
+      },
+      summary: {
+        preset,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        totalLogins,
+        totalWatchSeconds,
+        totalWatchFormatted: formatDurationEnglish(totalWatchSeconds),
+        totalWatchBangla: formatDurationBangla(totalWatchSeconds),
+        activeDays,
+        totalLessonsWatched: uniqueLessonsMap.size
+      },
+      daily
+    });
+  } catch (err) {
+    return rejectAccess(req, res, err);
+  }
+});
+
+// Admin Toggle Student Telegram Mute Endpoint
+app.post("/api/admin/students/:id/toggle-telegram-mute", requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
+
+    const student = await Student.findOne(recordIdFilter(id));
+    if (!student) throw new AuthError("RESOURCE_NOT_FOUND");
+    student.isTelegramMuted = !student.isTelegramMuted;
+    await student.save();
+    return res.json({
+      ok: true,
+      studentId: student.id,
+      isTelegramMuted: student.isTelegramMuted,
+      message: student.isTelegramMuted
+        ? `✓ ${student.name} এর টেলিগ্রাম নোটিফিকেশন মিউট করা হয়েছে।`
+        : `✓ ${student.name} এর টেলিগ্রাম নোটিফিকেশন চালু করা হয়েছে।`
+    });
+  } catch (err) {
+    return rejectAccess(req, res, err);
+  }
+});
+
+// Admin Recalculate Course Duration Endpoint
+app.post("/api/admin/courses/:id/recalculate-duration", requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
+    if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
+
+    const result = await recalculateCourseDuration(id);
+    if (!result) throw new AuthError("RESOURCE_NOT_FOUND");
+    return res.json({ ok: true, courseId: id, ...result });
+  } catch (err) {
+    return rejectAccess(req, res, err);
   }
 });
 

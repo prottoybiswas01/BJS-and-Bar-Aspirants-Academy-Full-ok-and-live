@@ -31,6 +31,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
   const [studentExams, setStudentExams] = useState([]);
   const [studentResults, setStudentResults] = useState([]);
   const [studentCertificates, setStudentCertificates] = useState([]);
+  const [dashboardStats, setDashboardStats] = useState(null);
   const [leaderboardModal, setLeaderboardModal] = useState({
     isOpen: false,
     examId: null,
@@ -434,6 +435,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         if (Array.isArray(res.data.results)) setStudentResults(res.data.results);
         if (Array.isArray(res.data.receipts)) setStudentReceipts(res.data.receipts);
         if (Array.isArray(res.data.certificates)) setStudentCertificates(res.data.certificates);
+        if (res.data?.stats) setDashboardStats(res.data.stats);
         return;
       }
     } catch (err) {
@@ -619,13 +621,33 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         )}
 
         <div className="mt-4 space-y-2">
-          <div className="flex justify-between gap-2 text-xs font-bold text-slate-600 dark:text-slate-300">
-            <span>কোর্স অগ্রগতি</span>
-            <span className="font-mono text-amber-700 dark:text-amber-300">{progressPercent}%</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-600 dark:text-slate-300">
+            <span className="flex items-center gap-1.5 flex-wrap">
+              <span>⏱️ কোর্স অগ্রগতি ও সময়কাল:</span>
+              <span className="font-semibold text-slate-500 dark:text-slate-400">
+                {dashboardStats?.watchProgressTextBangla || dashboardStats?.watchProgressText || `${completedCount}/${lessons.length} টি ক্লাস সম্পন্ন`}
+              </span>
+            </span>
+            <span className="font-mono font-black text-amber-700 dark:text-amber-300 text-sm">
+              {dashboardStats?.watchProgressPercent ?? progressPercent}%
+            </span>
           </div>
-          <div role="progressbar" aria-label="কোর্স অগ্রগতি" aria-valuenow={progressPercent} className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-            <div className="h-full rounded-full bg-amber-500" style={{ width: `${progressPercent}%` }} />
+          <div role="progressbar" aria-label="কোর্স অগ্রগতি" aria-valuenow={dashboardStats?.watchProgressPercent ?? progressPercent} className="h-2.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-500"
+              style={{ width: `${dashboardStats?.watchProgressPercent ?? progressPercent}%` }}
+            />
           </div>
+          {dashboardStats?.courseDurationFormatted && (
+            <div className="flex justify-between items-center text-[11px] text-slate-500 dark:text-slate-400 pt-0.5">
+              <span>
+                দেখা হয়েছে: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{dashboardStats.studentWatchedBangla || dashboardStats.studentWatchedFormatted}</strong>
+              </span>
+              <span>
+                মোট ক্লাসের ব্যাপ্তি: <strong className="text-amber-600 dark:text-amber-400 font-mono">{dashboardStats.courseDurationBangla || dashboardStats.courseDurationFormatted}</strong>
+              </span>
+            </div>
+          )}
         </div>
       </section>
 
@@ -704,7 +726,19 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                         )}
                       </div>
                       <h3 className="font-extrabold text-sm text-slate-900 dark:text-white line-clamp-1">{c.title}</h3>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">ফ্যাকাল্টি: {c.faculty}</p>
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">ফ্যাকাল্টি: {c.faculty}</p>
+                        {c.totalDurationFormatted && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-semibold border border-amber-500/20">
+                            ⏱️ {c.totalDurationFormatted}
+                          </span>
+                        )}
+                        {c.totalLessons > 0 && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                            🎬 {c.totalLessons} ক্লাস
+                          </span>
+                        )}
+                      </div>
                       {enrolled && (
                         <div className="mt-2.5 pt-2 border-t border-slate-200 dark:border-slate-800/80">
                           <div className="flex justify-between text-[10px] text-slate-600 dark:text-slate-400 font-bold mb-1">

@@ -65,6 +65,8 @@ function createWatchTracker(getIdentity, startTime) {
   let playingSince = null;
   let watchedMs = 0;
   let position = startTime;
+  let hasReportedStarted = false;
+  let hasReportedCompleted = false;
 
   const setPosition = (current) => {
     if (Number.isFinite(current) && current >= 0) position = current;
@@ -75,13 +77,19 @@ function createWatchTracker(getIdentity, startTime) {
       setPosition(player?.getCurrentTime());
     } catch (_) {}
     try {
+      identity ||= getIdentity();
+      if (!identity?.token || !identity?.lessonId) return;
+
+      const deltaSeconds = Math.floor(watchedMs / 1000);
+      watchedMs = 0; // reset accumulated buffer after reporting
+
       void fetch('/api/student/watch-telemetry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${identity.token}` },
         body: JSON.stringify({
           lessonId: identity.lessonId,
           event,
-          watchedSeconds: Math.floor(watchedMs / 1000),
+          watchedSeconds: Math.max(0, deltaSeconds),
           videoTimestamp: Math.floor(position)
         }),
         keepalive: true
@@ -98,18 +106,33 @@ function createWatchTracker(getIdentity, startTime) {
   return {
     play(player) {
       if (playingSince !== null) return;
-      const continuing = Boolean(identity);
       identity ||= getIdentity();
       if (!identity) return;
       playingSince = performance.now();
-      if (!continuing) report('started', player);
+      if (!hasReportedStarted) {
+        hasReportedStarted = true;
+        report('started', player);
+      }
     },
     setPosition,
     suspend,
+    pause(player) {
+      suspend();
+      // Silently report progress to save watch telemetry without firing Telegram alerts
+      report('progress', player);
+    },
+    checkEightyPercent(player, duration) {
+      if (hasReportedCompleted) return;
+      if (duration > 0 && position >= 0.8 * duration) {
+        hasReportedCompleted = true;
+        suspend();
+        report('completed', player);
+      }
+    },
     end(player) {
       if (!identity) return;
       suspend();
-      report('ended', player);
+      report('progress', player);
       identity = null;
     }
   };
@@ -423,10 +446,10 @@ export default function VideoPlayerModal({
               setIsPlaying(true);
               watch.play(event.target);
             } else if (event.data === YT.PlayerState.PAUSED) {
-              watch.end(event.target);
+              watch.pause(event.target);
               setIsPlaying(false);
             } else if (event.data === YT.PlayerState.ENDED) {
-              watch.end(event.target);
+              watch.pause(event.target);
               setIsPlaying(false);
               if (!canPlayFull) {
                 setClipEnded(true);
@@ -448,6 +471,7 @@ export default function VideoPlayerModal({
             const curr = playerRef.current.getCurrentTime() || 0;
             const dur = playerRef.current.getDuration() || 0;
             watch.setPosition(curr);
+            watch.checkEightyPercent(playerRef.current, dur);
             setCurrentTime(curr);
             if (dur > 0) setDuration(dur);
 

@@ -61,6 +61,74 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     copied: false
   });
 
+  const [activityReportModal, setActivityReportModal] = useState({
+    isOpen: false,
+    student: null,
+    report: null,
+    loading: false,
+    preset: 'last30days',
+    from: '',
+    to: ''
+  });
+
+  const handleFetchActivityReport = async (student, preset = 'last30days', from = '', to = '') => {
+    if (!student?.id) return;
+    setActivityReportModal(prev => ({
+      ...prev,
+      isOpen: true,
+      student,
+      preset,
+      from,
+      to,
+      loading: true
+    }));
+
+    try {
+      const res = await api.get(`/admin/students/${student.id}/activity-report`, {
+        params: { preset, from: from || undefined, to: to || undefined }
+      });
+      if (res.data?.ok) {
+        setActivityReportModal(prev => ({
+          ...prev,
+          report: res.data,
+          student: { ...student, ...res.data.student },
+          loading: false
+        }));
+      } else {
+        showToast(res.data?.message || 'রিপোর্ট লোড করা যায়নি।', 'error');
+        setActivityReportModal(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || 'রিপোর্ট লোড করতে সমস্যা হয়েছে।', 'error');
+      setActivityReportModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleToggleTelegramMute = async (studentId) => {
+    if (!studentId) return;
+    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, isTelegramMuted: !s.isTelegramMuted } : s));
+    if (activityReportModal.student?.id === studentId) {
+      setActivityReportModal(prev => ({
+        ...prev,
+        student: { ...prev.student, isTelegramMuted: !prev.student?.isTelegramMuted }
+      }));
+    }
+
+    try {
+      const res = await api.post(`/admin/students/${studentId}/toggle-telegram-mute`);
+      if (res.data?.ok) {
+        showToast(res.data.message, 'success');
+        setStudents(prev => prev.map(s => s.id === studentId ? { ...s, isTelegramMuted: res.data.isTelegramMuted } : s));
+      } else {
+        showToast(res.data?.message || 'মিউট পরিবর্তন করা যায়নি।', 'error');
+        setStudents(prev => prev.map(s => s.id === studentId ? { ...s, isTelegramMuted: !s.isTelegramMuted } : s));
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || 'মিউট পরিবর্তন করতে সমস্যা হয়েছে।', 'error');
+      setStudents(prev => prev.map(s => s.id === studentId ? { ...s, isTelegramMuted: !s.isTelegramMuted } : s));
+    }
+  };
+
   const handleOpenSetTempPasswordModal = (s) => {
     const autoGen = 'BJS' + Math.floor(100000 + Math.random() * 900000);
     setTempPasswordModal({
@@ -3526,6 +3594,26 @@ return (
                         ✅ Approve & Activate
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleTelegramMute(s.id)}
+                      className={`px-2 py-1.5 rounded-lg border font-bold text-[11px] transition-all cursor-pointer ${
+                        s.isTelegramMuted
+                          ? 'bg-rose-950/90 hover:bg-rose-900 text-rose-300 border-rose-500/50'
+                          : 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border-emerald-500/40'
+                      }`}
+                      title={s.isTelegramMuted ? "টেলিগ্রাম নোটিফিকেশন মিউট করা আছে (চালু করতে ক্লিক করুন)" : "টেলিগ্রাম নোটিফিকেশন চালু আছে (মিউট করতে ক্লিক করুন)"}
+                    >
+                      {s.isTelegramMuted ? '🔕 Muted' : '🔔 Active'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleFetchActivityReport(s, 'last30days')}
+                      className="px-2 py-1.5 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-500/40 font-bold text-[11px] transition-all cursor-pointer"
+                      title="লগইন ও ওয়াচ-টাইম রিপোর্ট দেখুন (Activity & Watch-Time Report)"
+                    >
+                      📊 রিপোর্ট
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleOpenSetTempPasswordModal(s)}
@@ -7314,6 +7402,198 @@ return (
               {aiNoteModal.loading ? '⏳ AI স্টাডি গাইড তৈরি করছে...' : '✨ AI স্টাডি গাইড তৈরি ও প্রকাশ করুন'}
             </button>
           </form>
+        </Modal>
+      )}
+
+      {/* Student Activity & Watch-Time Analytics Modal */}
+      {activityReportModal.isOpen && (
+        <Modal
+          isOpen={activityReportModal.isOpen}
+          onClose={() => setActivityReportModal({ isOpen: false, student: null, report: null, loading: false, preset: 'last30days', from: '', to: '' })}
+          title={`📊 ${activityReportModal.student?.name || 'শিক্ষার্থী'} - অ্যাক্টিভিটি ও ওয়াচ-টাইম রিপোর্ট`}
+          subtitle={`ID: ${activityReportModal.student?.id || ''} • মোবাইল: ${activityReportModal.student?.phone || ''} • ইমেইল: ${activityReportModal.student?.email || ''}`}
+          icon="📈"
+          maxWidth="max-w-4xl"
+          footer={
+            <div className="w-full flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleToggleTelegramMute(activityReportModal.student?.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    activityReportModal.student?.isTelegramMuted
+                      ? 'bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-500/40'
+                      : 'bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40'
+                  }`}
+                >
+                  {activityReportModal.student?.isTelegramMuted ? '🔕 টেলিগ্রাম অ্যালার্ট মিউট করা আছে (চালু করতে ক্লিক করুন)' : '🔔 টেলিগ্রাম অ্যালার্ট চালু আছে (মিউট করতে ক্লিক করুন)'}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActivityReportModal({ isOpen: false, student: null, report: null, loading: false, preset: 'last30days', from: '', to: '' })}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all cursor-pointer"
+              >
+                বন্ধ করুন
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            {/* Filter Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  ['today', 'আজ (Today)'],
+                  ['last7days', 'গত ৭ দিন'],
+                  ['last30days', 'গত ৩০ দিন'],
+                  ['last3months', 'গত ৩ মাস'],
+                  ['custom', 'কাস্টম রেঞ্জ']
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => handleFetchActivityReport(activityReportModal.student, key)}
+                    className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${
+                      activityReportModal.preset === key
+                        ? 'bg-amber-500 text-slate-950 shadow'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {activityReportModal.preset === 'custom' && (
+                <div className="flex items-center gap-2 pt-2 sm:pt-0">
+                  <input
+                    type="date"
+                    value={activityReportModal.from}
+                    onChange={(e) => setActivityReportModal(prev => ({ ...prev, from: e.target.value }))}
+                    className="p-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-amber-500"
+                  />
+                  <span className="text-slate-400">থেকে</span>
+                  <input
+                    type="date"
+                    value={activityReportModal.to}
+                    onChange={(e) => setActivityReportModal(prev => ({ ...prev, to: e.target.value }))}
+                    className="p-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-amber-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleFetchActivityReport(activityReportModal.student, 'custom', activityReportModal.from, activityReportModal.to)}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs"
+                  >
+                    খুঁজুন
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {activityReportModal.loading ? (
+              <div className="p-8 text-center text-slate-400">
+                <span className="inline-block animate-spin mr-2">⏳</span>
+                রিপোর্ট লোড হচ্ছে...
+              </div>
+            ) : !activityReportModal.report ? (
+              <div className="p-8 text-center text-slate-500">
+                কোনো তথ্য পাওয়া যায়নি।
+              </div>
+            ) : (
+              <>
+                {/* Summary Metrics Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">🔑 মোট লগইন সংখ্যা</span>
+                    <p className="text-xl font-extrabold text-amber-400 font-mono mt-1">
+                      {activityReportModal.report.summary?.totalLogins || 0} <span className="text-xs font-normal text-slate-400">বার</span>
+                    </p>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">⏱️ মোট ওয়াচ-টাইম</span>
+                    <p className="text-xl font-extrabold text-emerald-400 font-mono mt-1">
+                      {activityReportModal.report.summary?.totalWatchFormatted || '0h 0m'}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{activityReportModal.report.summary?.totalWatchBangla || ''}</p>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">📅 সক্রিয় দিন সংখ্যা</span>
+                    <p className="text-xl font-extrabold text-sky-400 font-mono mt-1">
+                      {activityReportModal.report.summary?.activeDays || 0} <span className="text-xs font-normal text-slate-400">দিন</span>
+                    </p>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">🎬 ক্লাস পর্যবেক্ষণ</span>
+                    <p className="text-xl font-extrabold text-purple-400 font-mono mt-1">
+                      {activityReportModal.report.summary?.totalLessonsWatched || 0} <span className="text-xs font-normal text-slate-400">টি ক্লাস</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Daily Breakdown Table */}
+                <div className="space-y-2">
+                  <h4 className="font-bold text-white text-xs flex items-center justify-between">
+                    <span>দৈনিক বিস্তারিত লগ (Daily Logins & Watch Durations)</span>
+                    <span className="text-slate-400 font-mono text-[11px]">
+                      {activityReportModal.report.summary?.startDate} থেকে {activityReportModal.report.summary?.endDate}
+                    </span>
+                  </h4>
+
+                  <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-800">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-950 text-slate-400 font-mono text-[11px] sticky top-0 border-b border-slate-800">
+                        <tr>
+                          <th className="p-2.5">তারিখ (Date)</th>
+                          <th className="p-2.5">লগইন সংখ্যা</th>
+                          <th className="p-2.5">ওয়াচ-টাইম</th>
+                          <th className="p-2.5">দেখা ক্লাসসমূহ (Watched Lessons)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/80 bg-slate-900/40">
+                        {(!activityReportModal.report.daily || activityReportModal.report.daily.length === 0) ? (
+                          <tr>
+                            <td colSpan={4} className="p-6 text-center text-slate-500">
+                              এই সময়সীমায় কোনো সক্রিয়তার তথ্য পাওয়া যায়নি।
+                            </td>
+                          </tr>
+                        ) : (
+                          activityReportModal.report.daily.map((day, dIdx) => (
+                            <tr key={dIdx} className="hover:bg-slate-800/40">
+                              <td className="p-2.5 font-mono font-bold text-slate-200">{day.date}</td>
+                              <td className="p-2.5 font-mono text-amber-400 font-bold">{day.loginCount || 0} বার</td>
+                              <td className="p-2.5 font-mono text-emerald-400 font-bold">{day.watchFormatted || '0h 0m'}</td>
+                              <td className="p-2.5">
+                                {(!day.lessons || day.lessons.length === 0) ? (
+                                  <span className="text-slate-500 text-[10px]">শুধুমাত্র পোর্টাল ভিজিট</span>
+                                ) : (
+                                  <div className="flex flex-wrap gap-1 max-w-sm">
+                                    {day.lessons.map((l, lIdx) => (
+                                      <span
+                                        key={lIdx}
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
+                                          l.completed
+                                            ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                                            : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                                        }`}
+                                        title={`দেখা হয়েছে: ${l.formatted}`}
+                                      >
+                                        {l.completed ? '✓ ' : '⏳ '}{l.lessonTitle || l.lessonId} ({l.formatted})
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </Modal>
       )}
     </div>

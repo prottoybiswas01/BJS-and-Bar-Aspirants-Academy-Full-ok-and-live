@@ -21,7 +21,8 @@ const COURSE_RULE_FIELDS = [
 ];
 const ADMIN_STUDENT_FIELDS = [...ACCOUNT_FIELDS.filter(field => field !== 'devices'),
   'adminNote', 'reviewNote', 'emailStatus', 'bouncedAt', 'bouncedReason', 'googleContactPhone',
-  'registrationStatus', 'registrationDate', 'registrationTime', 'joinedDate', 'source', 'isRegistrationOnly'
+  'registrationStatus', 'registrationDate', 'registrationTime', 'joinedDate', 'source', 'isRegistrationOnly',
+  'isTelegramMuted', 'totalWatchSeconds'
 ];
 const REGISTRATION_FIELDS = [
   '_id', 'regId', 'name', 'phone', 'email', 'university', 'batch', 'session', 'status', 'reviewNote', 'adminNote',

@@ -25,6 +25,8 @@ const Student = require('../models/Student');
 const Course = require('../models/Course');
 const Receipt = require('../models/Receipt');
 const TelegramSession = require('../models/TelegramSession');
+const StudentActivity = require('../models/StudentActivity');
+const Registration = require('../models/Registration');
 
 /**
  * Safe HTTPS Request Helper
@@ -125,31 +127,104 @@ function formatStudentForAlert(student) {
   return `${alertText(student.name)} (${/^STU-/i.test(id) ? id : `STU-${id}`})`;
 }
 
-function sendStudentActivityAlert(lines) {
+// In-memory cooldowns to prevent Telegram alert flooding on serverless & multi-tab requests
+const studentLoginAlertCooldowns = new Map(); // studentId -> timestamp
+const studentWatchAlertCooldowns = new Map(); // `${studentId}:${lessonId}` -> timestamp
+const studentCompletedAlerts = new Set(); // `${studentId}:${lessonId}`
+
+function sendStudentActivityAlert(lines, replyMarkup = null) {
   const chatId = (process.env.TELEGRAM_CHAT_ID || '7630488220').trim();
-  return sendTelegramMessage(chatId, lines.join('\n'), null, null, { parseMode: null, timeoutMs: 2500 });
+  return sendTelegramMessage(chatId, lines.join('\n'), null, replyMarkup, { parseMode: null, timeoutMs: 3000 });
 }
 
-function sendStudentLoginAlert(student, enrolledCourses, method, loggedInAt) {
+function getStudentInlineMarkup(student) {
+  const studentId = student.id || student.regId;
+  const isMuted = student.isTelegramMuted === true;
+  return {
+    inline_keyboard: [
+      [
+        { text: isMuted ? '🔔 Unmute Student' : '🔇 Mute Student', callback_data: `mute_toggle_${studentId}` },
+        { text: '🔍 View Profile', callback_data: `admin_student_${studentId}` }
+      ]
+    ]
+  };
+}
+
+async function sendStudentLoginAlert(student, enrolledCourses, method, loggedInAt) {
+  const studentId = String(student.id || student.regId || '').trim();
+  // 1. Two-Way Student Mute Suppression: when muted, 100% suppressed
+  if (student.isTelegramMuted === true) {
+    return { ok: true, suppressed: true, reason: 'student_muted' };
+  }
+
+  // 2. 30-minute per-student cooldown on Telegram login alerts
+  const now = Date.now();
+  const lastAlert = studentLoginAlertCooldowns.get(studentId);
+  const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+  if (lastAlert && (now - lastAlert < THIRTY_MINUTES_MS)) {
+    return { ok: true, suppressed: true, reason: 'cooldown' };
+  }
+  studentLoginAlertCooldowns.set(studentId, now);
+
   return sendStudentActivityAlert([
     '🔐 শিক্ষার্থী লগইন',
     `👤 শিক্ষার্থী: ${formatStudentForAlert(student)}`,
     `📱 ইমেইল / ফোন: ${alertText(student.email)} / ${alertText(student.phone)}`,
     `📚 এনরোলকৃত কোর্স: ${alertText(enrolledCourses.join(', ') || 'কোনো কোর্স নেই', 1200)}`,
     `🕒 লগইন সময় ও মাধ্যম: ${bangladeshLoginTime.format(loggedInAt)} (GMT+6) · ${method}`
-  ]);
+  ], getStudentInlineMarkup(student));
 }
 
-function sendStudentWatchAlert(student, courseTitle, lessonTitle, { event, watchedSeconds, videoTimestamp }) {
+async function sendStudentWatchAlert(student, courseTitle, lessonTitle, { event, watchedSeconds, videoTimestamp, isEightyPercent, lessonId }) {
+  const studentId = String(student.id || student.regId || '').trim();
+  const lId = String(lessonId || '').trim();
+  const alertKey = `${studentId}:${lId}`;
+
+  // 1. Two-Way Student Mute Suppression: when muted, 100% suppressed
+  if (student.isTelegramMuted === true) {
+    return { ok: true, suppressed: true, reason: 'student_muted' };
+  }
+
+  // 2. NEVER send alerts on pause, scrub, buffer, progress, or ended!
+  // Only send when:
+  // a) Student FIRST opens a new class (event === 'started') with 15-minute cooldown
+  // b) OR student completes >= 80% of the video (isEightyPercent === true or event === 'completed')
+  const isStart = event === 'started';
+  const isComplete = isEightyPercent === true || event === 'completed';
+
+  if (!isStart && !isComplete) {
+    return { ok: true, suppressed: true, reason: 'telemetry_only' };
+  }
+
+  const now = Date.now();
+  if (isStart) {
+    const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
+    const lastStart = studentWatchAlertCooldowns.get(alertKey);
+    if (lastStart && (now - lastStart < FIFTEEN_MINUTES_MS)) {
+      return { ok: true, suppressed: true, reason: 'cooldown' };
+    }
+    studentWatchAlertCooldowns.set(alertKey, now);
+  }
+
+  if (isComplete) {
+    if (studentCompletedAlerts.has(alertKey)) {
+      return { ok: true, suppressed: true, reason: 'already_completed' };
+    }
+    studentCompletedAlerts.add(alertKey);
+  }
+
   const duration = `${bengaliDigits(Math.floor(watchedSeconds / 60))} মিনিট ${bengaliDigits(watchedSeconds % 60)} সেকেন্ড`;
   const position = [Math.floor(videoTimestamp / 60), videoTimestamp % 60]
     .map(part => bengaliDigits(String(part).padStart(2, '0'))).join(':');
+
+  const headline = isComplete ? '✅ ৮০%+ ক্লাস সম্পন্ন করেছে' : '▶️ নতুন ক্লাস শুরু করেছে';
+
   return sendStudentActivityAlert([
-    event === 'started' ? '▶️ ক্লাস শুরু করেছে' : '⏹️ ক্লাস দেখা শেষ/বন্ধ করেছে',
+    headline,
     `👤 শিক্ষার্থী: ${formatStudentForAlert(student)}`,
     `🎬 কোর্স ও ক্লাস: ${alertText(courseTitle)} — ${alertText(lessonTitle)}`,
     `⏱️ দেখার সময়কাল: ${duration} | ভিডিও অবস্থান: ${position}`
-  ]);
+  ], getStudentInlineMarkup(student));
 }
 
 /**
@@ -219,9 +294,13 @@ async function registerBotCommands(token) {
   try {
     const payload = {
       commands: [
+        { command: 'admin', description: 'অ্যাডমিন কনসোল ও পূর্ণাঙ্গ নিয়ন্ত্রণ' },
         { command: 'help', description: 'সকল ফিচার ও বিস্তারিত গাইড' },
         { command: 'payment', description: 'পেমেন্ট ভেরিফাই ও কোর্স অ্যাক্টিভ' },
         { command: 'student', description: 'স্টুডেন্ট তথ্য খুঁজুন' },
+        { command: 'mute', description: 'স্টুডেন্ট টেলিগ্রাম অ্যালার্ট মিউট (/mute ID)' },
+        { command: 'unmute', description: 'স্টুডেন্ট টেলিগ্রাম অ্যালার্ট আনমিউট (/unmute ID)' },
+        { command: 'report', description: 'স্টুডেন্ট ওয়াচ-টাইম রিপোর্ট (/report ID)' },
         { command: 'status', description: 'সার্ভার ও ডিপ্লয়মেন্ট স্ট্যাটাস' },
         { command: 'fix', description: 'রিমোট বাগ ফিক্স (স্ক্রিনশটসহ)' },
         { command: 'feature', description: 'নতুন ফিচার যোগ করুন' }
@@ -455,12 +534,32 @@ Return strictly a valid JSON object in this format (no markdown, no backticks, n
  */
 const SUPER_ADMIN_KEYBOARD = {
   keyboard: [
-    [{ text: '💳 পেমেন্ট অ্যাপ্রুভ' }, { text: '🔍 স্টুডেন্ট সার্চ' }],
-    [{ text: '📊 সার্ভার স্ট্যাটাস' }, { text: '🛠️ রিমোট কোড ফিক্স' }],
-    [{ text: '❓ সাহায্য ও গাইড (/help)' }]
+    [{ text: '⚡ অ্যাডমিন কনসোল (/admin)' }, { text: '💳 পেমেন্ট অ্যাপ্রুভ' }],
+    [{ text: '🔍 স্টুডেন্ট সার্চ' }, { text: '📊 সার্ভার স্ট্যাটাস' }],
+    [{ text: '🛠️ রিমোট কোড ফিক্স' }, { text: '❓ সাহায্য ও গাইড (/help)' }]
   ],
   resize_keyboard: true,
   one_time_keyboard: false
+};
+
+/**
+ * Interactive Admin Console Inline Keyboard
+ */
+const ADMIN_INLINE_KEYBOARD = {
+  inline_keyboard: [
+    [
+      { text: '👥 শিক্ষার্থী ব্যবস্থাপনা', callback_data: 'admin_menu_students' },
+      { text: '💳 পেমেন্ট ও এনরোলমেন্ট', callback_data: 'admin_menu_payments' }
+    ],
+    [
+      { text: '📚 কোর্স ও কনটেন্ট', callback_data: 'admin_menu_courses' },
+      { text: '📊 ড্যাশবোর্ড পরিসংখ্যান', callback_data: 'admin_menu_stats' }
+    ],
+    [
+      { text: '🔇 মিউট স্টুডেন্ট তালিকা', callback_data: 'admin_menu_mutes' },
+      { text: '🔄 রিফ্রেশ / হেল্প', callback_data: 'admin_menu_main' }
+    ]
+  ]
 };
 
 /**
@@ -612,6 +711,355 @@ async function handleTelegramWebhook(req, res) {
         return res.status(200).json({ ok: true });
       }
 
+      // E. Two-Way Student Telegram Mute Toggle Callback
+      if (cqData.startsWith('mute_toggle_')) {
+        const studentId = cqData.replace('mute_toggle_', '').trim();
+        const student = await Student.findOne({
+          $or: [{ id: studentId }, ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])]
+        });
+        if (!student) {
+          await answerCallbackQuery(cqId, '❌ শিক্ষার্থী পাওয়া যায়নি!', true);
+          return res.status(200).json({ ok: true });
+        }
+        student.isTelegramMuted = !student.isTelegramMuted;
+        await student.save();
+        const isMuted = student.isTelegramMuted;
+        await answerCallbackQuery(cqId, isMuted ? `🔇 ${student.name} এর টেলিগ্রাম অ্যালার্ট মিউট করা হয়েছে।` : `🔔 ${student.name} এর টেলিগ্রাম অ্যালার্ট চালু করা হয়েছে।`, true);
+        if (cq.message?.message_id) {
+          const updatedMarkup = {
+            inline_keyboard: [
+              [
+                { text: isMuted ? '🔔 Unmute Student' : '🔇 Mute Student', callback_data: `mute_toggle_${student.id || studentId}` },
+                { text: '🔍 View Profile', callback_data: `admin_student_${student.id || studentId}` }
+              ]
+            ]
+          };
+          await editTelegramMessageText(senderId, cq.message.message_id, cq.message.text, updatedMarkup);
+        }
+        return res.status(200).json({ ok: true });
+      }
+
+      // F. Admin Student Profile Callback
+      if (cqData.startsWith('admin_student_')) {
+        const studentId = cqData.replace('admin_student_', '').trim();
+        const student = await Student.findOne({
+          $or: [{ id: studentId }, ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])]
+        }).lean();
+        if (!student) {
+          await answerCallbackQuery(cqId, '❌ শিক্ষার্থী পাওয়া যায়নি!', true);
+          return res.status(200).json({ ok: true });
+        }
+        const courses = (student.allowedCourseIds || []).join(', ') || 'কোনো কোর্স অনুমোদিত নেই';
+        const watchMins = Math.round((student.totalWatchSeconds || 0) / 60);
+        const watchHours = Math.floor(watchMins / 60);
+        const remMins = watchMins % 60;
+        const profileMsg = `👤 *শিক্ষার্থীর প্রোফাইল*\n\n` +
+          `📛 নাম: *${student.name}*\n` +
+          `🆔 আইডি: \`${student.id}\`\n` +
+          `📱 মোবাইল: \`${student.phone}\`\n` +
+          `📧 ইমেইল: \`${student.email}\`\n` +
+          `📊 অ্যাকাউন্ট স্ট্যাটাস: *${student.status}* (অনুমোদন: ${student.loginApproval || 'N/A'})\n` +
+          `🔇 টেলিগ্রাম অ্যালার্ট: *${student.isTelegramMuted ? 'মিউট করা (Muted)' : 'চালু (Active)'}*\n` +
+          `⏱️ মোট ওয়াচ-টাইম: *${watchHours}h ${remMins}m*\n` +
+          `📚 অনুমোদিত কোর্সসমূহ:\n${courses}\n`;
+
+        const profileMarkup = {
+          inline_keyboard: [
+            [
+              { text: student.isTelegramMuted ? '🔔 আনমিউট করুন' : '🔇 মিউট করুন', callback_data: `mute_toggle_${student.id}` },
+              { text: '📊 ওয়াচ রিপোর্ট', callback_data: `admin_report_${student.id}` }
+            ],
+            [
+              { text: student.status === 'Active' ? '⛔ ব্লক করুন' : '✅ সক্রিয় করুন', callback_data: `admin_toggle_status_${student.id}` }
+            ],
+            [
+              { text: '🔙 অ্যাডমিন মেন্যু', callback_data: 'admin_menu_main' }
+            ]
+          ]
+        };
+        await sendTelegramMessage(senderId, profileMsg, null, profileMarkup);
+        return res.status(200).json({ ok: true });
+      }
+
+      // G. Admin 30-Day Activity Report Callback
+      if (cqData.startsWith('admin_report_')) {
+        const studentId = cqData.replace('admin_report_', '').trim();
+        const student = await Student.findOne({
+          $or: [{ id: studentId }, ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])]
+        }).lean();
+        if (!student) {
+          await answerCallbackQuery(cqId, '❌ শিক্ষার্থী পাওয়া যায়নি!', true);
+          return res.status(200).json({ ok: true });
+        }
+        const cutoffDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const activities = await StudentActivity.find({
+          studentId: student.id,
+          date: { $gte: cutoffDate }
+        }).sort({ date: -1 }).limit(30).lean();
+
+        const totalLogins = activities.reduce((acc, a) => acc + (a.loginCount || 0), 0);
+        const totalWatchSecs = activities.reduce((acc, a) => acc + (a.totalWatchSeconds || 0), 0);
+        const activeDays = activities.filter(a => (a.loginCount > 0 || a.totalWatchSeconds > 0)).length;
+        const watchHours = Math.floor(totalWatchSecs / 3600);
+        const watchMins = Math.floor((totalWatchSecs % 3600) / 60);
+
+        let reportMsg = `📊 *শিক্ষার্থীর অ্যাক্টিভিটি রিপোর্ট (বিগত ৩০ দিন)*\n\n` +
+          `👤 নাম: *${student.name}* (\`${student.id}\`)\n` +
+          `🔑 মোট লগইন সংখ্যা: *${totalLogins} বার*\n` +
+          `⏱️ মোট ওয়াচ-টাইম: *${watchHours}h ${watchMins}m*\n` +
+          `📅 সক্রিয় দিন: *${activeDays} দিন*\n\n` +
+          `*দৈনিক হিসেব (সর্বশেষ ৭ দিন):*\n`;
+
+        const recentDays = activities.slice(0, 7);
+        if (recentDays.length === 0) {
+          reportMsg += `_বিগত ৩০ দিনে কোনো রেকর্ড পাওয়া যায়নি।_\n`;
+        } else {
+          recentDays.forEach(day => {
+            const dHours = Math.floor((day.totalWatchSeconds || 0) / 3600);
+            const dMins = Math.floor(((day.totalWatchSeconds || 0) % 3600) / 60);
+            reportMsg += `• *${day.date}*: লগইন ${day.loginCount || 0} বার | দেখা: ${dHours}h ${dMins}m\n`;
+          });
+        }
+
+        const reportMarkup = {
+          inline_keyboard: [
+            [
+              { text: student.isTelegramMuted ? '🔔 আনমিউট' : '🔇 মিউট', callback_data: `mute_toggle_${student.id}` },
+              { text: '👤 প্রোফাইল', callback_data: `admin_student_${student.id}` }
+            ],
+            [
+              { text: '🔙 অ্যাডমিন মেন্যু', callback_data: 'admin_menu_main' }
+            ]
+          ]
+        };
+        await sendTelegramMessage(senderId, reportMsg, null, reportMarkup);
+        return res.status(200).json({ ok: true });
+      }
+
+      // H. Admin Toggle Student Active/Blocked Status
+      if (cqData.startsWith('admin_toggle_status_')) {
+        const studentId = cqData.replace('admin_toggle_status_', '').trim();
+        const student = await Student.findOne({
+          $or: [{ id: studentId }, ...(mongoose.Types.ObjectId.isValid(studentId) ? [{ _id: studentId }] : [])]
+        });
+        if (!student) {
+          await answerCallbackQuery(cqId, '❌ শিক্ষার্থী পাওয়া যায়নি!', true);
+          return res.status(200).json({ ok: true });
+        }
+        student.status = student.status === 'Active' ? 'Blocked' : 'Active';
+        await student.save();
+        await answerCallbackQuery(cqId, `স্ট্যাটাস পরিবর্তিত হয়েছে: ${student.status}`, true);
+        await sendTelegramMessage(
+          senderId,
+          `🔄 *শিক্ষার্থীর স্ট্যাটাস আপডেট:*\n\n👤 *${student.name}* (\`${student.id}\`)\nবর্তমান স্ট্যাটাস: *${student.status}*`,
+          null,
+          {
+            inline_keyboard: [
+              [{ text: '👤 প্রোফাইল দেখুন', callback_data: `admin_student_${student.id}` }],
+              [{ text: '🔙 অ্যাডমিন মেন্যু', callback_data: 'admin_menu_main' }]
+            ]
+          }
+        );
+        return res.status(200).json({ ok: true });
+      }
+
+      // I. Admin Console Main Menu Callback
+      if (cqData === 'admin_menu_main') {
+        const adminMenuMsg = `🏛️ *BJS Academy সুপার-অ্যাডমিন কনসোল*\n` +
+          `🌐 *Portal:* https://bjs.kodl.uk\n\n` +
+          `প্ল্যাটফর্মের সার্বিক নিয়ন্ত্রণ ও পরিচালনার জন্য নিচের মেন্যু নির্বাচন করুন:`;
+        await sendTelegramMessage(senderId, adminMenuMsg, null, ADMIN_INLINE_KEYBOARD);
+        return res.status(200).json({ ok: true });
+      }
+
+      // J. Admin Students Management Menu
+      if (cqData === 'admin_menu_students') {
+        const recentStudents = await Student.find({}, 'id name phone status isTelegramMuted')
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .lean();
+
+        let sMsg = `👥 *শিক্ষার্থী ব্যবস্থাপনা*\n\n` +
+          `*সর্বশেষ নিবন্ধিত শিক্ষার্থীবৃন্দ:*\n`;
+        const buttons = [];
+        recentStudents.forEach((s, idx) => {
+          sMsg += `${idx + 1}. *${s.name}* (\`${s.id}\`) - ${s.status} ${s.isTelegramMuted ? '🔇' : ''}\n`;
+          buttons.push([{ text: `👤 ${s.name} (${s.id})`, callback_data: `admin_student_${s.id}` }]);
+        });
+        sMsg += `\n🔍 যেকোনো শিক্ষার্থী খুঁজতে লিখুন: \`/student [আইডি বা ফোন]\`\n` +
+          `🔇 নোটিফিকেশন মিউট করতে: \`/mute [আইডি]\`\n` +
+          `🔔 নোটিফিকেশন চালু করতে: \`/unmute [আইডি]\``;
+
+        buttons.push([{ text: '🔙 মূল মেন্যু', callback_data: 'admin_menu_main' }]);
+        await sendTelegramMessage(senderId, sMsg, null, { inline_keyboard: buttons });
+        return res.status(200).json({ ok: true });
+      }
+
+      // K. Admin Pending Payments & Approvals
+      if (cqData === 'admin_menu_payments') {
+        const pendingRegs = await Registration.find({ status: 'Pending' })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .lean();
+
+        if (pendingRegs.length === 0) {
+          const noPayMsg = `💳 *পেমেন্ট ও এনরোলমেন্ট*\n\n` +
+            `✅ এই মুহূর্তে কোনো পেন্ডিং রেজিস্ট্রেশন বা পেমেন্ট নেই। সব রিকোয়েস্ট অনুমোদিত!`;
+          await sendTelegramMessage(senderId, noPayMsg, null, ADMIN_INLINE_KEYBOARD);
+          return res.status(200).json({ ok: true });
+        }
+
+        let pMsg = `💳 *পেন্ডিং রেজিস্ট্রেশন ও পেমেন্ট তালিকা (${pendingRegs.length} টি)*\n\n`;
+        const pButtons = [];
+        pendingRegs.forEach((r, idx) => {
+          pMsg += `${idx + 1}. *${r.name}* (\`${r.regId}\`)\n` +
+            `   📱 ফোন: \`${r.phone}\` | 📚 কোর্স: ${r.courseName || r.course || 'N/A'}\n` +
+            `   💰 পেমেন্ট মেথড: ${r.paymentMethod || 'Manual'} | TrxID: \`${r.transactionId || 'N/A'}\`\n\n`;
+          pButtons.push([
+            { text: `✅ অনুমোদন (${r.regId})`, callback_data: `admin_approve_reg_${r.regId}` },
+            { text: `❌ বাতিল (${r.regId})`, callback_data: `admin_reject_reg_${r.regId}` }
+          ]);
+        });
+        pButtons.push([{ text: '🔙 মূল মেন্যু', callback_data: 'admin_menu_main' }]);
+        await sendTelegramMessage(senderId, pMsg, null, { inline_keyboard: pButtons });
+        return res.status(200).json({ ok: true });
+      }
+
+      // L. 1-Click Approve Registration Callback
+      if (cqData.startsWith('admin_approve_reg_')) {
+        const regId = cqData.replace('admin_approve_reg_', '').trim();
+        const reg = await Registration.findOne({ regId });
+        if (!reg) {
+          await answerCallbackQuery(cqId, 'রেজিস্ট্রেশন পাওয়া যায়নি!', true);
+          return res.status(200).json({ ok: true });
+        }
+        reg.status = 'Approved';
+        await reg.save();
+
+        let stu = await Student.findOne({ $or: [{ id: regId }, { email: reg.email }, { phone: reg.phone }] });
+        const enrolledCourse = reg.course || reg.courseName || 'General';
+        if (!stu) {
+          stu = new Student({
+            id: regId,
+            name: reg.name,
+            phone: reg.phone,
+            email: reg.email,
+            password: reg.password,
+            status: 'Active',
+            loginApproval: 'Approved',
+            allowedCourseIds: [enrolledCourse],
+            batch: reg.batch || 'Judiciary 2026',
+            university: reg.university || ''
+          });
+        } else {
+          stu.status = 'Active';
+          stu.loginApproval = 'Approved';
+          if (!Array.isArray(stu.allowedCourseIds)) stu.allowedCourseIds = [];
+          if (!stu.allowedCourseIds.includes(enrolledCourse)) {
+            stu.allowedCourseIds.push(enrolledCourse);
+          }
+        }
+        await stu.save();
+        await answerCallbackQuery(cqId, `✓ ${reg.name} এর রেজিস্ট্রেশন ও কোর্স অনুমোদিত হয়েছে!`, true);
+        await sendTelegramMessage(
+          senderId,
+          `🎉 *রেজিস্ট্রেশন সফলভাবে অনুমোদিত হয়েছে!*\n\n👤 শিক্ষার্থী: *${reg.name}* (\`${regId}\`)\n📚 অনুমোদিত কোর্স: *${enrolledCourse}*\nপোর্টাল এক্সেস সক্রিয় করা হয়েছে।`,
+          null,
+          ADMIN_INLINE_KEYBOARD
+        );
+        return res.status(200).json({ ok: true });
+      }
+
+      // M. 1-Click Reject Registration Callback
+      if (cqData.startsWith('admin_reject_reg_')) {
+        const regId = cqData.replace('admin_reject_reg_', '').trim();
+        const reg = await Registration.findOne({ regId });
+        if (!reg) {
+          await answerCallbackQuery(cqId, 'রেজিস্ট্রেশন পাওয়া যায়নি!', true);
+          return res.status(200).json({ ok: true });
+        }
+        reg.status = 'Rejected';
+        await reg.save();
+        await answerCallbackQuery(cqId, `রেজিস্ট্রেশন বাতিল করা হয়েছে।`, true);
+        await sendTelegramMessage(
+          senderId,
+          `❌ *রেজিস্ট্রেশন বাতিল করা হয়েছে:*\n\n👤 শিক্ষার্থী: *${reg.name}* (\`${regId}\`)`,
+          null,
+          ADMIN_INLINE_KEYBOARD
+        );
+        return res.status(200).json({ ok: true });
+      }
+
+      // N. Admin Courses Menu Callback
+      if (cqData === 'admin_menu_courses') {
+        const courses = await Course.find({ status: { $ne: 'Hidden' } }, 'id title totalLessons totalDurationFormatted status')
+          .lean();
+
+        let cMsg = `📚 *কোর্স ও কনটেন্ট ওভারভিউ (${courses.length} টি)*\n\n`;
+        courses.forEach((c, idx) => {
+          cMsg += `${idx + 1}. *${c.title}*\n` +
+            `   🆔 আইডি: \`${c.id}\` | 🎬 ক্লাস: ${c.totalLessons || 0} টি\n` +
+            `   ⏱️ মোট সময়কাল: ${c.totalDurationFormatted || '0h 0m'} | স্ট্যাটাস: ${c.status || 'Active'}\n\n`;
+        });
+        await sendTelegramMessage(senderId, cMsg, null, ADMIN_INLINE_KEYBOARD);
+        return res.status(200).json({ ok: true });
+      }
+
+      // O. Admin Dashboard Statistics Callback
+      if (cqData === 'admin_menu_stats') {
+        const dhakaDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(new Date());
+        const [totalStudents, activeStudents, todayActivities] = await Promise.all([
+          Student.countDocuments(),
+          Student.countDocuments({ status: 'Active', loginApproval: 'Approved' }),
+          StudentActivity.find({ date: dhakaDate }).lean()
+        ]);
+
+        const todayLogins = todayActivities.reduce((acc, a) => acc + (a.loginCount || 0), 0);
+        const todayWatchSecs = todayActivities.reduce((acc, a) => acc + (a.totalWatchSeconds || 0), 0);
+        const todayActiveStudents = todayActivities.length;
+        const watchHours = Math.floor(todayWatchSecs / 3600);
+        const watchMins = Math.floor((todayWatchSecs % 3600) / 60);
+
+        const statsMsg = `📊 *BJS Academy ড্যাশবোর্ড পরিসংখ্যান*\n` +
+          `📅 তারিখ: *${dhakaDate}* (Asia/Dhaka)\n\n` +
+          `👥 মোট শিক্ষার্থী: *${totalStudents} জন*\n` +
+          `✅ সক্রিয় শিক্ষার্থী: *${activeStudents} জন*\n` +
+          `📱 আজকের সক্রিয় শিক্ষার্থী: *${todayActiveStudents} জন*\n` +
+          `🔑 আজকের মোট লগইন: *${todayLogins} বার*\n` +
+          `⏱️ আজকের মোট ওয়াচ-টাইম: *${watchHours}h ${watchMins}m*\n` +
+          `🤖 AI অ্যাসিস্ট্যান্ট স্ট্যাটাস: *অপারেশনাল (Gemini / Groq)*`;
+
+        await sendTelegramMessage(senderId, statsMsg, null, ADMIN_INLINE_KEYBOARD);
+        return res.status(200).json({ ok: true });
+      }
+
+      // P. Admin Muted Students List Callback
+      if (cqData === 'admin_menu_mutes') {
+        const mutedStudents = await Student.find({ isTelegramMuted: true }, 'id name phone')
+          .limit(10)
+          .lean();
+
+        if (mutedStudents.length === 0) {
+          await sendTelegramMessage(
+            senderId,
+            `🔔 *মিউট স্টুডেন্টস তালিকা*\n\nবর্তমানে কোনো শিক্ষার্থীর নোটিফিকেশন মিউট করা নেই।`,
+            null,
+            ADMIN_INLINE_KEYBOARD
+          );
+          return res.status(200).json({ ok: true });
+        }
+
+        let mMsg = `🔇 *মিউটকৃত শিক্ষার্থীদের তালিকা (${mutedStudents.length} জন)*\n\n`;
+        const mButtons = [];
+        mutedStudents.forEach((s, idx) => {
+          mMsg += `${idx + 1}. *${s.name}* (\`${s.id}\` - ${s.phone})\n`;
+          mButtons.push([{ text: `🔔 আনমিউট (${s.name})`, callback_data: `mute_toggle_${s.id}` }]);
+        });
+        mButtons.push([{ text: '🔙 মূল মেন্যু', callback_data: 'admin_menu_main' }]);
+        await sendTelegramMessage(senderId, mMsg, null, { inline_keyboard: mButtons });
+        return res.status(200).json({ ok: true });
+      }
+
       return res.status(200).json({ ok: true });
     }
 
@@ -639,6 +1087,147 @@ async function handleTelegramWebhook(req, res) {
 
     // Auto-register commands menu in background
     registerBotCommands(process.env.TELEGRAM_BOT_TOKEN).catch(() => {});
+
+    // Admin Interactive Console (/admin)
+    if (text === '/admin' || text === 'admin' || text === '⚡ অ্যাডমিন কনসোল (/admin)') {
+      await updateSession(senderId, 'idle', {});
+      const adminMenuMsg = `🏛️ *BJS Academy সুপার-অ্যাডমিন কনসোল*\n` +
+        `🌐 *Portal:* https://bjs.kodl.uk\n\n` +
+        `স্বাগতম অ্যাডমিন! আপনি প্ল্যাটফর্মের যাবতীয় প্রশাসনিক কার্যাবলী সরাসরি এখান থেকেই পরিচালনা করতে পারবেন। নিচের অপশনগুলো থেকে বেছে নিন:`;
+      await sendTelegramMessage(senderId, adminMenuMsg, messageId, ADMIN_INLINE_KEYBOARD);
+      return res.status(200).json({ ok: true });
+    }
+
+    // Direct /mute Command
+    if (text.startsWith('/mute')) {
+      const q = text.replace(/^\/mute\s*/i, '').trim();
+      if (!q) {
+        await sendTelegramMessage(senderId, `⚠️ অনুগ্রহ করে শিক্ষার্থীর আইডি অথবা মোবাইল নম্বর লিখুন। যেমন:\n\`/mute STU-2026-001\` অথবা \`/mute 01800077663\``, messageId);
+        return res.status(200).json({ ok: true });
+      }
+      const student = await Student.findOne({
+        $or: [
+          { id: q },
+          { phone: q },
+          { email: q },
+          ...(mongoose.Types.ObjectId.isValid(q) ? [{ _id: q }] : [])
+        ]
+      });
+      if (!student) {
+        await sendTelegramMessage(senderId, `❌ \`${q}\` তথ্য দিয়ে কোনো শিক্ষার্থী পাওয়া যায়নি।`, messageId);
+        return res.status(200).json({ ok: true });
+      }
+      student.isTelegramMuted = true;
+      await student.save();
+      await sendTelegramMessage(
+        senderId,
+        `🔇 *${student.name}* (\`${student.id}\`) এর জন্য টেলিগ্রাম নোটিফিকেশন মিউট করা হয়েছে।\n(ডাটাবেসে ওয়াচ-টাইম ও লগইন অ্যানালিটিক্স স্বাভাবিকভাবে সংরক্ষিত হবে)`,
+        messageId,
+        {
+          inline_keyboard: [
+            [{ text: '🔔 আনমিউট করুন', callback_data: `mute_toggle_${student.id}` }],
+            [{ text: '🔙 অ্যাডমিন মেন্যু', callback_data: 'admin_menu_main' }]
+          ]
+        }
+      );
+      return res.status(200).json({ ok: true });
+    }
+
+    // Direct /unmute Command
+    if (text.startsWith('/unmute')) {
+      const q = text.replace(/^\/unmute\s*/i, '').trim();
+      if (!q) {
+        await sendTelegramMessage(senderId, `⚠️ অনুগ্রহ করে শিক্ষার্থীর আইডি অথবা মোবাইল নম্বর লিখুন। যেমন:\n\`/unmute STU-2026-001\` অথবা \`/unmute 01800077663\``, messageId);
+        return res.status(200).json({ ok: true });
+      }
+      const student = await Student.findOne({
+        $or: [
+          { id: q },
+          { phone: q },
+          { email: q },
+          ...(mongoose.Types.ObjectId.isValid(q) ? [{ _id: q }] : [])
+        ]
+      });
+      if (!student) {
+        await sendTelegramMessage(senderId, `❌ \`${q}\` তথ্য দিয়ে কোনো শিক্ষার্থী পাওয়া যায়নি।`, messageId);
+        return res.status(200).json({ ok: true });
+      }
+      student.isTelegramMuted = false;
+      await student.save();
+      await sendTelegramMessage(
+        senderId,
+        `🔔 *${student.name}* (\`${student.id}\`) এর জন্য টেলিগ্রাম নোটিফিকেশন চালু করা হয়েছে।`,
+        messageId,
+        {
+          inline_keyboard: [
+            [{ text: '🔇 মিউট করুন', callback_data: `mute_toggle_${student.id}` }],
+            [{ text: '🔙 অ্যাডমিন মেন্যু', callback_data: 'admin_menu_main' }]
+          ]
+        }
+      );
+      return res.status(200).json({ ok: true });
+    }
+
+    // Direct /report Command
+    if (text.startsWith('/report')) {
+      const q = text.replace(/^\/report\s*/i, '').trim();
+      if (!q) {
+        await sendTelegramMessage(senderId, `⚠️ অনুগ্রহ করে শিক্ষার্থীর আইডি অথবা মোবাইল নম্বর লিখুন। যেমন:\n\`/report STU-2026-001\` অথবা \`/report 01800077663\``, messageId);
+        return res.status(200).json({ ok: true });
+      }
+      const student = await Student.findOne({
+        $or: [
+          { id: q },
+          { phone: q },
+          { email: q },
+          ...(mongoose.Types.ObjectId.isValid(q) ? [{ _id: q }] : [])
+        ]
+      }).lean();
+      if (!student) {
+        await sendTelegramMessage(senderId, `❌ \`${q}\` তথ্য দিয়ে কোনো শিক্ষার্থী পাওয়া যায়নি।`, messageId);
+        return res.status(200).json({ ok: true });
+      }
+      const cutoffDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const activities = await StudentActivity.find({
+        studentId: student.id,
+        date: { $gte: cutoffDate }
+      }).sort({ date: -1 }).limit(30).lean();
+
+      const totalLogins = activities.reduce((acc, a) => acc + (a.loginCount || 0), 0);
+      const totalWatchSecs = activities.reduce((acc, a) => acc + (a.totalWatchSeconds || 0), 0);
+      const activeDays = activities.filter(a => (a.loginCount > 0 || a.totalWatchSeconds > 0)).length;
+      const watchHours = Math.floor(totalWatchSecs / 3600);
+      const watchMins = Math.floor((totalWatchSecs % 3600) / 60);
+
+      let reportMsg = `📊 *শিক্ষার্থীর অ্যাক্টিভিটি রিপোর্ট (বিগত ৩০ দিন)*\n\n` +
+        `👤 নাম: *${student.name}* (\`${student.id}\`)\n` +
+        `🔑 মোট লগইন সংখ্যা: *${totalLogins} বার*\n` +
+        `⏱️ মোট ওয়াচ-টাইম: *${watchHours}h ${watchMins}m*\n` +
+        `📅 সক্রিয় দিন: *${activeDays} দিন*\n\n` +
+        `*দৈনিক হিসেব (সর্বশেষ ৭ দিন):*\n`;
+
+      const recentDays = activities.slice(0, 7);
+      if (recentDays.length === 0) {
+        reportMsg += `_বিগত ৩০ দিনে কোনো রেকর্ড পাওয়া যায়নি।_\n`;
+      } else {
+        recentDays.forEach(day => {
+          const dHours = Math.floor((day.totalWatchSeconds || 0) / 3600);
+          const dMins = Math.floor(((day.totalWatchSeconds || 0) % 3600) / 60);
+          reportMsg += `• *${day.date}*: লগইন ${day.loginCount || 0} বার | দেখা: ${dHours}h ${dMins}m\n`;
+        });
+      }
+
+      await sendTelegramMessage(senderId, reportMsg, messageId, {
+        inline_keyboard: [
+          [
+            { text: student.isTelegramMuted ? '🔔 আনমিউট' : '🔇 মিউট', callback_data: `mute_toggle_${student.id}` },
+            { text: '👤 প্রোফাইল', callback_data: `admin_student_${student.id}` }
+          ],
+          [{ text: '🔙 অ্যাডমিন মেন্যু', callback_data: 'admin_menu_main' }]
+        ]
+      });
+      return res.status(200).json({ ok: true });
+    }
 
     // Cancel / Reset Command
     if (text === '/cancel' || text === 'বাতিল' || text === 'Cancel') {
