@@ -739,10 +739,25 @@ async function autoCleanExpiredScriptImages() {
 // Background DB Connection Initiator
 ensureDbConnected();
 
+// Universal Database Connection Middleware for Serverless Runtime
+app.use(async (req, res, next) => {
+  if (process.env.NODE_ENV !== 'test') {
+    try {
+      await ensureDbConnected();
+    } catch (err) {
+      console.warn('[DB Middleware] MongoDB connection attempt error:', err.message || err);
+    }
+  }
+  next();
+});
+
 // REST ENDPOINTS
 
 // 1. Health Check (Strict & Truthful: reports actual MongoDB connection status and database name)
-app.get(["/api/health", "/health"], (req, res) => {
+app.get(["/api/health", "/health"], async (req, res) => {
+  if (process.env.NODE_ENV !== 'test') {
+    await ensureDbConnected().catch(() => {});
+  }
   const healthy = isMongoConnected && mongoose.connection?.readyState === 1 &&
     mongoose.connection.name === PRODUCTION_DB_NAME;
   res.setHeader("Cache-Control", "no-store");
@@ -969,6 +984,7 @@ const {
     console.warn('Access denied', { code, method: req.method, role: req.user?.role || 'unknown' });
   },
   async findStudent(id) {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     if (!isMongoConnected) throw new AuthError('AUTH_UNAVAILABLE');
     const student = await Student.findOne({
       $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])]
@@ -980,6 +996,7 @@ const {
     return registration ? registrationSessionAccount(registration) : null;
   },
   async findMentor(id) {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     if (!isMongoConnected) throw new AuthError('AUTH_UNAVAILABLE');
     const mentor = await Mentor.findOne({
       $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])]
@@ -1364,6 +1381,7 @@ app.post("/api/auth/login", async (req, res) => {
       return res.json({ ok: true, token, isAdmin: true, user: ADMIN_IDENTITY });
     }
 
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
     const lookup = identifier.trim();
     const mentor = await findPasswordAccount(Mentor, lookup, "id");
@@ -1879,6 +1897,7 @@ async function recoveryTarget(identifier) {
   if (typeof identifier !== "string" || !identifier.trim() || identifier.length > 254) {
     throw new AuthError("INVALID_INPUT");
   }
+  if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
   if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
   const lookup = identifier.trim();
   const student = await findPasswordAccount(Student, lookup, "id");
