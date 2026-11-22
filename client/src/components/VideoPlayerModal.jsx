@@ -25,19 +25,39 @@ import './VideoPlayerModal.css';
 
 const getFullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement;
 const isTouchDevice = () => window.matchMedia('(pointer: coarse)').matches;
+const MOBILE_LANDSCAPE = '(orientation: landscape) and (max-height: 550px)';
+const HUD_TIMEOUT = 3000;
+const DOUBLE_TAP_TIMEOUT = 300;
+const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 2].map(rate => ({ value: rate, label: `${rate}x` }));
+const QUALITY_OPTIONS = [
+  { value: 'auto', label: 'Auto', shortLabel: 'Auto' },
+  { value: 'hd1080', label: '1080p HD', shortLabel: '1080p' },
+  { value: 'hd720', label: '720p HD', shortLabel: '720p' },
+  { value: 'large', label: '480p', shortLabel: '480p' },
+  { value: 'medium', label: '360p', shortLabel: '360p' }
+];
 
-function requestHdPlayback(player) {
-  // Current YouTube embeds select quality adaptively. Older players may honor this preference.
-  if (typeof player.setPlaybackQuality !== 'function') return;
-  try {
-    const levels = player.getAvailableQualityLevels?.();
-    const prefer720 = levels?.includes('hd720') && !levels.includes('hd1080');
-    player.setPlaybackQuality(prefer720 ? 'hd720' : 'hd1080');
-  } catch (_) {
+function requestPlaybackQuality(player, preference) {
+  if (!player) return;
+  let quality = preference === 'auto' ? 'default' : preference;
+  if (!quality) {
+    quality = 'hd1080';
     try {
-      player.setPlaybackQuality('hd720');
+      const levels = player.getAvailableQualityLevels?.();
+      if (levels?.includes('hd720') && !levels.includes('hd1080')) quality = 'hd720';
     } catch (_) {}
   }
+
+  // The current public IFrame API uses adaptive quality. Some players expose legacy controls.
+  try {
+    player.setPlaybackQuality?.(quality);
+  } catch (_) {
+    if (!preference && quality === 'hd1080') {
+      quality = 'hd720';
+      try { player.setPlaybackQuality?.(quality); } catch (_) {}
+    }
+  }
+  try { player.setPlaybackQualityRange?.(quality, quality); } catch (_) {}
 }
 
 function createWatchTracker(getIdentity, startTime) {
@@ -149,11 +169,13 @@ export default function VideoPlayerModal({
 }) {
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isMobileLandscape, setIsMobileLandscape] = useState(() => window.matchMedia(MOBILE_LANDSCAPE).matches);
   const containerRef = useRef(null);
   const hasRequestedFullscreen = useRef(false);
   const watchIdentity = useRef(null);
   watchIdentity.current = lessonId && telemetryToken ? { lessonId, token: telemetryToken } : null;
   const isFullscreen = isNativeFullscreen || isExpanded;
+  const fillsViewport = isFullscreen || isMobileLandscape;
 
   // Dynamic Moving Watermark Overlay Positions
   const watermarkPositions = [
@@ -217,7 +239,46 @@ export default function VideoPlayerModal({
   const [isMuted, setIsMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isCaptionsOn, setIsCaptionsOn] = useState(false);
-  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [controlMenu, setControlMenu] = useState(null);
+  const [qualityPreference, setQualityPreference] = useState('hd1080');
+  const qualityPreferenceRef = useRef(null);
+  const [reportedQuality, setReportedQuality] = useState(null);
+  const [hudVisible, setHudVisible] = useState(true);
+  const [seekFeedback, setSeekFeedback] = useState(0);
+  const hudTimer = useRef(null);
+  const stageTap = useRef(null);
+  const seekFeedbackTimer = useRef(null);
+  const hudHidden = fillsViewport && isPlaying && !hudVisible && !controlMenu;
+
+  const revealHud = useCallback(() => {
+    clearTimeout(hudTimer.current);
+    setHudVisible(true);
+    if (fillsViewport && isPlaying && !controlMenu) {
+      hudTimer.current = setTimeout(() => setHudVisible(false), HUD_TIMEOUT);
+    }
+  }, [fillsViewport, isPlaying, controlMenu]);
+
+  useEffect(() => {
+    const query = window.matchMedia(MOBILE_LANDSCAPE);
+    const sync = () => setIsMobileLandscape(query.matches);
+    query.addEventListener('change', sync);
+    sync();
+    return () => query.removeEventListener('change', sync);
+  }, []);
+
+  useEffect(() => {
+    revealHud();
+    return () => clearTimeout(hudTimer.current);
+  }, [revealHud]);
+
+  useEffect(() => {
+    setSeekFeedback(0);
+    return () => {
+      clearTimeout(stageTap.current?.timer);
+      stageTap.current = null;
+      clearTimeout(seekFeedbackTimer.current);
+    };
+  }, [activeVideoId]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -347,8 +408,10 @@ export default function VideoPlayerModal({
         events: {
           onReady: (event) => {
             if (!isMounted) return;
+            event.target.getIframe?.()?.setAttribute('tabindex', '-1');
             setIsPlayerReady(true);
-            requestHdPlayback(event.target);
+            setReportedQuality(null);
+            requestPlaybackQuality(event.target, qualityPreferenceRef.current);
             const dur = event.target.getDuration() || 0;
             if (dur > 0) setDuration(dur);
             if (autoplay) event.target.playVideo();
@@ -356,7 +419,7 @@ export default function VideoPlayerModal({
           onStateChange: (event) => {
             if (!isMounted) return;
             if (event.data === YT.PlayerState.PLAYING) {
-              requestHdPlayback(event.target);
+              requestPlaybackQuality(event.target, qualityPreferenceRef.current);
               setIsPlaying(true);
               watch.play(event.target);
             } else if (event.data === YT.PlayerState.PAUSED) {
@@ -371,6 +434,9 @@ export default function VideoPlayerModal({
             } else if (event.data === YT.PlayerState.BUFFERING) {
               watch.suspend();
             }
+          },
+          onPlaybackQualityChange: (event) => {
+            if (isMounted) setReportedQuality(event.data);
           }
         }
       });
@@ -424,6 +490,8 @@ export default function VideoPlayerModal({
     if (e) {
       e.preventDefault();
       e.stopPropagation();
+      clearTimeout(stageTap.current?.timer);
+      stageTap.current = null;
     }
     if (!isPlayerReady || !playerRef.current || clipEnded) return;
     try {
@@ -442,18 +510,67 @@ export default function VideoPlayerModal({
       e.preventDefault();
       e.stopPropagation();
     }
-    if (!playerRef.current) return;
+    if (!isPlayerReady || !playerRef.current || clipEnded) return false;
     try {
-      const curr = playerRef.current.getCurrentTime() || currentTime;
-      const target = Math.max(0, Math.min(duration || 999999, curr + seconds));
+      const position = playerRef.current.getCurrentTime();
+      const current = Number.isFinite(position) ? position : currentTime;
+      const minimum = canPlayFull ? 0 : initialStartTime;
+      const maximum = canPlayFull ? duration || Infinity : Math.min(endTime, duration || Infinity);
+      const target = Math.max(minimum, Math.min(maximum, current + seconds));
       playerRef.current.seekTo(target, true);
       setCurrentTime(target);
+      return true;
     } catch (_) {}
-  }, [currentTime, duration]);
+    return false;
+  }, [canPlayFull, clipEnded, currentTime, duration, endTime, initialStartTime, isPlayerReady]);
+
+  const handleStageClick = (event) => {
+    if (!isPlayerReady || clipEnded) {
+      revealHud();
+      return;
+    }
+
+    const { left, width } = event.currentTarget.getBoundingClientRect();
+    const x = (event.clientX - left) / width;
+    const side = x < 0.4 ? -1 : x >= 0.6 ? 1 : 0;
+    const pointerType = event.nativeEvent.pointerType;
+    const touch = pointerType ? pointerType !== 'mouse' : isTouchDevice();
+    const previous = stageTap.current;
+    clearTimeout(previous?.timer);
+    stageTap.current = null;
+
+    if (side !== 0 && previous?.side === side && previous.touch === touch &&
+        event.timeStamp - previous.timeStamp <= DOUBLE_TAP_TIMEOUT) {
+      if (handleSkip(side * 10)) {
+        clearTimeout(seekFeedbackTimer.current);
+        setSeekFeedback(side);
+        seekFeedbackTimer.current = setTimeout(() => setSeekFeedback(0), 650);
+      }
+      return;
+    }
+
+    const hideOnSingleTap = touch && fillsViewport && isPlaying && hudVisible && !controlMenu;
+    if (!hideOnSingleTap) revealHud();
+    stageTap.current = {
+      side,
+      touch,
+      timeStamp: event.timeStamp,
+      timer: setTimeout(() => {
+        stageTap.current = null;
+        setControlMenu(null);
+        if (!touch) togglePlay();
+        if (hideOnSingleTap) {
+          clearTimeout(hudTimer.current);
+          setHudVisible(false);
+        }
+      }, DOUBLE_TAP_TIMEOUT)
+    };
+  };
 
   // Interactive Seek Slider
   const handleSeek = (e) => {
     const target = Number(e.target.value);
+    revealHud();
     setCurrentTime(target);
     if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
       try {
@@ -504,7 +621,14 @@ export default function VideoPlayerModal({
         playerRef.current.setPlaybackRate(rate);
       } catch (_) {}
     }
-    setShowSpeedMenu(false);
+    setControlMenu(null);
+  };
+
+  const handleQualityChange = (quality) => {
+    qualityPreferenceRef.current = quality;
+    setQualityPreference(quality);
+    requestPlaybackQuality(playerRef.current, quality);
+    setControlMenu(null);
   };
 
   // Subtitles / Captions Toggle
@@ -587,7 +711,8 @@ export default function VideoPlayerModal({
     lockBodyScroll();
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
-        if (isFullscreen) toggleFullscreen();
+        if (controlMenu) setControlMenu(null);
+        else if (isFullscreen) toggleFullscreen();
         else onClose?.();
         return;
       }
@@ -607,6 +732,7 @@ export default function VideoPlayerModal({
       }
 
       // Video Controls Keyboard Shortcuts
+      if (['Tab', 'Space', 'ArrowLeft', 'ArrowRight', 'KeyM', 'KeyF'].includes(e.code)) revealHud();
       if (e.code === 'Space' && e.target?.tagName !== 'BUTTON') {
         e.preventDefault();
         togglePlay();
@@ -630,7 +756,7 @@ export default function VideoPlayerModal({
       unlockBodyScroll();
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
-  }, [onClose, togglePlay, handleSkip, isMuted, volume, isFullscreen, toggleFullscreen]);
+  }, [onClose, togglePlay, handleSkip, isMuted, volume, isFullscreen, toggleFullscreen, controlMenu, revealHud]);
 
   // Intercept right-click and selection across player modal
   useEffect(() => {
@@ -649,14 +775,24 @@ export default function VideoPlayerModal({
     };
   }, []);
 
+  const isQualityMenu = controlMenu === 'quality';
+  const menuOptions = isQualityMenu ? QUALITY_OPTIONS : SPEED_OPTIONS;
+  const selectedOption = isQualityMenu ? qualityPreference : playbackRate;
+  const qualityLabel = QUALITY_OPTIONS.find(option => option.value === qualityPreference)?.shortLabel;
+  const reportedQualityLabel = QUALITY_OPTIONS.find(option => option.value === reportedQuality)?.shortLabel;
+  const hudClass = hudHidden ? ' is-hud-hidden' : '';
+
   return createPortal(
     <div className="fixed inset-0 z-[9990] flex items-center justify-center p-2 sm:p-4 bg-slate-950/85 animate-fadeIn">
       <div
         ref={containerRef}
-        className={`video-player-modal${isFullscreen ? ' is-expanded' : ''}`}
+        className={`video-player-modal${fillsViewport ? ' is-expanded' : ''}`}
+        onPointerMove={(e) => {
+          if (fillsViewport && e.pointerType === 'mouse') revealHud();
+        }}
       >
         {/* Top Header Bar */}
-        <div className="bg-slate-950/95 border-b border-slate-800/80 px-3 sm:px-5 py-1.5 flex items-center justify-between gap-3 shrink-0">
+        <div className={`video-player-hud video-player-title bg-slate-950/95 border-b border-slate-800/80 px-3 sm:px-5 py-1.5 flex items-center justify-between gap-3 shrink-0${hudClass}`}>
           <div className="flex items-center gap-2.5 truncate">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-black text-sm flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
               ⚖️
@@ -667,7 +803,9 @@ export default function VideoPlayerModal({
                   {courseTitle || 'BJS & Bar Masterclass'}
                 </span>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
-                <span className="text-[9px] font-mono text-emerald-400 font-bold hidden md:inline">CLASSROOM</span>
+                <span className={`text-[9px] font-mono text-emerald-400 font-bold truncate ${fillsViewport ? 'inline' : 'hidden md:inline'}`}>
+                  {fillsViewport ? '🔒 BJS Academy Protected Stream' : 'CLASSROOM'}
+                </span>
               </div>
               <h2 className="text-xs sm:text-sm font-bold text-white truncate max-w-[200px] sm:max-w-md lg:max-w-xl">
                 {activeTitle}
@@ -693,7 +831,7 @@ export default function VideoPlayerModal({
           </div>
         </div>
 
-        {/* The frame and its click-blocking overlays share the same 16:9 bounds. */}
+        {/* The frame and its click-blocking overlay share the same bounds. */}
         <div
           className="video-player-stage w-full relative bg-black select-none"
           style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
@@ -716,26 +854,33 @@ export default function VideoPlayerModal({
               )}
             </div>
 
-            {/* 2. Safe Transparent Click-to-Play/Pause Overlay */}
+            {/* Transparent gesture surface also blocks clicks into the YouTube iframe. */}
             <div
-              className="absolute inset-0 z-20 cursor-pointer pointer-events-auto flex items-center justify-center"
-              onClick={togglePlay}
+              className="absolute inset-0 z-20 cursor-pointer pointer-events-auto flex items-center justify-center touch-manipulation"
+              onClick={handleStageClick}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 return false;
               }}
-              title="প্লে / পজ করতে ক্লিক করুন"
             >
               {!isPlaying && isPlayerReady && !clipEnded && (
-                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-black/60 border border-amber-500/50 text-amber-400 flex items-center justify-center shadow-2xl">
+                <button type="button" onClick={togglePlay} aria-label="প্লে করুন" className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-black/60 border border-amber-500/50 text-amber-400 flex items-center justify-center shadow-2xl">
                   <Play className="w-7 h-7 sm:w-8 sm:h-8 ml-1 fill-current" />
-                </div>
+                </button>
               )}
             </div>
 
-            {/* 3. Top Security Shield Banner - pointer-events-none */}
-            <div className="absolute top-0 left-0 right-0 h-10 z-30 pointer-events-none bg-gradient-to-b from-black/80 via-black/30 to-transparent select-none">
+            {seekFeedback !== 0 && (
+              <div aria-hidden="true" className={`pointer-events-none absolute inset-y-0 z-30 flex w-2/5 items-center justify-center ${seekFeedback < 0 ? 'left-0' : 'right-0'}`}>
+                <span className="rounded-full bg-black/70 px-4 py-2 text-sm font-bold text-white animate-fadeIn">
+                  {seekFeedback < 0 ? '« 10s' : '10s »'}
+                </span>
+              </div>
+            )}
+
+            {/* The title overlay carries the protection label in fullscreen. */}
+            <div className="video-player-protected absolute top-0 left-0 right-0 h-10 z-30 pointer-events-none bg-gradient-to-b from-black/80 via-black/30 to-transparent select-none">
               <div className="flex items-center justify-between px-3 pt-2 text-[10px] text-amber-400/90 font-bold select-none">
                 <span className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -790,9 +935,11 @@ export default function VideoPlayerModal({
           )}
         </div>
 
-        {/* Custom playback controls take up their own space below the video. */}
+        {/* Controls stay below the inline player and float over fullscreen playback. */}
         <div
-          className="relative z-40 shrink-0 bg-black px-2 sm:px-4 pb-1 select-none"
+          className={`video-player-hud video-player-controls relative z-40 shrink-0 bg-black px-2 sm:px-4 pb-1 select-none${hudClass}`}
+          onPointerDown={revealHud}
+          onFocus={revealHud}
           hidden={!canPlayFull && clipEnded}
         >
           {/* Seek Bar Timeline Slider */}
@@ -888,39 +1035,60 @@ export default function VideoPlayerModal({
               <span className="text-[10px] hidden sm:inline">CC</span>
             </button>
 
-            {/* Speed Selector */}
-            <div>
+            <div className="flex shrink-0 items-center gap-x-0.5 sm:gap-2">
               <button
-                onClick={() => setShowSpeedMenu((open) => !open)}
+                type="button"
+                onClick={() => setControlMenu(menu => menu === 'speed' ? null : 'speed')}
                 className="video-player-control rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] sm:text-[11px] font-mono font-bold border border-slate-700"
-                title="প্লেব্যাক স্পিড পরিবর্তন করুন"
-                aria-expanded={showSpeedMenu}
+                aria-label={`Speed, ${playbackRate}x`}
+                aria-expanded={controlMenu === 'speed'}
               >
-                <span>{playbackRate}x</span>
+                {playbackRate}x
               </button>
-
-              {showSpeedMenu && (
-                <div className="absolute bottom-full right-2 sm:right-4 mb-2 py-1 w-24 max-h-[45dvh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 animate-fadeIn">
-                  <div className="text-[9px] uppercase tracking-wider text-slate-400 px-2.5 py-1 font-bold border-b border-slate-800">
-                    Speed
-                  </div>
-                  {[0.75, 1, 1.25, 1.5, 2].map((spd) => (
-                    <button
-                      key={spd}
-                      onClick={() => handleSpeedChange(spd)}
-                      className={`w-full px-2.5 py-1.5 text-left text-xs font-mono font-bold flex items-center justify-between transition-colors ${
-                        playbackRate === spd
-                          ? 'bg-amber-500/20 text-amber-300'
-                          : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                      }`}
-                    >
-                      <span>{spd}x</span>
-                      {playbackRate === spd && <Check className="w-3 h-3 text-amber-400" />}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => setControlMenu(menu => menu === 'quality' ? null : 'quality')}
+                className="video-player-control rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] sm:text-[11px] font-mono font-bold border border-slate-700"
+                aria-label={`Quality preference, ${qualityLabel}`}
+                aria-expanded={isQualityMenu}
+              >
+                {qualityLabel}
+              </button>
             </div>
+
+            {controlMenu && (
+              <div
+                role="group"
+                aria-label={isQualityMenu ? 'Quality preference' : 'Playback speed'}
+                className={`video-player-options absolute bottom-full right-2 sm:right-4 mb-2 py-1 ${isQualityMenu ? 'w-48' : 'w-24'} max-h-[55dvh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 animate-fadeIn`}
+              >
+                <div className="px-2.5 py-1 text-xs font-bold text-slate-300 border-b border-slate-800">
+                  {isQualityMenu ? 'Quality preference' : 'Speed'}
+                </div>
+                {menuOptions.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => isQualityMenu ? handleQualityChange(value) : handleSpeedChange(value)}
+                    aria-pressed={selectedOption === value}
+                    className={`w-full min-h-9 px-2.5 py-1.5 text-left text-xs font-mono font-bold flex items-center justify-between transition-colors ${
+                      selectedOption === value
+                        ? 'bg-amber-500/20 text-amber-300'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <span>{label}</span>
+                    {selectedOption === value && <Check className="size-3 text-amber-400" />}
+                  </button>
+                ))}
+                {isQualityMenu && (
+                  <p className="border-t border-slate-800 px-2.5 py-1.5 text-[10px] text-slate-300" lang="bn">
+                    {reportedQualityLabel ? `বর্তমান স্ট্রিম ${reportedQualityLabel}। ` : ''}
+                    প্লেব্যাকের মান YouTube স্বয়ংক্রিয়ভাবে সামঞ্জস্য করে।
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Fullscreen Button */}
             <button
