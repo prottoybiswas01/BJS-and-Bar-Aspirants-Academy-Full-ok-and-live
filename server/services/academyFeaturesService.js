@@ -258,6 +258,7 @@ async function getExamLeaderboard(param) {
   let examId;
   let McqExam;
   let McqResult;
+  let viewer;
 
   if (typeof param === 'string') {
     examId = param;
@@ -265,6 +266,7 @@ async function getExamLeaderboard(param) {
     examId = param.examId || param.id;
     McqExam = param.McqExam;
     McqResult = param.McqResult;
+    viewer = param.viewer;
   }
 
   if (!McqExam) McqExam = require('../models/McqExam');
@@ -285,16 +287,15 @@ async function getExamLeaderboard(param) {
     : { examId: exam.id || examId };
 
   const results = await McqResult.find(resultQuery)
+    .select('studentId candidateName score netScore totalMarks correctCount wrongCount negativeDeduction percentage grade timeTakenSeconds submittedAt')
     .sort({ netScore: -1, score: -1, timeTakenSeconds: 1, submittedAt: 1 })
     .limit(100)
     .lean();
 
   const leaderboard = results.map((r, idx) => ({
     rank: idx + 1,
-    studentName: r.studentName || r.candidateName || 'পরীক্ষার্থী',
-    candidateName: r.candidateName || r.studentName || 'পরীক্ষার্থী',
-    candidateUniversity: r.candidateUniversity || 'BJS পরীক্ষার্থী',
-    studentPhone: r.studentPhone ? r.studentPhone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2') : '***',
+    studentName: viewer?.role === 'admin' ? r.candidateName || 'পরীক্ষার্থী'
+      : viewer?.role === 'student' && !!viewer.id && r.studentId === viewer.id ? 'আপনি' : `পরীক্ষার্থী ${idx + 1}`,
     score: r.score,
     netScore: r.netScore !== undefined && r.netScore !== null ? r.netScore : r.score,
     totalMarks: r.totalMarks,
@@ -303,8 +304,7 @@ async function getExamLeaderboard(param) {
     negativeDeduction: r.negativeDeduction || 0,
     percentage: r.percentage,
     grade: r.grade,
-    timeTakenSeconds: r.timeTakenSeconds || 0,
-    submittedAt: r.submittedAt
+    timeTakenSeconds: r.timeTakenSeconds || 0
   }));
 
   return {

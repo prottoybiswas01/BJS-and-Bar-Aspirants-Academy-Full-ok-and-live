@@ -47,14 +47,20 @@ const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const { ADMIN_IDENTITY, AuthError, createAuthentication, getJwtConfiguration, isAdminIdentifier,
   sendAuthFailure, signSession, verifyAdminCredentials, verifyAccountPassword } = require("./services/authSecurity");
-const { SITE_FIELDS, publicSiteSettings, mailSettingsResponse, accountResponse, publicMentorProfile } = require("./services/responseFields");
+const {
+  SITE_FIELDS, publicSiteSettings, mailSettingsResponse, accountResponse, privateAccountProfile, publicMentorProfile,
+  adminStudentResponse, adminRegistrationResponse, mentorStudentResponse, studentReceiptResponse, publicCertificateResponse,
+  studentCertificateResponse, studentResultResponse, classroomSubmissionResponse
+} = require("./services/responseFields");
 const { createAuthRateLimiter } = require("./services/authRateLimit");
 const { createFirebaseIdentityVerifier } = require("./services/firebaseIdentity");
 const { createGoogleAccountStore } = require("./services/googleAccountStore");
 const { createGoogleLogin } = require("./services/googleLogin");
 const { createAccountChallenges } = require("./services/accountChallenges");
 const {
-  accountIds, isAccountId, ownsStudentRecord, courseAliases, normalizeCourseId, findScopedCourse,
+  accountIds, isAccountId, ownsStudentRecord, validateStudentTarget, validateStudentFields, STUDENT_PRIVILEGE_FIELDS,
+  readDirectoryQuery, directoryPage,
+  courseAliases, courseScopeAliases, normalizeCourseId, findScopedCourse,
   mentorAssignedCourse, pickWritableFields, verifyServiceSecret
 } = require("./services/authorization");
 const siteSettingsProjection = SITE_FIELDS.join(" ");
@@ -1008,18 +1014,14 @@ function requireTelegramWebhook(req, res, next) {
   }
 }
 
-const studentRestrictedFields = [
-  'role', 'isAdmin', 'isMentor', 'permissions', 'accountType', 'approved', 'loginApproval',
-  'status', 'paymentStatus', 'allowedCourseIds', 'enrolledCourseIds', 'courseRules', 'unlimitedAccess'
-];
+const studentRestrictedFields = STUDENT_PRIVILEGE_FIELDS;
 
 function requireStudentSelf(req, res, next) {
   return requireStudent(req, res, () => {
-    const { studentId: bodyId } = req.body || {};
-    const { studentId: queryId } = req.query || {};
-    if ([bodyId, queryId].some(id => id !== undefined && !isAccountId(req.user, id)) ||
-        studentRestrictedFields.some(field => Object.hasOwn(req.body || {}, field))) {
-      return rejectAccess(req, res);
+    try {
+      validateStudentTarget(req.user, req.query, req.body);
+    } catch (error) {
+      return rejectAccess(req, res, error);
     }
     return next();
   });
@@ -1035,18 +1037,23 @@ async function optionalAuthentication(req, res, next) {
 }
 
 async function studentCanAccessCourse(student, courseId, lesson = null) {
-  const course = findScopedCourse(await readCourseScope(), courseId);
-  return Boolean(course && checkStudentCourseAccess(student, courseId, lesson, course).allowed);
+  const catalog = await readCourseScope();
+  const course = findScopedCourse(catalog, courseId);
+  return Boolean(course && checkStudentCourseAccess(student, courseId, lesson, course, catalog).allowed);
 }
 
 app.get("/api/auth/verify-session", requireAuthentication, (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const { user } = req;
-  if (user.role !== 'student') return res.json({ ok: true, status: user.status });
-  return res.json({
-    ok: true, status: user.status,
-    student: { ...accountResponse(user), role: user.role, isAdmin: false, isMentor: false }
-  });
+  const profile = {
+    ...privateAccountProfile(user), role: user.role,
+    isAdmin: user.role === 'admin', isMentor: user.role === 'mentor'
+  };
+  return res.json({ ok: true, status: user.status, user: profile, ...(user.role === 'student' && { student: profile }) });
+});
+
+app.get("/api/student/profile", requireStudentSelf, (req, res) => {
+  return res.json({ ok: true, student: privateAccountProfile(req.user) });
 });
 
 // -------------------------------------------------------------
@@ -1099,9 +1106,12 @@ function checkAiRateLimit(key) {
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { name, phone, email, university, batch, session, password } = req.body;
-    if (!name || !phone || !email || !batch || !password) {
+    if ([name, phone, email, batch, password].some(value => typeof value !== "string" || !value.trim()) ||
+        [university, session].some(value => value != null && typeof value !== "string")) {
       return res.status(400).json({ ok: false, message: "Please fill all required fields." });
     }
+    await ensureDbConnected();
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
 
     const emailCheck = await verifyEmailDomainMx(email);
     if (!emailCheck.ok) {
@@ -1111,22 +1121,6 @@ app.post("/api/auth/register", async (req, res) => {
     const cleanPhone = String(phone).trim();
     const cleanEmail = emailCheck.cleanEmail;
     const cleanUniversity = String(university || "").trim();
-
-    // Check duplicate in memoryDb first
-    const existsInMem = (memoryDb.students || []).some(
-      (s) => s && (s.phone === cleanPhone || (s.email && String(s.email).toLowerCase() === cleanEmail))
-    );
-
-    if (isMongoConnected) {
-      const existingStudent = await Student.findOne({
-        $or: [{ phone: cleanPhone }, { email: cleanEmail }]
-      });
-      if (existingStudent || existsInMem) {
-        return res.status(400).json({ ok: false, message: "An account with this phone or email already exists." });
-      }
-    } else if (existsInMem) {
-      return res.status(400).json({ ok: false, message: "An account with this phone or email already exists." });
-    }
 
     const regId = "REG-" + new Date().getFullYear() + "-" + Math.floor(1000 + Math.random() * 9000);
     const studentId = "STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
@@ -1173,23 +1167,14 @@ app.post("/api/auth/register", async (req, res) => {
       createdAt: new Date()
     };
 
-    // ALWAYS store in memoryDb!
-    memoryDb.registrations.unshift(newReg);
-    memoryDb.students.unshift(newStudent);
-
-    // ALSO save to Mongo if connected!
-    if (isMongoConnected) {
-      try {
-        await Registration.create(newReg);
-      } catch (err) {
-        console.warn("Mongo Registration creation notice on register:");
+    await mongoose.connection.transaction(async dbSession => {
+      const contact = { $or: [{ phone: cleanPhone }, { email: cleanEmail }] };
+      if (await Student.exists(contact).session(dbSession) || await Registration.exists(contact).session(dbSession)) {
+        throw new AuthError("ACCOUNT_UNAVAILABLE");
       }
-      try {
-        await Student.create(newStudent);
-      } catch (err) {
-        console.warn("Mongo Student creation notice on register:");
-      }
-    }
+      await Registration.create([newReg], { session: dbSession });
+      await Student.create([newStudent], { session: dbSession });
+    });
 
     // Dispatch automatic Registration Confirmation Email
     if (cleanEmail) {
@@ -1203,12 +1188,15 @@ app.post("/api/auth/register", async (req, res) => {
       ok: true,
       message: "নিবন্ধন আবেদন সফল হয়েছে! আপনার একাউন্টটি বর্তমানে এডমিন এপ্রুভালের জন্য অপেক্ষমাণ রয়েছে।",
       regId,
-      registration: newReg,
-      student: newStudent
+      registration: { regId, status: newReg.status },
+      student: { id: newStudent.id, status: newStudent.status }
     });
   } catch (err) {
     console.error("Registration error:");
-    res.status(500).json({ ok: false, message: "Request could not be completed." || "Registration error." });
+    if (err?.code === "ACCOUNT_UNAVAILABLE" || err?.code === 11000) {
+      return res.status(400).json({ ok: false, message: "Unable to submit this registration. If you already have an account, sign in or reset your password." });
+    }
+    return rejectAccess(req, res, err);
   }
 });
 
@@ -1253,7 +1241,7 @@ app.post(["/api/auth/mentor/register", "/auth/mentor/register"], async (req, res
       id: mentorId,
       name: cleanName,
       email: cleanEmail,
-      password: passInput,
+      password: await bcrypt.hash(passInput, 12),
       loginApproval: "Pending", // Pending super admin approval
       status: "Active",
       assignedCourseIds: [],
@@ -1286,7 +1274,7 @@ app.post(["/api/auth/mentor/register", "/auth/mentor/register"], async (req, res
     return res.json({
       ok: true,
       message: "মেন্টর রেজিস্ট্রেশন সফল হয়েছে! সুপার অ্যাডমিনের অনুমোদনের পর লগইন করতে পারবেন।",
-      mentor: saved
+      mentor: { id: saved.id }
     });
   } catch (err) {
     console.error("Mentor registration error:");
@@ -1396,9 +1384,9 @@ app.post("/api/auth/login", async (req, res) => {
     if (!(await verifyAccountPassword(password, student?.password))) throw new AuthError("INVALID_CREDENTIALS");
     if (["Inactive", "Blocked"].includes(student.status)) throw new AuthError("FORBIDDEN");
 
-    const token = signSession({ id: student.id || student._id, phone: student.phone, role: "student" });
+    const token = signSession({ id: student.id || student._id, role: "student" });
     await notifyStudentLogin(student, "ইমেইল / পাসওয়ার্ড");
-    return res.json({ ok: true, token, student: accountResponse(student), isAdmin: false });
+    return res.json({ ok: true, token, student: privateAccountProfile(student), isAdmin: false });
   } catch (err) {
     return sendAuthFailure(res, err);
   }
@@ -1521,9 +1509,9 @@ async function handleEmailBounced(email, reason = "Bounced or Suppressed") {
       mem.bouncedReason = String(reason).slice(0, 300);
       mem.bouncedAt = new Date();
     }
-    console.log(`🛡️ [Auto-Suppression Activated] Marked ${cleanEmail} as 'bounced' in DB. Reason: ${reason}`);
+    console.log("Email suppression recorded.");
   } catch (err) {
-    console.warn(`[Auto-Suppression Notice] Failed to mark ${cleanEmail} as bounced:`, err.message);
+    console.warn("Email suppression update failed.");
   }
 }
 
@@ -1589,7 +1577,7 @@ async function sendResendEmail({ from, to, subject, html, attachments, isExempt,
     }
 
     if (isSuppressed) {
-      console.log(`🛡️ [Resend Auto-Guard] Suppressed dispatch to ${lowerEmail} (${statusReason}). Skipping to protect domain reputation & quota.`);
+      console.log("Email delivery skipped by suppression rules.");
       continue;
     }
     activeRecipients.push(lowerEmail);
@@ -1622,7 +1610,7 @@ async function sendResendEmail({ from, to, subject, html, attachments, isExempt,
 
     if (response && (response.id || response.data?.id)) {
       const emailId = response.id || response.data?.id;
-      console.log(`✉️ [Resend API Success] Delivered to ${activeRecipients.join(', ')} via ${sender} (ID: ${emailId})`);
+      console.log("Email delivery accepted by Resend.");
       return { ok: true, data: response.data || response, id: emailId };
     } else if (response && response.error) {
       const errMsg = response.error.message || JSON.stringify(response.error);
@@ -1660,7 +1648,7 @@ async function sendResendEmail({ from, to, subject, html, attachments, isExempt,
       text: plainText
     };
     const smtpInfo = await smtpFallbackTransporter.sendMail(mailOptions);
-    console.log(`✉️ [SMTP Fallback Success] Delivered to ${activeRecipients.join(', ')} (MsgId: ${smtpInfo.messageId})`);
+    console.log("Email delivery accepted by the fallback transport.");
     return { ok: true, data: smtpInfo };
   } catch (smtpErr) {
     console.error(`❌ [Email Dispatch Failed]: ${smtpErr.message}`);
@@ -1809,7 +1797,7 @@ app.post("/api/webhooks/resend", async (req, res) => {
       ? eventData.to
       : (eventData.to ? [eventData.to] : []);
 
-    console.log(`📬 [Resend Webhook Event] Type: ${eventType}, Recipients: ${recipients.join(', ')}`);
+    console.log("Verified email webhook received.");
 
     if (eventType === "email.bounced" || eventType === "email.complained" || eventType === "email.suppressed") {
       const bounceReason = eventData.bounce?.message || eventData.error?.message || eventData.reason || `Resend ${eventType}`;
@@ -1828,7 +1816,7 @@ app.post("/api/webhooks/resend", async (req, res) => {
 
 async function sendOtpEmail(targetEmail, otp, studentName) {
   if (!targetEmail || !targetEmail.includes("@")) {
-    console.warn(`⚠️ Invalid target email for OTP dispatch: ${targetEmail}`);
+    console.warn("OTP delivery skipped because its destination is invalid.");
     return false;
   }
 
@@ -2759,7 +2747,7 @@ async function notifyStudentsNewLesson(courseId, lessonData) {
         to: student.email,
         subject,
         html: htmlContent
-      }).catch(err => console.warn(`[Video Notify] Email error for ${student.email}:`, err.message));
+      }).catch(() => console.warn("Video notification email delivery failed"));
     }
   } catch (err) {
     console.error("[Video Notify] Exception:", err);
@@ -2921,8 +2909,8 @@ function recordIdFilter(id) {
 }
 
 async function mentorCanAccessCourse(mentor, courseId) {
-  const course = findScopedCourse(await readCourseScope(), courseId);
-  return Boolean(course && mentorAssignedCourse(mentor, courseId, course));
+  const catalog = await readCourseScope();
+  return mentorAssignedCourse(mentor, findScopedCourse(catalog, courseId), catalog);
 }
 
 async function loadMentorAssignment(mentor, id) {
@@ -2936,16 +2924,39 @@ async function loadMentorAssignment(mentor, id) {
 
 app.get("/api/mentor/students", requireMentorSelf, async (req, res) => {
   try {
+    const query = readDirectoryQuery(req.query);
     const mentor = req.user;
-    if (!mentor.assignedCourseIds?.length) return res.json({ ok: true, students: [] });
-    const courses = await Course.find().select("id legacyIds title shortTitle").lean();
-    const assigned = courses.filter(course => mentorAssignedCourse(mentor, course.id, course));
-    const ids = [...new Set([...mentor.assignedCourseIds, ...assigned.flatMap(course =>
-      [course.id, String(course._id), course.title, course.shortTitle, ...(course.legacyIds || [])].filter(Boolean))])];
-    const students = await Student.find({ $or: [
-      { allowedCourseIds: { $in: ids } }, { enrolledCourseIds: { $in: ids } }, { course: { $in: ids } }
-    ] }).select("id name phone email batch session status loginApproval enrolledCourseIds allowedCourseIds course").lean();
-    return res.json({ ok: true, students });
+    const catalog = await readCourseScope();
+    const assigned = catalog.filter(course => mentorAssignedCourse(mentor, course, catalog));
+    const requested = req.query.courseId;
+    const selected = requested === undefined ? null
+      : typeof requested === 'string' && requested.length <= 200 ? findScopedCourse(catalog, requested) : null;
+    if (requested !== undefined && (!selected || !assigned.includes(selected))) return rejectAccess(req, res);
+    const requestedCourses = selected ? [selected] : assigned;
+    if (!requestedCourses.length) {
+      return res.json({ ok: true, students: [], pagination: directoryPage([], query).pagination });
+    }
+
+    const aliases = requestedCourses.map(course => ({
+      id: String(course.id || course._id),
+      keys: new Set(courseScopeAliases(course, catalog).map(normalizeCourseId))
+    }));
+    const filters = [...new Set(aliases.flatMap(entry => [...entry.keys]))]
+      .map(id => new RegExp('^' + id.split(/[-_ ]/).map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[-_ ]') + '$', 'i'));
+    const rows = await Student.find({ $or: [
+      { allowedCourseIds: { $in: filters } }, { enrolledCourseIds: { $in: filters } }, { course: { $in: filters } }
+    ] }).select("id name phone email batch session status loginApproval allowedCourseIds enrolledCourseIds course")
+      .sort({ name: 1, id: 1 }).lean();
+    const matches = [];
+    for (const row of rows) {
+      const enrolled = row.allowedCourseIds?.length ? row.allowedCourseIds : row.enrolledCourseIds || [];
+      const legacy = !Array.isArray(row.allowedCourseIds) && !Array.isArray(row.enrolledCourseIds) ? [row.course] : [];
+      const activeIds = new Set([...enrolled, ...legacy].map(normalizeCourseId));
+      const scoped = aliases.filter(entry => [...entry.keys].some(id => activeIds.has(id)));
+      if (scoped.length) matches.push({ ...row, allowedCourseIds: scoped.map(entry => entry.id) });
+    }
+    const page = directoryPage(matches, query);
+    return res.json({ ok: true, students: page.records.map(mentorStudentResponse), pagination: page.pagination });
   } catch (error) {
     return rejectAccess(req, res, error);
   }
@@ -2957,7 +2968,7 @@ app.get("/api/mentor/assignments", requireMentorSelf, async (req, res) => {
     const catalog = await readCourseScope();
     const canAccess = id => {
       const course = findScopedCourse(catalog, id);
-      return Boolean(course && mentorAssignedCourse(req.user, id, course));
+      return mentorAssignedCourse(req.user, course, catalog);
     };
     if (courseId !== undefined && (typeof courseId !== "string" || !canAccess(courseId))) {
       return rejectAccess(req, res);
@@ -2976,8 +2987,9 @@ app.post("/api/mentor/assignments", requireMentorSelf, async (req, res) => {
     const marks = body.totalMarks === undefined ? 100 : Number(body.totalMarks);
     if (typeof body.title !== "string" || !body.title.trim() || typeof body.courseId !== "string" ||
         !Number.isFinite(marks) || marks < 1) throw new AuthError("INVALID_INPUT");
-    const course = await resolveCourseByIdOrAlias(body.courseId);
-    if (!course || !mentorAssignedCourse(req.user, body.courseId, course)) return rejectAccess(req, res);
+    const catalog = await readCourseScope();
+    const course = findScopedCourse(catalog, body.courseId);
+    if (!mentorAssignedCourse(req.user, course, catalog)) return rejectAccess(req, res);
     const assignment = req.body.id ? await loadMentorAssignment(req.user, req.body.id) : new Assignment({
       id: "ASN-" + crypto.randomUUID(), mentorId: req.user.id, mentorName: req.user.name
     });
@@ -4237,7 +4249,7 @@ app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], re
     for (const lesson of allLessons) {
       const course = findScopedCourse(courses, lesson.courseId);
       if (!course) continue;
-      const access = checkStudentCourseAccess(user, lesson.courseId, lesson, course);
+      const access = checkStudentCourseAccess(user, lesson.courseId, lesson, course, courses);
       const visibleCourse = !["hidden", "inactive", "draft"].includes(String(course.status).toLowerCase());
       if (access.reason === "UNPUBLISHED" || (!visibleCourse && !access.allowed)) continue;
       const metadata = pickWritableFields(lesson, metadataFields);
@@ -5160,14 +5172,14 @@ app.post("/api/admin/lessons/backfill-transcripts", requireAdmin, async (req, re
 // COURSE ACCESS RESOLUTION HELPER (BACKEND-PROCESSING)
 // -------------------------------------------------------------
 
-function checkStudentCourseAccess(user, courseId, lesson = null, course = null) {
+function checkStudentCourseAccess(user, courseId, lesson, course, catalog) {
   if (user?.role === 'admin') return { allowed: true, reason: 'ADMIN' };
   const status = String(lesson?.status || '').toLowerCase();
   if (lesson && (lesson.isDraft || ['draft', 'hidden', 'inactive', 'unpublished'].includes(status))) {
     return { allowed: false, reason: 'UNPUBLISHED' };
   }
 
-  const mentor = mentorAssignedCourse(user, courseId, course);
+  const mentor = mentorAssignedCourse(user, course, catalog);
   if (mentor) return { allowed: true, reason: 'MENTOR_ASSIGNED' };
   const publishedCourse = course && !['inactive', 'hidden', 'draft'].includes(String(course.status).toLowerCase());
   const orientation = lesson && [lesson.title, lesson.module].some(
@@ -5183,7 +5195,7 @@ function checkStudentCourseAccess(user, courseId, lesson = null, course = null) 
   }
   if (!courseId) return { allowed: false, reason: 'NO_COURSE_SPECIFIED' };
 
-  const aliases = new Set([courseId, ...courseAliases(course)].map(normalizeCourseId).filter(Boolean));
+  const aliases = new Set(courseScopeAliases(course, catalog).map(normalizeCourseId));
   const allowedIds = user.allowedCourseIds?.length ? user.allowedCourseIds : user.enrolledCourseIds || [];
   const unrestricted = user.unlimitedAccess === true || allowedIds.some(id => normalizeCourseId(id) === 'all');
   const enrollment = Array.isArray(user.allowedCourseIds) || Array.isArray(user.enrolledCourseIds)
@@ -5218,9 +5230,7 @@ app.post('/api/student/watch-telemetry', requireStudentSelf, async (req, res) =>
     const id = lessonId.trim();
     const lessonIds = [{ id }];
     if (mongoose.Types.ObjectId.isValid(id)) lessonIds.push({ _id: id });
-    const lesson = isMongoConnected
-      ? await Lesson.findOne({ $or: lessonIds }, 'courseId title isFree module isDraft status').lean()
-      : (memoryDb.lessons || []).find(item => item?.id === id || String(item?._id) === id);
+    const lesson = await Lesson.findOne({ $or: lessonIds }, 'courseId title isFree module isDraft status').lean();
     if (!lesson || lesson.isDraft || lesson.status === 'draft') {
       return res.status(404).json({ ok: false });
     }
@@ -5247,24 +5257,12 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], requireStuden
   try {
     await ensureDbConnected();
     const student = req.user;
-
-    if (!isMongoConnected && (!memoryDb.courses || memoryDb.courses.length === 0)) {
-      return res.status(503).json({
-        ok: false,
-        error: "DATABASE_UNAVAILABLE",
-        message: "ডাটাবেজ সংযোগে সমস্যা হচ্ছে। কিছুক্ষণ পর আবার চেষ্টা করুন।"
-      });
+    const requestedCourseId = req.query.courseId;
+    if (requestedCourseId !== undefined && (typeof requestedCourseId !== "string" || requestedCourseId.length > 200)) {
+      throw new AuthError("INVALID_INPUT");
     }
 
-    const { courseId: requestedCourseId } = req.query;
-    const studentUniqueKey = student.id || student.phone || 'student';
-    const accessVer = student.accessVersion || (student.updatedAt ? new Date(student.updatedAt).getTime() : 0);
-    const reqCourseKey = requestedCourseId ? String(requestedCourseId).trim().toLowerCase().replace(/[-_]/g, ' ') : 'auto';
-    const cacheKey = `student_dash_${studentUniqueKey}_v${accessVer}_${reqCourseKey}`;
-    const cached = fastCache.get(cacheKey);
-    if (cached) {
-      return res.json({ ok: true, ...cached, source: "fast-cache" });
-    }
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
 
     // 1. Fetch courses with database-level status filter and lightweight field projection
     // Enrolled courses are always included for the student even if Deactivated / Inactive on public homepage
@@ -5297,25 +5295,12 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], requireStuden
       : { status: { $nin: ["Inactive", "Hidden"] } };
 
     const courseProjection = 'id legacyIds title shortTitle category faculty status batchRegText sessionRegText';
-    const allCourses = isMongoConnected
-      ? await Course.find(courseQuery, courseProjection).sort({ createdAt: -1 }).lean()
-      : (memoryDb.courses || []).filter(c => {
-          if (!c) return false;
-          if (c.status !== "Inactive" && c.status !== "Hidden") return true;
-          return candidateIds.some(cid => {
-            const c1 = String(cid).toLowerCase().trim();
-            const c2 = String(c.id).toLowerCase().trim();
-            const cLegacy = Array.isArray(c.legacyIds) ? c.legacyIds.map(x => String(x).toLowerCase()) : [];
-            return c1 === c2 || c1.replace(/[-_]/g, ' ') === c2.replace(/[-_]/g, ' ') || cLegacy.includes(c1);
-          });
-        });
+    const allCourses = await Course.find(courseQuery, courseProjection).sort({ createdAt: -1 }).lean();
 
-    // 2. Backend-processed course enrollment annotation
-    // Public/Active courses are visible in the catalog (marked locked if not enrolled).
-    // Inactive/Deactivated courses are ONLY visible if the admin has explicitly assigned/enrolled this student!
+    const courseScope = await readCourseScope();
     const processedCourses = (allCourses || [])
       .map(c => {
-        const access = checkStudentCourseAccess(student, c.id);
+        const access = checkStudentCourseAccess(student, c.id, null, c, courseScope);
         return {
           ...c,
           isEnrolled: access.allowed,
@@ -5373,7 +5358,7 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], requireStuden
       const cId = selectedCourse.id;
       const cleanCourse = String(cId).trim();
       const courseRegex = new RegExp(`^${cleanCourse.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '[-_ ]?')}$`, 'i');
-      const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree createdAt';
+      const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree isDraft status createdAt';
       
       const orClauses = [
         { courseId: cleanCourse },
@@ -5383,46 +5368,16 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], requireStuden
       if (selectedCourse.title) orClauses.push({ courseId: selectedCourse.title });
       if (selectedCourse.shortTitle) orClauses.push({ courseId: selectedCourse.shortTitle });
 
-      if (isMongoConnected) {
-        lessonsList = await Lesson.find({ $or: orClauses }, lessonProjection).lean();
-      }
-      if (!lessonsList || lessonsList.length === 0) {
-        const cNorm = cleanCourse.toLowerCase().replace(/[-_]/g, ' ');
-        lessonsList = (memoryDb.lessons || [])
-          .filter(l => {
-            if (!l) return false;
-            const lCId = String(l.courseId || '').trim().toLowerCase();
-            return lCId === cleanCourse.toLowerCase() ||
-                   lCId.replace(/[-_]/g, ' ') === cNorm ||
-                   (selectedCourse.title && lCId === String(selectedCourse.title).toLowerCase().trim()) ||
-                   (selectedCourse.shortTitle && lCId === String(selectedCourse.shortTitle).toLowerCase().trim());
-          })
-          .map(l => ({
-            id: l.id,
-            courseId: l.courseId,
-            module: l.module,
-            title: l.title,
-            duration: l.duration,
-            youtubeId: l.youtubeId,
-            youtubeUrl: l.youtubeUrl,
-            chapter: l.chapter,
-            releaseDate: l.releaseDate,
-            description: l.description,
-            order: l.order,
-            isFree: l.isFree,
-            createdAt: l.createdAt
-          }));
-      }
+      lessonsList = await Lesson.find({ $or: orClauses }, lessonProjection).lean();
     }
 
     // Sort lessons serially in natural ascending order (#1, #2 ... #24)
     lessonsList = sortLessons(lessonsList);
 
     // Backend-mark each lesson as unlocked or locked, and strip protected video credentials if locked
-    const courseScope = await readCourseScope();
     const processedLessons = lessonsList.filter(lesson => !lesson.isDraft && !["draft", "hidden", "unpublished", "inactive"].includes(String(lesson.status).toLowerCase())).map(l => {
       const actualCourse = findScopedCourse(courseScope, l.courseId);
-      const access = actualCourse ? checkStudentCourseAccess(student, l.courseId, l, actualCourse) : { allowed: false, reason: "NOT_ENROLLED" };
+      const access = actualCourse ? checkStudentCourseAccess(student, l.courseId, l, actualCourse, courseScope) : { allowed: false, reason: "NOT_ENROLLED" };
       if (!access.allowed) {
         return {
           ...l,
@@ -5443,41 +5398,18 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], requireStuden
 
     // 5. Optimized parallel query for assignments, submissions, exams, results, receipts, certificates using DB filtering & strict projections
     const [dbAssignments, dbSubmissions, dbExams, dbResults, dbReceipts, dbCertificates] = await Promise.all([
-      isMongoConnected
-        ? Assignment.find(
-            enrolledIds.length > 0 ? { courseId: { $in: enrolledIds } } : { id: '__none__' },
-            'id title courseId dueDate totalMarks status createdAt'
-          ).sort({ createdAt: -1 }).limit(20).lean().catch(() => [])
-        : (memoryDb.assignments || []).filter(a => enrolledIds.includes(a.courseId)),
-      isMongoConnected
-        ? Submission.find(
-            { studentId: student.id },
-            'id assignmentId marksObtained gradedAt createdAt canResubmit courseId feedback'
-          ).sort({ createdAt: -1 }).limit(20).lean().catch(() => [])
-        : (memoryDb.submissions || []).filter(s => s.studentId === student.id),
-      isMongoConnected
-        ? McqExam.find(
-            {
-              status: { $ne: "Closed" },
-              ...(enrolledIds.length > 0 ? { $or: [{ isPublic: true }, { courseId: { $in: enrolledIds } }] } : { isPublic: true })
-            },
-            'id title courseId courseTitle subject durationMinutes totalMarks passPercentage isLiveModelTest liveStartTime liveEndTime startDate endDate attemptLimit negativeMarks isPublic status createdAt'
-          ).sort({ createdAt: -1 }).limit(20).lean().catch(() => [])
-        : (memoryDb.mcqExams || []).filter(e => e.status !== "Closed"),
-      isMongoConnected
-        ? McqResult.find(
-            { studentId: student.id },
-            'id examId examTitle score totalMarks percentage grade submittedAt correctCount wrongCount negativeDeduction netScore timeTakenSeconds rank'
-          ).sort({ submittedAt: -1 }).limit(20).lean().catch(() => [])
-        : (memoryDb.mcqResults || []).filter(r => r.studentId === student.id),
-      isMongoConnected
-        ? Receipt.find(
-            ownerQuery(student)
-          ).sort({ paymentTime: -1, createdAt: -1 }).limit(50).lean().catch(() => [])
-        : (memoryDb.receipts || []).filter(r => ownsStudentRecord(student, r)),
-      isMongoConnected
-        ? Certificate.find({ studentId: student.id, status: 'Valid' }).sort({ issueDate: -1 }).limit(20).lean().catch(() => [])
-        : []
+      Assignment.find(enrolledIds.length ? { courseId: { $in: enrolledIds } } : { id: '__none__' },
+        'id title courseId dueDate totalMarks status createdAt').sort({ createdAt: -1 }).limit(20).lean(),
+      Submission.find(ownerQuery(student), 'id assignmentId marksObtained gradedAt createdAt canResubmit courseId feedback')
+        .sort({ createdAt: -1 }).limit(20).lean(),
+      McqExam.find({
+        status: { $ne: 'Closed' },
+        $or: [{ isPublic: true }, { courseId: { $in: enrolledIds } }]
+      }, 'id title courseId courseTitle subject durationMinutes totalMarks passPercentage isLiveModelTest liveStartTime liveEndTime startDate endDate attemptLimit negativeMarks isPublic status createdAt')
+        .sort({ createdAt: -1 }).limit(20).lean(),
+      McqResult.find(ownerQuery(student)).sort({ submittedAt: -1 }).limit(20).lean(),
+      Receipt.find(ownerQuery(student)).sort({ paymentTime: -1, createdAt: -1 }).limit(50).lean(),
+      Certificate.find({ ...ownerQuery(student), status: 'Valid' }).sort({ issueDate: -1 }).limit(20).lean()
     ]);
 
     // Backend-calculate progress
@@ -5510,20 +5442,23 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], requireStuden
       },
       assignments: (dbAssignments || []).filter(a => {
         const course = findScopedCourse(courseScope, a.courseId);
-        return Boolean(course && checkStudentCourseAccess(student, a.courseId, null, course).allowed);
+        return Boolean(course && checkStudentCourseAccess(student, a.courseId, null, course, courseScope).allowed);
       }),
-      submissions: dbSubmissions || [],
-      exams: dbExams || [],
-      results: dbResults || [],
-      receipts: dbReceipts || [],
-      certificates: dbCertificates || [],
+      submissions: dbSubmissions.map(classroomSubmissionResponse),
+      exams: dbExams.filter(exam => {
+        const course = findScopedCourse(courseScope, exam.courseId);
+        return isPublicExam(exam) || Boolean(course && checkStudentCourseAccess(student, exam.courseId, null, course, courseScope).allowed);
+      }),
+      results: dbResults.map(studentResultResponse),
+      receipts: dbReceipts.map(studentReceiptResponse),
+      certificates: dbCertificates.map(studentCertificateResponse),
       source: "mongodb-backend-processed"
     };
 
     return res.json({ ok: true, ...payload });
   } catch (err) {
     console.error("Student dashboard-data error:");
-    return res.status(500).json({ ok: false, message: "ড্যাশবোর্ড ডেটা লোড করতে সমস্যা হয়েছে: " + "Request could not be completed." });
+    return rejectAccess(req, res, err);
   }
 });
 
@@ -5558,7 +5493,7 @@ async function scopedAiLessons(user) {
   const [courses, lessons] = await Promise.all([readCourseScope(), Lesson.find().lean()]);
   return lessons.filter(lesson => {
     const course = findScopedCourse(courses, lesson.courseId);
-    return Boolean(course && checkStudentCourseAccess(user, lesson.courseId, lesson, course).allowed);
+    return Boolean(course && checkStudentCourseAccess(user, lesson.courseId, lesson, course, courses).allowed);
   });
 }
 
@@ -5589,7 +5524,7 @@ app.post("/api/ai/legal-assistant", optionalAuthentication, async (req, res) => 
 
     const result = await processLegalAiQuery({
       query: query.trim(),
-      studentName: req.user?.name || 'শিক্ষার্থী',
+      studentName: 'শিক্ষার্থী',
       allLessons,
       conversationHistory: conversationHistory || history || []
     });
@@ -5736,7 +5671,7 @@ app.post(["/api/admin/mentors/save", "/admin/mentors/save"], requireAdmin, async
     return res.json({
       ok: true,
       message: `✓ Mentor "${saved.name}" saved successfully!`,
-      mentor: saved
+      mentor: accountResponse(saved)
     });
   } catch (err) {
     console.error("Save mentor error:");
@@ -5939,198 +5874,40 @@ app.post(["/api/admin/mentors/merge", "/admin/mentors/merge"], requireAdmin, asy
   }
 });
 
-// GET All Students & Pending Registrations (Admin Control Panel)
+function mergeStudentDirectory(students, registrations) {
+  const ids = new Set(students.flatMap(accountIds));
+  const contactKey = row => {
+    const email = typeof row?.email === 'string' ? row.email.trim().toLowerCase() : '';
+    const phone = typeof row?.phone === 'string' ? row.phone.replace(/\D/g, '') : '';
+    return email && phone ? JSON.stringify([email, phone]) : null;
+  };
+  const contacts = new Set(students.map(contactKey).filter(Boolean));
+  const applicants = registrations
+    .filter(row => row && row.regId && !ids.has(row.regId) && !contacts.has(contactKey(row)))
+    .map(row => ({
+      ...registrationSessionAccount(row),
+      isRegistrationOnly: true,
+      adminNote: row.adminNote,
+      reviewNote: row.reviewNote
+    }));
+
+  return [...students, ...applicants].map(adminStudentResponse)
+    .sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)
+      || String(a.id || a.regId || '').localeCompare(String(b.id || b.regId || '')));
+}
+
 app.get(["/api/admin/students", "/admin/students"], requireAdmin, async (req, res) => {
-  if (!isMongoConnected && (!memoryDb.students || memoryDb.students.length === 0)) {
-    return res.status(503).json({
-      ok: false,
-      error: "DATABASE_UNAVAILABLE",
-      message: "Database is currently disconnected. Cannot retrieve students list."
-    });
-  }
-
-  let dbNotice = null;
   try {
-    await ensureDbConnected();
-    let mongoStudents = [];
-    let mongoRegs = [];
-
-    if (isMongoConnected) {
-      [mongoStudents, mongoRegs] = await Promise.all([
-        Student.find().sort({ createdAt: -1 }).lean(),
-        Registration.find().sort({ createdAt: -1 }).lean()
-      ]);
-    }
-
-    const studentMap = new Map();
-
-    const getKey = (item) => {
-      if (!item) return "";
-      const phoneDigits = item.phone ? String(item.phone).replace(/\D/g, "").slice(-10) : "";
-      if (phoneDigits) return "phone_" + phoneDigits;
-      const email = item.email ? String(item.email).trim().toLowerCase() : "";
-      if (email) return "email_" + email;
-      const regId = item.regId ? String(item.regId).trim().toLowerCase() : "";
-      if (regId) return "reg_" + regId;
-      const id = item.id || item._id ? String(item.id || item._id).trim().toLowerCase() : "";
-      return id ? "id_" + id : "";
-    };
-
-    // 1. Add MongoDB Students (Primary Authority)
-    (mongoStudents || []).forEach((s) => {
-      if (!s) return;
-      const key = getKey(s);
-      if (key) {
-        studentMap.set(key, s);
-      }
-    });
-
-    // Helper to find course by batch/title/id
-    let allCoursesList = memoryDb.courses || [];
-    if (isMongoConnected && allCoursesList.length === 0) {
-      try {
-        allCoursesList = await Course.find().lean();
-      } catch (e) { }
-    }
-
-    const matchCourse = (rawBatch) => {
-      if (!rawBatch) return null;
-      const bStr = String(rawBatch).trim().toLowerCase();
-      return allCoursesList.find(c => {
-        const cId = String(c.id || "").trim().toLowerCase();
-        const cTitle = String(c.title || "").trim().toLowerCase();
-        const cShort = String(c.shortTitle || "").trim().toLowerCase();
-        const cBatch = String(c.batchRegText || "").trim().toLowerCase();
-        return cId === bStr || cTitle === bStr || cShort === bStr || cBatch === bStr ||
-          (cTitle && cTitle.includes(bStr)) || (bStr && bStr.includes(cShort));
-      });
-    };
-
-    // 2. Merge MongoDB Registrations (Only for pending registrations that do not have a Student doc yet)
-    (mongoRegs || []).forEach((r) => {
-      if (!r) return;
-      const key = getKey(r);
-      if (key && !studentMap.has(key)) {
-        const matchedC = matchCourse(r.batch);
-        const enrolled = matchedC ? [matchedC.id] : [];
-        const allowed = (r.status === "Approved" && matchedC) ? [matchedC.id] : [];
-        const synthesizedStudent = {
-          id: r.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
-          regId: r.regId,
-          name: r.name,
-          phone: r.phone,
-          email: r.email,
-          university: r.university || "",
-          batch: matchedC ? (matchedC.title || matchedC.shortTitle || r.batch) : (r.batch || "Regular Batch"),
-          session: r.session || "Standard Session",
-          password: r.password,
-          status: r.status === "Approved" ? "Active" : (r.status || "Pending"),
-          loginApproval: r.status === "Approved" ? "Approved" : (r.status || "Pending"),
-          enrolledCourseIds: enrolled,
-          allowedCourseIds: allowed,
-          createdAt: r.createdAt || new Date()
-        };
-        studentMap.set(key, synthesizedStudent);
-      }
-    });
-
-    // 3. Merge Memory DB Students (Only if Mongo is NOT connected)
-    if (!isMongoConnected) {
-      (memoryDb.students || []).forEach((s) => {
-        if (!s) return;
-        const key = getKey(s);
-        if (key && !studentMap.has(key)) {
-          studentMap.set(key, s);
-        }
-      });
-
-      // 4. Merge Memory DB Registrations
-      (memoryDb.registrations || []).forEach((r) => {
-        if (!r) return;
-        const key = getKey(r);
-        if (key && !studentMap.has(key)) {
-          const matchedC = matchCourse(r.batch);
-          const enrolled = matchedC ? [matchedC.id] : [];
-          const allowed = (r.status === "Approved" && matchedC) ? [matchedC.id] : [];
-          const synthesizedStudent = {
-            id: r.regId || ("STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900)),
-            regId: r.regId,
-            name: r.name,
-            phone: r.phone,
-            email: r.email,
-            university: r.university || "",
-            batch: matchedC ? (matchedC.title || matchedC.shortTitle || r.batch) : (r.batch || "Regular Batch"),
-            session: r.session || "Standard Session",
-            password: r.password,
-            status: r.status === "Approved" ? "Active" : (r.status || "Pending"),
-            loginApproval: r.status === "Approved" ? "Approved" : (r.status || "Pending"),
-            enrolledCourseIds: enrolled,
-            allowedCourseIds: allowed,
-            createdAt: r.createdAt || new Date()
-          };
-          studentMap.set(key, synthesizedStudent);
-        }
-      });
-    }
-
-    const combinedStudents = Array.from(studentMap.values()).map(s => {
-      if (s) {
-        let allowed = Array.isArray(s.allowedCourseIds) ? s.allowedCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '') : [];
-        let enrolled = Array.isArray(s.enrolledCourseIds) ? s.enrolledCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '') : [];
-
-        // Map any old titles in allowed/enrolled to canonical course IDs
-        allowed = allowed.map(id => {
-          const cFound = matchCourse(id);
-          return cFound ? cFound.id : id;
-        });
-        enrolled = enrolled.map(id => {
-          const cFound = matchCourse(id);
-          return cFound ? cFound.id : id;
-        });
-
-        // Match student batch to a live course
-        const matchedC = matchCourse(s.batch);
-
-        if (allowed.length > 0) {
-          // STRICT RULE: allowedCourseIds is the single authoritative source of truth.
-          // enrolledCourseIds MUST strictly match allowedCourseIds!
-          enrolled = [...allowed];
-
-          // If student's batch corresponds to an old removed course, update s.batch to the assigned course
-          if (matchedC && !allowed.includes(matchedC.id)) {
-            const assignedC = allCoursesList.find(c => allowed.includes(c.id));
-            if (assignedC) {
-              s.batch = assignedC.title || assignedC.shortTitle || s.batch;
-            }
-          }
-        } else if (enrolled.length > 0) {
-          allowed = [...enrolled];
-        } else if ((s.loginApproval === 'Approved' || s.status === 'Active') && matchedC) {
-          // Newly approved student with 0 courses assigned: initialize to registration course
-          allowed = [matchedC.id];
-          enrolled = [matchedC.id];
-          s.batch = matchedC.title || matchedC.shortTitle || s.batch;
-        }
-
-        s.allowedCourseIds = Array.from(new Set(allowed.filter(Boolean)));
-        s.enrolledCourseIds = Array.from(new Set(enrolled.filter(Boolean)));
-      }
-      return s;
-    });
-    memoryDb.students = combinedStudents;
-
-    return res.json({ ok: true, students: combinedStudents, source: isMongoConnected ? "mongodb" : "memory" });
-  } catch (err) {
-    console.error("Student list fetch database error:");
-    if (memoryDb.students && memoryDb.students.length > 0) {
-      const fallbackStudents = memoryDb.students || [];
-      return res.json({ ok: true, students: fallbackStudents, source: "memory_cache", dbNotice: "Request could not be completed." });
-    }
-    return res.status(503).json({
-      ok: false,
-      error: "DATABASE_ERROR",
-      message: "Database query failed while fetching students: " + "Request could not be completed."
-    });
+    const query = readDirectoryQuery(req.query);
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const [students, registrations] = await Promise.all([
+      Student.find().select("-password").lean(),
+      Registration.find().select("-password").lean()
+    ]);
+    const page = directoryPage(mergeStudentDirectory(students, registrations), query);
+    return res.json({ ok: true, students: page.records, pagination: page.pagination, source: "mongodb" });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
@@ -6195,12 +5972,6 @@ app.get(["/api/public-stats", "/public-stats"], async (req, res) => {
 app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], requireAdmin, async (req, res) => {
   res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
 
-  const cachedBundle = fastCache.get("admin_bootstrap_bundle");
-  if (cachedBundle) {
-    return res.json({ ok: true, ...cachedBundle, mailSettings: mailSettingsResponse(cachedBundle.mailSettings),
-      siteSettings: publicSiteSettings(cachedBundle.siteSettings), source: "fast-cache" });
-  }
-
   try {
     await ensureDbConnected();
 
@@ -6250,56 +6021,7 @@ app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], requireAdmin, as
       resultsList = memoryDb.mcqResults || [];
     }
 
-    // Merge students & pending registrations (deduplicated by phone/email/regId)
-    const studentMap = new Map();
-    const getKey = (item) => {
-      if (!item) return "";
-      const phoneDigits = item.phone ? String(item.phone).replace(/\D/g, "").slice(-10) : "";
-      if (phoneDigits) return "phone_" + phoneDigits;
-      const email = item.email ? String(item.email).trim().toLowerCase() : "";
-      if (email) return "email_" + email;
-      const regId = item.regId ? String(item.regId).trim().toLowerCase() : "";
-      if (regId) return "reg_" + regId;
-      const id = item.id || item._id ? String(item.id || item._id).trim().toLowerCase() : "";
-      return id ? "id_" + id : "";
-    };
-
-    studentsList.forEach(s => {
-      const k = getKey(s);
-      if (k) studentMap.set(k, s);
-    });
-
-    regsList.forEach(r => {
-      const k = getKey(r);
-      if (k && !studentMap.has(k)) {
-        studentMap.set(k, {
-          id: r.regId || ("STU-" + Date.now()),
-          regId: r.regId,
-          name: r.name,
-          phone: r.phone,
-          email: r.email,
-          university: r.university || "",
-          batch: r.batch || "Regular Batch",
-          session: r.session || "Standard Session",
-          status: r.status === "Approved" ? "Active" : (r.status || "Pending"),
-          loginApproval: r.status === "Approved" ? "Approved" : (r.status || "Pending"),
-          enrolledCourseIds: [],
-          allowedCourseIds: [],
-          createdAt: r.createdAt || new Date()
-        });
-      }
-    });
-
-    const combinedStudents = Array.from(studentMap.values()).map(s => {
-      if (!s) return s;
-      let allowed = Array.isArray(s.allowedCourseIds) ? s.allowedCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '') : [];
-      let enrolled = Array.isArray(s.enrolledCourseIds) ? s.enrolledCourseIds.filter(id => id && !String(id).includes('---') && String(id).trim() !== '') : [];
-      return {
-        ...s,
-        allowedCourseIds: Array.from(new Set(allowed)),
-        enrolledCourseIds: Array.from(new Set(enrolled))
-      };
-    });
+    const combinedStudents = mergeStudentDirectory(studentsList, regsList);
 
     // Backend-processed stats calculations
     const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -6352,7 +6074,7 @@ app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], requireAdmin, as
       stats,
       students: combinedStudents,
       courses: coursesList,
-      mentors: mentorsList,
+      mentors: mentorsList.map(accountResponse),
       receipts: receiptsList,
       assignments: assignmentsList,
       exams: examsList,
@@ -6362,10 +6084,10 @@ app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], requireAdmin, as
     };
 
     fastCache.set("admin_bootstrap_bundle", bundle, 20); // 20s cache
-    return res.json({ ok: true, ...bundle, source: "mongodb-parallel-bundle" });
+    return respond(bundle, "mongodb-parallel-bundle");
   } catch (err) {
     console.error("Admin bootstrap data error:");
-    return res.status(500).json({ ok: false, message: "Failed to load admin bootstrap data: " + "Request could not be completed." });
+    return rejectAccess(req, res, err);
   }
 });
 
@@ -6669,7 +6391,10 @@ app.delete("/api/admin/mcq-exams/:id", requireAdmin, async (req, res) => {
 app.post("/api/mcq-exams/submit", optionalAuthentication, async (req, res) => {
   try {
 
-    const requestedExamId = req.body?.examId;
+    const body = req.body || {};
+    if (req.user?.role === "student") validateStudentTarget(req.user, body);
+    else if (studentRestrictedFields.some(field => Object.hasOwn(body, field))) return rejectAccess(req, res);
+    const requestedExamId = body.examId;
     const exam = await McqExam.findOne(recordIdFilter(requestedExamId)).lean();
     await assertExamAccess(req, exam, { submit: true });
     const examId = exam.id;
@@ -6934,7 +6659,7 @@ app.get("/api/mentor/submissions", requireMentorSelf, async (req, res) => {
     const ids = assignments.filter((_, i) => allowed[i]).map(a => a.id);
     if (!ids.length) return res.json({ ok: true, submissions: [] });
     const submissions = await Submission.find({ assignmentId: { $in: ids } }).sort({ createdAt: -1 }).lean();
-    return res.json({ ok: true, submissions });
+    return res.json({ ok: true, submissions: submissions.map(classroomSubmissionResponse) });
   } catch (error) {
     return rejectAccess(req, res, error);
   }
@@ -6961,7 +6686,7 @@ app.post("/api/mentor/grade-submission", requireMentorSelf, async (req, res) => 
     const student = await Student.findOne({ id: submission.studentId }).select("email").lean().catch(() => null);
     if (student?.email) sendAssignmentGradeEmail(student.email, data, assignment.title)
       .catch(() => console.warn("Assignment grade email delivery failed"));
-    return res.json({ ok: true, message: "খাতা মূল্যায়ন সফল হয়েছে।", submission: data });
+    return res.json({ ok: true, message: "খাতা মূল্যায়ন সফল হয়েছে।", submission: classroomSubmissionResponse(data) });
   } catch (error) {
     return rejectAccess(req, res, error);
   }
@@ -7033,7 +6758,7 @@ app.get("/api/student/my-mcq-results", requireStudentSelf, async (req, res) => {
   try {
     const results = await McqResult.find(ownerQuery(req.user)).sort({ submittedAt: -1 }).lean();
 
-    return res.json({ ok: true, results: results || [] });
+    return res.json({ ok: true, results: results.map(studentResultResponse) });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "Error fetching student MCQ results." });
   }
@@ -7045,26 +6770,9 @@ app.get("/api/student/mcq-result/:id", requireStudentSelf, async (req, res) => {
     const { id } = req.params;
     await ensureDbConnected();
 
-    let result = null;
-    if (isMongoConnected) {
-      result = await McqResult.findOne({ $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])] }).lean();
-    }
-    if (!result) {
-      result = (memoryDb.mcqResults || []).find(r => r.id === id || r._id === id);
-    }
-    if (!result) {
-      return res.status(404).json({ ok: false, message: "ফলাফল খুঁজে পাওয়া যায়নি।" });
-    }
-
-    if (!ownsStudentRecord(req.user, result)) return rejectAccess(req, res);
-
-    let exam = null;
-    if (isMongoConnected) {
-      exam = await McqExam.findOne({ id: result.examId }).lean();
-    }
-    if (!exam) {
-      exam = (memoryDb.mcqExams || []).find(e => e.id === result.examId);
-    }
+    const result = await McqResult.findOne({ ...recordIdFilter(id), ...ownerQuery(req.user) }).lean();
+    if (!result) return rejectAccess(req, res);
+    const exam = await McqExam.findOne({ id: result.examId }).select("questions").lean();
 
     let reviewData = [];
     if (exam && Array.isArray(exam.questions)) {
@@ -7085,11 +6793,11 @@ app.get("/api/student/mcq-result/:id", requireStudentSelf, async (req, res) => {
 
     return res.json({
       ok: true,
-      result,
+      result: studentResultResponse(result),
       review: reviewData
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error fetching result review: " + "Request could not be completed." });
+    return rejectAccess(req, res, err);
   }
 });
 
@@ -7104,7 +6812,7 @@ app.get("/api/mcq-exams/:id/leaderboard", optionalAuthentication, async (req, re
     const { id } = req.params;
     const exam = await McqExam.findOne(recordIdFilter(id)).lean();
     await assertExamAccess(req, exam);
-    const data = await getExamLeaderboard({ examId: exam.id, McqExam, McqResult });
+    const data = await getExamLeaderboard({ examId: exam.id, McqExam, McqResult, viewer: req.user });
     return res.json(data);
   } catch (err) {
     return rejectAccess(req, res, err);
@@ -7314,7 +7022,7 @@ app.get("/api/certificates/student/:studentId", requireStudentOrAdmin, async (re
     if (req.user.role === "student" && !isAccountId(req.user, studentId)) return rejectAccess(req, res);
     const owner = req.user.role === "student" ? ownerQuery(req.user) : { studentId };
     const certs = await Certificate.find({ ...owner, status: "Valid" }).sort({ issueDate: -1 }).lean();
-    return res.json({ ok: true, certificates: certs || [] });
+    return res.json({ ok: true, certificates: certs.map(studentCertificateResponse) });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "সার্টিফিকেট লোড করতে সমস্যা হয়েছে।" });
   }
@@ -7373,7 +7081,7 @@ app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificat
     const finalCourseTitle = course?.title || courseTitle || 'BJS & Bar Masterclass';
     const finalScore = Number(req.body.marks || completionScore) || 100;
 
-    const certId = `CERT-BJS-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const certId = "CERT-" + new Date().getFullYear() + "-" + crypto.randomBytes(12).toString("hex").toUpperCase();
     const verificationUrl = `https://bjs.kodl.uk/verify/${certId}`;
     let qrCodeDataUrl = '';
     try {
@@ -7454,38 +7162,28 @@ app.delete(["/api/admin/certificates/:id", "/api/certificates/:id"], requireAdmi
 });
 
 app.get(["/api/certificates/verify/:certificateId", "/verify/:certificateId"], optionalAuthentication, async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   try {
     await ensureDbConnected();
     const { certificateId } = req.params;
-    let cert = null;
-    if (isMongoConnected) {
-      cert = await Certificate.findOne({ certificateId }).lean().catch(() => null);
-    }
-    if (!cert) {
-      cert = (memoryDb.certificates || []).find(c => c.certificateId === certificateId);
-    }
+    if (typeof certificateId !== "string" || !certificateId.trim() || certificateId.length > 128) throw new AuthError("INVALID_INPUT");
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const cert = await Certificate.findOne({ certificateId })
+      .select("certificateId studentId studentName courseTitle issueDate issuedBy status").lean();
     if (!cert) {
       return res.status(404).json({ ok: false, valid: false, message: "সার্টিফিকেটটি খুঁজে পাওয়া যায়নি বা এটি বৈধ নয়।" });
     }
-    const canDownload = cert.status !== "Revoked" && (req.user?.role === "admin" || (req.user?.role === "student" && ownsStudentRecord(req.user, cert)));
+    if (cert.status && cert.status !== "Valid") {
+      return res.json({ ok: true, valid: false, certificate: { certificateId: cert.certificateId, status: cert.status } });
+    }
+    const canDownload = (req.user?.role === "admin" || (req.user?.role === "student" && ownsStudentRecord(req.user, cert)));
     return res.json({
       ok: true,
-      valid: cert.status !== "Revoked",
-      certificate: {
-        certificateId: cert.certificateId,
-        studentName: cert.studentName,
-        ...(canDownload ? { studentId: cert.studentId } : {}),
-        canDownload,
-        courseTitle: cert.courseTitle,
-        completionScore: cert.completionScore || 100,
-        issueDate: cert.issueDate,
-        status: cert.status || "Valid",
-        issuedBy: cert.issuedBy || "BJS & Bar Aspirants Academy",
-        verificationUrl: cert.verificationUrl
-      }
+      valid: true,
+      certificate: { ...publicCertificateResponse(cert), canDownload }
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "সার্টিফিকেট যাচাইকরণে ত্রুটি: " + "Request could not be completed." });
+    return rejectAccess(req, res, err);
   }
 });
 
@@ -7493,18 +7191,11 @@ app.get("/api/certificates/:certificateId/download", requireStudentOrAdmin, asyn
   try {
     await ensureDbConnected();
     const { certificateId } = req.params;
-    let cert = null;
-    if (isMongoConnected) {
-      cert = await Certificate.findOne({ certificateId }).lean().catch(() => null);
-    }
-    if (!cert) {
-      cert = (memoryDb.certificates || []).find(c => c.certificateId === certificateId);
-    }
-    if (!cert) {
-      return res.status(404).send("সার্টিফিকেট পাওয়া যায়নি।");
-    }
-
-    if (req.user.role === "student" && (cert.status === "Revoked" || !ownsStudentRecord(req.user, cert))) return rejectAccess(req, res);
+    if (typeof certificateId !== "string" || !certificateId.trim() || certificateId.length > 128) throw new AuthError("INVALID_INPUT");
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const owner = req.user.role === "student" ? { ...ownerQuery(req.user), status: { $in: ["Valid", null] } } : {};
+    const cert = await Certificate.findOne({ certificateId, ...owner }).lean();
+    if (!cert) return rejectAccess(req, res, new AuthError(req.user.role === "student" ? "FORBIDDEN" : "RESOURCE_NOT_FOUND"));
 
     const pdfBuffer = await generateCertificatePdf({
       certificateId: cert.certificateId,
@@ -7519,7 +7210,7 @@ app.get("/api/certificates/:certificateId/download", requireStudentOrAdmin, asyn
     return res.send(pdfBuffer);
   } catch (err) {
     console.error("Certificate PDF Download Error:");
-    return res.status(500).send("সার্টিফিকেট PDF তৈরি করতে সমস্যা হয়েছে: " + "Request could not be completed.");
+    return rejectAccess(req, res, err);
   }
 });
 
@@ -7537,14 +7228,13 @@ app.post("/api/push/subscribe", requireStudentSelf, async (req, res) => {
       throw new AuthError("INVALID_INPUT");
     }
     const student = req.user;
-    await PushSubscription.findOneAndUpdate({ endpoint }, { $set: {
+    await PushSubscription.findOneAndUpdate({ endpoint, studentId: student.id }, { $set: {
       endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth }, studentId: student.id,
       courseIds: student.allowedCourseIds?.length ? student.allowedCourseIds : student.enrolledCourseIds || [],
-      userAgent: String(req.headers["user-agent"] || "").slice(0, 200)
     } }, { upsert: true, new: true });
     return res.json({ ok: true });
   } catch (error) {
-    return rejectAccess(req, res, error);
+    return rejectAccess(req, res, error?.code === 11000 ? new AuthError("PUSH_SUBSCRIPTION_CONFLICT") : error);
   }
 });
 
@@ -7556,16 +7246,16 @@ app.post("/api/admin/push/broadcast", requireAdmin, async (req, res) => {
       return res.status(400).json({ ok: false, message: "শিরোনাম ও বিবরণ আবশ্যক।" });
     }
 
-    const subQuery = courseId ? { $or: [{ courseIds: courseId }, { courseIds: { $size: 0 } }] } : {};
-    let subscriptions = await PushSubscription.find(subQuery).lean();
+    if (courseId !== undefined && (typeof courseId !== "string" || courseId.length > 200)) throw new AuthError("INVALID_INPUT");
+    let subscriptions = await PushSubscription.find().select("studentId").lean();
     if (courseId) {
-      if (typeof courseId !== "string") throw new AuthError("INVALID_INPUT");
-      const course = findScopedCourse(await readCourseScope(), courseId);
+      const catalog = await readCourseScope();
+      const course = findScopedCourse(catalog, courseId);
       if (!course) throw new AuthError("RESOURCE_NOT_FOUND");
       const students = await Student.find({ id: { $in: subscriptions.map(sub => sub.studentId).filter(Boolean) } })
         .select("id status loginApproval allowedCourseIds enrolledCourseIds courseRules unlimitedAccess").lean();
       const eligible = new Set(students.filter(student => checkStudentCourseAccess(
-        { ...student, role: "student" }, courseId, null, course).allowed).map(student => student.id));
+        { ...student, role: "student" }, courseId, null, course, catalog).allowed).map(student => student.id));
       subscriptions = subscriptions.filter(sub => eligible.has(sub.studentId));
     }
 
@@ -7657,7 +7347,7 @@ app.post("/api/student/submit-assignment", requireStudentSelf, async (req, res) 
     if (!saved) return res.status(409).json({ ok: false, message: "আবার জমা দেওয়ার অনুমতি নেই।" });
     const data = saved.toObject();
     memoryDb.submissions = [data, ...(memoryDb.submissions || []).filter(item => item.id !== data.id)];
-    return res.json({ ok: true, message: "অ্যাসাইনমেন্ট জমা হয়েছে।", submission: data });
+    return res.json({ ok: true, message: "অ্যাসাইনমেন্ট জমা হয়েছে।", submission: classroomSubmissionResponse(data) });
   } catch (error) {
     return rejectAccess(req, res, error);
   }
@@ -7666,16 +7356,8 @@ app.post("/api/student/submit-assignment", requireStudentSelf, async (req, res) 
 // GET Student My Submissions
 app.get("/api/student/my-submissions", requireStudentSelf, async (req, res) => {
   try {
-    const { studentId } = req.query;
-    if (!studentId) return res.status(400).json({ ok: false, message: "studentId is required." });
-
-    if (isMongoConnected) {
-      const list = await Submission.find(ownerQuery(req.user)).sort({ createdAt: -1 }).lean();
-      return res.json({ ok: true, submissions: list });
-    }
-
-    const filtered = (memoryDb.submissions || []).filter(s => ownsStudentRecord(req.user, s));
-    return res.json({ ok: true, submissions: filtered });
+    const submissions = await Submission.find(ownerQuery(req.user)).sort({ createdAt: -1 }).lean();
+    return res.json({ ok: true, submissions: submissions.map(classroomSubmissionResponse) });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "Error fetching student submissions." });
   }
@@ -7849,7 +7531,7 @@ async function sendEmailChangeOtp(targetEmail, otp, studentName) {
     });
     return res.ok;
   } catch (err) {
-    console.error("Email verification dispatch error:", err.message);
+    console.error("Email verification dispatch error");
     return false;
   }
 }
@@ -7865,6 +7547,7 @@ async function currentStudentForContactChange(req) {
 
 async function sendStudentEmailChallenge(req, res) {
   try {
+    validateStudentFields(req.body || {}, ['email', 'newEmail']);
     const student = await currentStudentForContactChange(req);
     const submitted = req.body?.newEmail || req.body?.email;
     if (typeof submitted !== "string" || submitted.length > 254) throw new AuthError("INVALID_INPUT");
@@ -7886,6 +7569,7 @@ async function sendStudentEmailChallenge(req, res) {
 
 async function applyStudentEmailChallenge(req, res) {
   try {
+    validateStudentFields(req.body || {}, ['email', 'newEmail', 'otp']);
     const student = await currentStudentForContactChange(req);
     const submitted = req.body?.newEmail || req.body?.email;
     if (typeof submitted !== "string" || submitted.length > 254) throw new AuthError("INVALID_INPUT");
@@ -7906,7 +7590,7 @@ async function applyStudentEmailChallenge(req, res) {
     invalidateStudentDashboardCache(updated);
     const cached = (memoryDb.students || []).find(item => item.id === updated.id);
     if (cached) cached.email = updated.email;
-    return res.json({ ok: true, message: "ইমেইল যাচাই করে পরিবর্তন করা হয়েছে।", student: accountResponse(updated) });
+    return res.json({ ok: true, message: "ইমেইল যাচাই করে পরিবর্তন করা হয়েছে।", student: privateAccountProfile(updated) });
   } catch (error) {
     return rejectAccess(req, res, error?.code === 11000 ? new AuthError("INVALID_INPUT") : error);
   }
@@ -7986,30 +7670,13 @@ app.post(["/api/admin/mail-toggle", "/admin/mail-toggle"], requireAdmin, async (
 
 app.get("/api/admin/registrations", requireAdmin, async (req, res) => {
   try {
-    await ensureDbConnected();
-    let mongoRegs = [];
-    if (isMongoConnected) {
-      try {
-        mongoRegs = await Registration.find().sort({ createdAt: -1 }).lean();
-      } catch (e) { }
-    }
-
-    const combined = [...mongoRegs, ...(memoryDb.registrations || [])];
-    const map = new Map();
-    combined.forEach((r) => {
-      if (!r) return;
-      const key = (r.regId || r._id || r.phone || r.email || "").toString().toLowerCase();
-      if (key && !map.has(key)) {
-        map.set(key, r);
-      }
-    });
-
-    const uniqueRegs = Array.from(map.values());
-    memoryDb.registrations = uniqueRegs;
-
-    return res.json({ ok: true, registrations: uniqueRegs });
-  } catch (e) {
-    return res.json({ ok: true, registrations: memoryDb.registrations || [] });
+    const query = readDirectoryQuery(req.query);
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const registrations = await Registration.find().select("-password").sort({ createdAt: -1, regId: 1 }).lean();
+    const page = directoryPage(registrations, query);
+    return res.json({ ok: true, registrations: page.records.map(adminRegistrationResponse), pagination: page.pagination });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
@@ -8213,7 +7880,7 @@ app.post("/api/admin/students/save", requireAdmin, async (req, res) => {
       req
     });
 
-    return res.json({ ok: true, message: `শিক্ষার্থী "${savedStudent.name || savedStudent.id}" এর তথ্য সফলভাবে সেভ করা হয়েছে!`, student: savedStudent });
+    return res.json({ ok: true, message: `শিক্ষার্থী "${savedStudent.name || savedStudent.id}" এর তথ্য সফলভাবে সেভ করা হয়েছে!`, student: adminStudentResponse(savedStudent) });
   } catch (e) {
     console.error("Error saving student:");
     return res.status(500).json({ ok: false, message: "Request could not be completed." || "Error saving student profile." });
@@ -8431,7 +8098,7 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], requireAdmi
     return res.json({
       ok: true,
       message: `শিক্ষার্থী "${updatedStudent?.name || studentId}" এর আবেদন এপ্রুভ ও কোর্সের এক্সেস সক্রিয় করা হয়েছে!`,
-      student: updatedStudent
+      student: adminStudentResponse(updatedStudent)
     });
   } catch (err) {
     console.error("Approve student error:");
@@ -8754,7 +8421,7 @@ app.get("/api/student/receipts", requireStudentSelf, async (req, res) => {
   try {
     const receipts = await Receipt.find(ownerQuery(req.user)).sort({ paymentTime: -1, createdAt: -1 }).lean();
 
-    return res.json({ ok: true, receipts: receipts || [] });
+    return res.json({ ok: true, receipts: receipts.map(studentReceiptResponse) });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "Unable to load payment receipts." });
   }
@@ -8765,18 +8432,9 @@ app.get("/api/student/receipts/:receiptId/pdf", requireStudentSelf, async (req, 
   try {
     const student = req.user;
     const { receiptId } = req.params;
-    let receipt = null;
-    if (isMongoConnected) {
-      receipt = await Receipt.findOne({ receiptId }).lean();
-    }
-    if (!receipt) {
-      receipt = (memoryDb.receipts || []).find(r => r.receiptId === receiptId);
-    }
-    if (!receipt) {
-      return res.status(404).json({ ok: false, message: "মানি রিসিট খুঁজে পাওয়া যায়নি।" });
-    }
-
-    if (!ownsStudentRecord(student, receipt)) return rejectAccess(req, res);
+    if (typeof receiptId !== "string" || !receiptId.trim() || receiptId.length > 128) throw new AuthError("INVALID_INPUT");
+    const receipt = await Receipt.findOne({ receiptId, ...ownerQuery(student) }).lean();
+    if (!receipt) return rejectAccess(req, res);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="Receipt-${receipt.receiptId || receiptId}.pdf"`);
@@ -8784,7 +8442,7 @@ app.get("/api/student/receipts/:receiptId/pdf", requireStudentSelf, async (req, 
   } catch (err) {
     console.error("Student Receipt PDF error:");
     if (!res.headersSent) {
-      return res.status(500).json({ ok: false, message: "রসিদ PDF তৈরি করতে সমস্যা হয়েছে: " + "Request could not be completed." });
+      return rejectAccess(req, res, err);
     }
   }
 });
@@ -8794,13 +8452,9 @@ app.get("/api/admin/receipts/:receiptId/pdf", requireAdmin, async (req, res) => 
   try {
     await ensureDbConnected();
     const { receiptId } = req.params;
-    let receipt = null;
-    if (isMongoConnected) {
-      receipt = await Receipt.findOne({ receiptId }).lean();
-    }
-    if (!receipt) {
-      receipt = (memoryDb.receipts || []).find(r => r.receiptId === receiptId);
-    }
+    if (typeof receiptId !== "string" || !receiptId.trim() || receiptId.length > 128) throw new AuthError("INVALID_INPUT");
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const receipt = await Receipt.findOne({ receiptId }).lean();
     if (!receipt) {
       return res.status(404).json({ ok: false, message: "মানি রিসিট খুঁজে পাওয়া যায়নি।" });
     }
@@ -8811,7 +8465,7 @@ app.get("/api/admin/receipts/:receiptId/pdf", requireAdmin, async (req, res) => 
   } catch (err) {
     console.error("Admin Receipt PDF error:");
     if (!res.headersSent) {
-      return res.status(500).json({ ok: false, message: "রসিদ PDF তৈরি করতে সমস্যা হয়েছে: " + "Request could not be completed." });
+      return rejectAccess(req, res, err);
     }
   }
 });
@@ -8821,24 +8475,26 @@ app.post("/api/admin/receipts/resend-email/:receiptId", requireAdmin, async (req
     await ensureDbConnected();
     const { receiptId } = req.params;
 
-    let targetReceipt = (memoryDb.receipts || []).find((r) => r.receiptId === receiptId);
-    if (!targetReceipt && isMongoConnected) {
-      targetReceipt = await Receipt.findOne({ receiptId });
-    }
+    if (typeof receiptId !== "string" || !receiptId.trim() || receiptId.length > 128) throw new AuthError("INVALID_INPUT");
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const targetReceipt = await Receipt.findOne({ receiptId }).lean();
 
     if (!targetReceipt) {
       return res.status(404).json({ ok: false, message: "Money Receipt not found." });
     }
 
-    const sent = await sendMoneyReceiptEmail(targetReceipt.studentEmail, targetReceipt);
+    const owner = await Student.findOne({ $or: [{ regId: targetReceipt.studentId }, recordIdFilter(targetReceipt.studentId)] })
+      .select("email").lean() || await Registration.findOne({ regId: targetReceipt.studentId }).select("email").lean();
+    if (!owner?.email) throw new AuthError("RESOURCE_NOT_FOUND");
+    const sent = await sendMoneyReceiptEmail(owner.email, targetReceipt);
     return res.json({
       ok: true,
       message: sent
-        ? `Money Receipt ${receiptId} re-sent successfully to ${targetReceipt.studentEmail}!`
-        : `Receipt re-sent request processed for ${targetReceipt.studentEmail}.`
+        ? `Money Receipt ${receiptId} re-sent successfully.`
+        : 'Receipt re-send request processed.'
     });
   } catch (e) {
-    return res.status(500).json({ ok: false, message: "Error re-sending receipt email." });
+    return rejectAccess(req, res, e);
   }
 });
 
@@ -8915,7 +8571,7 @@ app.post("/api/ai/chat", optionalAuthentication, async (req, res) => {
     // 4. Process legal query & search video transcripts
     const aiResult = await processLegalAiQuery({
       query: userQuery,
-      studentName: authUser?.name || 'আইন শিক্ষার্থী',
+      studentName: 'আইন শিক্ষার্থী',
       allLessons: activeLessons,
       conversationHistory: convHist
     });
@@ -9053,7 +8709,7 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
 
 // Universal Express Error Catch-All Middleware
 app.use((err, req, res, next) => {
-  console.error("❌ Unhandled Express Request Exception:", err.stack || err.message || err);
+  console.error("Unhandled Express request exception");
   if (!res.headersSent) {
     return res.status(500).json({
       ok: false,

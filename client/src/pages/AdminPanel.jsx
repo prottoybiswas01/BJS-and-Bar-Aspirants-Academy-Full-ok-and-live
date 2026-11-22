@@ -7,6 +7,20 @@ import BrandLogo from '../components/BrandLogo';
 import GoogleAccountApproval from '../components/GoogleAccountApproval';
 import { downloadCertificate } from '../utils/certificateDownload';
 
+async function loadStudentRoster(firstPage) {
+  const first = firstPage || (await api.get('/admin/students', { params: { pageSize: 200 } })).data;
+  const rows = new Map((first.students || []).map(student => [student.id || student.regId, student]));
+  let pagination = first.pagination;
+  while (pagination?.hasMore) {
+    const page = pagination.page + 1;
+    const { data } = await api.get('/admin/students', { params: { page, pageSize: pagination.pageSize } });
+    if (data.pagination?.page !== page) throw new Error('Roster page mismatch');
+    for (const student of data.students || []) rows.set(student.id || student.regId, student);
+    pagination = data.pagination;
+  }
+  return [...rows.values()];
+}
+
 export default function AdminPanel({ openLessonManager, openVideoModal, openMentorProfile }) {
   const [stats, setStats] = useState({
     totalStudents: 0,
@@ -457,11 +471,11 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
     if (isInitial) setLoading(true);
     try {
       // 1. Ultra-fast consolidated bootstrap request (1 round-trip instead of 10)
-      const bootRes = await api.get('/admin/bootstrap-data').catch(() => null);
+      const bootRes = await api.get('/admin/bootstrap-data', { params: { pageSize: 200 } }).catch(() => null);
       if (bootRes?.data?.ok) {
         const d = bootRes.data;
         if (d.stats) setStats(d.stats);
-        if (Array.isArray(d.students)) setStudents(d.students);
+        if (Array.isArray(d.students)) setStudents(await loadStudentRoster({ students: d.students, pagination: d.studentPagination }));
         if (Array.isArray(d.courses) && d.courses.length > 0) setCourses(d.courses);
         if (d.mailSettings) setMailSettings(d.mailSettings);
         if (isInitial && d.siteSettings) setSiteSettingsForm(d.siteSettings);
@@ -476,7 +490,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       // Fallback: parallel fetch if consolidated endpoint is unavailable
       const results = await Promise.allSettled([
         api.get('/admin/overview-stats'),
-        api.get('/admin/students'),
+        loadStudentRoster(),
         api.get('/admin/courses'),
         api.get('/admin/mail-settings'),
         api.get('/site-settings'),
@@ -488,8 +502,8 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       ]);
 
       if (results[0].status === 'fulfilled' && results[0].value.data?.ok) setStats(results[0].value.data);
-      if (results[1].status === 'fulfilled' && results[1].value.data?.ok && Array.isArray(results[1].value.data.students)) {
-        setStudents(results[1].value.data.students);
+      if (results[1].status === 'fulfilled' && Array.isArray(results[1].value)) {
+        setStudents(results[1].value);
       }
       
       if (results[2].status === 'fulfilled') {
@@ -522,7 +536,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       api.get('/admin/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
       api.get('/lessons').then(r => { if (r.data?.ok && Array.isArray(r.data.lessons)) setAdminLessons(r.data.lessons); }).catch(() => {});
     } catch (err) {
-      console.log('Error loading admin data:', err);
+      console.log('Error loading admin data:');
     } finally {
       if (isInitial) setLoading(false);
     }
@@ -822,7 +836,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
           fallbackReader.readAsText(file);
         }
       } catch (err) {
-        console.warn('Backend parse error, applying client-side fallback:', err);
+        console.warn('Backend parse error, applying client-side fallback:');
         const fallbackReader = new FileReader();
         fallbackReader.onload = (ev) => {
           const rawContent = ev.target?.result || '';
@@ -918,7 +932,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         setMeritList(res.data.meritList || []);
       }
     } catch (err) {
-      console.error('Error fetching merit list:', err);
+      console.error('Error fetching merit list:');
     } finally {
       setMeritLoading(false);
     }
@@ -939,7 +953,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('PDF download error:', err);
+      console.error('PDF download error:');
       showToast('পিডিএফ মেধা তালিকা ডাউনলোডে সমস্যা হয়েছে।', 'error');
     }
   };
@@ -959,7 +973,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Master PDF error:', err);
+      console.error('Master PDF error:');
       showToast('পিডিএফ রিপোর্টে সমস্যা হয়েছে।', 'error');
     }
   };
@@ -1154,7 +1168,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       }
     } catch (err) {
       if (seq !== previewReqSeqRef.current) return;
-      console.log('Error loading preview lessons:', err);
+      console.log('Error loading preview lessons:');
     } finally {
       if (seq === previewReqSeqRef.current) {
         setPreviewLoading(false);

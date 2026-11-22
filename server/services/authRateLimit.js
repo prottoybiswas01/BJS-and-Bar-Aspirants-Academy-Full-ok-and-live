@@ -32,7 +32,9 @@ const CONSUME_SCRIPT = `
 function createAuthRateLimiter({ env = process.env, fetchJson = fetch } = {}) {
   return async function authRateLimiter(req, res, next) {
     const path = req.path.toLowerCase().replace(/\/$/, '');
-    const group = req.method === 'POST' && GROUPS.get(path);
+    const publicProof = ['GET', 'HEAD'].includes(req.method) &&
+      /^\/(?:api\/)?(?:certificates\/verify|verify)\/[^/]+$/.test(path);
+    const group = publicProof ? ['certificate-verification'] : req.method === 'POST' && GROUPS.get(path);
     if (!group) return next();
 
     try {
@@ -48,7 +50,7 @@ function createAuthRateLimiter({ env = process.env, fetchJson = fetch } = {}) {
       const makeKey = (...parts) => 'bjs:auth:' + createHmac('sha256', secret)
         .update(JSON.stringify([purpose, ...parts])).digest('hex');
       const keys = [makeKey('network', ip)];
-      const limits = [purpose === 'login' || purpose === 'google' ? 240 : 100];
+      const limits = [purpose === 'certificate-verification' ? 40 : ['login', 'google'].includes(purpose) ? 240 : 100];
       const submitted = idField && req.body?.[idField];
       if (typeof submitted === 'string' && submitted.length <= 254 && submitted.trim()) {
         const identifier = submitted.trim().toLowerCase();

@@ -15,6 +15,9 @@ export default function MentorDashboard() {
 
   // Data states
   const [students, setStudents] = useState([]);
+  const [studentPage, setStudentPage] = useState(1);
+  const [studentTotal, setStudentTotal] = useState(0);
+  const [hasMoreStudents, setHasMoreStudents] = useState(false);
   const [courses, setCourses] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [submissions, setSubmissions] = useState([]);
@@ -133,34 +136,47 @@ export default function MentorDashboard() {
   };
 
   useEffect(() => {
-    loadData(true);
+    const controller = new AbortController();
+    const initial = setTimeout(() => loadData(true, controller.signal), searchStudent ? 250 : 0);
+    const interval = setInterval(() => loadData(false, controller.signal), 3500);
+    return () => {
+      controller.abort();
+      clearTimeout(initial);
+      clearInterval(interval);
+    };
+  }, [user?.id, studentPage, searchStudent, selectedCourseFilter]);
 
-    const interval = setInterval(() => {
-      loadData(false);
-    }, 3500);
-
-    return () => clearInterval(interval);
-  }, [user]);
-
-  const loadData = async (isInitial = true) => {
+  const loadData = async (isInitial = true, signal) => {
     if (isInitial) setLoading(true);
     try {
       const [resStud, resAsn, resSub] = await Promise.all([
-        api.get('/mentor/students', { params: { mentorId: user?.id } }),
-        api.get('/mentor/assignments', { params: { mentorId: user?.id } }),
-        api.get('/mentor/submissions', { params: { mentorId: user?.id } })
+        api.get('/mentor/students', { signal, params: {
+          page: studentPage, search: searchStudent, courseId: selectedCourseFilter === 'all' ? undefined : selectedCourseFilter
+        } }),
+        api.get('/mentor/assignments', { signal }),
+        api.get('/mentor/submissions', { signal })
       ]);
 
-      if (resStud.data.ok) setStudents(resStud.data.students || []);
+      if (signal?.aborted) return;
+      if (resStud.data.ok) {
+        setStudents(resStud.data.students || []);
+        setHasMoreStudents(Boolean(resStud.data.pagination?.hasMore));
+        if (!searchStudent.trim() && selectedCourseFilter === 'all') {
+          setStudentTotal(resStud.data.pagination?.total || 0);
+        }
+      }
       if (resAsn.data.ok) {
         setCourses(resAsn.data.courses || []);
         setAssignments(resAsn.data.assignments || []);
       }
       if (resSub.data.ok) setSubmissions(resSub.data.submissions || []);
     } catch (err) {
-      console.error("Mentor dashboard load failed");
+      if (!signal?.aborted) {
+        setStudents([]);
+        setHasMoreStudents(false);
+      }
     } finally {
-      if (isInitial) setLoading(false);
+      if (isInitial && !signal?.aborted) setLoading(false);
     }
   };
 
@@ -259,17 +275,6 @@ export default function MentorDashboard() {
   };
 
   // Filtered Students
-  const filteredStudents = students.filter(s => {
-    const q = searchStudent.toLowerCase();
-    const matchSearch = (s.name || '').toLowerCase().includes(q) ||
-                        (s.phone || '').includes(q) ||
-                        (s.id || '').toLowerCase().includes(q) ||
-                        (s.email || '').toLowerCase().includes(q);
-
-    if (selectedCourseFilter === 'all') return matchSearch;
-    const enrolled = s.enrolledCourseIds || s.allowedCourseIds || [];
-    return matchSearch && enrolled.includes(selectedCourseFilter);
-  });
 
   return (
     <div className="space-y-6 pb-12 animate-fadeIn">
@@ -300,7 +305,7 @@ export default function MentorDashboard() {
           {/* Quick Stats Pill */}
           <div className="flex items-center gap-3 bg-slate-900/90 border border-slate-800 p-3 rounded-2xl">
             <div className="text-center px-2">
-              <p className="text-lg font-black text-amber-400">{students.length}</p>
+              <p className="text-lg font-black text-amber-400">{studentTotal}</p>
               <p className="text-[10px] text-slate-400 font-medium">নির্ধারিত শিক্ষার্থী</p>
             </div>
             <div className="h-8 w-px bg-slate-800"></div>
@@ -328,7 +333,7 @@ export default function MentorDashboard() {
           }`}
         >
           <span>👨‍🎓</span>
-          <span>নির্ধারিত শিক্ষার্থী তালিকা ({students.length})</span>
+          <span>নির্ধারিত শিক্ষার্থী তালিকা ({studentTotal})</span>
         </button>
 
         <button
@@ -364,7 +369,8 @@ export default function MentorDashboard() {
               <input
                 type="text"
                 value={searchStudent}
-                onChange={(e) => setSearchStudent(e.target.value)}
+                onChange={(e) => { setSearchStudent(e.target.value); setStudentPage(1); }}
+                maxLength={120}
                 placeholder="শিক্ষার্থীর নাম, আইডি বা ফোন দিয়ে খুঁজুন..."
                 className="w-full rounded-xl bg-slate-900 border border-slate-800 pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
               />
@@ -375,7 +381,7 @@ export default function MentorDashboard() {
               <span className="text-xs text-slate-400 font-medium whitespace-nowrap">কোর্স ফিল্টার:</span>
               <select
                 value={selectedCourseFilter}
-                onChange={(e) => setSelectedCourseFilter(e.target.value)}
+                onChange={(e) => { setSelectedCourseFilter(e.target.value); setStudentPage(1); }}
                 className="w-full sm:w-48 rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
               >
                 <option value="all">সকল নির্ধারিত কোর্স</option>
@@ -405,14 +411,14 @@ export default function MentorDashboard() {
                         তথ্য লোড হচ্ছে...
                       </td>
                     </tr>
-                  ) : filteredStudents.length === 0 ? (
+                  ) : students.length === 0 ? (
                     <tr>
                       <td colSpan="5" className="p-8 text-center text-slate-400">
                         কোনো শিক্ষার্থী পাওয়া যায়নি।
                       </td>
                     </tr>
                   ) : (
-                    filteredStudents.map((st) => (
+                    students.map((st) => (
                       <tr key={st.id} className="hover:bg-slate-800/40 transition-colors">
                         <td className="p-4">
                           <div className="flex items-center gap-3">
@@ -459,6 +465,15 @@ export default function MentorDashboard() {
                 </tbody>
               </table>
             </div>
+            {(studentPage > 1 || hasMoreStudents) && (
+              <nav aria-label="শিক্ষার্থী তালিকার পৃষ্ঠা" className="flex items-center justify-end gap-3 p-3 text-xs text-slate-300">
+                <button type="button" disabled={studentPage === 1} onClick={() => setStudentPage(page => page - 1)}
+                  className="rounded border border-slate-700 px-3 py-1.5 disabled:opacity-40">আগের পৃষ্ঠা</button>
+                <span>{studentPage}</span>
+                <button type="button" disabled={!hasMoreStudents} onClick={() => setStudentPage(page => page + 1)}
+                  className="rounded border border-slate-700 px-3 py-1.5 disabled:opacity-40">পরের পৃষ্ঠা</button>
+              </nav>
+            )}
           </div>
         </div>
       )}
