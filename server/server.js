@@ -704,6 +704,19 @@ async function ensureDbConnected() {
     return cached.conn || mongoose.connection;
   }
 
+  // If connection is in progress (readyState === 2), wait for it to complete
+  if (mongoose.connection && mongoose.connection.readyState === 2) {
+    await new Promise((resolve) => {
+      mongoose.connection.once('connected', resolve);
+      mongoose.connection.once('error', resolve);
+      setTimeout(resolve, 5000);
+    });
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+      isMongoConnected = true;
+      return cached.conn || mongoose.connection;
+    }
+  }
+
   // If connection is in progress, await the existing promise
   if (cached.promise) {
     try {
@@ -4305,6 +4318,7 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], requireAdmin, async
 // DELETE Course
 app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], requireAdmin, async (req, res) => {
   try {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     const { id } = req.params;
     const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
@@ -4334,6 +4348,7 @@ app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], requireAdmin, async
 // GET Lessons (All or filtered by courseId with Fast Cache & Access Control)
 app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], requireAdminOnAlias, optionalAuthentication, async (req, res) => {
   try {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     const { courseId } = req.query;
     if (courseId !== undefined && (typeof courseId !== "string" || courseId.length > 200)) {
       throw new AuthError("INVALID_INPUT");
@@ -5786,6 +5801,7 @@ app.post("/api/ai/legal-assistant", optionalAuthentication, async (req, res) => 
 // DELETE Lesson Video
 app.delete(["/api/admin/lessons/:id", "/api/lessons/:id", "/admin/lessons/:id", "/lessons/:id"], requireAdmin, async (req, res) => {
   try {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     const { id } = req.params;
     const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
@@ -6149,6 +6165,7 @@ function mergeStudentDirectory(students, registrations) {
 
 app.get(["/api/admin/students", "/admin/students"], requireAdmin, async (req, res) => {
   try {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     const query = readDirectoryQuery(req.query);
     const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
@@ -7924,6 +7941,7 @@ app.post(["/api/admin/mail-toggle", "/admin/mail-toggle"], requireAdmin, async (
 
 app.get("/api/admin/registrations", requireAdmin, async (req, res) => {
   try {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     const query = readDirectoryQuery(req.query);
     const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
@@ -8597,6 +8615,7 @@ app.post("/api/admin/students/message", requireAdmin, async (req, res) => {
 // Admin Activity & Watch-Time Report Endpoint
 app.get("/api/admin/students/:id/activity-report", requireAdmin, async (req, res) => {
   try {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     const { id } = req.params;
     const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
@@ -8697,6 +8716,7 @@ app.get("/api/admin/students/:id/activity-report", requireAdmin, async (req, res
 // Admin Toggle Student Telegram Mute Endpoint
 app.post("/api/admin/students/:id/toggle-telegram-mute", requireAdmin, async (req, res) => {
   try {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     const { id } = req.params;
     const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
@@ -8721,6 +8741,7 @@ app.post("/api/admin/students/:id/toggle-telegram-mute", requireAdmin, async (re
 // Admin Recalculate Course Duration Endpoint
 app.post("/api/admin/courses/:id/recalculate-duration", requireAdmin, async (req, res) => {
   try {
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     const { id } = req.params;
     const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
@@ -8735,7 +8756,7 @@ app.post("/api/admin/courses/:id/recalculate-duration", requireAdmin, async (req
 
 app.post("/api/admin/receipts/save", requireAdmin, async (req, res) => {
   try {
-
+    if (process.env.NODE_ENV !== 'test') await ensureDbConnected();
     const isReady = isMongoConnected || (mongoose.connection && mongoose.connection.readyState === 1);
     if (!isReady) throw new AuthError("AUTH_UNAVAILABLE");
     const input = pickWritableFields(req.body, ["receiptId", "studentId", "amount", "paymentMethod", "trxId", "paymentTime", "note"]);
