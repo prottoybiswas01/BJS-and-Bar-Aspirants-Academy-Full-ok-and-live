@@ -132,6 +132,10 @@ async function syncPendingSubtitlesBatch({ limit = 10, LessonModel, notifyOnFail
   };
 
   try {
+    if (LessonModel.db?.readyState !== 1) {
+      isJobRunning = false;
+      return summary;
+    }
     // 1. One-time self-healing audit:
     // Reset any bogus/incomplete transcript (< 50 words) so it gets re-synced
     await LessonModel.updateMany(

@@ -6107,10 +6107,10 @@ app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], requireAdmin, as
     };
 
     fastCache.set("admin_bootstrap_bundle", bundle, 20); // 20s cache
-    return respond(bundle, "mongodb-parallel-bundle");
+    return res.json({ ok: true, ...bundle });
   } catch (err) {
-    console.error("Admin bootstrap data error:");
-    return rejectAccess(req, res, err);
+    console.error("Admin bootstrap data error:", err?.message || err);
+    return res.status(500).json({ ok: false, message: "অ্যাডমিন ডেটা লোড করতে সমস্যা হয়েছে।" });
   }
 });
 
