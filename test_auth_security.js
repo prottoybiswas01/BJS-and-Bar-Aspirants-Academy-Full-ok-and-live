@@ -120,7 +120,8 @@ function harness({ env: overrides = {}, connected = true, cache = [], studentRow
     memoryDb: { siteSettings: settingsFixture, mailSettings: {}, courses: [{ id: 'course-fixture' }], mentors: [mentor] },
     bcrypt,
     notifyStudentLogin: async (account, method) => notifications.push([account.id, method]),
-    invalidateAdminBundle: () => {}
+    invalidateAdminBundle: () => {},
+    logAuditEvent: async () => {}
   });
 
   async function request(method, url, { body, token, authorization, query: params } = {}) {
@@ -238,12 +239,17 @@ test('public settings strip credentials from database, cached and offline respon
   ];
   for (const options of cases) {
     const app = harness(options);
-    for (const url of ['/api/site-settings', '/api/admin/site-settings', '/api/home-data']) {
+    for (const url of ['/api/site-settings', '/api/home-data']) {
       const response = await app.request('GET', url);
       assert.equal(response.status, 200);
       assert.deepEqual(response.body.settings, expected);
       if (response.body.mentors?.length) assert.equal(Object.hasOwn(response.body.mentors[0], 'password'), false);
     }
+    assert.equal((await app.request('GET', '/api/admin/site-settings')).status, 401);
+    const admin = sign('admin', auth.ADMIN_IDENTITY.id);
+    const settings = await app.request('GET', '/api/admin/site-settings', { token: admin });
+    assert.equal(settings.status, 200);
+    assert.deepEqual(settings.body.settings, expected);
   }
 });
 

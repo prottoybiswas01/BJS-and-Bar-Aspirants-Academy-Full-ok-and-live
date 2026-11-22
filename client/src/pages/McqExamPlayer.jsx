@@ -391,7 +391,7 @@ export default function McqExamPlayer({ examId, onBack }) {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                         {q.options.map((opt, oIdx) => {
-                          const isCorrectOption = oIdx === q.correctIndex;
+                          const isCorrectOption = oIdx === userAns?.correctIndex;
                           const isUserSelected = userAns && userAns.selectedIndex === oIdx;
 
                           let bgClass = 'bg-slate-900 border-slate-800 text-slate-400';
@@ -411,10 +411,10 @@ export default function McqExamPlayer({ examId, onBack }) {
                       </div>
 
                       {/* Detailed Explanation / ব্যাখ্যা Block */}
-                      {q.explanation && (
+                      {userAns?.explanation && (
                         <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-500/30 text-amber-200 text-xs leading-relaxed space-y-1">
                           <span className="font-bold block text-amber-400 text-[11px]">💡 উত্তর ব্যাখ্যা (Explanation):</span>
-                          <p>{q.explanation}</p>
+                          <p>{userAns.explanation}</p>
                         </div>
                       )}
                     </div>

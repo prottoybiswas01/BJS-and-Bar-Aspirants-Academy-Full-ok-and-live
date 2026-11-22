@@ -115,7 +115,7 @@ export default function MentorDashboard() {
   const handleDownloadMeritPdf = async (assignmentId, title) => {
     try {
       showToast(`🏆 "${title}" মেধা তালিকা পিডিএফে কনভার্ট ও প্রসেস হচ্ছে...`, 'success');
-      const response = await api.post('/admin/generate-merit-pdf', { assignmentId }, { responseType: 'blob' });
+      const response = await api.post('/mentor/generate-merit-pdf', { assignmentId }, { responseType: 'blob' });
       
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
@@ -145,19 +145,20 @@ export default function MentorDashboard() {
   const loadData = async (isInitial = true) => {
     if (isInitial) setLoading(true);
     try {
-      const [resStud, resCrs, resAsn, resSub] = await Promise.all([
+      const [resStud, resAsn, resSub] = await Promise.all([
         api.get('/mentor/students', { params: { mentorId: user?.id } }),
-        api.get('/courses'),
         api.get('/mentor/assignments', { params: { mentorId: user?.id } }),
         api.get('/mentor/submissions', { params: { mentorId: user?.id } })
       ]);
 
       if (resStud.data.ok) setStudents(resStud.data.students || []);
-      if (resCrs.data.ok) setCourses(resCrs.data.courses || []);
-      if (resAsn.data.ok) setAssignments(resAsn.data.assignments || []);
+      if (resAsn.data.ok) {
+        setCourses(resAsn.data.courses || []);
+        setAssignments(resAsn.data.assignments || []);
+      }
       if (resSub.data.ok) setSubmissions(resSub.data.submissions || []);
     } catch (err) {
-      console.error("Mentor dashboard load error:", err);
+      console.error("Mentor dashboard load failed");
     } finally {
       if (isInitial) setLoading(false);
     }

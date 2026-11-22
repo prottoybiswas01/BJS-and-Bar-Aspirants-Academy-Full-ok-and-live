@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext';
 import { formatBangladeshTime, toBangladeshDigits } from '../utils/dateUtils';
 import BrandLogo from '../components/BrandLogo';
 import GoogleAccountApproval from '../components/GoogleAccountApproval';
+import { downloadCertificate } from '../utils/certificateDownload';
 
 export default function AdminPanel({ openLessonManager, openVideoModal, openMentorProfile }) {
   const [stats, setStats] = useState({
@@ -518,7 +519,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
         setMcqResults(results[9].value.data.results);
       }
       api.get('/certificates').then(r => { if (r.data?.ok) setAdminCertificates(r.data.certificates || []); }).catch(() => {});
-      api.get('/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
+      api.get('/admin/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
       api.get('/lessons').then(r => { if (r.data?.ok && Array.isArray(r.data.lessons)) setAdminLessons(r.data.lessons); }).catch(() => {});
     } catch (err) {
       console.log('Error loading admin data:', err);
@@ -569,7 +570,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       const res = await api.post('/notes', noteForm);
       if (res.data?.ok) {
         showToast('✓ পাবলিক আইন স্টাডি নোট সফলভাবে সংরক্ষিত হয়েছে!', 'success');
-        api.get('/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
+        api.get('/admin/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
         setNoteForm(initialNoteForm);
       } else {
         showToast(res.data?.message || 'নোট সংরক্ষণে সমস্যা হয়েছে।', 'error');
@@ -628,7 +629,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       if (res.data?.ok) {
         showToast(res.data.message || '✓ AI সফলভাবে স্টাডি গাইড ও ভিডিও ক্লিপ তৈরি করেছে!', 'success');
         setAiNoteModal({ isOpen: false, lessonId: '', loading: false });
-        api.get('/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
+        api.get('/admin/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
       } else {
         showToast(res.data?.message || 'AI স্টাডি গাইড তৈরিতে সমস্যা হয়েছে।', 'error');
         setAiNoteModal(prev => ({ ...prev, loading: false }));
@@ -645,7 +646,7 @@ export default function AdminPanel({ openLessonManager, openVideoModal, openMent
       const res = await api.delete(`/notes/${noteId}`);
       if (res.data?.ok) {
         showToast('✓ আইন নোটটি মুছে ফেলা হয়েছে।', 'success');
-        api.get('/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
+        api.get('/admin/notes').then(r => { if (r.data?.ok) setAdminNotes(r.data.notes || []); }).catch(() => {});
       }
     } catch (err) {
       showToast('নোট ডিলিট করতে সমস্যা হয়েছে।', 'error');
@@ -5952,14 +5953,14 @@ return (
                           <td className="p-3 text-slate-300">{c.courseTitle}</td>
                           <td className="p-3 font-mono text-[11px] text-slate-400">{formatBangladeshTime(c.issueDate)}</td>
                           <td className="p-3 text-right space-x-2">
-                            <a
-                              href={`/api/certificates/${c.certificateId}/download`}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => downloadCertificate(c.certificateId)
+                                .catch(() => showError('সার্টিফিকেট ডাউনলোড করা যায়নি।'))}
                               className="px-2.5 py-1 rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold"
                             >
                               📥 PDF
-                            </a>
+                            </button>
                             <a
                               href={`/verify/${c.certificateId}`}
                               target="_blank"
