@@ -1,6 +1,4 @@
 const { createHash } = require('node:crypto');
-const { cert, initializeApp } = require('firebase-admin/app');
-const { getAuth } = require('firebase-admin/auth');
 const { AuthError } = require('./authSecurity');
 
 const REJECTED_TOKENS = new Set([
@@ -9,12 +7,20 @@ const REJECTED_TOKENS = new Set([
 ]);
 const fingerprint = (...parts) => createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 
-function createFirebaseIdentityVerifier({
-  env = process.env,
-  initializeAuth = ({ projectId, clientEmail, privateKey }) => getAuth(initializeApp({
+function defaultInitializeAuth({ projectId, clientEmail, privateKey }) {
+  const { cert, initializeApp, getApps } = require('firebase-admin/app');
+  const { getAuth } = require('firebase-admin/auth');
+  const appName = 'academy-google-auth';
+  const existingApp = typeof getApps === 'function' ? getApps().find(a => a.name === appName) : null;
+  return getAuth(existingApp || initializeApp({
     projectId,
     credential: cert({ projectId, clientEmail, privateKey })
-  }, 'academy-google-auth'))
+  }, appName));
+}
+
+function createFirebaseIdentityVerifier({
+  env = process.env,
+  initializeAuth = defaultInitializeAuth
 } = {}) {
   let firebaseAuth;
 
