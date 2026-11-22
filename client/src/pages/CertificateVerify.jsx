@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import BrandLogo from '../components/BrandLogo';
 import api from '../services/api';
+import { downloadCertificate } from '../utils/certificateDownload';
 
 export default function CertificateVerify() {
   const [certId, setCertId] = useState('');
@@ -32,7 +33,7 @@ export default function CertificateVerify() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get(`/certificates/verify/${idToVerify}`);
+      const res = await api.get(`/certificates/verify/${encodeURIComponent(idToVerify)}`);
       if (res.data?.ok && res.data.valid) {
         setData(res.data.certificate);
       } else {
@@ -148,18 +149,19 @@ export default function CertificateVerify() {
                   </div>
                 </div>
 
-                {/* PDF Download Button */}
+                {data.canDownload && (
                 <div className="pt-3 border-t border-slate-200 flex justify-end">
-                  <a
-                    href={`/api/certificates/${data.certificateId}/download`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => downloadCertificate(data.certificateId)
+                      .catch(() => setError('সার্টিফিকেট ডাউনলোড করা যায়নি।'))}
                     className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-extrabold text-xs flex items-center gap-2 shadow-md transition-all cursor-pointer"
                   >
                     <span>📜</span>
                     <span>অফিসিয়াল PDF সার্টিফিকেট ডাউনলোড</span>
-                  </a>
+                  </button>
                 </div>
+                )}
               </div>
             </div>
           ) : (

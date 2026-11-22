@@ -52,6 +52,11 @@ const { createAuthRateLimiter } = require("./services/authRateLimit");
 const { createFirebaseIdentityVerifier } = require("./services/firebaseIdentity");
 const { createGoogleAccountStore } = require("./services/googleAccountStore");
 const { createGoogleLogin } = require("./services/googleLogin");
+const { createAccountChallenges } = require("./services/accountChallenges");
+const {
+  accountIds, isAccountId, ownsStudentRecord, courseAliases, normalizeCourseId, findScopedCourse,
+  mentorAssignedCourse, pickWritableFields, verifyServiceSecret
+} = require("./services/authorization");
 const siteSettingsProjection = SITE_FIELDS.join(" ");
 const nodemailer = require("nodemailer");
 const dns = require("dns").promises;
@@ -97,7 +102,12 @@ app.use(cors({
   },
   credentials: true
 }));
-app.use(express.json({ limit: "50mb" }));
+app.use(express.json({
+  limit: "50mb",
+  verify(req, _res, buffer) {
+    if (/^\/(?:api\/)?webhooks\/resend\/?$/i.test(req.path)) req.resendPayload = buffer.toString("utf8");
+  }
+}));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // -------------------------------------------------------------
@@ -726,30 +736,11 @@ ensureDbConnected();
 // REST ENDPOINTS
 
 // 1. Health Check (Strict & Truthful: reports actual MongoDB connection status and database name)
-app.get("/api/health", (req, res) => {
-  const currentDbName = mongoose.connection?.name || null;
-  const isTargetDb = currentDbName === PRODUCTION_DB_NAME;
-  const isHealthy = isMongoConnected && isTargetDb && (mongoose.connection?.readyState === 1);
-  const statusCode = isHealthy ? 200 : 503;
-
-  console.log(`[Health Verification] Active DB: "${currentDbName}", Target: "${PRODUCTION_DB_NAME}", ReadyState: ${mongoose.connection?.readyState}, Status: ${statusCode}`);
-
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-
-  res.status(statusCode).json({
-    ok: isHealthy,
-    status: isHealthy ? "BJS & Bar Academy API Service Operational" : "MongoDB Service Disconnected or Incorrect DB",
-    dbMode: isHealthy ? "MongoDB Atlas Connected" : "Disconnected",
-    database: currentDbName,
-    targetDatabase: PRODUCTION_DB_NAME,
-    isTargetDb,
-    readyState: mongoose.connection?.readyState || 0,
-    readyStateText: ["Disconnected", "Connected", "Connecting", "Disconnecting"][mongoose.connection?.readyState] || "Unknown",
-    timestamp: new Date().toISOString(),
-    atlasIpNotice: isHealthy ? null : "Please whitelist 0.0.0.0/0 in MongoDB Atlas Network Access if using live cloud DB."
-  });
+app.get(["/api/health", "/health"], (req, res) => {
+  const healthy = isMongoConnected && mongoose.connection?.readyState === 1 &&
+    mongoose.connection.name === PRODUCTION_DB_NAME;
+  res.setHeader("Cache-Control", "no-store");
+  return res.status(healthy ? 200 : 503).json({ ok: healthy, status: healthy ? "operational" : "unavailable" });
 });
 
 // Real-Time Account Session Verification (Triggers Instant Auto-Logout if deleted/deactivated)
@@ -964,7 +955,13 @@ function registrationSessionAccount(registration) {
   };
 }
 
-const { getAuthUserFromRequest, requireAuthentication, requireAdmin } = createAuthentication({
+const {
+  getAuthUserFromRequest, requireAuthentication, requireAdmin, requireStudent, requireMentor,
+  requireRole, requirePermission, rejectAccess
+} = createAuthentication({
+  onDenied(req, code) {
+    console.warn('Access denied', { code, method: req.method, role: req.user?.role || 'unknown' });
+  },
   async findStudent(id) {
     if (!isMongoConnected) throw new AuthError('AUTH_UNAVAILABLE');
     const student = await Student.findOne({
@@ -985,6 +982,63 @@ const { getAuthUserFromRequest, requireAuthentication, requireAdmin } = createAu
   }
 });
 
+const requireStudentOrAdmin = requireRole('student', 'admin');
+
+function requireAdminOnAlias(req, res, next) {
+  return /^\/(?:api\/)?admin\//i.test(req.path) ? requireAdmin(req, res, next) : next();
+}
+
+function requireTranscriptOperator(req, res, next) {
+  if (!['GET', 'POST'].includes(req.method)) return res.sendStatus(405);
+  if (!/^\/api\/crons\//i.test(req.path)) return requireAdmin(req, res, next);
+  try {
+    verifyServiceSecret(process.env.CRON_SECRET, /^Bearer (.+)$/i.exec(req.headers.authorization || '')?.[1]);
+    return next();
+  } catch (error) {
+    return rejectAccess(req, res, error);
+  }
+}
+
+function requireTelegramWebhook(req, res, next) {
+  try {
+    verifyServiceSecret(process.env.TELEGRAM_WEBHOOK_SECRET, req.get('x-telegram-bot-api-secret-token'));
+    return next();
+  } catch (error) {
+    return rejectAccess(req, res, error);
+  }
+}
+
+const studentRestrictedFields = [
+  'role', 'isAdmin', 'isMentor', 'permissions', 'accountType', 'approved', 'loginApproval',
+  'status', 'paymentStatus', 'allowedCourseIds', 'enrolledCourseIds', 'courseRules', 'unlimitedAccess'
+];
+
+function requireStudentSelf(req, res, next) {
+  return requireStudent(req, res, () => {
+    const { studentId: bodyId } = req.body || {};
+    const { studentId: queryId } = req.query || {};
+    if ([bodyId, queryId].some(id => id !== undefined && !isAccountId(req.user, id)) ||
+        studentRestrictedFields.some(field => Object.hasOwn(req.body || {}, field))) {
+      return rejectAccess(req, res);
+    }
+    return next();
+  });
+}
+
+const ownerQuery = user => ({ studentId: { $in: accountIds(user) } });
+const readCourseScope = () => Course.find({}, 'id title shortTitle legacyIds status').lean();
+
+async function optionalAuthentication(req, res, next) {
+  if (!req.user && req.headers.authorization !== undefined) req.user = await getAuthUserFromRequest(req);
+  if (req.user) res.setHeader('Cache-Control', 'private, no-store');
+  return next();
+}
+
+async function studentCanAccessCourse(student, courseId, lesson = null) {
+  const course = findScopedCourse(await readCourseScope(), courseId);
+  return Boolean(course && checkStudentCourseAccess(student, courseId, lesson, course).allowed);
+}
+
 app.get("/api/auth/verify-session", requireAuthentication, (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const { user } = req;
@@ -998,26 +1052,22 @@ app.get("/api/auth/verify-session", requireAuthentication, (req, res) => {
 // -------------------------------------------------------------
 // SECURE AUDIT LOGGING ENGINE (Tracks Admin Actions)
 // -------------------------------------------------------------
-async function logAuditEvent({ adminId = 'ADMIN-001', adminName = 'Super Admin', action, targetType = 'student', targetId = '', details = {}, req }) {
+async function logAuditEvent({ action, targetType = "student", targetId = "", details = {}, req }) {
+  const owner = req?.user;
+  const safeDetails = {};
+  for (const key of ["amount", "courseId", "status", "loginApproval", "paymentMethod", "count"]) {
+    const value = details[key];
+    if (typeof value === "number" && Number.isFinite(value)) safeDetails[key] = value;
+    if (typeof value === "string" && value.length <= 128) safeDetails[key] = value;
+  }
   try {
-    const rawIp = req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress || '';
-    const ip = Array.isArray(rawIp) ? rawIp[0] : String(rawIp).split(',')[0].trim();
-    const userAgent = String(req?.headers?.['user-agent'] || '').substring(0, 200);
-    if (isMongoConnected) {
-      await AuditLog.create({
-        adminId,
-        adminName,
-        action,
-        targetType,
-        targetId,
-        details,
-        ip,
-        userAgent,
-        timestamp: new Date()
-      }).catch(err => console.warn('AuditLog save notice:', err.message));
-    }
-  } catch (e) {
-    console.warn('AuditLog logging error:', e.message);
+    if (isMongoConnected) await AuditLog.create({
+      adminId: owner?.id || "ADMIN-001", adminName: owner?.name || "Super Admin",
+      action, targetType, targetId, details: safeDetails, timestamp: new Date()
+    });
+    else console.warn("Security audit datastore unavailable", { action, targetType });
+  } catch (_) {
+    console.warn("Security audit recording failed", { action, targetType });
   }
 }
 
@@ -1132,12 +1182,12 @@ app.post("/api/auth/register", async (req, res) => {
       try {
         await Registration.create(newReg);
       } catch (err) {
-        console.warn("Mongo Registration creation notice on register:", err.message);
+        console.warn("Mongo Registration creation notice on register:");
       }
       try {
         await Student.create(newStudent);
       } catch (err) {
-        console.warn("Mongo Student creation notice on register:", err.message);
+        console.warn("Mongo Student creation notice on register:");
       }
     }
 
@@ -1157,8 +1207,8 @@ app.post("/api/auth/register", async (req, res) => {
       student: newStudent
     });
   } catch (err) {
-    console.error("Registration error:", err);
-    res.status(500).json({ ok: false, message: err.message || "Registration error." });
+    console.error("Registration error:");
+    res.status(500).json({ ok: false, message: "Request could not be completed." || "Registration error." });
   }
 });
 
@@ -1226,7 +1276,7 @@ app.post(["/api/auth/mentor/register", "/auth/mentor/register"], async (req, res
         const created = await Mentor.create(mentorData);
         if (created && created.toObject) saved = created.toObject();
       } catch (e) {
-        console.warn("Mongo mentor registration notice:", e.message);
+        console.warn("Mongo mentor registration notice:");
       }
     }
 
@@ -1239,8 +1289,8 @@ app.post(["/api/auth/mentor/register", "/auth/mentor/register"], async (req, res
       mentor: saved
     });
   } catch (err) {
-    console.error("Mentor registration error:", err);
-    return res.status(500).json({ ok: false, message: "মেন্টর রেজিস্ট্রেশন করতে সমস্যা হয়েছে: " + err.message });
+    console.error("Mentor registration error:");
+    return res.status(500).json({ ok: false, message: "মেন্টর রেজিস্ট্রেশন করতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
@@ -1739,7 +1789,16 @@ app.post("/api/admin/test-resend", requireAdmin, async (req, res) => {
 // -------------------------------------------------------------
 app.post("/api/webhooks/resend", async (req, res) => {
   try {
-    const event = req.body;
+    const webhookSecret = process.env.RESEND_WEBHOOK_SECRET;
+    if (!webhookSecret) throw new AuthError("AUTH_UNAVAILABLE");
+    const headers = { id: req.get("svix-id"), timestamp: req.get("svix-timestamp"), signature: req.get("svix-signature") };
+    if (!req.resendPayload || Object.values(headers).some(value => !value)) throw new AuthError("SESSION_REQUIRED");
+    let event;
+    try {
+      event = getResendClient().webhooks.verify({ payload: req.resendPayload, headers, webhookSecret });
+    } catch (_) {
+      throw new AuthError("SESSION_INVALID");
+    }
     if (!event || !event.type) {
       return res.status(200).json({ ok: true, message: "Ignored empty payload" });
     }
@@ -1762,8 +1821,8 @@ app.post("/api/webhooks/resend", async (req, res) => {
 
     return res.status(200).json({ ok: true, received: true, type: eventType });
   } catch (webhookErr) {
-    console.error("❌ [Resend Webhook Error]:", webhookErr.message);
-    return res.status(200).json({ ok: false, error: webhookErr.message });
+    console.error("❌ [Resend Webhook Error]:");
+    return rejectAccess(req, res, webhookErr);
   }
 });
 
@@ -1820,336 +1879,92 @@ function maskEmailAddress(email) {
 }
 
 // Helper to locate user account by identifier (email, phone, student ID, reg ID)
-async function findUserAccountByIdentifier(identifier) {
-  if (!identifier) return null;
-  const rawQuery = String(identifier).trim();
-  const cleanQueryLower = rawQuery.toLowerCase();
-  const queryDigits = rawQuery.replace(/\D/g, "");
-  const last10 = queryDigits.length >= 10 ? queryDigits.slice(-10) : null;
-  const queryEmailPrefix = rawQuery.split('@')[0].toLowerCase();
+const accountChallenges = createAccountChallenges({
+  collection() {
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    return mongoose.connection.db.collection("account_security_challenges");
+  },
+  secret: () => getJwtConfiguration(process.env).secret
+});
 
-  let user = null;
-
-  // 1. Search MongoDB Student
-  if (isMongoConnected) {
-    try {
-      const mongoOr = [
-        { phone: rawQuery },
-        { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
-        { id: rawQuery },
-        { id: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") }
-      ];
-      if (queryEmailPrefix && queryEmailPrefix.length >= 5) {
-        mongoOr.push({ email: new RegExp(queryEmailPrefix.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&'), "i") });
-      }
-      if (last10) {
-        mongoOr.push({ phone: new RegExp(last10 + "$") });
-      }
-      user = await Student.findOne({ $or: mongoOr });
-    } catch (e) { }
+async function recoveryTarget(identifier) {
+  if (typeof identifier !== "string" || !identifier.trim() || identifier.length > 254) {
+    throw new AuthError("INVALID_INPUT");
   }
-
-  // 2. Search Memory DB Student
-  if (!user) {
-    user = memoryDb.students.find((s) => {
-      if (!s) return false;
-      const sPhone = String(s.phone || "").trim();
-      const sEmail = String(s.email || "").trim().toLowerCase();
-      const sId = String(s.id || "").trim().toLowerCase();
-      if (sEmail === cleanQueryLower || sId === cleanQueryLower || sPhone === rawQuery) return true;
-      if (queryEmailPrefix && queryEmailPrefix.length >= 5 && sEmail.includes(queryEmailPrefix)) return true;
-      if (last10 && sPhone.replace(/\D/g, "").endsWith(last10)) return true;
-      return false;
-    });
-  }
-
-  // 3. Search MongoDB Registration
-  if (!user && isMongoConnected) {
-    try {
-      const regOr = [
-        { phone: rawQuery },
-        { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
-        { regId: rawQuery }
-      ];
-      if (last10) regOr.push({ phone: new RegExp(last10 + "$") });
-      user = await Registration.findOne({ $or: regOr });
-    } catch (e) { }
-  }
-
-  // 4. Search Memory DB Registration
-  if (!user) {
-    user = memoryDb.registrations.find((r) => {
-      if (!r) return false;
-      const rPhone = String(r.phone || "").trim();
-      const rEmail = String(r.email || "").trim().toLowerCase();
-      const rId = String(r.regId || "").trim().toLowerCase();
-      if (rEmail === cleanQueryLower || rId === cleanQueryLower || rPhone === rawQuery) return true;
-      if (last10 && rPhone.replace(/\D/g, "").endsWith(last10)) return true;
-      return false;
-    });
-  }
-
-  // 5. Search MongoDB / Memory DB Mentor
-  if (!user && isMongoConnected) {
-    try {
-      user = await Mentor.findOne({ $or: [{ email: cleanQueryLower }, { phone: rawQuery }] });
-    } catch (e) { }
-  }
-  if (!user) {
-    user = memoryDb.mentors.find(m => m && (String(m.email).toLowerCase() === cleanQueryLower || String(m.phone) === rawQuery));
-  }
-
-  return user;
+  if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+  const lookup = identifier.trim();
+  const student = await findPasswordAccount(Student, lookup, "id");
+  const mentor = await findPasswordAccount(Mentor, lookup, "id");
+  if (student && mentor) return null;
+  const registration = student || mentor ? null : await findPasswordAccount(Registration, lookup, "regId");
+  const account = student || mentor || registration;
+  if (!account?.email || !account._id || ["Blocked", "Inactive"].includes(account.status) ||
+      account.loginApproval === "Rejected") return null;
+  const model = student ? Student : mentor ? Mentor : Registration;
+  const kind = student ? "student" : mentor ? "mentor" : "registration";
+  return { account, model, owner: kind + ":" + account._id, email: account.email };
 }
 
-// 1. FORGOT PASSWORD - REQUEST OTP
-const handleForgotPasswordReq = async (req, res) => {
+const recoveryStarted = "অ্যাকাউন্টটি পাওয়া গেলে নিবন্ধিত ইমেইলে যাচাইকরণ কোড পাঠানো হবে।";
+
+async function handleForgotPasswordReq(req, res) {
   try {
-    const { emailOrPhone } = req.body;
-    if (!emailOrPhone || !String(emailOrPhone).trim()) {
-      return res.status(400).json({ ok: false, message: "অনুগ্রহ করে আপনার নিবন্ধিত ইমেইল বা মোবাইল নম্বর লিখুন।" });
-    }
-
-    const rawInput = String(emailOrPhone).trim();
-    const isEmailInput = rawInput.includes("@");
-
-    // Search account in DB
-    const userAccount = await findUserAccountByIdentifier(rawInput);
-
-    let targetEmail = isEmailInput ? rawInput : (userAccount?.email || null);
-    let studentName = userAccount?.name || "শিক্ষার্থী";
-
-    if (!userAccount && !isEmailInput) {
-      return res.status(404).json({
-        ok: false,
-        message: "এই মোবাইল নম্বরে কোনো নিবন্ধিত অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে আপনার সঠিক মোবাইল নম্বর বা নিবন্ধিত ইমেইল ব্যবহার করুন।"
-      });
-    }
-
-    if (!targetEmail) {
-      if (isEmailInput) {
-        targetEmail = rawInput;
-      } else {
-        return res.status(404).json({
-          ok: false,
-          message: "এই মোবাইল নম্বরের সাথে কোন নিবন্ধিত ইমেইল পাওয়া যায়নি। অনুগ্রহ করে নিবন্ধিত ইমেইল লিখুন।"
-        });
+    const target = await recoveryTarget(req.body?.emailOrPhone);
+    if (target) {
+      try {
+        const otp = await accountChallenges.issue({ purpose: "password-reset", owner: target.owner, email: target.email });
+        await sendOtpEmail(target.email, otp, target.account.name);
+      } catch (error) {
+        if (!(error instanceof AuthError) || error.code !== "AUTH_RATE_LIMITED") throw error;
       }
     }
-
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
-
-    const key = rawInput.toLowerCase();
-    const emailKey = targetEmail.toLowerCase();
-
-    otpStore.set(key, { otp, email: targetEmail, studentName, expiresAt });
-    if (emailKey !== key) {
-      otpStore.set(emailKey, { otp, email: targetEmail, studentName, expiresAt });
-    }
-
-    console.log(`🔐 Password Reset OTP generated for ${targetEmail} (${rawInput}): [ ${otp} ]`);
-
-    // Dispatch OTP Email
-    const emailSent = await sendOtpEmail(targetEmail, otp, studentName);
-
-    const masked = maskEmailAddress(targetEmail);
-    return res.json({
-      ok: true,
-      email: targetEmail,
-      message: emailSent
-        ? `✓ আপনার নিবন্ধিত ইমেইলে (${masked}) ৬-ডিজিটের OTP পাঠানো হয়েছে।`
-        : `✓ OTP কোড তৈরি করা হয়েছে। নিবন্ধিত ইমেইল (${masked}) চেক করুন।`
-    });
-  } catch (err) {
-    console.error("Forgot password OTP error:", err);
-    res.status(500).json({ ok: false, message: "OTP পাঠাতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।" });
+    return res.json({ ok: true, message: recoveryStarted });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
-};
+}
 
-app.post("/api/auth/forgot-password", handleForgotPasswordReq);
-app.post("/auth/forgot-password", handleForgotPasswordReq);
-
-
-// 2. VERIFY OTP
-const handleVerifyOtpReq = async (req, res) => {
+async function handleVerifyOtpReq(req, res) {
   try {
-    const { emailOrPhone, otp } = req.body;
-    if (!emailOrPhone || !otp) {
-      return res.status(400).json({ ok: false, message: "ইমেইল/ফোন এবং ৬-ডিজিটের OTP প্রদান করুন।" });
-    }
-
-    const key = String(emailOrPhone).trim().toLowerCase();
-    const cleanOtp = String(otp).trim();
-
-    let storedData = otpStore.get(key);
-
-    // Also check if lookup was stored under targetEmail
-    if (!storedData) {
-      const userAccount = await findUserAccountByIdentifier(emailOrPhone);
-      if (userAccount && userAccount.email) {
-        storedData = otpStore.get(userAccount.email.toLowerCase());
-      }
-    }
-
-    if (!storedData) {
-      return res.status(400).json({ ok: false, message: "OTP পাওয়া যায়নি বা মেয়াদ উত্তীর্ণ হয়েছে। আবার চেষ্টা করুন।" });
-    }
-
-    if (Date.now() > storedData.expiresAt) {
-      otpStore.delete(key);
-      if (storedData.email) otpStore.delete(storedData.email.toLowerCase());
-      return res.status(400).json({ ok: false, message: "OTP এর মেয়াদ শেষ হয়ে গেছে (১০ মিনিট)। পুনরায় OTP কোড নিন।" });
-    }
-
-    if (storedData.otp !== cleanOtp) {
-      return res.status(400).json({ ok: false, message: "ভুল OTP কোড! অনুগ্রহ করে সঠিক ৬-ডিজিটের কোড লিখুন।" });
-    }
-
-    // OTP Verified successfully! Create password reset token
-    const resetToken = "RST-" + Date.now() + "-" + Math.random().toString(36).substring(2, 10);
-    storedData.resetToken = resetToken;
-    storedData.verified = true;
-    storedData.tokenExpiresAt = Date.now() + 15 * 60 * 1000;
-
-    otpStore.set(key, storedData);
-    if (storedData.email) {
-      otpStore.set(storedData.email.toLowerCase(), storedData);
-    }
-    otpStore.set(resetToken, storedData);
-
-    return res.json({
-      ok: true,
-      resetToken,
-      message: "✓ OTP সফলভাবে যাচাই হয়েছে! এখন নতুন পাসওয়ার্ড সেট করুন।"
+    const target = await recoveryTarget(req.body?.emailOrPhone);
+    if (!target) throw new AuthError("VERIFICATION_FAILED");
+    const challenge = await accountChallenges.verify({
+      purpose: "password-reset", owner: target.owner, email: target.email, code: req.body?.otp
     });
-  } catch (err) {
-    console.error("Verify OTP error:", err);
-    res.status(500).json({ ok: false, message: "OTP যাঁচাই করতে সমস্যা হয়েছে।" });
+    const resetToken = await accountChallenges.permitReset(challenge);
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ ok: true, resetToken, message: "কোড যাচাই হয়েছে। নতুন পাসওয়ার্ড দিন।" });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
-};
+}
 
-app.post("/api/auth/verify-otp", handleVerifyOtpReq);
-app.post("/auth/verify-otp", handleVerifyOtpReq);
-
-
-// 3. RESET PASSWORD
-const handleResetPasswordReq = async (req, res) => {
+async function handleResetPasswordReq(req, res) {
   try {
-    const { emailOrPhone, resetToken, newPassword, confirmPassword } = req.body;
-
-    if (!newPassword || !confirmPassword) {
-      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড এবং কনফার্ম পাসওয়ার্ড লিখুন।" });
+    const { emailOrPhone, resetToken, newPassword, confirmPassword } = req.body || {};
+    if (typeof newPassword !== "string" || newPassword !== confirmPassword ||
+        newPassword.trim().length < 6 || Buffer.byteLength(newPassword.trim()) > 72) {
+      throw new AuthError("INVALID_INPUT");
     }
-
-    if (newPassword !== confirmPassword) {
-      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড এবং কনফার্ম পাসওয়ার্ড মিলছে না!" });
-    }
-
-    if (newPassword.length < 6) {
-      return res.status(400).json({ ok: false, message: "নতুন পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে।" });
-    }
-
-    const key = String(emailOrPhone || "").trim().toLowerCase();
-    const storedData = (resetToken ? otpStore.get(resetToken) : null) || otpStore.get(key);
-
-    if (!storedData || !storedData.verified || (resetToken && storedData.resetToken && storedData.resetToken !== resetToken)) {
-      return res.status(400).json({ ok: false, message: "অবৈধ বা মেয়াদোত্তীর্ণ সিকিউরিটি সেশন। পুনরায় OTP নিন।" });
-    }
-
-    if (storedData.tokenExpiresAt && Date.now() > storedData.tokenExpiresAt) {
-      return res.status(400).json({ ok: false, message: "পাসওয়ার্ড রিসেট সেশনের মেয়াদ শেষ। আবার চেষ্টা করুন।" });
-    }
-
-    const lookupQuery = storedData.email || emailOrPhone;
-    const rawQuery = String(lookupQuery).trim();
-    const queryDigits = rawQuery.replace(/\D/g, "");
-    const last10 = queryDigits.length >= 10 ? queryDigits.slice(-10) : null;
-    const cleanQueryLower = rawQuery.toLowerCase();
-
-    // Update MongoDB Student
-    if (isMongoConnected) {
-      try {
-        const mongoOr = [
-          { phone: rawQuery },
-          { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
-          { id: rawQuery }
-        ];
-        if (last10) mongoOr.push({ phone: new RegExp(last10 + "$") });
-        const std = await Student.findOne({ $or: mongoOr });
-        if (std) {
-          std.password = newPassword;
-          await std.save();
-        }
-      } catch (e) { }
-
-      // Update Mongo Registration
-      try {
-        const regOr = [
-          { phone: rawQuery },
-          { email: new RegExp(`^${rawQuery.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") },
-          { regId: rawQuery }
-        ];
-        if (last10) regOr.push({ phone: new RegExp(last10 + "$") });
-        const reg = await Registration.findOne({ $or: regOr });
-        if (reg) {
-          reg.password = newPassword;
-          await reg.save();
-        }
-      } catch (e) { }
-
-      // Update Mongo Mentor
-      try {
-        const mtr = await Mentor.findOne({ $or: [{ email: cleanQueryLower }, { phone: rawQuery }] });
-        if (mtr) {
-          mtr.password = newPassword;
-          await mtr.save();
-        }
-      } catch (e) { }
-    }
-
-    // Update Memory DB Students
-    memoryDb.students.forEach((s) => {
-      if (!s) return;
-      const sPhone = String(s.phone || "").trim();
-      const sEmail = String(s.email || "").trim().toLowerCase();
-      const sId = String(s.id || "").trim().toLowerCase();
-      if (sEmail === cleanQueryLower || sId === cleanQueryLower || sPhone === rawQuery || (last10 && sPhone.replace(/\D/g, "").endsWith(last10))) {
-        s.password = newPassword;
-      }
+    const target = await recoveryTarget(emailOrPhone);
+    if (!target) throw new AuthError("VERIFICATION_FAILED");
+    const hashed = await bcrypt.hash(newPassword.trim(), 12);
+    await mongoose.connection.transaction(async session => {
+      await accountChallenges.takeReset(target.owner, target.email, resetToken, session);
+      const updated = await target.model.updateOne({ _id: target.account._id, email: target.email },
+        { $set: { password: hashed, ...(target.model === Student && { isTemporaryPassword: false }) } }, { session });
+      if (updated.matchedCount !== 1) throw new AuthError("VERIFICATION_FAILED");
     });
-
-    // Update Memory DB Registrations
-    memoryDb.registrations.forEach((r) => {
-      if (!r) return;
-      const rPhone = String(r.phone || "").trim();
-      const rEmail = String(r.email || "").trim().toLowerCase();
-      const rId = String(r.regId || "").trim().toLowerCase();
-      if (rEmail === cleanQueryLower || rId === cleanQueryLower || rPhone === rawQuery || (last10 && rPhone.replace(/\D/g, "").endsWith(last10))) {
-        r.password = newPassword;
-      }
-    });
-
-    // Clean up OTP Store
-    otpStore.delete(key);
-    if (resetToken) otpStore.delete(resetToken);
-    if (storedData.email) otpStore.delete(storedData.email.toLowerCase());
-
-    return res.json({
-      ok: true,
-      message: "✓ পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে! একাউন্টে প্রবেশ করা হচ্ছে..."
-    });
-  } catch (err) {
-    console.error("Reset password error:", err);
-    res.status(500).json({ ok: false, message: "পাসওয়ার্ড আপডেট করতে সমস্যা হয়েছে।" });
+    return res.json({ ok: true, message: "পাসওয়ার্ড পরিবর্তন হয়েছে। আবার লগইন করুন।" });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
-};
+}
 
-app.post("/api/auth/reset-password", handleResetPasswordReq);
-app.post("/auth/reset-password", handleResetPasswordReq);
+app.post(["/api/auth/forgot-password", "/auth/forgot-password"], handleForgotPasswordReq);
+app.post(["/api/auth/verify-otp", "/auth/verify-otp"], handleVerifyOtpReq);
+app.post(["/api/auth/reset-password", "/auth/reset-password"], handleResetPasswordReq);
 
-// Base App URL Resolution Helper
 function getAppBaseUrl(req) {
   if (process.env.APP_URL && process.env.APP_URL.trim() !== '') {
     return process.env.APP_URL.trim();
@@ -3091,135 +2906,109 @@ function createPdfReceiptBuffer(receiptData) {
 // 4.6 Assignment & Evaluation Endpoints (Mentor & Student Flow)
 // -------------------------------------------------------------
 
-// GET Mentor Assigned Students (Read-only list of students enrolled in mentor's courses)
-app.get("/api/mentor/students", async (req, res) => {
+function requireMentorSelf(req, res, next) {
+  return requireMentor(req, res, () => {
+    const requested = [req.body?.mentorId, req.query?.mentorId].filter(id => id !== undefined);
+    if (requested.some(id => !isAccountId(req.user, id)) ||
+        studentRestrictedFields.some(field => Object.hasOwn(req.body || {}, field))) return rejectAccess(req, res);
+    return next();
+  });
+}
+
+function recordIdFilter(id) {
+  if (typeof id !== "string" || !id.trim() || id.length > 200) throw new AuthError("INVALID_INPUT");
+  return { $or: [{ id }, ...(mongoose.isObjectIdOrHexString(id) ? [{ _id: id }] : [])] };
+}
+
+async function mentorCanAccessCourse(mentor, courseId) {
+  const course = findScopedCourse(await readCourseScope(), courseId);
+  return Boolean(course && mentorAssignedCourse(mentor, courseId, course));
+}
+
+async function loadMentorAssignment(mentor, id) {
+  const assignment = await Assignment.findOne(recordIdFilter(id));
+  if (!assignment) throw new AuthError("RESOURCE_NOT_FOUND");
+  if (!isAccountId(mentor, assignment.mentorId) || !(await mentorCanAccessCourse(mentor, assignment.courseId))) {
+    throw new AuthError("FORBIDDEN");
+  }
+  return assignment;
+}
+
+app.get("/api/mentor/students", requireMentorSelf, async (req, res) => {
   try {
-    const { mentorId } = req.query;
-    let assignedCourseIds = [];
-
-    if (mentorId) {
-      let mentor = (memoryDb.mentors || []).find(m => m.id === mentorId);
-      if (!mentor && isMongoConnected) {
-        mentor = await Mentor.findOne({ id: mentorId });
-      }
-      if (mentor && mentor.assignedCourseIds) {
-        assignedCourseIds = mentor.assignedCourseIds;
-      }
-    }
-
-    let allStudents = memoryDb.students || [];
-    if (isMongoConnected) {
-      allStudents = await Student.find().lean();
-    }
-
-    // Filter students enrolled in mentor's assigned courses, or return all active if no specific filter
-    let students = allStudents;
-    if (assignedCourseIds.length > 0) {
-      students = allStudents.filter(s => {
-        const enrolled = s.enrolledCourseIds || s.allowedCourseIds || [];
-        return enrolled.some(cId => assignedCourseIds.includes(cId));
-      });
-    }
-
+    const mentor = req.user;
+    if (!mentor.assignedCourseIds?.length) return res.json({ ok: true, students: [] });
+    const courses = await Course.find().select("id legacyIds title shortTitle").lean();
+    const assigned = courses.filter(course => mentorAssignedCourse(mentor, course.id, course));
+    const ids = [...new Set([...mentor.assignedCourseIds, ...assigned.flatMap(course =>
+      [course.id, String(course._id), course.title, course.shortTitle, ...(course.legacyIds || [])].filter(Boolean))])];
+    const students = await Student.find({ $or: [
+      { allowedCourseIds: { $in: ids } }, { enrolledCourseIds: { $in: ids } }, { course: { $in: ids } }
+    ] }).select("id name phone email batch session status loginApproval enrolledCourseIds allowedCourseIds course").lean();
     return res.json({ ok: true, students });
-  } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error fetching mentor students." });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
-// GET Mentor Assignments
-app.get("/api/mentor/assignments", async (req, res) => {
+app.get("/api/mentor/assignments", requireMentorSelf, async (req, res) => {
   try {
-    const { mentorId, courseId } = req.query;
-    let filter = {};
-    if (mentorId) filter.mentorId = mentorId;
-    if (courseId) filter.courseId = courseId;
-
-    if (isMongoConnected) {
-      const list = await Assignment.find(filter).sort({ createdAt: -1 }).lean();
-      return res.json({ ok: true, assignments: list });
+    const { courseId } = req.query;
+    const catalog = await readCourseScope();
+    const canAccess = id => {
+      const course = findScopedCourse(catalog, id);
+      return Boolean(course && mentorAssignedCourse(req.user, id, course));
+    };
+    if (courseId !== undefined && (typeof courseId !== "string" || !canAccess(courseId))) {
+      return rejectAccess(req, res);
     }
-
-    let filtered = memoryDb.assignments || [];
-    if (mentorId) filtered = filtered.filter(a => a.mentorId === mentorId);
-    if (courseId) filtered = filtered.filter(a => a.courseId === courseId);
-
-    return res.json({ ok: true, assignments: filtered });
-  } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error fetching assignments." });
+    const list = await Assignment.find({ mentorId: { $in: accountIds(req.user) }, ...(courseId && { courseId }) })
+      .sort({ createdAt: -1 }).lean();
+    return res.json({ ok: true, assignments: list.filter(item => canAccess(item.courseId)), courses: catalog.filter(item => canAccess(item.id)) });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
-// POST Mentor Create / Update Assignment
-app.post("/api/mentor/assignments", async (req, res) => {
+app.post("/api/mentor/assignments", requireMentorSelf, async (req, res) => {
   try {
-    const body = req.body;
-    if (!body.title || !body.courseId || !body.mentorId) {
-      return res.status(400).json({ ok: false, message: "অ্যাসাইনমেন্ট শিরোনাম, কোর্স এবং মেন্টর তথ্য আবশ্যক।" });
-    }
-
-    if (!body.id) {
-      body.id = "ASN-2026-" + Math.floor(1000 + Math.random() * 9000);
-    }
-
-    body.totalMarks = Number(body.totalMarks) || 100;
-    body.createdAt = body.createdAt || new Date();
-
-    let savedAssignment = body;
-
-    if (isMongoConnected) {
-      let existing = await Assignment.findOne({ id: body.id });
-      if (existing) {
-        Object.assign(existing, body);
-        savedAssignment = await existing.save();
-      } else {
-        savedAssignment = await Assignment.create(body);
-      }
-      if (savedAssignment && savedAssignment.toObject) savedAssignment = savedAssignment.toObject();
-    }
-
-    const idx = (memoryDb.assignments || []).findIndex(a => a.id === body.id);
-    if (idx > -1) {
-      memoryDb.assignments[idx] = { ...memoryDb.assignments[idx], ...savedAssignment };
-    } else {
-      memoryDb.assignments.unshift(savedAssignment);
-    }
-
-    return res.json({
-      ok: true,
-      message: `অ্যাসাইনমেন্ট "${savedAssignment.title}" সফলভাবে প্রকাশ করা হয়েছে!`,
-      assignment: savedAssignment
+    const body = pickWritableFields(req.body, ["title", "description", "courseId", "totalMarks", "dueDate", "status"]);
+    const marks = body.totalMarks === undefined ? 100 : Number(body.totalMarks);
+    if (typeof body.title !== "string" || !body.title.trim() || typeof body.courseId !== "string" ||
+        !Number.isFinite(marks) || marks < 1) throw new AuthError("INVALID_INPUT");
+    const course = await resolveCourseByIdOrAlias(body.courseId);
+    if (!course || !mentorAssignedCourse(req.user, body.courseId, course)) return rejectAccess(req, res);
+    const assignment = req.body.id ? await loadMentorAssignment(req.user, req.body.id) : new Assignment({
+      id: "ASN-" + crypto.randomUUID(), mentorId: req.user.id, mentorName: req.user.name
     });
-  } catch (err) {
-    console.error("Save assignment error:", err);
-    return res.status(500).json({ ok: false, message: "অ্যাসাইনমেন্ট তৈরিতে সমস্যা হয়েছে।" });
+    Object.assign(assignment, body, { courseId: course.id || body.courseId, totalMarks: marks });
+    await assignment.save();
+    memoryDb.assignments = [assignment.toObject(), ...(memoryDb.assignments || []).filter(a => a.id !== assignment.id)];
+    invalidateAdminBundle();
+    return res.json({ ok: true, message: "অ্যাসাইনমেন্ট প্রকাশ করা হয়েছে।", assignment });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
-// DELETE Mentor Assignment
-app.delete("/api/mentor/assignments/:id", async (req, res) => {
+app.delete("/api/mentor/assignments/:id", requireMentorSelf, async (req, res) => {
   try {
-    const { id } = req.params;
-    if (isMongoConnected) {
-      const deleteConditions = [{ id: id }];
-      if (mongoose.Types.ObjectId.isValid(id)) {
-        deleteConditions.push({ _id: id });
-      }
-      await Assignment.deleteMany({ $or: deleteConditions });
-      await Submission.deleteMany({ assignmentId: id });
-    }
-    memoryDb.assignments = (memoryDb.assignments || []).filter(a => a.id !== id && a._id !== id);
-    memoryDb.submissions = (memoryDb.submissions || []).filter(s => s.assignmentId !== id);
-    return res.json({ ok: true, message: "অ্যাসাইনমেন্ট স্থায়ীভাবে মুছে ফেলা হয়েছে।" });
-  } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error deleting assignment." });
+    const assignment = await loadMentorAssignment(req.user, req.params.id);
+    await mongoose.connection.transaction(async session => {
+      const deleted = await Assignment.deleteOne({ _id: assignment._id, mentorId: assignment.mentorId }, { session });
+      if (deleted.deletedCount !== 1) throw new AuthError("RESOURCE_NOT_FOUND");
+      await Submission.deleteMany({ assignmentId: assignment.id }, { session });
+    });
+    memoryDb.assignments = (memoryDb.assignments || []).filter(a => a.id !== assignment.id);
+    memoryDb.submissions = (memoryDb.submissions || []).filter(s => s.assignmentId !== assignment.id);
+    invalidateAdminBundle();
+    return res.json({ ok: true, message: "অ্যাসাইনমেন্ট মুছে ফেলা হয়েছে।" });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
-// -------------------------------------------------------------
-// Official Exam Merit List & Result Summary Sheet PDF Generator
-// -------------------------------------------------------------
-app.get("/api/admin/merit-list", async (req, res) => {
+app.get("/api/admin/merit-list", requireAdmin, async (req, res) => {
   try {
     const { assignmentId } = req.query;
     if (!assignmentId) return res.status(400).json({ ok: false, message: "Assignment ID required" });
@@ -3259,21 +3048,17 @@ app.get("/api/admin/merit-list", async (req, res) => {
   }
 });
 
-app.post("/api/admin/generate-merit-pdf", async (req, res) => {
+async function generateAssignmentMeritPdf(req, res) {
   try {
     const { assignmentId } = req.body;
     if (!assignmentId) return res.status(400).json({ ok: false, message: "assignmentId is required." });
 
-    let assignment = (memoryDb.assignments || []).find(a => a.id === assignmentId);
-    let subs = (memoryDb.submissions || []).filter(s => s.assignmentId === assignmentId && (s.marksObtained !== null || s.gradedAt));
-
-    if (isMongoConnected) {
-      if (!assignment) assignment = await Assignment.findOne({ id: assignmentId }).lean();
-      const mongoSubs = await Submission.find({ assignmentId, gradedAt: { $ne: null } }).sort({ marksObtained: -1 }).lean();
-      if (mongoSubs && mongoSubs.length > 0) subs = mongoSubs;
-    }
-
-    if (!assignment) return res.status(404).json({ ok: false, message: "Assignment/Exam record not found." });
+    const assignment = req.user.role === "mentor"
+      ? await loadMentorAssignment(req.user, assignmentId)
+      : await Assignment.findOne(recordIdFilter(assignmentId));
+    if (!assignment) throw new AuthError("RESOURCE_NOT_FOUND");
+    const subs = await Submission.find({ assignmentId: assignment.id, gradedAt: { $ne: null } })
+      .sort({ marksObtained: -1 }).lean();
 
     subs.sort((a, b) => Number(b.marksObtained || 0) - Number(a.marksObtained || 0));
 
@@ -3342,10 +3127,12 @@ app.post("/api/admin/generate-merit-pdf", async (req, res) => {
     console.error("Generate merit PDF error:", err);
     res.status(500).json({ ok: false, message: "Error generating Merit List PDF: " + err.message });
   }
-});
+}
+app.post("/api/admin/generate-merit-pdf", requireAdmin, generateAssignmentMeritPdf);
+app.post("/api/mentor/generate-merit-pdf", requirePermission("assignment:report"), generateAssignmentMeritPdf);
 
 // Master Submissions & Mentor Workload Distribution PDF Generator
-app.post("/api/admin/generate-master-submissions-pdf", async (req, res) => {
+app.post("/api/admin/generate-master-submissions-pdf", requireAdmin, async (req, res) => {
   try {
     let subs = memoryDb.submissions || [];
     if (isMongoConnected) {
@@ -3408,8 +3195,8 @@ app.post("/api/admin/generate-master-submissions-pdf", async (req, res) => {
     applyBengaliPdfWatermarkAndFooter(doc, "Master Submissions Report");
     doc.end();
   } catch (err) {
-    console.error("Master submissions PDF error:", err);
-    res.status(500).json({ ok: false, message: "Error generating Master Submissions PDF: " + err.message });
+    console.error("Master submissions PDF error:");
+    res.status(500).json({ ok: false, message: "Error generating Master Submissions PDF: " + "Request could not be completed." });
   }
 });
 
@@ -3482,7 +3269,7 @@ function parseQuestionText(text) {
 }
 
 // POST /api/admin/parse-mcq-file (Extracts text from Word docx, PDF & Text files)
-app.post("/api/admin/parse-mcq-file", async (req, res) => {
+app.post("/api/admin/parse-mcq-file", requireAdmin, async (req, res) => {
   try {
     const { base64Data, fileName } = req.body;
     if (!base64Data) {
@@ -3529,15 +3316,15 @@ app.post("/api/admin/parse-mcq-file", async (req, res) => {
       rawText: extractedText
     });
   } catch (err) {
-    console.error("MCQ file parse main error:", err);
-    return res.status(500).json({ ok: false, message: "ফাইল পার্স করতে সমস্যা হয়েছে: " + (err.message || "Unknown error") });
+    console.error("MCQ file parse main error:");
+    return res.status(500).json({ ok: false, message: "ফাইল পার্স করতে সমস্যা হয়েছে: " + ("Request could not be completed." || "Unknown error") });
   }
 });
 
 // SAVE / UPDATE MCQ Exam (Admin)
-app.post("/api/admin/mcq-exams/save", async (req, res) => {
+app.post("/api/admin/mcq-exams/save", requireAdmin, async (req, res) => {
   try {
-    const body = req.body;
+    const body = pickWritableFields(req.body, ["id","title","courseId","courseTitle","durationMinutes","totalMarks","passPercentage","isPublic","status","startDate","endDate","attemptLimit","negativeMarks","questions","isLiveModelTest","liveStartTime","liveEndTime","subject"]);
     if (!body.title) {
       return res.status(400).json({ ok: false, message: "পরীক্ষার শিরোনাম আবশ্যক।" });
     }
@@ -3558,7 +3345,7 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
       attemptLimit: Number(body.attemptLimit) !== undefined ? Number(body.attemptLimit) : 1,
       negativeMarks: Number(body.negativeMarks) !== undefined ? Number(body.negativeMarks) : 0.25,
       questions: Array.isArray(body.questions) ? body.questions : [],
-      createdBy: body.createdBy || "Admin",
+      createdBy: req.user.id,
       createdAt: new Date()
     };
 
@@ -3588,8 +3375,8 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
       exam: savedExam
     });
   } catch (err) {
-    console.error("Save MCQ Exam error:", err);
-    return res.status(500).json({ ok: false, message: "এমসিকিউ পরীক্ষা তৈরিতে সমস্যা হয়েছে: " + (err.message || "Unknown error") });
+    console.error("Save MCQ Exam error:");
+    return res.status(500).json({ ok: false, message: "এমসিকিউ পরীক্ষা তৈরিতে সমস্যা হয়েছে: " + ("Request could not be completed." || "Unknown error") });
   }
 });
 
@@ -3604,7 +3391,7 @@ app.post("/api/admin/mcq-exams/save", async (req, res) => {
 // -------------------------------------------------------------
 
 // Health & DB Diagnostic Endpoint
-app.get(["/api/health", "/health", "/api/db-diagnostic", "/db-diagnostic"], async (req, res) => {
+app.get(["/api/db-diagnostic", "/db-diagnostic"], requireAdmin, async (req, res) => {
   let connError = null;
   try {
     await ensureDbConnected();
@@ -3807,7 +3594,7 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
 
     if (isMongoConnected) {
       const [crsList, mtrList, stusCount, dbSettings] = await Promise.all([
-        Course.find({ status: { $ne: "Inactive" } }).sort({ createdAt: -1 }).lean(),
+        Course.find({ status: { $nin: ["Inactive", "Hidden", "Draft"] } }).sort({ createdAt: -1 }).lean(),
         Mentor.find({ status: "Active" }, '-password').sort({ createdAt: -1 }).lean(),
         Student.countDocuments(),
         SiteSetting.findOne({}, siteSettingsProjection).lean()
@@ -3823,7 +3610,7 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
       if (courses.length > 0) memoryDb.courses = courses;
       if (mentors.length > 0) memoryDb.mentors = mentors;
     } else {
-      courses = (memoryDb.courses || []).filter(c => c && c.status !== "Inactive");
+      courses = (memoryDb.courses || []).filter(c => c && !["Inactive", "Hidden", "Draft"].includes(c.status));
       mentors = (memoryDb.mentors || []).filter(m => m && m.status === "Active");
       studentsCount = (memoryDb.students || []).length;
       mentorsCount = mentors.length;
@@ -3847,7 +3634,7 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
     console.error("Home data fetch database error");
     if (memoryDb.courses && memoryDb.courses.length > 0) {
       const fallbackPayload = {
-        courses: (memoryDb.courses || []).filter(c => c && c.status !== "Inactive"),
+        courses: (memoryDb.courses || []).filter(c => c && !["Inactive", "Hidden", "Draft"].includes(c.status)),
         mentors: (memoryDb.mentors || []).filter(m => m && m.status === "Active").map(publicMentorProfile),
         stats: {
           studentsCount: (memoryDb.students || []).length,
@@ -3868,8 +3655,8 @@ app.get(["/api/home-data", "/home-data"], async (req, res) => {
 });
 
 // GET All Courses (Admin & Student Portal with Fast Cache)
-app.get(["/api/admin/courses", "/api/courses", "/admin/courses", "/courses"], async (req, res) => {
-  const isPublic = req.path === "/api/courses" || req.path === "/courses";
+app.get(["/api/admin/courses", "/api/courses", "/admin/courses", "/courses"], requireAdminOnAlias, async (req, res) => {
+  const isPublic = req.user?.role !== "admin";
   if (isPublic) {
     res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
   }
@@ -3905,16 +3692,16 @@ app.get(["/api/admin/courses", "/api/courses", "/admin/courses", "/courses"], as
     fastCache.set("courses_all", coursesList || [], 30);
     return res.json({ ok: true, courses: coursesList || [], source: "mongodb" });
   } catch (err) {
-    console.error("Course fetch database error:", err.message);
+    console.error("Course fetch database error:");
     if (memoryDb.courses && memoryDb.courses.length > 0) {
       const fallback = memoryDb.courses;
       const activeFallback = isPublic ? fallback.filter(c => c && c.status !== "Inactive") : fallback;
-      return res.json({ ok: true, courses: activeFallback, source: "memory_cache", dbNotice: err.message });
+      return res.json({ ok: true, courses: activeFallback, source: "memory_cache", dbNotice: "Request could not be completed." });
     }
     return res.status(503).json({
       ok: false,
       error: "DATABASE_ERROR",
-      message: "Database query failed while fetching courses: " + err.message
+      message: "Database query failed while fetching courses: " + "Request could not be completed."
     });
   }
 });
@@ -3964,11 +3751,11 @@ async function resolveCourseByIdOrAlias(identifier) {
 }
 
 // SAVE / CREATE / UPDATE Course (Robust Match by _id, oldId, or id with Universal Sync & Single Source of Truth)
-app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) => {
+app.post(["/api/admin/courses/save", "/admin/courses/save"], requireAdmin, async (req, res) => {
   let session = null;
   try {
     await ensureDbConnected();
-    const body = req.body || {};
+    const body = pickWritableFields(req.body, ["id","_id","oldId","oldTitle","legacyIds","title","shortTitle","faculty","category","schedule","batchRegText","sessionRegText","nextLive","price","paymentType","studentCount","weeklyFrequency","description","schedulePdfUrl","classScheduleUrl","schedulePdf","status"]);
     const title = (body.title || "").trim();
     if (!title) {
       return res.status(400).json({ ok: false, message: "Course title is required." });
@@ -4389,18 +4176,21 @@ app.post(["/api/admin/courses/save", "/admin/courses/save"], async (req, res) =>
         session.endSession();
       } catch (e) {}
     }
-    console.error("Course save error:", err);
-    return res.status(500).json({ ok: false, message: "কোর্স সেভ করতে সমস্যা হয়েছে: " + err.message });
+    console.error("Course save error:");
+    return res.status(500).json({ ok: false, message: "কোর্স সেভ করতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
 // DELETE Course
-app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], async (req, res) => {
+app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    if (isMongoConnected) {
-      await Course.deleteOne({ id });
-    }
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const target = await Course.findOne(recordIdFilter(id)).select("id").lean();
+    if (!target) throw new AuthError("RESOURCE_NOT_FOUND");
+    const result = await Course.deleteOne({ _id: target._id });
+    if (result.deletedCount !== 1) throw new AuthError("RESOURCE_NOT_FOUND");
+    await logAuditEvent({ action: "COURSE_DELETE", targetType: "course", targetId: target.id, req });
     memoryDb.courses = (memoryDb.courses || []).filter(c => c.id !== id);
 
     // Instant cache invalidation
@@ -4411,7 +4201,7 @@ app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], async (req, res) =>
 
     return res.json({ ok: true, message: "কোর্স সফলভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error deleting course: " + err.message });
+    return rejectAccess(req, res, err);
   }
 });
 
@@ -4420,137 +4210,59 @@ app.delete(["/api/admin/courses/:id", "/admin/courses/:id"], async (req, res) =>
 // -------------------------------------------------------------
 
 // GET Lessons (All or filtered by courseId with Fast Cache & Access Control)
-app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], async (req, res) => {
-  const { courseId } = req.query;
-  const authUser = await getAuthUserFromRequest(req);
-  const isPrivileged = authUser && (authUser.isAdmin || authUser.isMentor);
-
-  if (!authUser) {
-    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
-  } else {
-    res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
-  }
-
-  const cacheKey = !authUser
-    ? ("lessons_pub_" + (courseId ? String(courseId).trim() : "all"))
-    : ("lessons_u_" + (authUser.id || authUser.phone || 'usr') + "_v" + (authUser.accessVersion || 0) + "_" + (courseId ? String(courseId).trim() : "all"));
-
-  const cached = fastCache.get(cacheKey);
-  if (cached && Array.isArray(cached) && cached.length > 0) {
-    return res.json({ ok: true, lessons: cached, count: cached.length, source: "fast-cache" });
-  }
-
-  if (!isMongoConnected && (!memoryDb.lessons || memoryDb.lessons.length === 0)) {
-    return res.status(503).json({
-      ok: false,
-      error: "DATABASE_UNAVAILABLE",
-      message: "Database is currently disconnected. Cannot retrieve lessons."
-    });
-  }
-
+app.get(["/api/lessons", "/api/admin/lessons", "/lessons", "/admin/lessons"], requireAdminOnAlias, optionalAuthentication, async (req, res) => {
   try {
-    let query = {};
-    if (courseId) {
-      const cleanCourse = String(courseId).trim();
-      const resolvedC = await resolveCourseByIdOrAlias(cleanCourse);
-      const targetIds = [cleanCourse];
-      if (resolvedC) {
-        if (resolvedC.id) targetIds.push(resolvedC.id);
-        if (resolvedC._id) targetIds.push(String(resolvedC._id));
-        if (resolvedC.title) targetIds.push(resolvedC.title);
-        if (resolvedC.shortTitle) targetIds.push(resolvedC.shortTitle);
-        if (Array.isArray(resolvedC.legacyIds)) targetIds.push(...resolvedC.legacyIds);
-      }
-      const courseRegex = new RegExp(`^${cleanCourse.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '[-_ ]?')}$`, 'i');
-      query = {
-        $or: [
-          { courseId: { $in: Array.from(new Set(targetIds.filter(Boolean))) } },
-          { courseId: courseRegex }
-        ]
-      };
+    const { courseId } = req.query;
+    if (courseId !== undefined && (typeof courseId !== "string" || courseId.length > 200)) {
+      throw new AuthError("INVALID_INPUT");
+    }
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const courses = await readCourseScope();
+    const selected = courseId ? findScopedCourse(courses, courseId) : null;
+    if (courseId && !selected) return res.json({ ok: true, lessons: [], count: 0 });
+    const aliases = selected ? [...new Set([...courseAliases(selected).map(String), courseId])] : [];
+    const exactMatches = aliases.map(id => new RegExp("^" + id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i"));
+    const filter = selected ? { courseId: { $in: exactMatches } } : {};
+    const projection = "id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree status isDraft hasSubtitles transcriptStatus transcriptLanguage transcriptSource transcriptWordCount transcriptUpdatedAt transcriptLastAttemptAt transcriptNextRetryAt transcriptLastError notificationStatus notificationSentAt";
+    const allLessons = sortLessons(await Lesson.find(filter, projection).lean());
+    const user = req.user;
+    if (user?.role === "admin") {
+      const lessons = allLessons.map(lesson => ({ ...lesson, isUnlocked: true }));
+      return res.json({ ok: true, lessons, count: lessons.length });
     }
 
-    let lessonsList = [];
-    // Ordinary Lesson List returns compact metadata without bulky transcript/segments payload (Phase 7)
-    const lessonProjection = 'id courseId module title duration youtubeId youtubeUrl chapter releaseDate description order isFree status isDraft hasSubtitles transcriptStatus transcriptLanguage transcriptSource transcriptWordCount transcriptUpdatedAt transcriptLastAttemptAt transcriptNextRetryAt transcriptAttemptCount transcriptLastError transcriptVideoId notifiedAt createdAt';
-    if (isMongoConnected) {
-      lessonsList = await Lesson.find(query, lessonProjection).lean();
-    } else {
-      // In-memory DB fallback strictly used ONLY if MongoDB is disconnected
-      lessonsList = memoryDb.lessons || [];
-      if (courseId) {
-        const cleanCourse = String(courseId).trim().toLowerCase();
-        const resolvedC = await resolveCourseByIdOrAlias(cleanCourse);
-        const targetSet = new Set([cleanCourse]);
-        if (resolvedC) {
-          if (resolvedC.id) targetSet.add(String(resolvedC.id).toLowerCase().trim());
-          if (resolvedC._id) targetSet.add(String(resolvedC._id).toLowerCase().trim());
-          if (resolvedC.title) targetSet.add(String(resolvedC.title).toLowerCase().trim());
-          if (resolvedC.shortTitle) targetSet.add(String(resolvedC.shortTitle).toLowerCase().trim());
-          if (Array.isArray(resolvedC.legacyIds)) resolvedC.legacyIds.forEach(id => targetSet.add(String(id).toLowerCase().trim()));
-        }
-        lessonsList = lessonsList.filter(l => {
-          if (!l) return false;
-          const lCId = String(l.courseId || '').toLowerCase().trim();
-          return targetSet.has(lCId);
-        });
-      }
-      if (lessonsList) {
-        lessonsList = lessonsList.map(l => {
-          const { transcript, transcriptSegments, ...compact } = l;
-          return compact;
-        });
-      }
+    const metadataFields = ["id", "_id", "courseId", "module", "title", "duration", "chapter", "releaseDate",
+      "description", "order", "isFree", "status"];
+    const lessons = [];
+    for (const lesson of allLessons) {
+      const course = findScopedCourse(courses, lesson.courseId);
+      if (!course) continue;
+      const access = checkStudentCourseAccess(user, lesson.courseId, lesson, course);
+      const visibleCourse = !["hidden", "inactive", "draft"].includes(String(course.status).toLowerCase());
+      if (access.reason === "UNPUBLISHED" || (!visibleCourse && !access.allowed)) continue;
+      const metadata = pickWritableFields(lesson, metadataFields);
+      lessons.push({
+        ...metadata,
+        isUnlocked: access.allowed,
+        lockReason: access.allowed ? undefined : access.reason,
+        hasSubtitles: access.allowed && Boolean(lesson.hasSubtitles),
+        youtubeId: access.allowed && lesson.youtubeId ? "bjs_enc_" + Buffer.from(lesson.youtubeId).toString("base64") : null,
+        youtubeUrl: null
+      });
     }
-
-    // Sort lessons serially in ascending order (#1, #2, #3 ...) with Orientation ALWAYS #1 at top
-    lessonsList = sortLessons(lessonsList);
-
-    // Strictly enforce course access control for lessons & videos
-    const processedLessons = lessonsList.map(l => {
-      if (isPrivileged) {
-        return { ...l, isUnlocked: true };
-      }
-      const access = checkStudentCourseAccess(authUser, l.courseId || courseId, l);
-      if (!access.allowed) {
-        return {
-          ...l,
-          isUnlocked: false,
-          youtubeId: null,
-          youtubeUrl: null,
-          videoUrl: null,
-          description: l.description ? (l.description.slice(0, 150) + '... (লকড্)') : 'এই পেইড ক্লাসটি দেখতে কোর্সে এনরোল প্রয়োজন।'
-        };
-      }
-      return {
-        ...l,
-        isUnlocked: true,
-        youtubeId: l.youtubeId ? `bjs_enc_${Buffer.from(l.youtubeId).toString('base64')}` : '',
-        youtubeUrl: '' // Anti-piracy link hiding
-      };
-    });
-
-    fastCache.set(cacheKey, processedLessons || [], 30);
-    return res.json({ ok: true, lessons: processedLessons || [], count: (processedLessons || []).length });
-  } catch (err) {
-    console.error("Fetch lessons error:", err);
-    if (memoryDb.lessons && memoryDb.lessons.length > 0) {
-      const fallback = (memoryDb.lessons || []).filter(l => !req.query.courseId || l.courseId === req.query.courseId);
-      return res.json({ ok: true, lessons: fallback, count: fallback.length, source: "memory_cache", dbNotice: err.message });
-    }
-    return res.status(503).json({
-      ok: false,
-      error: "DATABASE_ERROR",
-      message: "Database query failed while fetching lessons: " + err.message
-    });
+    res.setHeader("Cache-Control", user ? "private, no-store" : "public, max-age=30");
+    if (!user) res.vary("Authorization");
+    return res.json({ ok: true, lessons, count: lessons.length });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
 // SAVE / CREATE / UPDATE Lesson Video
-app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admin/lessons/save", "/admin/lessons"], async (req, res) => {
+app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admin/lessons/save", "/admin/lessons"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
-    const body = req.body || {};
+    const body = pickWritableFields(req.body, ["id","_id","isEdit","courseId","module","title","duration","youtubeId","youtubeUrl","chapter","releaseDate","resources","description","order","status","isDraft","isFree","hasSubtitles","browserSegments","browserTranscript","transcript","transcriptSegments","transcriptLanguage","transcriptSource"]);
     const incomingId = (body.id || body._id || '').trim();
     const youtubeId = extractYoutubeId(body.youtubeUrl || body.youtubeId || "");
 
@@ -4864,13 +4576,13 @@ app.post(["/api/admin/lessons/save", "/api/lessons/save", "/api/lessons", "/admi
       lesson: saved
     });
   } catch (err) {
-    console.error("Save lesson error:", err);
-    return res.status(500).json({ ok: false, message: "Error saving video lesson: " + err.message });
+    console.error("Save lesson error:");
+    return res.status(500).json({ ok: false, message: "Error saving video lesson: " + "Request could not be completed." });
   }
 });
 
 // SINGLE LESSON SYNC: 1-Click Sync/Refetch transcript for a specific lesson
-app.post(["/api/admin/lessons/sync-single", "/admin/lessons/sync-single"], async (req, res) => {
+app.post(["/api/admin/lessons/sync-single", "/admin/lessons/sync-single"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { lessonId } = req.body;
@@ -4949,12 +4661,12 @@ app.post(["/api/admin/lessons/sync-single", "/admin/lessons/sync-single"], async
       });
     }
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "সাবটাইটেল সিঙ্ক ত্রুটি: " + err.message });
+    return res.status(500).json({ ok: false, message: "সাবটাইটেল সিঙ্ক ত্রুটি: " + "Request could not be completed." });
   }
 });
 
 // BATCH SYNC: Auto-sync transcripts for all existing past video lessons
-app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
+app.post("/api/admin/lessons/sync-transcripts", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     let allLessons = [];
@@ -5083,13 +4795,13 @@ app.post("/api/admin/lessons/sync-transcripts", async (req, res) => {
       items
     });
   } catch (err) {
-    console.error("Batch sync transcripts error:", err);
-    return res.status(500).json({ ok: false, message: "সাবটাইটেল সিঙ্ক করতে সমস্যা হয়েছে: " + err.message });
+    console.error("Batch sync transcripts error:");
+    return res.status(500).json({ ok: false, message: "সাবটাইটেল সিঙ্ক করতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
 // GET & POST Single Lesson Transcript (Admin Inspector & Editor)
-app.get(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"], async (req, res) => {
+app.get(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"], requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     let lsn = null;
@@ -5121,7 +4833,7 @@ app.get(["/api/admin/lessons/:id/transcript", "/admin/lessons/:id/transcript"], 
       wordCount: lsn.transcriptWordCount || (lsn.transcript ? lsn.transcript.split(/\s+/).filter(Boolean).length : 0)
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: err.message });
+    return res.status(500).json({ ok: false, message: "Request could not be completed." });
   }
 });
 
@@ -5130,7 +4842,7 @@ app.post([
   "/admin/lessons/:id/transcript",
   "/api/admin/lessons/:id/save-transcript",
   "/admin/lessons/:id/save-transcript"
-], async (req, res) => {
+], requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { transcript, action, isSrtOrVtt, source } = req.body || {}; // 'save' or 'refetch'
@@ -5275,13 +4987,13 @@ app.post([
       });
     }
   } catch (err) {
-    return res.status(500).json({ ok: false, message: err.message });
+    return res.status(500).json({ ok: false, message: "Request could not be completed." });
   }
 });
 
 // Durable Background Transcript Job Runner & Subtitle Sync Cron (Phase 6 & 11)
 // Supports GET (Vercel Cron & Browser Ping) and POST (Admin Trigger)
-app.all(["/api/admin/transcripts/process-jobs", "/api/crons/sync-subtitles", "/api/admin/subtitles/sync-batch"], async (req, res) => {
+app.all(["/api/admin/transcripts/process-jobs", "/api/crons/sync-subtitles", "/api/admin/subtitles/sync-batch"], requireTranscriptOperator, async (req, res) => {
   try {
     await ensureDbConnected();
     const limit = Math.min(15, Number(req.body?.limit || req.query?.limit || 10));
@@ -5314,35 +5026,35 @@ app.all(["/api/admin/transcripts/process-jobs", "/api/crons/sync-subtitles", "/a
       queueStatus: status
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Queue/Cron processing error: " + err.message });
+    return res.status(500).json({ ok: false, message: "Queue/Cron processing error: " + "Request could not be completed." });
   }
 });
 
 // Full Backfill Subtitles Endpoint
-app.post("/api/admin/subtitles/backfill-all", async (req, res) => {
+app.post("/api/admin/subtitles/backfill-all", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const result = await backfillAllExistingSubtitles({ LessonModel: Lesson });
     fastCache.del("lessons");
     return res.json({ ok: true, timestamp: new Date().toISOString(), result });
   } catch (err) {
-    console.error("Full Backfill Error:", err);
-    return res.status(500).json({ ok: false, error: err.message });
+    console.error("Full Backfill Error:");
+    return res.status(500).json({ ok: false, error: "Request could not be completed." });
   }
 });
 
-app.get("/api/admin/transcripts/queue-status", async (req, res) => {
+app.get("/api/admin/transcripts/queue-status", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const status = await getQueueStatus({ TranscriptJobModel: TranscriptJob, isMongoConnected, memoryDb });
     return res.json({ ok: true, queue: status });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: err.message });
+    return res.status(500).json({ ok: false, message: "Request could not be completed." });
   }
 });
 
 // Bounded Transcript Backfill for existing lessons (Phase 8)
-app.post("/api/admin/lessons/backfill-transcripts", async (req, res) => {
+app.post("/api/admin/lessons/backfill-transcripts", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const batchSize = Math.min(25, Number(req.body?.batchSize || 10));
@@ -5440,7 +5152,7 @@ app.post("/api/admin/lessons/backfill-transcripts", async (req, res) => {
       }
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Backfill error: " + err.message });
+    return res.status(500).json({ ok: false, message: "Backfill error: " + "Request could not be completed." });
   }
 });
 
@@ -5448,93 +5160,51 @@ app.post("/api/admin/lessons/backfill-transcripts", async (req, res) => {
 // COURSE ACCESS RESOLUTION HELPER (BACKEND-PROCESSING)
 // -------------------------------------------------------------
 
-function checkStudentCourseAccess(student, courseId, lesson = null) {
-  // Free / orientation lessons are open to everyone
-  if (lesson) {
-    const isFree = lesson.isFree === true ||
-      (lesson.title && (lesson.title.toLowerCase().includes('orientation') || lesson.title.includes('অরিয়েন্টেশন'))) ||
-      (lesson.module && (lesson.module.toLowerCase().includes('orientation') || lesson.module.includes('অরিয়েন্টেশন')));
-    if (isFree) return { allowed: true, reason: 'FREE_ORIENTATION' };
+function checkStudentCourseAccess(user, courseId, lesson = null, course = null) {
+  if (user?.role === 'admin') return { allowed: true, reason: 'ADMIN' };
+  const status = String(lesson?.status || '').toLowerCase();
+  if (lesson && (lesson.isDraft || ['draft', 'hidden', 'inactive', 'unpublished'].includes(status))) {
+    return { allowed: false, reason: 'UNPUBLISHED' };
   }
 
-  if (!student) {
-    return { allowed: false, reason: 'UNAUTHENTICATED' };
+  const mentor = mentorAssignedCourse(user, courseId, course);
+  if (mentor) return { allowed: true, reason: 'MENTOR_ASSIGNED' };
+  const publishedCourse = course && !['inactive', 'hidden', 'draft'].includes(String(course.status).toLowerCase());
+  const orientation = lesson && [lesson.title, lesson.module].some(
+    value => typeof value === 'string' && (value.toLowerCase().includes('orientation') || value.includes('অরিয়েন্টেশন'))
+  );
+  if (publishedCourse && lesson && (lesson.isFree === true || orientation)) {
+    return { allowed: true, reason: 'FREE_ORIENTATION' };
   }
 
-  if (student.isAdmin || student.isMentor) {
-    return { allowed: true, reason: 'ADMIN_OR_MENTOR' };
-  }
-
-  // Account must be approved and active
-  if (student.loginApproval !== 'Approved' || student.status === 'Inactive' || student.status === 'Blocked') {
+  if (user?.role !== 'student') return { allowed: false, reason: 'NOT_ENROLLED' };
+  if (user.loginApproval !== 'Approved' || ['Inactive', 'Blocked'].includes(user.status)) {
     return { allowed: false, reason: 'PENDING_APPROVAL' };
   }
+  if (!courseId) return { allowed: false, reason: 'NO_COURSE_SPECIFIED' };
 
-  // Unlimited access
-  const rawAllowed = (Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0)
-    ? student.allowedCourseIds
-    : (Array.isArray(student.enrolledCourseIds) ? student.enrolledCourseIds : []);
-
-  if (student.unlimitedAccess === true || rawAllowed.some(id => String(id).toLowerCase().trim() === 'all')) {
-    return { allowed: true, reason: 'UNLIMITED_ACCESS' };
-  }
-
-  if (!courseId) {
-    return { allowed: false, reason: 'NO_COURSE_SPECIFIED' };
-  }
-
-  const sCourseId = String(courseId).toLowerCase().trim();
-  const sCourseNorm = sCourseId.replace(/[-_]/g, ' ');
-
-  // Strict check: Student must be explicitly enrolled in THIS specific course
-  const hasExplicitList = (Array.isArray(student.allowedCourseIds) && student.allowedCourseIds.length > 0) ||
-                          (Array.isArray(student.enrolledCourseIds) && student.enrolledCourseIds.length > 0);
-
-  let isCourseAssigned = rawAllowed.some(id => {
-    const cId = String(id).toLowerCase().trim();
-    return cId === sCourseId || cId.replace(/[-_]/g, ' ') === sCourseNorm;
-  });
-
-  // Legacy fallback: ONLY if student has never had an allowedCourseIds/enrolledCourseIds array set at all
-  if (!isCourseAssigned && !hasExplicitList && student.course) {
-    const legacyCourse = String(student.course).toLowerCase().trim();
-    if (legacyCourse === sCourseId || legacyCourse.replace(/[-_]/g, ' ') === sCourseNorm) {
-      isCourseAssigned = true;
-    }
-  }
-
-  // If this course is not explicitly in student's allowed courses list, access is strictly locked!
-  if (!isCourseAssigned) {
+  const aliases = new Set([courseId, ...courseAliases(course)].map(normalizeCourseId).filter(Boolean));
+  const allowedIds = user.allowedCourseIds?.length ? user.allowedCourseIds : user.enrolledCourseIds || [];
+  const unrestricted = user.unlimitedAccess === true || allowedIds.some(id => normalizeCourseId(id) === 'all');
+  const enrollment = Array.isArray(user.allowedCourseIds) || Array.isArray(user.enrolledCourseIds)
+    ? allowedIds : [user.course];
+  if (!unrestricted && !enrollment.some(id => aliases.has(normalizeCourseId(id)))) {
     return { allowed: false, reason: 'NOT_ENROLLED' };
   }
-
-  // Check per-course access rules (dates, suspension, payment expiry)
-  const rules = Array.isArray(student.courseRules) ? student.courseRules : [];
-  const matchingRule = rules.find(r => {
-    if (!r || !r.courseId) return false;
-    const rId = String(r.courseId).toLowerCase().trim();
-    return rId === sCourseId || rId.replace(/[-_]/g, ' ') === sCourseNorm;
-  });
-
-  if (matchingRule) {
-    if (matchingRule.enrollmentStatus === 'Suspended') {
-      return { allowed: false, reason: 'SUSPENDED' };
-    }
-    if (matchingRule.unlimitedAccess !== true) {
-      const now = new Date();
-      if (matchingRule.accessEndDate && new Date(matchingRule.accessEndDate) < now) {
-        return { allowed: false, reason: 'EXPIRED' };
-      }
-      if (lesson && matchingRule.videoAccessUntil && new Date(matchingRule.videoAccessUntil) < now) {
-        return { allowed: false, reason: 'VIDEO_ACCESS_EXPIRED' };
-      }
-    }
+  const rules = (user.courseRules || []).filter(rule => rule?.courseId && aliases.has(normalizeCourseId(rule.courseId)));
+  if (rules.some(rule => rule.enrollmentStatus === 'Suspended')) return { allowed: false, reason: 'SUSPENDED' };
+  const now = Date.now();
+  if (rules.some(rule => !rule.unlimitedAccess &&
+      (rule.enrollmentStatus === 'Expired' || (rule.accessEndDate && Date.parse(rule.accessEndDate) < now)))) {
+    return { allowed: false, reason: 'EXPIRED' };
   }
-
+  if (lesson && rules.some(rule => !rule.unlimitedAccess && rule.videoAccessUntil && Date.parse(rule.videoAccessUntil) < now)) {
+    return { allowed: false, reason: 'VIDEO_ACCESS_EXPIRED' };
+  }
   return { allowed: true, reason: 'ENROLLED' };
 }
 
-app.post('/api/student/watch-telemetry', async (req, res) => {
+app.post('/api/student/watch-telemetry', requireStudentSelf, async (req, res) => {
   const { event, lessonId, watchedSeconds, videoTimestamp } = req.body || {};
   const validSeconds = value => Number.isSafeInteger(value) && value >= 0 && value <= 604800;
   if (!['started', 'ended'].includes(event) || typeof lessonId !== 'string' || !lessonId.trim() || lessonId.length > 200 ||
@@ -5543,13 +5213,7 @@ app.post('/api/student/watch-telemetry', async (req, res) => {
   }
 
   try {
-    const student = await getAuthUserFromRequest(req);
-    if (student?.role !== 'student' || student.isAdmin || student.isMentor) {
-      return res.status(401).json({ ok: false });
-    }
-    if (student.status === 'Inactive' || student.status === 'Blocked') {
-      return res.status(403).json({ ok: false });
-    }
+    const student = req.user;
 
     const id = lessonId.trim();
     const lessonIds = [{ id }];
@@ -5562,8 +5226,7 @@ app.post('/api/student/watch-telemetry', async (req, res) => {
     }
 
     const course = await resolveCourseByIdOrAlias(lesson.courseId);
-    const canWatch = checkStudentCourseAccess(student, lesson.courseId, lesson).allowed ||
-      (course?.id !== lesson.courseId && checkStudentCourseAccess(student, course?.id, lesson).allowed);
+    const canWatch = await studentCanAccessCourse(student, lesson.courseId, lesson);
     if (!canWatch) {
       return res.status(403).json({ ok: false });
     }
@@ -5580,13 +5243,10 @@ app.post('/api/student/watch-telemetry', async (req, res) => {
 });
 
 // DEDICATED QUERY-DRIVEN STUDENT DASHBOARD OVERVIEW ENDPOINT (Backend-Processed & Fast-Cached)
-app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, res) => {
+app.get(["/api/student/dashboard-data", "/api/student/my-portal"], requireStudentSelf, async (req, res) => {
   try {
     await ensureDbConnected();
-    const student = await getAuthUserFromRequest(req);
-    if (!student) {
-      return res.status(401).json({ ok: false, message: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" });
-    }
+    const student = req.user;
 
     if (!isMongoConnected && (!memoryDb.courses || memoryDb.courses.length === 0)) {
       return res.status(503).json({
@@ -5759,8 +5419,10 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
     lessonsList = sortLessons(lessonsList);
 
     // Backend-mark each lesson as unlocked or locked, and strip protected video credentials if locked
-    const processedLessons = lessonsList.map(l => {
-      const access = checkStudentCourseAccess(student, selectedCourse?.id, l);
+    const courseScope = await readCourseScope();
+    const processedLessons = lessonsList.filter(lesson => !lesson.isDraft && !["draft", "hidden", "unpublished", "inactive"].includes(String(lesson.status).toLowerCase())).map(l => {
+      const actualCourse = findScopedCourse(courseScope, l.courseId);
+      const access = actualCourse ? checkStudentCourseAccess(student, l.courseId, l, actualCourse) : { allowed: false, reason: "NOT_ENROLLED" };
       if (!access.allowed) {
         return {
           ...l,
@@ -5810,15 +5472,9 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
         : (memoryDb.mcqResults || []).filter(r => r.studentId === student.id),
       isMongoConnected
         ? Receipt.find(
-            {
-              $or: [
-                { studentId: student.id },
-                { studentEmail: student.email },
-                { studentPhone: student.phone }
-              ]
-            }
+            ownerQuery(student)
           ).sort({ paymentTime: -1, createdAt: -1 }).limit(50).lean().catch(() => [])
-        : (memoryDb.receipts || []).filter(r => r.studentId === student.id || r.studentEmail === student.email || r.studentPhone === student.phone),
+        : (memoryDb.receipts || []).filter(r => ownsStudentRecord(student, r)),
       isMongoConnected
         ? Certificate.find({ studentId: student.id, status: 'Valid' }).sort({ issueDate: -1 }).limit(20).lean().catch(() => [])
         : []
@@ -5833,7 +5489,7 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       student: {
         id: student.id,
         name: student.name,
-        phone: student.phone,
+        phone: accountResponse(student).phone,
         email: student.email,
         loginApproval: student.loginApproval,
         status: student.status,
@@ -5852,7 +5508,10 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
         progressPercent,
         enrolledCount: enrolledCourses.length
       },
-      assignments: dbAssignments || [],
+      assignments: (dbAssignments || []).filter(a => {
+        const course = findScopedCourse(courseScope, a.courseId);
+        return Boolean(course && checkStudentCourseAccess(student, a.courseId, null, course).allowed);
+      }),
       submissions: dbSubmissions || [],
       exams: dbExams || [],
       results: dbResults || [],
@@ -5861,25 +5520,24 @@ app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, r
       source: "mongodb-backend-processed"
     };
 
-    fastCache.set(cacheKey, payload, 30); // 30 seconds high-speed cache
     return res.json({ ok: true, ...payload });
   } catch (err) {
-    console.error("Student dashboard-data error:", err);
-    return res.status(500).json({ ok: false, message: "ড্যাশবোর্ড ডেটা লোড করতে সমস্যা হয়েছে: " + err.message });
+    console.error("Student dashboard-data error:");
+    return res.status(500).json({ ok: false, message: "ড্যাশবোর্ড ডেটা লোড করতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
 // AI Service Health and Diagnostic Status (Unified 4-Provider Failover)
-app.get(["/api/ai/providers-health", "/api/ai/health"], async (req, res) => {
+app.get(["/api/ai/providers-health", "/api/ai/health"], requireAdmin, async (req, res) => {
   try {
     const health = getAiProvidersHealthStatus();
     return res.json(health);
   } catch (err) {
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: "Request could not be completed." });
   }
 });
 
-app.get("/api/ai/status", async (req, res) => {
+app.get("/api/ai/status", requireAdmin, async (req, res) => {
   try {
     const health = getAiProvidersHealthStatus();
     return res.json({
@@ -5890,15 +5548,24 @@ app.get("/api/ai/status", async (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (err) {
-    return res.json({ ok: false, error: err.message });
+    return res.json({ ok: false, error: "Request could not be completed." });
   }
 });
 
 // AI LEGAL ASSISTANT ENDPOINT (Bangladesh Constitution & Law + Video Transcript Matching)
-app.post("/api/ai/legal-assistant", async (req, res) => {
+async function scopedAiLessons(user) {
+  if (!isMongoConnected) return [];
+  const [courses, lessons] = await Promise.all([readCourseScope(), Lesson.find().lean()]);
+  return lessons.filter(lesson => {
+    const course = findScopedCourse(courses, lesson.courseId);
+    return Boolean(course && checkStudentCourseAccess(user, lesson.courseId, lesson, course).allowed);
+  });
+}
+
+app.post("/api/ai/legal-assistant", optionalAuthentication, async (req, res) => {
   try {
-    const { query, studentName, conversationHistory, history } = req.body;
-    if (!query || !query.trim()) {
+    const { query, conversationHistory, history } = req.body || {};
+    if (typeof query !== "string" || !query.trim()) {
       return res.status(400).json({ ok: false, message: "অনুগ্রহ করে প্রশ্ন লিখুন।" });
     }
 
@@ -5918,35 +5585,32 @@ app.post("/api/ai/legal-assistant", async (req, res) => {
       });
     }
 
-    let allLessons = [];
-    if (isMongoConnected) {
-      allLessons = await Lesson.find().lean().catch(() => []);
-    }
-    if (allLessons.length === 0) {
-      allLessons = memoryDb.lessons || [];
-    }
+    const allLessons = await scopedAiLessons(req.user);
 
     const result = await processLegalAiQuery({
       query: query.trim(),
-      studentName: studentName || 'শিক্ষার্থী',
+      studentName: req.user?.name || 'শিক্ষার্থী',
       allLessons,
       conversationHistory: conversationHistory || history || []
     });
 
     return res.json(result);
   } catch (err) {
-    console.error("AI Legal Assistant Error:", err);
-    return res.status(500).json({ ok: false, message: "আইনি পরামর্শ দিতে সমস্যা হয়েছে: " + err.message });
+    console.error("AI Legal Assistant Error:");
+    return res.status(500).json({ ok: false, message: "আইনি পরামর্শ দিতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
 // DELETE Lesson Video
-app.delete(["/api/admin/lessons/:id", "/api/lessons/:id", "/admin/lessons/:id", "/lessons/:id"], async (req, res) => {
+app.delete(["/api/admin/lessons/:id", "/api/lessons/:id", "/admin/lessons/:id", "/lessons/:id"], requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    if (isMongoConnected) {
-      await Lesson.deleteOne({ $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])] });
-    }
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const target = await Lesson.findOne(recordIdFilter(id)).select("id").lean();
+    if (!target) throw new AuthError("RESOURCE_NOT_FOUND");
+    const result = await Lesson.deleteOne({ _id: target._id });
+    if (result.deletedCount !== 1) throw new AuthError("RESOURCE_NOT_FOUND");
+    await logAuditEvent({ action: "LESSON_DELETE", targetType: "lesson", targetId: target.id, req });
     memoryDb.lessons = (memoryDb.lessons || []).filter(l => l.id !== id && l._id !== id);
 
     // Instant cache invalidation
@@ -5954,13 +5618,13 @@ app.delete(["/api/admin/lessons/:id", "/api/lessons/:id", "/admin/lessons/:id", 
 
     return res.json({ ok: true, message: "✓ ভিডিওটি সফলভাবে মুছে ফেলা হয়েছে।" });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error deleting lesson: " + err.message });
+    return rejectAccess(req, res, err);
   }
 });
 
 // GET Mentors Endpoint (Public Homepage & Admin Panel with Fast Cache)
-app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], async (req, res) => {
-  const isPublic = req.path.includes("/mentors") && !req.path.includes("admin");
+app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], requireAdminOnAlias, async (req, res) => {
+  const isPublic = req.user?.role !== "admin";
   if (isPublic) {
     res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
   }
@@ -5968,14 +5632,14 @@ app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], as
   const cacheKey = isPublic ? "mentors_public" : "mentors_all";
   const cached = fastCache.get(cacheKey);
   if (cached && Array.isArray(cached) && cached.length > 0) {
-    return res.json({ ok: true, mentors: cached, source: "fast-cache" });
+    return res.json({ ok: true, mentors: isPublic ? cached.map(publicMentorProfile) : cached, source: "fast-cache" });
   }
 
   if (!isMongoConnected) {
     if (memoryDb.mentors && memoryDb.mentors.length > 0) {
       const fallback = memoryDb.mentors;
       const activeFallback = isPublic ? fallback.filter(m => m && m.status === "Active") : fallback;
-      return res.json({ ok: true, mentors: activeFallback, source: "memory_cache" });
+      return res.json({ ok: true, mentors: isPublic ? activeFallback.map(publicMentorProfile) : activeFallback, source: "memory_cache" });
     }
     return res.status(503).json({
       ok: false,
@@ -5991,30 +5655,30 @@ app.get(["/api/mentors", "/api/admin/mentors", "/mentors", "/admin/mentors"], as
     if (isPublic) {
       const activeOnly = (mentorsList || []).filter(m => m && m.status === "Active");
       fastCache.set("mentors_public", activeOnly, 60);
-      return res.json({ ok: true, mentors: activeOnly, source: "mongodb" });
+      return res.json({ ok: true, mentors: isPublic ? activeOnly.map(publicMentorProfile) : activeOnly, source: "mongodb" });
     }
     fastCache.set("mentors_all", mentorsList || [], 30);
     return res.json({ ok: true, mentors: mentorsList || [], source: "mongodb" });
   } catch (err) {
-    console.error("Mentor fetch database error:", err.message);
+    console.error("Mentor fetch database error:");
     if (memoryDb.mentors && memoryDb.mentors.length > 0) {
       const fallback = memoryDb.mentors;
       const activeFallback = isPublic ? fallback.filter(m => m && m.status === "Active") : fallback;
-      return res.json({ ok: true, mentors: activeFallback, source: "memory_cache", dbNotice: err.message });
+      return res.json({ ok: true, mentors: isPublic ? activeFallback.map(publicMentorProfile) : activeFallback, source: "memory_cache", dbNotice: "Request could not be completed." });
     }
     return res.status(503).json({
       ok: false,
       error: "DATABASE_ERROR",
-      message: "Database query failed while fetching mentors: " + err.message
+      message: "Database query failed while fetching mentors: " + "Request could not be completed."
     });
   }
 });
 
 // SAVE Mentor Profile (Admin Control Panel)
-app.post(["/api/admin/mentors/save", "/admin/mentors/save"], async (req, res) => {
+app.post(["/api/admin/mentors/save", "/admin/mentors/save"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
-    const body = req.body || {};
+    const body = pickWritableFields(req.body, ["id","_id","name","email","password","loginApproval","assignedCourseIds","photoUrl","designation","posting","expertise","phone","showPhone","status","bio","studentsMentored","judgesProduced","experienceYears","ratingScore"]);
     if (!body.name) {
       return res.status(400).json({ ok: false, message: "Mentor name is required." });
     }
@@ -6075,13 +5739,13 @@ app.post(["/api/admin/mentors/save", "/admin/mentors/save"], async (req, res) =>
       mentor: saved
     });
   } catch (err) {
-    console.error("Save mentor error:", err);
-    return res.status(500).json({ ok: false, message: "Error saving mentor profile: " + err.message });
+    console.error("Save mentor error:");
+    return res.status(500).json({ ok: false, message: "Error saving mentor profile: " + "Request could not be completed." });
   }
 });
 
 // ASSIGN Courses to Mentor (Admin Control Panel)
-app.post(["/api/admin/mentors/assign-courses", "/admin/mentors/assign-courses"], async (req, res) => {
+app.post(["/api/admin/mentors/assign-courses", "/admin/mentors/assign-courses"], requireAdmin, async (req, res) => {
   try {
     const { mentorId, assignedCourseIds } = req.body || {};
     if (!mentorId) {
@@ -6114,19 +5778,20 @@ app.post(["/api/admin/mentors/assign-courses", "/admin/mentors/assign-courses"],
     fastCache.del("home_data");
     invalidateAdminBundle();
 
+    await logAuditEvent({ action: "MENTOR_ASSIGNMENT_CHANGE", targetType: "mentor", req });
     return res.json({
       ok: true,
       message: "মেন্টর কোর্স নির্ধারণ করা হয়েছে!",
       mentor: updatedMentor
     });
   } catch (err) {
-    console.error("Assign mentor courses error:", err);
-    return res.status(500).json({ ok: false, message: "মেন্টর কোর্স নির্ধারণে সমস্যা হয়েছে: " + err.message });
+    console.error("Assign mentor courses error:");
+    return res.status(500).json({ ok: false, message: "মেন্টর কোর্স নির্ধারণে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
 // DELETE Mentor (Admin Control Panel)
-app.delete(["/api/admin/mentors/:id", "/admin/mentors/:id"], async (req, res) => {
+app.delete(["/api/admin/mentors/:id", "/admin/mentors/:id"], requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     if (isMongoConnected) {
@@ -6143,13 +5808,13 @@ app.delete(["/api/admin/mentors/:id", "/admin/mentors/:id"], async (req, res) =>
 
     return res.json({ ok: true, message: "✓ Mentor deleted successfully!" });
   } catch (err) {
-    console.error("Delete mentor error:", err);
-    return res.status(500).json({ ok: false, message: "Error deleting mentor: " + err.message });
+    console.error("Delete mentor error:");
+    return res.status(500).json({ ok: false, message: "Error deleting mentor: " + "Request could not be completed." });
   }
 });
 
 // APPROVE / REJECT Mentor (Admin Control Panel)
-app.post(["/api/admin/mentors/approve", "/admin/mentors/approve"], async (req, res) => {
+app.post(["/api/admin/mentors/approve", "/admin/mentors/approve"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { mentorId, action } = req.body || {};
@@ -6172,15 +5837,16 @@ app.post(["/api/admin/mentors/approve", "/admin/mentors/approve"], async (req, r
     }
 
     invalidateAdminBundle();
+    await logAuditEvent({ action: "MENTOR_APPROVAL_CHANGE", targetType: "mentor", req });
     return res.json({ ok: true, message: `মেন্টর অনুমোদন (${newApproval}) সফল হয়েছে!` });
   } catch (err) {
-    console.error("Approve mentor error:", err);
-    return res.status(500).json({ ok: false, message: "মেন্টর অনুমোদন প্রক্রিয়ায় ত্রুটি: " + err.message });
+    console.error("Approve mentor error:");
+    return res.status(500).json({ ok: false, message: "মেন্টর অনুমোদন প্রক্রিয়ায় ত্রুটি: " + "Request could not be completed." });
   }
 });
 
 // MERGE Mentors (Admin Control Panel)
-app.post(["/api/admin/mentors/merge", "/admin/mentors/merge"], async (req, res) => {
+app.post(["/api/admin/mentors/merge", "/admin/mentors/merge"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { targetMentorId, sourceMentorId } = req.body || {};
@@ -6268,13 +5934,13 @@ app.post(["/api/admin/mentors/merge", "/admin/mentors/merge"], async (req, res) 
 
     return res.json({ ok: true, message: "মেন্টর একাউন্ট সফলভাবে সংযুক্ত/মার্জ হয়েছে!" });
   } catch (err) {
-    console.error("Merge mentors error:", err);
-    return res.status(500).json({ ok: false, message: "মেন্টর একাউন্ট মার্জ করতে সমস্যা হয়েছে: " + err.message });
+    console.error("Merge mentors error:");
+    return res.status(500).json({ ok: false, message: "মেন্টর একাউন্ট মার্জ করতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
 // GET All Students & Pending Registrations (Admin Control Panel)
-app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
+app.get(["/api/admin/students", "/admin/students"], requireAdmin, async (req, res) => {
   if (!isMongoConnected && (!memoryDb.students || memoryDb.students.length === 0)) {
     return res.status(503).json({
       ok: false,
@@ -6455,15 +6121,15 @@ app.get(["/api/admin/students", "/admin/students"], async (req, res) => {
 
     return res.json({ ok: true, students: combinedStudents, source: isMongoConnected ? "mongodb" : "memory" });
   } catch (err) {
-    console.error("Student list fetch database error:", err.message);
+    console.error("Student list fetch database error:");
     if (memoryDb.students && memoryDb.students.length > 0) {
       const fallbackStudents = memoryDb.students || [];
-      return res.json({ ok: true, students: fallbackStudents, source: "memory_cache", dbNotice: err.message });
+      return res.json({ ok: true, students: fallbackStudents, source: "memory_cache", dbNotice: "Request could not be completed." });
     }
     return res.status(503).json({
       ok: false,
       error: "DATABASE_ERROR",
-      message: "Database query failed while fetching students: " + err.message
+      message: "Database query failed while fetching students: " + "Request could not be completed."
     });
   }
 });
@@ -6698,12 +6364,12 @@ app.get(["/api/admin/bootstrap-data", "/admin/bootstrap-data"], requireAdmin, as
     fastCache.set("admin_bootstrap_bundle", bundle, 20); // 20s cache
     return res.json({ ok: true, ...bundle, source: "mongodb-parallel-bundle" });
   } catch (err) {
-    console.error("Admin bootstrap data error:", err);
-    return res.status(500).json({ ok: false, message: "Failed to load admin bootstrap data: " + err.message });
+    console.error("Admin bootstrap data error:");
+    return res.status(500).json({ ok: false, message: "Failed to load admin bootstrap data: " + "Request could not be completed." });
   }
 });
 
-app.get(["/api/admin/overview-stats", "/admin/overview-stats"], async (req, res) => {
+app.get(["/api/admin/overview-stats", "/admin/overview-stats"], requireAdmin, async (req, res) => {
   if (!isMongoConnected && (!memoryDb.students || memoryDb.students.length === 0)) {
     return res.status(503).json({
       ok: false,
@@ -6731,12 +6397,12 @@ app.get(["/api/admin/overview-stats", "/admin/overview-stats"], async (req, res)
     memoryDb.mentors = mentorsList || [];
     memoryDb.mcqExams = examsList || [];
   } catch (err) {
-    console.error("Overview stats database error:", err.message);
+    console.error("Overview stats database error:");
     if (!memoryDb.students || memoryDb.students.length === 0) {
       return res.status(503).json({
         ok: false,
         error: "DATABASE_ERROR",
-        message: "Database query failed while fetching overview stats: " + err.message
+        message: "Database query failed while fetching overview stats: " + "Request could not be completed."
       });
     }
     dbNotice = err.message;
@@ -6795,7 +6461,7 @@ app.get(["/api/admin/overview-stats", "/admin/overview-stats"], async (req, res)
 });
 
 // GET Receipts (Admin Control Panel)
-app.get(["/api/admin/receipts", "/admin/receipts"], async (req, res) => {
+app.get(["/api/admin/receipts", "/admin/receipts"], requireAdmin, async (req, res) => {
   if (!isMongoConnected && (!memoryDb.receipts || memoryDb.receipts.length === 0)) {
     return res.status(503).json({
       ok: false,
@@ -6810,20 +6476,20 @@ app.get(["/api/admin/receipts", "/admin/receipts"], async (req, res) => {
     if (mongoReceipts && mongoReceipts.length > 0) memoryDb.receipts = mongoReceipts;
     return res.json({ ok: true, receipts: mongoReceipts || [], source: "mongodb" });
   } catch (err) {
-    console.error("Receipt fetch database error:", err.message);
+    console.error("Receipt fetch database error:");
     if (memoryDb.receipts && memoryDb.receipts.length > 0) {
-      return res.json({ ok: true, receipts: memoryDb.receipts, source: "memory_cache", dbNotice: err.message });
+      return res.json({ ok: true, receipts: memoryDb.receipts, source: "memory_cache", dbNotice: "Request could not be completed." });
     }
     return res.status(503).json({
       ok: false,
       error: "DATABASE_ERROR",
-      message: "Database query failed while fetching receipts: " + err.message
+      message: "Database query failed while fetching receipts: " + "Request could not be completed."
     });
   }
 });
 
 // GET Assignments (Admin & Student)
-app.get(["/api/admin/assignments", "/api/assignments", "/admin/assignments", "/assignments"], async (req, res) => {
+app.get(["/api/admin/assignments", "/api/assignments", "/admin/assignments", "/assignments"], requireAdmin, async (req, res) => {
   if (!isMongoConnected && (!memoryDb.assignments || memoryDb.assignments.length === 0)) {
     return res.status(503).json({
       ok: false,
@@ -6838,14 +6504,14 @@ app.get(["/api/admin/assignments", "/api/assignments", "/admin/assignments", "/a
     if (assignments && assignments.length > 0) memoryDb.assignments = assignments;
     return res.json({ ok: true, assignments: assignments || [], source: "mongodb" });
   } catch (err) {
-    console.error("Assignment fetch database error:", err.message);
+    console.error("Assignment fetch database error:");
     if (memoryDb.assignments && memoryDb.assignments.length > 0) {
-      return res.json({ ok: true, assignments: memoryDb.assignments, source: "memory_cache", dbNotice: err.message });
+      return res.json({ ok: true, assignments: memoryDb.assignments, source: "memory_cache", dbNotice: "Request could not be completed." });
     }
     return res.status(503).json({
       ok: false,
       error: "DATABASE_ERROR",
-      message: "Database query failed while fetching assignments: " + err.message
+      message: "Database query failed while fetching assignments: " + "Request could not be completed."
     });
   }
 });
@@ -6863,7 +6529,7 @@ app.get(["/api/admin/mail-settings", "/admin/mail-settings"], requireAdmin, asyn
 });
 
 // Site Settings Endpoint (Public & Admin with Fast Cache)
-app.get(["/api/site-settings", "/api/admin/site-settings", "/site-settings", "/admin/site-settings"], async (req, res) => {
+app.get(["/api/site-settings", "/api/admin/site-settings", "/site-settings", "/admin/site-settings"], requireAdminOnAlias, async (req, res) => {
   res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
   const cached = fastCache.get("site_settings");
   if (cached) return res.json({ ok: true, settings: publicSiteSettings(cached), source: "fast-cache" });
@@ -6902,6 +6568,7 @@ app.post(["/api/admin/site-settings", "/admin/site-settings"], requireAdmin, asy
     fastCache.del("site_settings");
     fastCache.del("home_data");
     invalidateAdminBundle();
+    await logAuditEvent({ action: "SITE_SETTINGS_UPDATE", targetType: "settings", req });
 
     return res.json({
       ok: true,
@@ -6914,7 +6581,7 @@ app.post(["/api/admin/site-settings", "/admin/site-settings"], requireAdmin, asy
 });
 
 // GET MCQ Exams (Admin & Public Player)
-app.get(["/api/admin/mcq-exams", "/admin/mcq-exams"], async (req, res) => {
+app.get(["/api/admin/mcq-exams", "/admin/mcq-exams"], requireAdmin, async (req, res) => {
   if (!isMongoConnected && (!memoryDb.mcqExams || memoryDb.mcqExams.length === 0)) {
     return res.status(503).json({
       ok: false,
@@ -6929,39 +6596,58 @@ app.get(["/api/admin/mcq-exams", "/admin/mcq-exams"], async (req, res) => {
     if (exams && exams.length > 0) memoryDb.mcqExams = exams;
     return res.json({ ok: true, exams: exams || [], source: "mongodb" });
   } catch (err) {
-    console.error("Mongo MCQ Exam fetch error:", err.message);
+    console.error("Mongo MCQ Exam fetch error:");
     if (memoryDb.mcqExams && memoryDb.mcqExams.length > 0) {
-      return res.json({ ok: true, exams: memoryDb.mcqExams, source: "memory_cache", dbNotice: err.message });
+      return res.json({ ok: true, exams: memoryDb.mcqExams, source: "memory_cache", dbNotice: "Request could not be completed." });
     }
     return res.status(503).json({
       ok: false,
       error: "DATABASE_ERROR",
-      message: "Database query failed while fetching MCQ exams: " + err.message
+      message: "Database query failed while fetching MCQ exams: " + "Request could not be completed."
     });
   }
 });
 
 // GET Single MCQ Exam by ID (Public Exam Player)
-app.get("/api/mcq-exams/:id", async (req, res) => {
+
+function isPublicExam(exam) {
+  return exam.isPublic === true || (exam.isPublic == null && (!exam.courseId || ['universal', 'all'].includes(normalizeCourseId(exam.courseId))));
+}
+
+async function assertExamAccess(req, exam, { submit = false } = {}) {
+  if (!exam || (exam.status !== 'Active' && req.user?.role !== 'admin')) throw new AuthError('RESOURCE_NOT_FOUND');
+  if (!isPublicExam(exam)) {
+    if (!req.user) throw new AuthError('SESSION_REQUIRED');
+    if (submit && req.user.role !== 'student') throw new AuthError('FORBIDDEN');
+    const universal = !exam.courseId || ['universal', 'all'].includes(normalizeCourseId(exam.courseId));
+    const allowed = universal
+      ? req.user.role === 'admin' || (req.user.role === 'student' && req.user.loginApproval === 'Approved')
+      : await studentCanAccessCourse(req.user, exam.courseId);
+    if (!allowed) throw new AuthError('FORBIDDEN');
+  }
+  if (submit) {
+    const start = Date.parse(exam.startDate || exam.liveStartTime || '');
+    const end = Date.parse(exam.endDate || exam.liveEndTime || '');
+    if (exam.status !== 'Active' || (Number.isFinite(start) && Date.now() < start) ||
+        (Number.isFinite(end) && Date.now() > end)) throw new AuthError('FORBIDDEN');
+  }
+}
+
+app.get("/api/mcq-exams/:id", optionalAuthentication, async (req, res) => {
   try {
-    const { id } = req.params;
-    let exam = (memoryDb.mcqExams || []).find(e => e.id === id);
-    if (!exam && isMongoConnected) {
-      try {
-        exam = await McqExam.findOne({ id }).lean();
-      } catch (e) { }
-    }
-    if (!exam) {
-      return res.status(404).json({ ok: false, message: "এমসিকিউ পরীক্ষা খুঁজে পাওয়া যায়নি।" });
-    }
-    return res.json({ ok: true, exam });
-  } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error fetching MCQ exam." });
+    const exam = await McqExam.findOne(recordIdFilter(req.params.id)).lean();
+    await assertExamAccess(req, exam);
+    const { questions, ...metadata } = exam;
+    return res.json({ ok: true, exam: { ...metadata, questions: (questions || []).map(q => ({
+      id: q.id, questionText: q.questionText, options: q.options
+    })) } });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
 // DELETE MCQ Exam
-app.delete("/api/admin/mcq-exams/:id", async (req, res) => {
+app.delete("/api/admin/mcq-exams/:id", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     if (isMongoConnected) {
@@ -6980,43 +6666,29 @@ app.delete("/api/admin/mcq-exams/:id", async (req, res) => {
 });
 
 // SUBMIT MCQ Exam (Candidate / Student)
-app.post("/api/mcq-exams/submit", async (req, res) => {
+app.post("/api/mcq-exams/submit", optionalAuthentication, async (req, res) => {
   try {
-    const { examId, candidateName, candidatePhone, candidateEmail, candidateUniversity, answers } = req.body;
-    if (!examId || !candidateName) {
-      return res.status(400).json({ ok: false, message: "পরীক্ষার আইডি এবং পরীক্ষার্থীর নাম আবশ্যক।" });
-    }
 
-    // 1. Fetch Exam
-    let exam = (memoryDb.mcqExams || []).find(e => e.id === examId);
-    if (!exam && isMongoConnected) {
-      try {
-        exam = await McqExam.findOne({ id: examId }).lean();
-      } catch (e) { }
-    }
-    if (!exam) {
-      return res.status(404).json({ ok: false, message: "এমসিকিউ পরীক্ষা খুঁজে পাওয়া যায়নি।" });
-    }
-
-    // 1.5 Check Attempt Limit (e.g. 1-Time Limit vs Unlimited)
-    const limit = Number(exam.attemptLimit) !== undefined ? Number(exam.attemptLimit) : 1;
-    if (limit > 0 && candidatePhone) {
-      let pastAttempts = 0;
-      if (isMongoConnected) {
-        try {
-          pastAttempts = await McqResult.countDocuments({ examId, candidatePhone });
-        } catch (e) {
-          pastAttempts = (memoryDb.mcqResults || []).filter(r => r.examId === examId && r.candidatePhone === candidatePhone).length;
-        }
-      } else {
-        pastAttempts = (memoryDb.mcqResults || []).filter(r => r.examId === examId && r.candidatePhone === candidatePhone).length;
-      }
-      if (pastAttempts >= limit) {
-        return res.status(400).json({
-          ok: false,
-          message: `আপনি ইতিমধ্যে ${pastAttempts}-বার এই পরীক্ষায় অংশগ্রহণ করেছেন! আপনার জন্য সর্বোচ্চ লিমিট ${limit}-টি সুযোগ দেওয়া আছে।`
-        });
-      }
+    const requestedExamId = req.body?.examId;
+    const exam = await McqExam.findOne(recordIdFilter(requestedExamId)).lean();
+    await assertExamAccess(req, exam, { submit: true });
+    const examId = exam.id;
+    const student = req.user?.role === "student" ? req.user : null;
+    const contact = student ? accountResponse(student) : {
+      name: req.body?.candidateName, phone: req.body?.candidatePhone, email: req.body?.candidateEmail,
+      university: req.body?.candidateUniversity
+    };
+    const { name: candidateName, phone: candidatePhone, email: candidateEmail, university: candidateUniversity } = contact;
+    const { answers } = req.body || {};
+    if (typeof candidateName !== "string" || !candidateName.trim() || candidateName.length > 120 ||
+        typeof answers !== "object" || !answers || Array.isArray(answers) ||
+        [candidatePhone, candidateEmail, candidateUniversity].some(value => value != null &&
+          (typeof value !== "string" || value.length > 254))) throw new AuthError("INVALID_INPUT");
+    const limit = Number.isFinite(exam.attemptLimit) ? exam.attemptLimit : 1;
+    const attempts = student ? ownerQuery(student) : { studentId: "", candidatePhone: candidatePhone || "" };
+    if (limit > 0 && (student || candidatePhone) &&
+        await McqResult.countDocuments({ examId, ...attempts }) >= limit) {
+      return res.status(409).json({ ok: false, message: "পরীক্ষার নির্ধারিত চেষ্টা শেষ হয়েছে।" });
     }
 
     // 2. Grade Submission with Negative Marking Calculation
@@ -7029,7 +6701,7 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
 
     questions.forEach((q) => {
       const userSel = answers ? answers[q.id] : undefined;
-      const isSelected = userSel !== undefined && Number(userSel) >= 0;
+      const isSelected = Number.isInteger(userSel) && userSel >= 0 && userSel < (q.options || []).length;
       const isCorrect = isSelected && Number(userSel) === Number(q.correctIndex);
 
       if (isCorrect) {
@@ -7044,6 +6716,7 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
         questionId: q.id,
         selectedIndex: isSelected ? Number(userSel) : -1,
         correctIndex: q.correctIndex,
+        explanation: q.explanation || "",
         isCorrect
       });
     });
@@ -7059,30 +6732,9 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
     else if (percentage >= 50) grade = "Good Passed ✓";
     else grade = "Needs Practice 📖";
 
-    // 3. Auto-Match Student ID if candidate's phone/email is registered
-    let matchedStudentId = "";
-    let allStudents = memoryDb.students || [];
-    if (isMongoConnected) {
-      try {
-        const dbStudents = await Student.find().lean();
-        allStudents = dbStudents.length > 0 ? dbStudents : allStudents;
-      } catch (e) { }
-    }
+    const matchedStudentId = student?.id || "";
 
-    const cleanPhone = (candidatePhone || "").replace(/\D/g, "");
-    const cleanEmail = (candidateEmail || "").toLowerCase().trim();
-
-    const matchedStudent = allStudents.find(s => {
-      if (cleanPhone && s.phone && s.phone.replace(/\D/g, "") === cleanPhone) return true;
-      if (cleanEmail && s.email && s.email.toLowerCase().trim() === cleanEmail) return true;
-      return false;
-    });
-
-    if (matchedStudent) {
-      matchedStudentId = matchedStudent.id;
-    }
-
-    const resultId = "RES-MCQ-" + Math.floor(10000 + Math.random() * 90000);
+    const resultId = "RES-MCQ-" + crypto.randomUUID();
     const resultData = {
       id: resultId,
       examId,
@@ -7100,14 +6752,8 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
       submittedAt: new Date()
     };
 
-    let savedResult = resultData;
-    if (isMongoConnected) {
-      try {
-        savedResult = await McqResult.create(resultData);
-        if (savedResult && savedResult.toObject) savedResult = savedResult.toObject();
-      } catch (e) { }
-    }
-    (memoryDb.mcqResults = memoryDb.mcqResults || []).unshift(resultData);
+    const savedResult = await McqResult.create(resultData);
+    (memoryDb.mcqResults = memoryDb.mcqResults || []).unshift(savedResult.toObject());
 
     // 4. Automated Instant Result Email
     if (candidateEmail && candidateEmail.includes("@")) {
@@ -7137,17 +6783,17 @@ app.post("/api/mcq-exams/submit", async (req, res) => {
     return res.json({
       ok: true,
       message: `পরীক্ষা সম্পন্ন হয়েছে! আপনার নম্বর: ${score}/${totalMarks} (${percentage}%)`,
-      result: savedResult,
+      result: { ...savedResult.toObject(), userAnswers },
       matchedStudentId
     });
   } catch (err) {
-    console.error("MCQ submit error:", err);
-    return res.status(500).json({ ok: false, message: "এমসিকিউ সাবমিশনে সমস্যা হয়েছে।" });
+    console.error("MCQ submit error:");
+    return rejectAccess(req, res, err);
   }
 });
 
 // GET MCQ Results for Admin / Student Dashboard
-app.get(["/api/admin/mcq-results", "/admin/mcq-results"], async (req, res) => {
+app.get(["/api/admin/mcq-results", "/admin/mcq-results"], requireAdmin, async (req, res) => {
   const { examId, studentId, courseId, search } = req.query;
   let dbNotice = null;
   let query = {};
@@ -7172,7 +6818,7 @@ app.get(["/api/admin/mcq-results", "/admin/mcq-results"], async (req, res) => {
     }
   } catch (err) {
     dbNotice = err.message;
-    console.warn("Mongo MCQ Results fetch notice:", err.message);
+    console.warn("Mongo MCQ Results fetch notice:");
   }
 
   let list = memoryDb.mcqResults || [];
@@ -7193,7 +6839,7 @@ app.get(["/api/admin/mcq-results", "/admin/mcq-results"], async (req, res) => {
 });
 
 // GENERATE MCQ Result Sheet PDF with Answers & Explanations (PDFKit)
-app.post("/api/admin/generate-mcq-pdf", async (req, res) => {
+app.post("/api/admin/generate-mcq-pdf", requireAdmin, async (req, res) => {
   try {
     const { examId } = req.body;
     if (!examId) return res.status(400).json({ ok: false, message: "examId is required." });
@@ -7272,191 +6918,85 @@ app.post("/api/admin/generate-mcq-pdf", async (req, res) => {
     applyBengaliPdfWatermarkAndFooter(doc, `Question Bank - ${exam.title}`);
     doc.end();
   } catch (err) {
-    console.error("MCQ PDF error:", err);
-    res.status(500).json({ ok: false, message: "Error generating MCQ PDF: " + err.message });
+    console.error("MCQ PDF error:");
+    res.status(500).json({ ok: false, message: "Error generating MCQ PDF: " + "Request could not be completed." });
   }
 });
 
 // GET Submissions for Mentor (or specific Assignment)
-app.get("/api/mentor/submissions", async (req, res) => {
+app.get("/api/mentor/submissions", requireMentorSelf, async (req, res) => {
   try {
-    const { assignmentId, mentorId } = req.query;
-
-    if (isMongoConnected) {
-      let query = {};
-      if (assignmentId) {
-        query.assignmentId = assignmentId;
-      } else if (mentorId) {
-        const mentorAssignments = await Assignment.find({ mentorId }).select("id").lean();
-        const asnIds = mentorAssignments.map(a => a.id);
-        query.assignmentId = { $in: asnIds };
-      }
-      const list = await Submission.find(query).sort({ createdAt: -1 }).lean();
-      return res.json({ ok: true, submissions: list });
-    }
-
-    let filtered = memoryDb.submissions || [];
-    if (assignmentId) {
-      filtered = filtered.filter(s => s.assignmentId === assignmentId);
-    } else if (mentorId) {
-      const asnIds = (memoryDb.assignments || []).filter(a => a.mentorId === mentorId).map(a => a.id);
-      filtered = filtered.filter(s => asnIds.includes(s.assignmentId));
-    }
-
-    return res.json({ ok: true, submissions: filtered });
-  } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error fetching submissions." });
+    const { assignmentId } = req.query;
+    const assignments = assignmentId === undefined
+      ? await Assignment.find({ mentorId: { $in: accountIds(req.user) } }).select("id courseId").lean()
+      : [await loadMentorAssignment(req.user, assignmentId)];
+    const allowed = await Promise.all(assignments.map(a => mentorCanAccessCourse(req.user, a.courseId)));
+    const ids = assignments.filter((_, i) => allowed[i]).map(a => a.id);
+    if (!ids.length) return res.json({ ok: true, submissions: [] });
+    const submissions = await Submission.find({ assignmentId: { $in: ids } }).sort({ createdAt: -1 }).lean();
+    return res.json({ ok: true, submissions });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
 // GET All Assignments for Admin
-app.get("/api/admin/assignments", async (req, res) => {
-  try {
-    if (isMongoConnected) {
-      const list = await Assignment.find().sort({ createdAt: -1 }).lean();
-      return res.json({ ok: true, assignments: list });
-    }
-    return res.json({ ok: true, assignments: memoryDb.assignments || [] });
-  } catch (e) {
-    return res.status(500).json({ ok: false, message: "Error fetching admin assignments" });
-  }
-});
+
 
 // POST Mentor Grade Student Submission
-app.post("/api/mentor/grade-submission", async (req, res) => {
+app.post("/api/mentor/grade-submission", requireMentorSelf, async (req, res) => {
   try {
-    const { submissionId, marksObtained, feedback, gradedBy } = req.body;
-    if (!submissionId) {
-      return res.status(400).json({ ok: false, message: "submissionId is required." });
+    const { submissionId, marksObtained, feedback = "" } = req.body || {};
+    const submission = await Submission.findOne(recordIdFilter(submissionId));
+    if (!submission) throw new AuthError("RESOURCE_NOT_FOUND");
+    const assignment = await loadMentorAssignment(req.user, submission.assignmentId);
+    if (typeof marksObtained !== "number" || !Number.isFinite(marksObtained) || marksObtained < 0 ||
+        marksObtained > assignment.totalMarks || typeof feedback !== "string" || feedback.length > 10000) {
+      throw new AuthError("INVALID_INPUT");
     }
-
-    const marks = Number(marksObtained);
-    const updatedFields = {
-      marksObtained: isNaN(marks) ? null : marks,
-      feedback: feedback || "",
-      gradedAt: new Date(),
-      gradedBy: gradedBy || "Mentor"
-    };
-
-    let updatedSub = null;
-
-    if (isMongoConnected) {
-      let sub = await Submission.findOne({ id: submissionId });
-      if (sub) {
-        Object.assign(sub, updatedFields);
-        updatedSub = await sub.save();
-      }
-    }
-
-    const idx = (memoryDb.submissions || []).findIndex(s => s.id === submissionId);
-    if (idx > -1) {
-      memoryDb.submissions[idx] = { ...memoryDb.submissions[idx], ...updatedFields };
-      updatedSub = memoryDb.submissions[idx];
-    }
-
-    // Automatically send assignment grade email to student
-    if (updatedSub) {
-      let targetEmail = updatedSub.studentEmail;
-      if (!targetEmail) {
-        let st = (memoryDb.students || []).find(s => s.id === updatedSub.studentId);
-        if (!st && isMongoConnected) {
-          st = await Student.findOne({ id: updatedSub.studentId }).catch(() => null);
-        }
-        if (st) targetEmail = st.email;
-      }
-
-      let asnTitle = updatedSub.assignmentTitle || "";
-      if (!asnTitle) {
-        let asn = (memoryDb.assignments || []).find(a => a.id === updatedSub.assignmentId);
-        if (asn) asnTitle = asn.title;
-      }
-
-      if (targetEmail) {
-        sendAssignmentGradeEmail(targetEmail, updatedSub, asnTitle)
-          .catch(err => console.warn("Notice sending assignment grade email:", err.message));
-      }
-    }
-
-    return res.json({
-      ok: true,
-      message: `খাতা মূল্যায়ন সফল হয়েছে! প্রাপ্ত নম্বর: ${marksObtained}`,
-      submission: updatedSub
-    });
-  } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error grading submission." });
+    Object.assign(submission, { marksObtained, feedback, gradedAt: new Date(), gradedBy: req.user.name || req.user.id });
+    await submission.save();
+    const data = submission.toObject();
+    memoryDb.submissions = [data, ...(memoryDb.submissions || []).filter(item => item.id !== data.id)];
+    const student = await Student.findOne({ id: submission.studentId }).select("email").lean().catch(() => null);
+    if (student?.email) sendAssignmentGradeEmail(student.email, data, assignment.title)
+      .catch(() => console.warn("Assignment grade email delivery failed"));
+    return res.json({ ok: true, message: "খাতা মূল্যায়ন সফল হয়েছে।", submission: data });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
 // POST Reset Submission (Allow student to resubmit)
-app.post("/api/mentor/reset-submission", async (req, res) => {
+app.post("/api/mentor/reset-submission", requireMentorSelf, async (req, res) => {
   try {
-    const { submissionId } = req.body;
-    if (!submissionId) {
-      return res.status(400).json({ ok: false, message: "submissionId is required." });
-    }
-
-    if (isMongoConnected) {
-      await Submission.updateOne({ id: submissionId }, { $set: { canResubmit: true } });
-    }
-
-    const sub = (memoryDb.submissions || []).find(s => s.id === submissionId);
-    if (sub) sub.canResubmit = true;
-
-    return res.json({
-      ok: true,
-      message: "শিক্ষার্থীকে পুনরায় অ্যাসাইনমেন্ট জমা দেওয়ার অনুমতি দেওয়া হয়েছে।"
-    });
-  } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error resetting submission." });
+    const submission = await Submission.findOne(recordIdFilter(req.body?.submissionId));
+    if (!submission) throw new AuthError("RESOURCE_NOT_FOUND");
+    await loadMentorAssignment(req.user, submission.assignmentId);
+    submission.canResubmit = true;
+    await submission.save();
+    const cached = (memoryDb.submissions || []).find(item => item.id === submission.id);
+    if (cached) cached.canResubmit = true;
+    return res.json({ ok: true, message: "শিক্ষার্থী আবার অ্যাসাইনমেন্ট জমা দিতে পারবেন।" });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
 // GET Student Available MCQ Exams
-app.get("/api/student/mcq-exams", async (req, res) => {
+app.get("/api/student/mcq-exams", requireStudentSelf, async (req, res) => {
   try {
-    const { studentId, phone, courseId } = req.query;
-    await ensureDbConnected();
-
-    let allExams = [];
-    if (isMongoConnected) {
-      allExams = await McqExam.find({ status: "Active" }).sort({ createdAt: -1 }).lean();
-    } else {
-      allExams = (memoryDb.mcqExams || []).filter(e => e.status === "Active");
-    }
-
-    // Get past submissions for this student
-    let pastResults = [];
-    if (studentId || phone) {
-      const orClauses = [];
-      if (studentId) orClauses.push({ studentId });
-      if (phone) orClauses.push({ candidatePhone: phone });
-      if (orClauses.length > 0) {
-        if (isMongoConnected) {
-          pastResults = await McqResult.find({ $or: orClauses }).lean().catch(() => []);
-        } else {
-          pastResults = (memoryDb.mcqResults || []).filter(r => (studentId && r.studentId === studentId) || (phone && r.candidatePhone === phone));
-        }
+    const allExams = await McqExam.find({ status: "Active" }).sort({ createdAt: -1 }).lean();
+    const pastResults = await McqResult.find(ownerQuery(req.user)).sort({ submittedAt: 1 }).lean();
+    const filtered = [];
+    for (const exam of allExams) {
+      try {
+        await assertExamAccess(req, exam);
+        filtered.push(exam);
+      } catch (error) {
+        if (!(error instanceof AuthError) || error.code !== "FORBIDDEN") throw error;
       }
     }
-
-    // Filter by student's enrolled courses or universal exams
-    let studentAllowedCourses = [];
-    if (studentId) {
-      const stu = (memoryDb.students || []).find(s => s.id === studentId) || (isMongoConnected ? await Student.findOne({ id: studentId }).lean() : null);
-      if (stu) {
-        studentAllowedCourses = stu.allowedCourseIds || stu.enrolledCourseIds || [];
-      }
-    }
-
-    const filtered = allExams.filter(ex => {
-      // Universal exams (no course assigned) are open to all
-      if (!ex.courseId || ex.courseId === "" || ex.courseId === "Universal" || ex.courseId === "All") return true;
-      if (courseId && (ex.courseId === courseId || ex.courseTitle === courseId)) return true;
-      if (studentAllowedCourses.length > 0) {
-        return studentAllowedCourses.includes(ex.courseId);
-      }
-      return true;
-    });
 
     const mapped = filtered.map(ex => {
       const myAttempts = pastResults.filter(r => r.examId === ex.id);
@@ -7484,33 +7024,14 @@ app.get("/api/student/mcq-exams", async (req, res) => {
 
     return res.json({ ok: true, exams: mapped });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error fetching student exams: " + err.message });
+    return res.status(500).json({ ok: false, message: "Error fetching student exams: " + "Request could not be completed." });
   }
 });
 
 // GET Student Past MCQ Results
-app.get("/api/student/my-mcq-results", async (req, res) => {
+app.get("/api/student/my-mcq-results", requireStudentSelf, async (req, res) => {
   try {
-    const { studentId, phone, email } = req.query;
-    await ensureDbConnected();
-
-    const orClauses = [];
-    if (studentId) orClauses.push({ studentId });
-    if (phone) orClauses.push({ candidatePhone: phone });
-    if (email) orClauses.push({ candidateEmail: email.toLowerCase() });
-
-    let results = [];
-    if (orClauses.length > 0) {
-      if (isMongoConnected) {
-        results = await McqResult.find({ $or: orClauses }).sort({ submittedAt: -1 }).lean();
-      } else {
-        results = (memoryDb.mcqResults || []).filter(r =>
-          (studentId && r.studentId === studentId) ||
-          (phone && r.candidatePhone === phone) ||
-          (email && r.candidateEmail && r.candidateEmail.toLowerCase() === email.toLowerCase())
-        );
-      }
-    }
+    const results = await McqResult.find(ownerQuery(req.user)).sort({ submittedAt: -1 }).lean();
 
     return res.json({ ok: true, results: results || [] });
   } catch (err) {
@@ -7519,7 +7040,7 @@ app.get("/api/student/my-mcq-results", async (req, res) => {
 });
 
 // GET Detailed Review of Single MCQ Result
-app.get("/api/student/mcq-result/:id", async (req, res) => {
+app.get("/api/student/mcq-result/:id", requireStudentSelf, async (req, res) => {
   try {
     const { id } = req.params;
     await ensureDbConnected();
@@ -7534,6 +7055,8 @@ app.get("/api/student/mcq-result/:id", async (req, res) => {
     if (!result) {
       return res.status(404).json({ ok: false, message: "ফলাফল খুঁজে পাওয়া যায়নি।" });
     }
+
+    if (!ownsStudentRecord(req.user, result)) return rejectAccess(req, res);
 
     let exam = null;
     if (isMongoConnected) {
@@ -7566,7 +7089,7 @@ app.get("/api/student/mcq-result/:id", async (req, res) => {
       review: reviewData
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error fetching result review: " + err.message });
+    return res.status(500).json({ ok: false, message: "Error fetching result review: " + "Request could not be completed." });
   }
 });
 
@@ -7575,14 +7098,16 @@ app.get("/api/student/mcq-result/:id", async (req, res) => {
 // =========================================================================
 
 // 1. MCQ EXAM LEADERBOARD (Live Model Test & Merit List)
-app.get("/api/mcq-exams/:id/leaderboard", async (req, res) => {
+app.get("/api/mcq-exams/:id/leaderboard", optionalAuthentication, async (req, res) => {
   try {
     await ensureDbConnected();
     const { id } = req.params;
-    const data = await getExamLeaderboard({ examId: id, McqExam, McqResult });
+    const exam = await McqExam.findOne(recordIdFilter(id)).lean();
+    await assertExamAccess(req, exam);
+    const data = await getExamLeaderboard({ examId: exam.id, McqExam, McqResult });
     return res.json(data);
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "মেরিট লিস্ট লোড করতে সমস্যা হয়েছে: " + err.message });
+    return rejectAccess(req, res, err);
   }
 });
 
@@ -7606,17 +7131,17 @@ app.post("/api/admin/mcq-exams/generate-from-transcript", requireAdmin, async (r
     if (err.code === 'AI_PROVIDERS_UNAVAILABLE') {
       notifyAiFailure({ feature: 'AI MCQ Generator', endpoint: req.path, error: err.message, userInitiated: true });
     }
-    console.error("AI Auto-MCQ Error:", err);
-    return res.status(500).json({ ok: false, message: "AI MCQ জেনারেটরে ত্রুটি: " + err.message });
+    console.error("AI Auto-MCQ Error:");
+    return res.status(500).json({ ok: false, message: "AI MCQ জেনারেটরে ত্রুটি: " + "Request could not be completed." });
   }
 });
 
 // 3. PUBLIC & ADMIN LEGAL STUDY NOTES & EXAM GUIDES
-app.get(["/api/notes", "/notes", "/api/admin/notes", "/api/admin/study-notes"], async (req, res) => {
+app.get(["/api/notes", "/notes", "/api/admin/notes", "/api/admin/study-notes"], requireAdminOnAlias, async (req, res) => {
   try {
     await ensureDbConnected();
-    const { category, search, includeDrafts, all } = req.query;
-    const isAdminQuery = req.originalUrl?.includes('/admin') || includeDrafts === 'true' || all === 'true';
+    const { category, search } = req.query;
+    const isAdminQuery = req.user?.role === "admin";
     const filter = {};
     if (!isAdminQuery) {
       filter.isPublished = true;
@@ -7633,7 +7158,7 @@ app.get(["/api/notes", "/notes", "/api/admin/notes", "/api/admin/study-notes"], 
     }
     const [notes, allCourses] = await Promise.all([
       StudyNote.find(filter).sort({ order: 1, createdAt: -1 }).lean(),
-      Course.find({}, 'title').lean().catch(() => [])
+      Course.find(isAdminQuery ? {} : { status: { $nin: ['Inactive', 'Hidden', 'Draft'] } }, 'title').lean().catch(() => [])
     ]);
 
     const courseTitles = Array.from(new Set((allCourses || []).map(c => c.title).filter(Boolean)));
@@ -7641,16 +7166,17 @@ app.get(["/api/notes", "/notes", "/api/admin/notes", "/api/admin/study-notes"], 
 
     return res.json({ ok: true, notes, categories: dynamicCategories });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "আইনি নোটস লোড করতে সমস্যা হয়েছে: " + err.message });
+    return res.status(500).json({ ok: false, message: "আইনি নোটস লোড করতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
-app.get(["/api/notes/:idOrSlug", "/notes/:idOrSlug", "/api/admin/notes/:idOrSlug", "/api/admin/study-notes/:idOrSlug"], async (req, res) => {
+app.get(["/api/notes/:idOrSlug", "/notes/:idOrSlug", "/api/admin/notes/:idOrSlug", "/api/admin/study-notes/:idOrSlug"], requireAdminOnAlias, async (req, res) => {
   try {
     await ensureDbConnected();
     const { idOrSlug } = req.params;
+    const scope = req.user?.role === "admin" ? {} : { isPublished: true };
     const note = await StudyNote.findOneAndUpdate(
-      { $or: [{ id: idOrSlug }, { slug: idOrSlug }, ...(mongoose.isValidObjectId(idOrSlug) ? [{ _id: idOrSlug }] : [])] },
+      { ...scope, $or: [{ id: idOrSlug }, { slug: idOrSlug }, ...(mongoose.isValidObjectId(idOrSlug) ? [{ _id: idOrSlug }] : [])] },
       { $inc: { views: 1 } },
       { new: true }
     ).lean();
@@ -7659,11 +7185,11 @@ app.get(["/api/notes/:idOrSlug", "/notes/:idOrSlug", "/api/admin/notes/:idOrSlug
     }
     return res.json({ ok: true, note });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "নোট লোড করতে সমস্যা হয়েছে: " + err.message });
+    return res.status(500).json({ ok: false, message: "নোট লোড করতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
-app.post(["/api/notes", "/api/admin/notes", "/api/admin/notes/save", "/api/admin/study-notes", "/api/admin/study-notes/save"], async (req, res) => {
+app.post(["/api/notes", "/api/admin/notes", "/api/admin/notes/save", "/api/admin/study-notes", "/api/admin/study-notes/save"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const {
@@ -7728,11 +7254,11 @@ app.post(["/api/notes", "/api/admin/notes", "/api/admin/notes/save", "/api/admin
     fastCache.delete("xml_sitemap");
     return res.json({ ok: true, note: updated, message: "✓ আইনি স্টাডি নোট সফলভাবে সংরক্ষিত হয়েছে!" });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "নোট সংরক্ষণ করতে সমস্যা হয়েছে: " + err.message });
+    return res.status(500).json({ ok: false, message: "নোট সংরক্ষণ করতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
-app.delete(["/api/notes/:id", "/api/admin/notes/:id", "/api/admin/study-notes/:id"], async (req, res) => {
+app.delete(["/api/notes/:id", "/api/admin/notes/:id", "/api/admin/study-notes/:id"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { id } = req.params;
@@ -7775,24 +7301,26 @@ app.post(["/api/admin/study-notes/ai-generate-from-lesson", "/api/admin/notes/ge
     if (err.code === 'AI_PROVIDERS_UNAVAILABLE') {
       notifyAiFailure({ feature: 'AI Study Note Generator', endpoint: req.path, error: err.message, userInitiated: true });
     }
-    console.error("AI Study Note Generation Error:", err);
-    return res.status(500).json({ ok: false, message: "AI স্টাডি গাইড তৈরিতে সমস্যা হয়েছে: " + err.message });
+    console.error("AI Study Note Generation Error:");
+    return res.status(500).json({ ok: false, message: "AI স্টাডি গাইড তৈরিতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
 // 4. CERTIFICATES ENGINE (/api/certificates & /api/admin/certificates)
-app.get("/api/certificates/student/:studentId", async (req, res) => {
+app.get("/api/certificates/student/:studentId", requireStudentOrAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { studentId } = req.params;
-    const certs = await Certificate.find({ studentId, status: "Valid" }).sort({ issueDate: -1 }).lean();
+    if (req.user.role === "student" && !isAccountId(req.user, studentId)) return rejectAccess(req, res);
+    const owner = req.user.role === "student" ? ownerQuery(req.user) : { studentId };
+    const certs = await Certificate.find({ ...owner, status: "Valid" }).sort({ issueDate: -1 }).lean();
     return res.json({ ok: true, certificates: certs || [] });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "সার্টিফিকেট লোড করতে সমস্যা হয়েছে।" });
   }
 });
 
-app.get(["/api/certificates", "/api/admin/certificates"], async (req, res) => {
+app.get(["/api/certificates", "/api/admin/certificates"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     let certs = [];
@@ -7807,7 +7335,7 @@ app.get(["/api/certificates", "/api/admin/certificates"], async (req, res) => {
   }
 });
 
-app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificates/issue"], async (req, res) => {
+app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificates/issue"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { studentId, courseId, completionScore, studentName, courseTitle } = req.body || {};
@@ -7890,13 +7418,13 @@ app.post(["/api/certificates", "/api/admin/certificates", "/api/admin/certificat
       message: `✓ ${finalStudentName} এর জন্য ডিজিটাল সার্টিফিকেট সফলভাবে ইস্যু হয়েছে! (ID: ${certId})`
     });
   } catch (err) {
-    console.error("Certificate Issue Error:", err);
-    return res.status(500).json({ ok: false, message: "সার্টিফিকেট ইস্যু করতে সমস্যা হয়েছে: " + err.message });
+    console.error("Certificate Issue Error:");
+    return res.status(500).json({ ok: false, message: "সার্টিফিকেট ইস্যু করতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
 // Delete Certificate (Admin)
-app.delete(["/api/admin/certificates/:id", "/api/certificates/:id"], async (req, res) => {
+app.delete(["/api/admin/certificates/:id", "/api/certificates/:id"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { id } = req.params;
@@ -7920,12 +7448,12 @@ app.delete(["/api/admin/certificates/:id", "/api/certificates/:id"], async (req,
 
     return res.json({ ok: true, message: `✓ সার্টিফিকেট "${id}" সফলভাবে ডিলিট করা হয়েছে।` });
   } catch (err) {
-    console.error("Certificate Delete Error:", err);
-    return res.status(500).json({ ok: false, message: "সার্টিফিকেট ডিলিট করতে সমস্যা হয়েছে: " + err.message });
+    console.error("Certificate Delete Error:");
+    return res.status(500).json({ ok: false, message: "সার্টিফিকেট ডিলিট করতে সমস্যা হয়েছে: " + "Request could not be completed." });
   }
 });
 
-app.get(["/api/certificates/verify/:certificateId", "/verify/:certificateId"], async (req, res) => {
+app.get(["/api/certificates/verify/:certificateId", "/verify/:certificateId"], optionalAuthentication, async (req, res) => {
   try {
     await ensureDbConnected();
     const { certificateId } = req.params;
@@ -7939,13 +7467,15 @@ app.get(["/api/certificates/verify/:certificateId", "/verify/:certificateId"], a
     if (!cert) {
       return res.status(404).json({ ok: false, valid: false, message: "সার্টিফিকেটটি খুঁজে পাওয়া যায়নি বা এটি বৈধ নয়।" });
     }
+    const canDownload = cert.status !== "Revoked" && (req.user?.role === "admin" || (req.user?.role === "student" && ownsStudentRecord(req.user, cert)));
     return res.json({
       ok: true,
       valid: cert.status !== "Revoked",
       certificate: {
         certificateId: cert.certificateId,
         studentName: cert.studentName,
-        studentId: cert.studentId,
+        ...(canDownload ? { studentId: cert.studentId } : {}),
+        canDownload,
         courseTitle: cert.courseTitle,
         completionScore: cert.completionScore || 100,
         issueDate: cert.issueDate,
@@ -7955,11 +7485,11 @@ app.get(["/api/certificates/verify/:certificateId", "/verify/:certificateId"], a
       }
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "সার্টিফিকেট যাচাইকরণে ত্রুটি: " + err.message });
+    return res.status(500).json({ ok: false, message: "সার্টিফিকেট যাচাইকরণে ত্রুটি: " + "Request could not be completed." });
   }
 });
 
-app.get("/api/certificates/:certificateId/download", async (req, res) => {
+app.get("/api/certificates/:certificateId/download", requireStudentOrAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { certificateId } = req.params;
@@ -7974,6 +7504,8 @@ app.get("/api/certificates/:certificateId/download", async (req, res) => {
       return res.status(404).send("সার্টিফিকেট পাওয়া যায়নি।");
     }
 
+    if (req.user.role === "student" && (cert.status === "Revoked" || !ownsStudentRecord(req.user, cert))) return rejectAccess(req, res);
+
     const pdfBuffer = await generateCertificatePdf({
       certificateId: cert.certificateId,
       studentName: cert.studentName,
@@ -7986,38 +7518,37 @@ app.get("/api/certificates/:certificateId/download", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="Certificate-${cert.certificateId}.pdf"`);
     return res.send(pdfBuffer);
   } catch (err) {
-    console.error("Certificate PDF Download Error:", err);
-    return res.status(500).send("সার্টিফিকেট PDF তৈরি করতে সমস্যা হয়েছে: " + err.message);
+    console.error("Certificate PDF Download Error:");
+    return res.status(500).send("সার্টিফিকেট PDF তৈরি করতে সমস্যা হয়েছে: " + "Request could not be completed.");
   }
 });
 
 // 5. PWA WEB PUSH NOTIFICATION (/api/push) - ZERO EMAIL COST
-app.post("/api/push/subscribe", async (req, res) => {
+app.post("/api/push/subscribe", requireStudentSelf, async (req, res) => {
   try {
-    await ensureDbConnected();
-    const { endpoint, keys, studentId, courseIds } = req.body || {};
-    if (!endpoint || !keys?.p256dh || !keys?.auth) {
-      return res.status(400).json({ ok: false, message: "Invalid push subscription payload." });
+    const { endpoint, keys } = req.body || {};
+    if (typeof endpoint !== "string" || endpoint.length > 2048 || typeof keys?.p256dh !== "string" ||
+        typeof keys?.auth !== "string" || !/^[\w-]{40,160}={0,2}$/.test(keys.p256dh) ||
+        !/^[\w-]{16,48}={0,2}$/.test(keys.auth)) throw new AuthError("INVALID_INPUT");
+    let url;
+    try { url = new URL(endpoint); } catch (_) { throw new AuthError("INVALID_INPUT"); }
+    const hosts = /^(?:fcm\.googleapis\.com|(?:[a-z0-9-]+\.)*(?:push\.services\.mozilla\.com|push\.apple\.com|notify\.windows\.com))$/i;
+    if (url.protocol !== "https:" || url.username || url.password || url.port || !hosts.test(url.hostname)) {
+      throw new AuthError("INVALID_INPUT");
     }
-    await PushSubscription.findOneAndUpdate(
-      { endpoint },
-      {
-        endpoint,
-        keys,
-        studentId: studentId || "",
-        courseIds: Array.isArray(courseIds) ? courseIds : [],
-        userAgent: req.headers["user-agent"] || "",
-        createdAt: new Date()
-      },
-      { upsert: true, new: true }
-    );
-    return res.json({ ok: true, message: "✓ ব্রাউজার পুশ নোটিফিকেশন সফলভাবে সক্রিয় হয়েছে!" });
-  } catch (err) {
-    return res.status(500).json({ ok: false, message: err.message });
+    const student = req.user;
+    await PushSubscription.findOneAndUpdate({ endpoint }, { $set: {
+      endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth }, studentId: student.id,
+      courseIds: student.allowedCourseIds?.length ? student.allowedCourseIds : student.enrolledCourseIds || [],
+      userAgent: String(req.headers["user-agent"] || "").slice(0, 200)
+    } }, { upsert: true, new: true });
+    return res.json({ ok: true });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
-app.post("/api/admin/push/broadcast", async (req, res) => {
+app.post("/api/admin/push/broadcast", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { title, body, url, courseId } = req.body || {};
@@ -8026,7 +7557,17 @@ app.post("/api/admin/push/broadcast", async (req, res) => {
     }
 
     const subQuery = courseId ? { $or: [{ courseIds: courseId }, { courseIds: { $size: 0 } }] } : {};
-    const subscriptions = await PushSubscription.find(subQuery).lean();
+    let subscriptions = await PushSubscription.find(subQuery).lean();
+    if (courseId) {
+      if (typeof courseId !== "string") throw new AuthError("INVALID_INPUT");
+      const course = findScopedCourse(await readCourseScope(), courseId);
+      if (!course) throw new AuthError("RESOURCE_NOT_FOUND");
+      const students = await Student.find({ id: { $in: subscriptions.map(sub => sub.studentId).filter(Boolean) } })
+        .select("id status loginApproval allowedCourseIds enrolledCourseIds courseRules unlimitedAccess").lean();
+      const eligible = new Set(students.filter(student => checkStudentCourseAccess(
+        { ...student, role: "student" }, courseId, null, course).allowed).map(student => student.id));
+      subscriptions = subscriptions.filter(sub => eligible.has(sub.studentId));
+    }
 
     // Log notification in NotificationLog
     await NotificationLog.create({
@@ -8046,162 +7587,94 @@ app.post("/api/admin/push/broadcast", async (req, res) => {
       message: `✓ ব্রাউজার পুশ নোটিফিকেশন ${subscriptions.length}টি ডিভাইসে কিউতে যুক্ত হয়েছে! (ইমেইল কোটা খরচ: ০)`
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "পুশ নোটিফিকেশন পাঠাতে সমস্যা: " + err.message });
+    return res.status(500).json({ ok: false, message: "পুশ নোটিফিকেশন পাঠাতে সমস্যা: " + "Request could not be completed." });
   }
 });
 
 // -------------------------------------------------------------
 // TELEGRAM REMOTE AUTO-FIX & CLOUD CODER BOT WEBHOOK
 // -------------------------------------------------------------
-app.post(["/api/telegram-webhook", "/api/telegram/webhook"], handleTelegramWebhook);
+app.post(["/api/telegram-webhook", "/api/telegram/webhook"], requireTelegramWebhook, handleTelegramWebhook);
 
-app.get(["/api/telegram-webhook-setup", "/api/telegram/webhook-setup"], async (req, res) => {
+app.get(["/api/telegram-webhook-setup", "/api/telegram/webhook-setup"], requireAdmin, async (req, res) => {
   try {
-    const defaultHost = req.headers.host && !req.headers.host.includes('localhost') ? `https://${req.headers.host}` : 'https://bjs.kodl.uk';
-    const appUrl = (process.env.APP_URL || defaultHost).trim();
+    const appUrl = process.env.APP_URL?.trim() || "https://bjs.kodl.uk";
+    if (new URL(appUrl).protocol !== "https:") throw new AuthError("INVALID_INPUT");
     const result = await setupTelegramWebhook(appUrl);
     return res.json({ ok: true, appUrl, result });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: err.message });
+    return rejectAccess(req, res, err);
   }
 });
 
 // GET Student Available Assignments
-app.get("/api/student/assignments", async (req, res) => {
+app.get("/api/student/assignments", requireStudentSelf, async (req, res) => {
   try {
-    const { studentId } = req.query;
-    let enrolledCourseIds = [];
-
-    if (studentId) {
-      let student = (memoryDb.students || []).find(s => s.id === studentId);
-      if (!student && isMongoConnected) {
-        student = await Student.findOne({ id: studentId });
-      }
-      if (student) {
-        enrolledCourseIds = student.allowedCourseIds || student.enrolledCourseIds || [];
-      }
-    }
-
-    if (isMongoConnected) {
-      let query = { status: "Active" };
-      if (enrolledCourseIds.length > 0) {
-        query.courseId = { $in: enrolledCourseIds };
-      }
-      const list = await Assignment.find(query).sort({ createdAt: -1 }).lean();
-      return res.json({ ok: true, assignments: list });
-    }
-
-    let activeAsns = (memoryDb.assignments || []).filter(a => a.status === "Active");
-    if (enrolledCourseIds.length > 0) {
-      activeAsns = activeAsns.filter(a => enrolledCourseIds.includes(a.courseId));
-    }
-
-    return res.json({ ok: true, assignments: activeAsns });
-  } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error fetching student assignments." });
+    const assignments = await Assignment.find({ status: { $ne: "Closed" } }).sort({ createdAt: -1 }).lean();
+    const allowed = await Promise.all(assignments.map(a => studentCanAccessCourse(req.user, a.courseId)));
+    return res.json({ ok: true, assignments: assignments.filter((_, index) => allowed[index]) });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
 // POST Student Submit Assignment
-app.post("/api/student/submit-assignment", async (req, res) => {
+app.post("/api/student/submit-assignment", requireStudentSelf, async (req, res) => {
   try {
-    const { assignmentId, studentId, studentName, studentEmail, studentPhone, courseId, submissionText, attachmentUrl, imageUrls } = req.body;
-
-    if (!assignmentId || !studentId) {
-      return res.status(400).json({ ok: false, message: "অ্যাসাইনমেন্ট আইডি ও স্টুডেন্ট আইডি আবশ্যক।" });
+    const { assignmentId, submissionText = "", attachmentUrl = "", imageUrls = [] } = req.body || {};
+    const assignment = await Assignment.findOne(recordIdFilter(assignmentId)).lean();
+    if (!assignment) throw new AuthError("RESOURCE_NOT_FOUND");
+    const student = req.user;
+    if (assignment.status === "Closed" || !(await studentCanAccessCourse(student, assignment.courseId))) {
+      return rejectAccess(req, res);
     }
-
-    // Check duplicate submission
-    let existingSub = null;
-    if (isMongoConnected) {
-      existingSub = await Submission.findOne({ assignmentId, studentId });
+    if (typeof submissionText !== "string" || submissionText.length > 40000 ||
+        typeof attachmentUrl !== "string" || attachmentUrl.length > 2048 ||
+        (attachmentUrl && !/^https:\/\//i.test(attachmentUrl)) ||
+        !Array.isArray(imageUrls) || imageUrls.length > 20 ||
+        imageUrls.some(url => typeof url !== "string" || url.length > 3000000 ||
+          !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(url))) {
+      throw new AuthError("INVALID_INPUT");
     }
-    if (!existingSub) {
-      existingSub = (memoryDb.submissions || []).find(s => s.assignmentId === assignmentId && s.studentId === studentId);
+    const filter = { assignmentId: assignment.id, ...ownerQuery(student) };
+    const existing = await Submission.findOne(filter);
+    if (existing && !existing.canResubmit) {
+      return res.status(409).json({ ok: false, message: "এই অ্যাসাইনমেন্টটি ইতোমধ্যে জমা দেওয়া হয়েছে।" });
     }
-
-    if (existingSub && !existingSub.canResubmit) {
-      return res.status(400).json({
-        ok: false,
-        message: "আপনি ইতোমধ্যে এই অ্যাসাইনমেন্টটি জমা দিয়েছেন। ভুলবশত জমা দিলে মেন্টর বা অ্যাডমিনের সাথে যোগাযোগ করে রিসেট সুবিধা নিন।"
-      });
-    }
-
-    // Auto Load-Balancing Mentor Assignment logic
-    let activeMentors = (memoryDb.mentors || []).filter(m => m.status === 'Active');
-    if (activeMentors.length === 0 && isMongoConnected) {
-      activeMentors = await Mentor.find({ status: 'Active' }).lean();
-    }
-    let assignedMentor = null;
-    if (activeMentors.length > 0) {
-      const totalSubsCount = (memoryDb.submissions || []).length;
-      assignedMentor = activeMentors[totalSubsCount % activeMentors.length];
-    }
-
-    const subId = existingSub ? existingSub.id : ("SUB-2026-" + Math.floor(1000 + Math.random() * 9000));
-    const subData = {
-      id: subId,
-      assignmentId,
-      studentId,
-      studentName: studentName || "Student",
-      studentEmail: studentEmail || "",
-      studentPhone: studentPhone || "",
-      courseId: courseId || "",
-      submissionText: submissionText || "",
-      attachmentUrl: attachmentUrl || "",
-      imageUrls: Array.isArray(imageUrls) ? imageUrls : [],
-      assignedMentorId: assignedMentor ? assignedMentor.id : "",
-      assignedMentorName: assignedMentor ? assignedMentor.name : "",
-      marksObtained: null, // reset marks on resubmit
-      feedback: "",
-      gradedAt: null,
-      gradedBy: "",
-      canResubmit: false, // reset lock
-      createdAt: new Date()
+    const submitted = {
+      assignmentId: assignment.id,
+      studentId: student.id,
+      studentName: student.name,
+      studentEmail: student.email,
+      studentPhone: accountResponse(student).phone,
+      courseId: assignment.courseId,
+      submissionText, attachmentUrl, imageUrls,
+      marksObtained: null, feedback: "", gradedAt: null, gradedBy: "", canResubmit: false
     };
-
-    let savedSub = subData;
-
-    if (isMongoConnected) {
-      if (existingSub) {
-        Object.assign(existingSub, subData);
-        savedSub = await existingSub.save();
-      } else {
-        savedSub = await Submission.create(subData);
-      }
-      if (savedSub && savedSub.toObject) savedSub = savedSub.toObject();
-    }
-
-    const idx = (memoryDb.submissions || []).findIndex(s => s.id === subId);
-    if (idx > -1) {
-      memoryDb.submissions[idx] = { ...memoryDb.submissions[idx], ...subData };
-    } else {
-      memoryDb.submissions.unshift(subData);
-    }
-
-    return res.json({
-      ok: true,
-      message: "আপনার অ্যাসাইনমেন্ট উত্তর সফলভাবে জমা হয়েছে! মেন্টর মূল্যায়ন করার পর আপনি মার্ক দেখতে পাবেন।",
-      submission: savedSub
-    });
-  } catch (err) {
-    console.error("Submit assignment error:", err);
-    return res.status(500).json({ ok: false, message: "অ্যাসাইনমেন্ট জমা দিতে সমস্যা হয়েছে।" });
+    const saved = existing
+      ? await Submission.findOneAndUpdate({ _id: existing._id, canResubmit: true }, { $set: submitted }, { new: true })
+      : await Submission.create({ ...submitted, id: "SUB-" + crypto.randomUUID() });
+    if (!saved) return res.status(409).json({ ok: false, message: "আবার জমা দেওয়ার অনুমতি নেই।" });
+    const data = saved.toObject();
+    memoryDb.submissions = [data, ...(memoryDb.submissions || []).filter(item => item.id !== data.id)];
+    return res.json({ ok: true, message: "অ্যাসাইনমেন্ট জমা হয়েছে।", submission: data });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
 // GET Student My Submissions
-app.get("/api/student/my-submissions", async (req, res) => {
+app.get("/api/student/my-submissions", requireStudentSelf, async (req, res) => {
   try {
     const { studentId } = req.query;
     if (!studentId) return res.status(400).json({ ok: false, message: "studentId is required." });
 
     if (isMongoConnected) {
-      const list = await Submission.find({ studentId }).sort({ createdAt: -1 }).lean();
+      const list = await Submission.find(ownerQuery(req.user)).sort({ createdAt: -1 }).lean();
       return res.json({ ok: true, submissions: list });
     }
 
-    const filtered = (memoryDb.submissions || []).filter(s => s.studentId === studentId);
+    const filtered = (memoryDb.submissions || []).filter(s => ownsStudentRecord(req.user, s));
     return res.json({ ok: true, submissions: filtered });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "Error fetching student submissions." });
@@ -8211,6 +7684,13 @@ app.get("/api/student/my-submissions", async (req, res) => {
 
 app.post("/api/admin/clear-all-demo-data", requireAdmin, async (req, res) => {
   try {
+    const dbName = mongoose.connection?.name;
+    const production = process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production" ||
+      /^bjs_academy$/i.test(dbName || "");
+    if (production || process.env.ENABLE_DEMO_DATA_RESET !== "true" || !isMongoConnected || dbName !== process.env.MONGODB_DB) {
+      console.warn("Demo reset denied", { production });
+      return rejectAccess(req, res);
+    }
     if (isMongoConnected) {
       await Promise.all([
         Student.deleteMany({}),
@@ -8236,7 +7716,7 @@ app.post("/api/admin/clear-all-demo-data", requireAdmin, async (req, res) => {
   }
 });
 
-app.post("/api/admin/courses/toggle", async (req, res) => {
+app.post("/api/admin/courses/toggle", requireAdmin, async (req, res) => {
   try {
     const { courseId } = req.body;
     let newStatus = 'Inactive';
@@ -8265,11 +7745,12 @@ app.post("/api/admin/courses/toggle", async (req, res) => {
   }
 });
 
-app.post("/api/admin/students/course-rules", async (req, res) => {
+app.post("/api/admin/students/course-rules", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
-    const { studentId, courseRule } = req.body;
-    if (!studentId || !courseRule) {
+    const { studentId } = req.body || {};
+    const courseRule = pickWritableFields(req.body?.courseRule, ["courseId", "unlimitedAccess", "accessStartDate", "accessEndDate", "videoAccessUntil", "lastPaymentDate", "paymentDueDate", "monthlyFee", "enrollmentStatus", "paidMonths"]);
+    if (typeof studentId !== "string" || typeof courseRule.courseId !== "string" || !courseRule.courseId) {
       return res.status(400).json({ ok: false, message: "studentId and courseRule required." });
     }
 
@@ -8305,44 +7786,23 @@ app.post("/api/admin/students/course-rules", async (req, res) => {
 });
 
 // Student Lesson Completion Endpoint
-app.post("/api/student/complete-lesson", async (req, res) => {
+app.post("/api/student/complete-lesson", requireStudentSelf, async (req, res) => {
   try {
-    await ensureDbConnected();
-    const { studentId, lessonId } = req.body;
-    if (!studentId || !lessonId) {
-      return res.status(400).json({ ok: false, message: "studentId and lessonId required." });
-    }
-
-    let completedLessonIds = [];
-
-    if (isMongoConnected) {
-      const student = await Student.findOne({ id: studentId });
-      if (student) {
-        const current = student.completedLessonIds || [];
-        if (current.includes(lessonId)) {
-          student.completedLessonIds = current.filter(id => id !== lessonId);
-        } else {
-          student.completedLessonIds = [...current, lessonId];
-        }
-        await student.save();
-        completedLessonIds = student.completedLessonIds;
-      }
-    }
-
-    const memStudent = memoryDb.students.find(s => s.id === studentId);
-    if (memStudent) {
-      const current = memStudent.completedLessonIds || [];
-      if (current.includes(lessonId)) {
-        memStudent.completedLessonIds = current.filter(id => id !== lessonId);
-      } else {
-        memStudent.completedLessonIds = [...current, lessonId];
-      }
-      completedLessonIds = memStudent.completedLessonIds;
-    }
-
-    res.json({ ok: true, completedLessonIds });
-  } catch (e) {
-    res.status(500).json({ ok: false, message: "Error updating lesson completion." });
+    const { lessonId } = req.body || {};
+    const lesson = await Lesson.findOne(recordIdFilter(lessonId)).lean();
+    if (!lesson || lesson.isDraft || lesson.status === "draft") throw new AuthError("RESOURCE_NOT_FOUND");
+    if (!(await studentCanAccessCourse(req.user, lesson.courseId, lesson))) return rejectAccess(req, res);
+    const student = await Student.findOne({ id: req.user.id });
+    if (!student) throw new AuthError("RESOURCE_NOT_FOUND");
+    const completed = new Set(student.completedLessonIds || []);
+    if (completed.has(lesson.id)) completed.delete(lesson.id);
+    else completed.add(lesson.id);
+    student.completedLessonIds = [...completed];
+    await student.save();
+    invalidateStudentDashboardCache(student);
+    return res.json({ ok: true, completedLessonIds: student.completedLessonIds });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
 });
 
@@ -8352,163 +7812,6 @@ app.post("/api/student/complete-lesson", async (req, res) => {
 // Name, Phone, ID, Batch, Course rules, and other critical credentials are fully locked
 // and protected from any client-side tampering.
 // -------------------------------------------------------------
-app.post(["/api/student/update-profile", "/api/student/update-email", "/student/update-profile", "/student/update-email", "/api/user/update-email"], async (req, res) => {
-  try {
-    await ensureDbConnected();
-
-    // 1. Identify student from Bearer token or request identifier
-    const authUser = await getAuthUserFromRequest(req);
-    const identifier = authUser?.id || req.body?.studentId || req.body?.id;
-
-    if (!identifier) {
-      return res.status(401).json({
-        ok: false,
-        message: "অননুমোদিত অনুরোধ! অনুগ্রহ করে পুনরায় লগইন করুন।"
-      });
-    }
-
-    // 2. Strict Payload Filtering: ONLY email is accepted from students!
-    // Any extra keys like name, phone, batch, isAdmin, etc. are completely ignored.
-    const rawEmail = req.body?.email || req.body?.newEmail;
-    if (!rawEmail || typeof rawEmail !== "string") {
-      return res.status(400).json({
-        ok: false,
-        message: "অনুগ্রহ করে একটি সঠিক ইমেইল এড্রেস লিখুন।"
-      });
-    }
-
-    const cleanEmail = rawEmail.trim().toLowerCase();
-
-    // 3. Email format & disposable domain validation
-    const emailValidation = await verifyEmailDomainMx(cleanEmail);
-    if (!emailValidation.ok) {
-      return res.status(400).json({
-        ok: false,
-        message: emailValidation.message
-      });
-    }
-
-    // 4. Locate student in MongoDB or fallback memoryDb
-    let targetStudent = null;
-    if (isMongoConnected) {
-      targetStudent = await Student.findOne({
-        $or: [
-          { id: identifier },
-          { regId: identifier },
-          ...(mongoose.Types.ObjectId.isValid(identifier) ? [{ _id: identifier }] : [])
-        ]
-      });
-    }
-
-    let memStudent = (memoryDb.students || []).find(
-      s => s && (s.id === identifier || s.regId === identifier || String(s._id) === identifier)
-    );
-
-    if (!targetStudent && !memStudent) {
-      return res.status(404).json({
-        ok: false,
-        message: "শিক্ষার্থীর অ্যাকাউন্ট খুঁজে পাওয়া যায়নি।"
-      });
-    }
-
-    const studentId = targetStudent ? targetStudent.id : memStudent.id;
-    const currentEmail = (targetStudent?.email || memStudent?.email || "").toLowerCase();
-
-    if (currentEmail === cleanEmail) {
-      return res.json({
-        ok: true,
-        message: "আপনার ইমেইল এড্রেসটি ইতিমধ্যেই হালনাগাদ করা আছে।",
-        email: cleanEmail
-      });
-    }
-
-    // 5. Unique Email Check: Prevent duplicate email across other students
-    if (isMongoConnected) {
-      const duplicateStudent = await Student.findOne({
-        email: cleanEmail,
-        id: { $ne: studentId }
-      }).lean();
-
-      if (duplicateStudent) {
-        return res.status(400).json({
-          ok: false,
-          message: "এই ইমেইল এড্রেসটি ইতিমধ্যেই অন্য একজন শিক্ষার্থীর অ্যাকাউন্টে নিবন্ধিত রয়েছে।"
-        });
-      }
-    }
-
-    const memDuplicate = (memoryDb.students || []).find(
-      s => s && s.id !== studentId && s.email && s.email.toLowerCase() === cleanEmail
-    );
-    if (memDuplicate) {
-      return res.status(400).json({
-        ok: false,
-        message: "এই ইমেইল এড্রেসটি ইতিমধ্যেই অন্য একজন শিক্ষার্থীর অ্যাকাউন্টে নিবন্ধিত রয়েছে।"
-      });
-    }
-
-    // 6. Update ONLY email in Student record (MongoDB)
-    let updatedStudentObj = null;
-    if (targetStudent) {
-      targetStudent.email = cleanEmail;
-      await targetStudent.save();
-      updatedStudentObj = targetStudent.toObject ? targetStudent.toObject() : targetStudent;
-    }
-
-    // 7. Update in memoryDb.students
-    if (memStudent) {
-      memStudent.email = cleanEmail;
-      if (!updatedStudentObj) updatedStudentObj = { ...memStudent };
-    } else if (updatedStudentObj) {
-      const idx = (memoryDb.students || []).findIndex(s => s && s.id === studentId);
-      if (idx > -1) {
-        memoryDb.students[idx].email = cleanEmail;
-      }
-    }
-
-    // 8. Sync Registration record if exists
-    if (isMongoConnected) {
-      try {
-        await Registration.updateMany(
-          { $or: [{ regId: studentId }, { phone: targetStudent?.phone || memStudent?.phone }] },
-          { $set: { email: cleanEmail } }
-        );
-      } catch (regErr) {
-        console.warn("Notice updating registration email:", regErr.message);
-      }
-    }
-
-    const memReg = (memoryDb.registrations || []).find(
-      r => r && (r.regId === studentId || r.phone === (targetStudent?.phone || memStudent?.phone))
-    );
-    if (memReg) {
-      memReg.email = cleanEmail;
-    }
-
-    if (updatedStudentObj) {
-      delete updatedStudentObj.password;
-    }
-
-    return res.json({
-      ok: true,
-      message: "✓ আপনার ইমেইল এড্রেস সফলভাবে পরিবর্তন করা হয়েছে!",
-      email: cleanEmail,
-      student: updatedStudentObj
-    });
-  } catch (err) {
-    console.error("Student profile email update error:", err);
-    return res.status(500).json({
-      ok: false,
-      message: "ইমেইল আপডেট করতে সমস্যা হয়েছে: " + (err.message || "সার্ভার এরর")
-    });
-  }
-});
-
-// -------------------------------------------------------------
-// STUDENT EMAIL CHANGE OTP DISPATCH & VERIFICATION SYSTEM
-// -------------------------------------------------------------
-const emailChangeOtpStore = new Map();
-
 async function sendEmailChangeOtp(targetEmail, otp, studentName) {
   if (!targetEmail || !targetEmail.includes("@")) {
     return false;
@@ -8552,283 +7855,75 @@ async function sendEmailChangeOtp(targetEmail, otp, studentName) {
 }
 
 // 1. Send OTP to New Email Endpoint
-app.post(["/api/student/send-email-otp", "/student/send-email-otp"], async (req, res) => {
+async function currentStudentForContactChange(req) {
+  const claimedId = req.body?.id;
+  if (claimedId !== undefined && !isAccountId(req.user, claimedId)) throw new AuthError("FORBIDDEN");
+  const student = await Student.findOne({ id: req.user.id }).select("id name email");
+  if (!student) throw new AuthError("RESOURCE_NOT_FOUND");
+  return student;
+}
+
+async function sendStudentEmailChallenge(req, res) {
   try {
-    await ensureDbConnected();
-
-    const authUser = await getAuthUserFromRequest(req);
-    const identifier = authUser?.id || req.body?.studentId || req.body?.id;
-
-    if (!identifier) {
-      return res.status(401).json({
-        ok: false,
-        message: "অননুমোদিত অনুরোধ! অনুগ্রহ করে পুনরায় লগইন করুন।"
-      });
+    const student = await currentStudentForContactChange(req);
+    const submitted = req.body?.newEmail || req.body?.email;
+    if (typeof submitted !== "string" || submitted.length > 254) throw new AuthError("INVALID_INPUT");
+    const validation = await verifyEmailDomainMx(submitted);
+    if (!validation.ok) throw new AuthError("INVALID_INPUT");
+    const email = validation.cleanEmail;
+    if (student.email?.toLowerCase() === email || await Student.exists({ email, _id: { $ne: student._id } })) {
+      throw new AuthError("INVALID_INPUT");
     }
-
-    const rawEmail = req.body?.newEmail || req.body?.email;
-    if (!rawEmail || typeof rawEmail !== "string") {
-      return res.status(400).json({
-        ok: false,
-        message: "অনুগ্রহ করে একটি সঠিক ইমেইল এড্রেস প্রদান করুন।"
-      });
-    }
-
-    const cleanEmail = rawEmail.trim().toLowerCase();
-
-    // Validate email format and check disposable/burner domains
-    const validation = await verifyEmailDomainMx(cleanEmail);
-    if (!validation.ok) {
-      return res.status(400).json({ ok: false, message: validation.message });
-    }
-
-    // Locate current student
-    let targetStudent = null;
-    if (isMongoConnected) {
-      targetStudent = await Student.findOne({
-        $or: [
-          { id: identifier },
-          { regId: identifier },
-          ...(mongoose.Types.ObjectId.isValid(identifier) ? [{ _id: identifier }] : [])
-        ]
-      });
-    }
-
-    let memStudent = (memoryDb.students || []).find(
-      s => s && (s.id === identifier || s.regId === identifier || String(s._id) === identifier)
-    );
-
-    if (!targetStudent && !memStudent) {
-      return res.status(404).json({ ok: false, message: "শিক্ষার্থীর অ্যাকাউন্ট খুঁজে পাওয়া যায়নি।" });
-    }
-
-    const studentId = targetStudent ? targetStudent.id : memStudent.id;
-    const studentName = targetStudent ? targetStudent.name : memStudent.name;
-    const currentEmail = (targetStudent?.email || memStudent?.email || "").toLowerCase();
-
-    if (currentEmail === cleanEmail) {
-      return res.status(400).json({
-        ok: false,
-        message: "এই ইমেইলটি ইতিমধ্যেই আপনার বর্তমান প্রোফাইলে যুক্ত আছে। নতুন ইমেইল লিখুন।"
-      });
-    }
-
-    // Check if new email is already used by another student
-    if (isMongoConnected) {
-      const duplicateStudent = await Student.findOne({
-        email: cleanEmail,
-        id: { $ne: studentId }
-      }).lean();
-
-      if (duplicateStudent) {
-        return res.status(400).json({
-          ok: false,
-          message: "এই ইমেইল এড্রেসটি ইতিমধ্যেই অন্য একজন শিক্ষার্থীর অ্যাকাউন্টে নিবন্ধিত রয়েছে।"
-        });
-      }
-    }
-
-    const memDuplicate = (memoryDb.students || []).find(
-      s => s && s.id !== studentId && s.email && s.email.toLowerCase() === cleanEmail
-    );
-    if (memDuplicate) {
-      return res.status(400).json({
-        ok: false,
-        message: "এই ইমেইল এড্রেসটি ইতিমধ্যেই অন্য একজন শিক্ষার্থীর অ্যাকাউন্টে নিবন্ধিত রয়েছে।"
-      });
-    }
-
-    // Generate 6-digit numeric OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
-
-    const otpKey = `${studentId}_${cleanEmail}`;
-    emailChangeOtpStore.set(otpKey, {
-      otp,
-      studentId,
-      newEmail: cleanEmail,
-      expiresAt
+    const otp = await accountChallenges.issue({
+      purpose: "email-change", owner: String(student._id), email, originalEmail: student.email
     });
-
-    console.log(`📧 [EMAIL VERIFICATION OTP] Sent to ${cleanEmail} for student [${studentId}]: [ ${otp} ]`);
-
-    // Dispatch OTP email to the NEW email address
-    const emailSent = await sendEmailChangeOtp(cleanEmail, otp, studentName);
-
-    return res.json({
-      ok: true,
-      message: emailSent
-        ? `✓ আপনার নতুন ইমেইল (${cleanEmail})-এ ৬-ডিজিটের ভেরিফিকেশন ওটিপি (OTP) পাঠানো হয়েছে!`
-        : `✓ ভেরিফিকেশন ওটিপি (OTP) তৈরি হয়েছে। আপনার নতুন ইমেইল চেক করে ৬-ডিজিটের কোডটি লিখুন।`,
-      expiresInMinutes: 10
-    });
-  } catch (err) {
-    console.error("Send email change OTP error:", err);
-    return res.status(500).json({
-      ok: false,
-      message: "ভেরিফিকেশন কোড পাঠাতে সমস্যা হয়েছে: " + (err.message || "সার্ভার এরর")
-    });
+    if (!(await sendEmailChangeOtp(email, otp, student.name))) throw new AuthError("AUTH_UNAVAILABLE");
+    return res.json({ ok: true, message: "নতুন ইমেইলে যাচাইকরণ কোড পাঠানো হয়েছে।" });
+  } catch (error) {
+    return rejectAccess(req, res, error);
   }
-});
+}
 
-// 2. Verify OTP & Update Email Endpoint
-app.post(["/api/student/verify-email-otp", "/student/verify-email-otp"], async (req, res) => {
+async function applyStudentEmailChallenge(req, res) {
   try {
-    await ensureDbConnected();
-
-    const authUser = await getAuthUserFromRequest(req);
-    const identifier = authUser?.id || req.body?.studentId || req.body?.id;
-
-    if (!identifier) {
-      return res.status(401).json({
-        ok: false,
-        message: "অননুমোদিত অনুরোধ! অনুগ্রহ করে পুনরায় লগইন করুন।"
-      });
-    }
-
-    const rawEmail = req.body?.newEmail || req.body?.email;
-    const rawOtp = req.body?.otp;
-
-    if (!rawEmail || !rawOtp) {
-      return res.status(400).json({
-        ok: false,
-        message: "নতুন ইমেইল এবং ৬-ডিজিটের OTP কোড উভয়ই আবশ্যক।"
-      });
-    }
-
-    const cleanEmail = String(rawEmail).trim().toLowerCase();
-    const cleanOtp = String(rawOtp).trim();
-
-    // Locate student
-    let targetStudent = null;
-    if (isMongoConnected) {
-      targetStudent = await Student.findOne({
-        $or: [
-          { id: identifier },
-          { regId: identifier },
-          ...(mongoose.Types.ObjectId.isValid(identifier) ? [{ _id: identifier }] : [])
-        ]
-      });
-    }
-
-    let memStudent = (memoryDb.students || []).find(
-      s => s && (s.id === identifier || s.regId === identifier || String(s._id) === identifier)
-    );
-
-    if (!targetStudent && !memStudent) {
-      return res.status(404).json({ ok: false, message: "শিক্ষার্থীর অ্যাকাউন্ট খুঁজে পাওয়া যায়নি।" });
-    }
-
-    const studentId = targetStudent ? targetStudent.id : memStudent.id;
-    const otpKey = `${studentId}_${cleanEmail}`;
-
-    const storedData = emailChangeOtpStore.get(otpKey);
-    if (!storedData) {
-      return res.status(400).json({
-        ok: false,
-        message: "OTP পাওয়া যায়নি বা মেয়াদ শেষ হয়ে গেছে। অনুগ্রহ করে নতুন করে OTP কোড পাঠান।"
-      });
-    }
-
-    if (Date.now() > storedData.expiresAt) {
-      emailChangeOtpStore.delete(otpKey);
-      return res.status(400).json({
-        ok: false,
-        message: "OTP কোডের মেয়াদ শেষ হয়ে গেছে (১০ মিনিট)। অনুগ্রহ করে পুনরায় ওটিপি পাঠান।"
-      });
-    }
-
-    if (storedData.otp !== cleanOtp) {
-      return res.status(400).json({
-        ok: false,
-        message: "ভুল ওটিপি (OTP) কোড! আপনার নতুন ইমেইলে প্রেরিত সঠিক ৬-ডিজিটের কোডটি লিখুন।"
-      });
-    }
-
-    // OTP matched! Update ONLY the student's email
-    let updatedStudentObj = null;
-    if (targetStudent) {
-      targetStudent.email = cleanEmail;
-      await targetStudent.save();
-      updatedStudentObj = targetStudent.toObject ? targetStudent.toObject() : targetStudent;
-    }
-
-    if (memStudent) {
-      memStudent.email = cleanEmail;
-      if (!updatedStudentObj) updatedStudentObj = { ...memStudent };
-    } else if (updatedStudentObj) {
-      const idx = (memoryDb.students || []).findIndex(s => s && s.id === studentId);
-      if (idx > -1) {
-        memoryDb.students[idx].email = cleanEmail;
-      }
-    }
-
-    // Sync in Registration record
-    if (isMongoConnected) {
-      try {
-        await Registration.updateMany(
-          { $or: [{ regId: studentId }, { phone: targetStudent?.phone || memStudent?.phone }] },
-          { $set: { email: cleanEmail } }
-        );
-      } catch (regErr) { }
-    }
-
-    const memReg = (memoryDb.registrations || []).find(
-      r => r && (r.regId === studentId || r.phone === (targetStudent?.phone || memStudent?.phone))
-    );
-    if (memReg) {
-      memReg.email = cleanEmail;
-    }
-
-    // Clean up used OTP
-    emailChangeOtpStore.delete(otpKey);
-
-    if (updatedStudentObj) {
-      delete updatedStudentObj.password;
-    }
-
-    console.log(`✅ Student [${studentId}] email successfully verified and updated to: ${cleanEmail}`);
-
-    return res.json({
-      ok: true,
-      message: "✓ অভিনন্দন! আপনার নতুন ইমেইল এড্রেস সফলভাবে যাচাই ও যুক্ত করা হয়েছে!",
-      email: cleanEmail,
-      student: updatedStudentObj
+    const student = await currentStudentForContactChange(req);
+    const submitted = req.body?.newEmail || req.body?.email;
+    if (typeof submitted !== "string" || submitted.length > 254) throw new AuthError("INVALID_INPUT");
+    const email = submitted.trim().toLowerCase();
+    const challenge = await accountChallenges.verify({
+      purpose: "email-change", owner: String(student._id), email, code: req.body?.otp
     });
-  } catch (err) {
-    console.error("Verify email change OTP error:", err);
-    return res.status(500).json({
-      ok: false,
-      message: "ইমেইল ভেরিফাই করতে সমস্যা হয়েছে: " + (err.message || "সার্ভার এরর")
+    const updated = await mongoose.connection.transaction(async session => {
+      const current = await accountChallenges.takeEmailChange(challenge, session);
+      if (await Student.exists({ email, _id: { $ne: student._id } }).session(session)) throw new AuthError("INVALID_INPUT");
+      const result = await Student.findOneAndUpdate({ _id: student._id, email: current.originalEmail },
+        { $set: { email, emailStatus: "active", accessVersion: Date.now() } },
+        { new: true, session, runValidators: true }).select("-password").lean();
+      if (!result) throw new AuthError("VERIFICATION_FAILED");
+      await Registration.updateOne({ regId: result.id, email: current.originalEmail }, { $set: { email } }, { session });
+      return result;
     });
+    invalidateStudentDashboardCache(updated);
+    const cached = (memoryDb.students || []).find(item => item.id === updated.id);
+    if (cached) cached.email = updated.email;
+    return res.json({ ok: true, message: "ইমেইল যাচাই করে পরিবর্তন করা হয়েছে।", student: accountResponse(updated) });
+  } catch (error) {
+    return rejectAccess(req, res, error?.code === 11000 ? new AuthError("INVALID_INPUT") : error);
   }
-});
+}
+
+app.post(["/api/student/send-email-otp", "/student/send-email-otp"], requireStudentSelf, sendStudentEmailChallenge);
+app.post(["/api/student/verify-email-otp", "/student/verify-email-otp", "/api/student/update-profile",
+  "/api/student/update-email", "/student/update-profile", "/student/update-email", "/api/user/update-email"],
+requireStudentSelf, applyStudentEmailChallenge);
 
 // Admin Mail Settings Save Endpoint
 app.post("/api/admin/mail-settings", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
-    const settingsData = req.body;
+    const settingsData = pickWritableFields(req.body, ["enabled","fallbackEmail","replyToEmail","enableAllMails","sendAdminCopy","loginMails","profileUpdateMails","courseAccessMails","deviceUpdateMails","paymentReviewMails","resendApiKey"]);
 
-    if (settingsData && settingsData.resendApiKey !== undefined) {
-      const cleanKey = String(settingsData.resendApiKey || "").trim();
-      process.env.RESEND_API_KEY = cleanKey;
-      try {
-        const envPath = path.join(__dirname, ".env");
-        if (fs.existsSync(envPath)) {
-          let envContent = fs.readFileSync(envPath, "utf8");
-          if (envContent.includes("RESEND_API_KEY=")) {
-            envContent = envContent.replace(/RESEND_API_KEY=.*/, `RESEND_API_KEY=${cleanKey}`);
-          } else {
-            envContent += `\nRESEND_API_KEY=${cleanKey}\n`;
-          }
-          fs.writeFileSync(envPath, envContent, "utf8");
-        }
-      } catch (err) {
-        console.warn("Unable to update the local mail environment configuration");
-      }
-    }
-
+    if (settingsData.resendApiKey !== undefined && typeof settingsData.resendApiKey !== "string") throw new AuthError("INVALID_INPUT");
     if (isMongoConnected) {
       let settings = await MailSetting.findOne();
       if (settings) {
@@ -8839,6 +7934,7 @@ app.post("/api/admin/mail-settings", requireAdmin, async (req, res) => {
       }
     }
     memoryDb.mailSettings = { ...memoryDb.mailSettings, ...settingsData };
+    await logAuditEvent({ action: "MAIL_SETTINGS_UPDATE", targetType: "settings", req });
     res.json({ ok: true, message: "Mail settings saved successfully!", settings: mailSettingsResponse(memoryDb.mailSettings) });
   } catch (e) {
     res.status(500).json({ ok: false, message: "Unable to save mail settings." });
@@ -8850,7 +7946,8 @@ app.post(["/api/admin/mail-toggle", "/admin/mail-toggle"], requireAdmin, async (
   try {
     await ensureDbConnected();
     const { enabled } = req.body;
-    const isEnabled = enabled !== false;
+    if (typeof enabled !== "boolean") throw new AuthError("INVALID_INPUT");
+    const isEnabled = enabled;
 
     if (!memoryDb.mailSettings) {
       memoryDb.mailSettings = { fallbackEmail: "bjsacademy38@gmail.com" };
@@ -8874,6 +7971,7 @@ app.post(["/api/admin/mail-toggle", "/admin/mail-toggle"], requireAdmin, async (
     }
 
     console.log(`📧 [Master Email Switch Updated]: ${isEnabled ? "ACTIVATED (ON)" : "PAUSED (OFF)"}`);
+    await logAuditEvent({ action: "MAIL_SETTINGS_TOGGLE", targetType: "settings", req });
     return res.json({
       ok: true,
       enabled: isEnabled,
@@ -8886,7 +7984,7 @@ app.post(["/api/admin/mail-toggle", "/admin/mail-toggle"], requireAdmin, async (
   }
 });
 
-app.get("/api/admin/registrations", async (req, res) => {
+app.get("/api/admin/registrations", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     let mongoRegs = [];
@@ -8926,14 +8024,14 @@ app.get(["/api/admin/audit-logs", "/admin/audit-logs"], requireAdmin, async (req
     }
     return res.json({ ok: true, logs, count: logs.length });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: "Error retrieving audit logs: " + err.message });
+    return res.status(500).json({ ok: false, message: "Error retrieving audit logs: " + "Request could not be completed." });
   }
 });
 
 app.post("/api/admin/students/save", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
-    let body = { ...req.body };
+    let body = pickWritableFields(req.body, ["id","_id","regId","name","phone","email","emailStatus","university","batch","session","password","isTemporaryPassword","status","loginApproval","portalAccessMode","enrolledCourseIds","allowedCourseIds","completedLessonIds","courseRules","maxDeviceCount","highlight","adminNote","popupMessage","joinedOn"]);
 
     if (!body.id || !String(body.id).trim()) {
       body.id = "STU-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
@@ -9100,7 +8198,7 @@ app.post("/api/admin/students/save", requireAdmin, async (req, res) => {
           addedNames,
           removedNames,
           allCourseTitles
-        }).catch(err => console.warn("Notice sending course access email:", err.message));
+        }).catch(err => console.warn("Notice sending course access email:"));
       }
       // Repetitive else block removed: No spam emails on routine profile updates!
     }
@@ -9117,16 +8215,22 @@ app.post("/api/admin/students/save", requireAdmin, async (req, res) => {
 
     return res.json({ ok: true, message: `শিক্ষার্থী "${savedStudent.name || savedStudent.id}" এর তথ্য সফলভাবে সেভ করা হয়েছে!`, student: savedStudent });
   } catch (e) {
-    console.error("Error saving student:", e);
-    return res.status(500).json({ ok: false, message: e.message || "Error saving student profile." });
+    console.error("Error saving student:");
+    return res.status(500).json({ ok: false, message: "Request could not be completed." || "Error saving student profile." });
   }
 });
 
 // Admin Student Approval & Course Activation Endpoint
-app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req, res) => {
+app.post(["/api/admin/students/approve", "/admin/students/approve"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
-    const { studentId, allowedCourseIds, batch } = req.body;
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const { studentId, allowedCourseIds, batch } = req.body || {};
+    if (typeof studentId !== "string" || (batch !== undefined && typeof batch !== "string") ||
+        (allowedCourseIds !== undefined && (!Array.isArray(allowedCourseIds) ||
+          allowedCourseIds.some(id => typeof id !== "string" || !id.trim() || id.length > 200)))) {
+      throw new AuthError("INVALID_INPUT");
+    }
     if (!studentId) {
       return res.status(400).json({ ok: false, message: "studentId is required." });
     }
@@ -9299,7 +8403,8 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
     const regInMem = (memoryDb.registrations || []).find(r => r.regId === studentId || r.phone === studentId || r.email === studentId);
     if (regInMem) regInMem.status = "Approved";
 
-    if (updatedStudent && updatedStudent.email) {
+    if (!updatedStudent) throw new AuthError("RESOURCE_NOT_FOUND");
+    if (updatedStudent.email) {
       let allCourseTitles = (updatedStudent.allowedCourseIds || []).map(id => {
         const found = allCourses.find(c => c.id === id || c._id === id || c.title === id);
         return found ? found.title : id;
@@ -9310,7 +8415,7 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
         updatedStudent,
         updatedStudent.batch || (allCourseTitles[0] || "BJS & Bar Council Masterclass"),
         allCourseTitles
-      ).catch(err => console.warn("Approval email notice:", err.message));
+      ).catch(err => console.warn("Approval email notice:"));
     }
 
     await logAuditEvent({
@@ -9329,8 +8434,8 @@ app.post(["/api/admin/students/approve", "/admin/students/approve"], async (req,
       student: updatedStudent
     });
   } catch (err) {
-    console.error("Approve student error:", err);
-    return res.status(500).json({ ok: false, message: "Error approving student account." });
+    console.error("Approve student error:");
+    return rejectAccess(req, res, err);
   }
 });
 
@@ -9449,13 +8554,13 @@ app.delete("/api/admin/students/:id", requireAdmin, async (req, res) => {
 
     return res.json({ ok: true, message: "Student and all associated records permanently deleted!" });
   } catch (err) {
-    console.error("Delete student error:", err);
+    console.error("Delete student error:");
     return res.status(500).json({ ok: false, message: "Error deleting student." });
   }
 });
 
 // Admin Private Student Note Endpoint (100% internal, NO emails sent)
-app.post(["/api/admin/students/note", "/admin/students/note"], async (req, res) => {
+app.post(["/api/admin/students/note", "/admin/students/note"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { studentId, adminNote } = req.body;
@@ -9512,12 +8617,12 @@ app.post(["/api/admin/students/note", "/admin/students/note"], async (req, res) 
       studentId
     });
   } catch (err) {
-    console.error("Save student note error:", err);
+    console.error("Save student note error:");
     return res.status(500).json({ ok: false, message: "Error saving student note." });
   }
 });
 
-app.post("/api/admin/students/message", async (req, res) => {
+app.post("/api/admin/students/message", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { studentIds, type, title, body, subject } = req.body;
@@ -9555,7 +8660,7 @@ app.post("/api/admin/students/message", async (req, res) => {
     for (const st of targetStudents) {
       if (st.email && st.email.includes("@")) {
         sendAdminCustomMessageEmail(st.email, st.name, subject || title, body)
-          .catch(e => console.warn("Email notice error:", e.message));
+          .catch(e => console.warn("Email notice error:"));
         sentCount++;
       }
     }
@@ -9566,34 +8671,41 @@ app.post("/api/admin/students/message", async (req, res) => {
   }
 });
 
-app.post("/api/admin/receipts/save", async (req, res) => {
+app.post("/api/admin/receipts/save", requireAdmin, async (req, res) => {
   try {
-    await ensureDbConnected();
-    let body = { ...req.body };
 
-    if (!body.studentId || !body.amount) {
-      return res.status(400).json({ ok: false, message: "Student and Payment Amount are required." });
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const input = pickWritableFields(req.body, ["receiptId", "studentId", "amount", "paymentMethod", "trxId", "paymentTime", "note"]);
+    const amount = Number(input.amount);
+    if (typeof input.studentId !== "string" || !input.studentId.trim() ||
+        !["number", "string"].includes(typeof input.amount) || !Number.isFinite(amount) || amount <= 0 ||
+        !Number.isSafeInteger(Math.round(amount * 100)) || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001 ||
+        (input.receiptId && (typeof input.receiptId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(input.receiptId))) ||
+        (input.paymentMethod && (typeof input.paymentMethod !== "string" || input.paymentMethod.length > 60)) ||
+        (input.trxId && (typeof input.trxId !== "string" || input.trxId.length > 128)) ||
+        (input.note && (typeof input.note !== "string" || input.note.length > 2000))) {
+      throw new AuthError("INVALID_INPUT");
     }
-
-    if (!body.receiptId || !String(body.receiptId).trim()) {
-      body.receiptId = "REC-2026-" + Math.floor(1000 + Math.random() * 9000);
-    }
-
-    body.amount = Number(body.amount);
-    body.paymentTime = parseBangladeshTimeToUtc(body.paymentTime);
-
-    let savedReceipt = body;
-
-    if (isMongoConnected) {
-      let existing = await Receipt.findOne({ receiptId: body.receiptId });
-      if (existing) {
-        Object.assign(existing, body);
-        savedReceipt = await existing.save();
-      } else {
-        savedReceipt = await Receipt.create(body);
-      }
-      if (savedReceipt && savedReceipt.toObject) savedReceipt = savedReceipt.toObject();
-    }
+    const student = await Student.findOne(recordIdFilter(input.studentId)).select("id name phone email batch").lean() ||
+      await Registration.findOne({ regId: input.studentId }).select("regId name phone email batch").lean();
+    if (!student) throw new AuthError("RESOURCE_NOT_FOUND");
+    const studentId = student.id || student.regId;
+    const receiptId = input.receiptId || "REC-" + crypto.randomUUID();
+    const existing = await Receipt.findOne({ receiptId });
+    if (existing && !isAccountId(student, existing.studentId)) return rejectAccess(req, res);
+    const paymentTime = parseBangladeshTimeToUtc(input.paymentTime);
+    if (!paymentTime || !Number.isFinite(new Date(paymentTime).getTime())) throw new AuthError("INVALID_INPUT");
+    const body = {
+      receiptId, studentId: existing?.studentId || studentId,
+      studentName: student.name, studentPhone: student.phone, studentEmail: student.email,
+      batch: student.batch, amount, paymentMethod: input.paymentMethod || "bKash",
+      trxId: input.trxId || "", note: input.note || "", paymentTime, issuedBy: req.user.name
+    };
+    const saved = existing
+      ? await Receipt.findOneAndUpdate({ _id: existing._id, studentId: existing.studentId }, { $set: body }, { new: true, runValidators: true })
+      : await Receipt.create(body);
+    if (!saved) throw new AuthError("RESOURCE_NOT_FOUND");
+    const savedReceipt = saved.toObject();
 
     const idx = memoryDb.receipts.findIndex((r) => r.receiptId === body.receiptId);
     if (idx > -1) {
@@ -9612,10 +8724,10 @@ app.post("/api/admin/receipts/save", async (req, res) => {
     await logAuditEvent({
       adminId: req.user?.id || 'ADMIN-001',
       adminName: req.user?.name || 'Super Admin',
-      action: 'PAYMENT_APPROVE',
+      action: existing ? 'PAYMENT_RECEIPT_UPDATE' : 'PAYMENT_APPROVE',
       targetType: 'receipt',
       targetId: savedReceipt.receiptId,
-      details: { studentId: savedReceipt.studentId, amount: savedReceipt.amount, paymentMethod: savedReceipt.paymentMethod, trxId: savedReceipt.trxId },
+      details: { studentId: savedReceipt.studentId, amount: savedReceipt.amount, paymentMethod: savedReceipt.paymentMethod },
       req
     });
 
@@ -9633,45 +8745,25 @@ app.post("/api/admin/receipts/save", async (req, res) => {
       receipt: savedReceipt
     });
   } catch (e) {
-    console.error("Error saving receipt:", e);
-    return res.status(500).json({ ok: false, message: e.message || "Error saving money receipt." });
+    return rejectAccess(req, res, e);
   }
 });
 
 // GET /api/student/receipts (Student Payment History)
-app.get("/api/student/receipts", async (req, res) => {
+app.get("/api/student/receipts", requireStudentSelf, async (req, res) => {
   try {
-    await ensureDbConnected();
-    const student = await getAuthUserFromRequest(req);
-    if (!student) {
-      return res.status(401).json({ ok: false, message: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" });
-    }
-
-    const receipts = isMongoConnected
-      ? await Receipt.find({
-          $or: [
-            { studentId: student.id },
-            { studentEmail: student.email },
-            { studentPhone: student.phone }
-          ]
-        }).sort({ paymentTime: -1, createdAt: -1 }).lean().catch(() => [])
-      : (memoryDb.receipts || []).filter(r => r.studentId === student.id || r.studentEmail === student.email || r.studentPhone === student.phone);
+    const receipts = await Receipt.find(ownerQuery(req.user)).sort({ paymentTime: -1, createdAt: -1 }).lean();
 
     return res.json({ ok: true, receipts: receipts || [] });
   } catch (err) {
-    return res.status(500).json({ ok: false, message: err.message });
+    return res.status(500).json({ ok: false, message: "Unable to load payment receipts." });
   }
 });
 
 // GET /api/student/receipts/:receiptId/pdf (Direct PDF Receipt Download for Student)
-app.get("/api/student/receipts/:receiptId/pdf", async (req, res) => {
+app.get("/api/student/receipts/:receiptId/pdf", requireStudentSelf, async (req, res) => {
   try {
-    await ensureDbConnected();
-    const student = await getAuthUserFromRequest(req);
-    if (!student) {
-      return res.status(401).json({ ok: false, message: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" });
-    }
-
+    const student = req.user;
     const { receiptId } = req.params;
     let receipt = null;
     if (isMongoConnected) {
@@ -9684,24 +8776,21 @@ app.get("/api/student/receipts/:receiptId/pdf", async (req, res) => {
       return res.status(404).json({ ok: false, message: "মানি রিসিট খুঁজে পাওয়া যায়নি।" });
     }
 
-    // Ownership verification (unless admin)
-    if (!student.isAdmin && receipt.studentId !== student.id && receipt.studentEmail !== student.email && receipt.studentPhone !== student.phone) {
-      return res.status(403).json({ ok: false, message: "এই রসিদ দেখার অনুমতি আপনার নেই।" });
-    }
+    if (!ownsStudentRecord(student, receipt)) return rejectAccess(req, res);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="Receipt-${receipt.receiptId || receiptId}.pdf"`);
     await generateReceiptPdf(receipt, res);
   } catch (err) {
-    console.error("Student Receipt PDF error:", err);
+    console.error("Student Receipt PDF error:");
     if (!res.headersSent) {
-      return res.status(500).json({ ok: false, message: "রসিদ PDF তৈরি করতে সমস্যা হয়েছে: " + err.message });
+      return res.status(500).json({ ok: false, message: "রসিদ PDF তৈরি করতে সমস্যা হয়েছে: " + "Request could not be completed." });
     }
   }
 });
 
 // GET /api/admin/receipts/:receiptId/pdf (Direct PDF Receipt Download for Admin)
-app.get("/api/admin/receipts/:receiptId/pdf", async (req, res) => {
+app.get("/api/admin/receipts/:receiptId/pdf", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { receiptId } = req.params;
@@ -9720,14 +8809,14 @@ app.get("/api/admin/receipts/:receiptId/pdf", async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="Receipt-${receipt.receiptId || receiptId}.pdf"`);
     await generateReceiptPdf(receipt, res);
   } catch (err) {
-    console.error("Admin Receipt PDF error:", err);
+    console.error("Admin Receipt PDF error:");
     if (!res.headersSent) {
-      return res.status(500).json({ ok: false, message: "রসিদ PDF তৈরি করতে সমস্যা হয়েছে: " + err.message });
+      return res.status(500).json({ ok: false, message: "রসিদ PDF তৈরি করতে সমস্যা হয়েছে: " + "Request could not be completed." });
     }
   }
 });
 
-app.post("/api/admin/receipts/resend-email/:receiptId", async (req, res) => {
+app.post("/api/admin/receipts/resend-email/:receiptId", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { receiptId } = req.params;
@@ -9753,32 +8842,27 @@ app.post("/api/admin/receipts/resend-email/:receiptId", async (req, res) => {
   }
 });
 
-app.delete("/api/admin/receipts/:receiptId", async (req, res) => {
+app.delete("/api/admin/receipts/:receiptId", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { receiptId } = req.params;
-    if (isMongoConnected) {
-      await Receipt.deleteMany({
-        $or: [
-          { receiptId: receiptId },
-          { receiptId: new RegExp(`^${receiptId}$`, "i") }
-        ]
-      });
-    }
+    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
+    const deleted = await Receipt.deleteOne({ receiptId });
+    if (deleted.deletedCount !== 1) throw new AuthError("RESOURCE_NOT_FOUND");
+    await logAuditEvent({ action: "PAYMENT_RECEIPT_DELETE", targetType: "receipt", targetId: receiptId, req });
     memoryDb.receipts = (memoryDb.receipts || []).filter(
       (r) => r && r.receiptId !== receiptId && String(r._id) !== receiptId
     );
     invalidateAdminBundle();
     return res.json({ ok: true, message: `Money Receipt ${receiptId} deleted permanently!` });
   } catch (e) {
-    console.error("Error deleting receipt:", e);
-    return res.status(500).json({ ok: false, message: "Error deleting money receipt." });
+    return rejectAccess(req, res, e);
   }
 });
 
 // 6. Gemini AI Legal Assistant & Smart Course Monetization Engine
 // 6. Gemini AI Legal Assistant with Real-Time YouTube Transcript Matching Engine (Backend-Processed & Fast-Cached)
-app.post("/api/ai/chat", async (req, res) => {
+app.post("/api/ai/chat", optionalAuthentication, async (req, res) => {
   try {
     await ensureDbConnected();
     const { prompt, conversationHistory, history } = req.body;
@@ -9808,7 +8892,7 @@ app.post("/api/ai/chat", async (req, res) => {
     const convHist = conversationHistory || history || [];
 
     // 1. Resolve student/user identity on the backend
-    const authUser = await getAuthUserFromRequest(req);
+    const authUser = req.user;
     const userRoleKey = authUser
       ? `${authUser.id}_${(authUser.allowedCourseIds || []).join(',')}`
       : 'guest';
@@ -9819,19 +8903,14 @@ app.post("/api/ai/chat", async (req, res) => {
       ? crypto.createHash('md5').update(JSON.stringify(convHist)).digest('hex').substring(0, 8)
       : 'root';
     const cacheKey = `ai_chat_${queryHash}_${histHash}_${userRoleKey}`;
-    const cachedResponse = fastCache.get(cacheKey);
+    const cachedResponse = authUser ? null : fastCache.get(cacheKey);
     if (cachedResponse) {
       return res.json({ ok: true, ...cachedResponse, source: "fast-cache" });
     }
 
     // 3. Fetch active lessons from DB or memory
-    let activeLessons = memoryDb.lessons || [];
-    if (isMongoConnected) {
-      try {
-        const dbLessons = await Lesson.find().lean();
-        if (dbLessons && dbLessons.length > 0) activeLessons = dbLessons;
-      } catch (e) { }
-    }
+    const activeLessons = await scopedAiLessons(authUser);
+    const canPlay = lesson => activeLessons.some(item => item.youtubeId && item.youtubeId === lesson.youtubeId);
 
     // 4. Process legal query & search video transcripts
     const aiResult = await processLegalAiQuery({
@@ -9861,7 +8940,7 @@ app.post("/api/ai/chat", async (req, res) => {
       } catch (ce) { }
 
       // 5. Backend-processed Access Verification & Course-Specific Clip Engine
-      const accessCheck = checkStudentCourseAccess(authUser, resolvedCourseId, topMatch);
+      const accessCheck = { allowed: canPlay(topMatch) };
       const isEnrolledInCourse = accessCheck.allowed;
       const startSec = Number(topMatch.startTime || 0);
       const endSec = Number(topMatch.endTime || (startSec + 60));
@@ -9881,8 +8960,8 @@ app.post("/api/ai/chat", async (req, res) => {
         courseId: resolvedCourseId,
         courseTitle: resolvedCourseTitle,
         chapter: topMatch.chapter,
-        youtubeId: topMatch.youtubeId,
-        youtubeUrl: topMatch.youtubeUrl,
+        youtubeId: isEnrolledInCourse ? topMatch.youtubeId : null,
+        youtubeUrl: isEnrolledInCourse ? topMatch.youtubeUrl : null,
         timestamp: topMatch.timestamp || '00:00',
         startTime: startSec,
         endTime: endSec,
@@ -9924,7 +9003,7 @@ app.post("/api/ai/chat", async (req, res) => {
     }
 
     const safeMatchedLessons = (aiResult.matchedLessons || []).map(ml => {
-      const access = checkStudentCourseAccess(authUser, ml.courseId, ml);
+      const access = { allowed: canPlay(ml) };
       const startSec = Number(ml.startTime || 0);
       const endSec = Number(ml.endTime || (startSec + 60));
       return {
@@ -9932,8 +9011,8 @@ app.post("/api/ai/chat", async (req, res) => {
         title: ml.title,
         courseId: ml.courseId,
         chapter: ml.chapter,
-        youtubeId: ml.youtubeId,
-        youtubeUrl: ml.youtubeUrl,
+        youtubeId: access.allowed ? ml.youtubeId : null,
+        youtubeUrl: access.allowed ? ml.youtubeUrl : null,
         timestamp: ml.timestamp || '00:00',
         startTime: startSec,
         endTime: endSec,
@@ -9955,11 +9034,11 @@ app.post("/api/ai/chat", async (req, res) => {
       source: "mongodb-backend-processed"
     };
 
-    fastCache.set(cacheKey, responsePayload, 120); // 2 minutes query cache
+    if (!authUser) fastCache.set(cacheKey, responsePayload, 120); // 2 minutes query cache
     return res.json({ ok: true, ...responsePayload });
   } catch (e) {
-    console.error("AI Chat Error:", e);
-    return res.status(500).json({ ok: false, message: "AI Assistant processing error: " + e.message });
+    console.error("AI Chat Error:");
+    return res.status(500).json({ ok: false, message: "AI Assistant processing error: " + "Request could not be completed." });
   }
 });
 

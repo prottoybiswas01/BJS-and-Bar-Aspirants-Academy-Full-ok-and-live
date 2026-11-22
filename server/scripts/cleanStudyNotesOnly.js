@@ -10,7 +10,11 @@ const mongoose = require('mongoose');
 
 async function cleanStudyNotesOnly() {
   const mongoUri = process.env.MONGODB_URI;
-  const dbName = process.env.MONGODB_DB || 'bjs_academy';
+  const dbName = process.env.MONGODB_DB?.trim();
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production' ||
+      process.env.ENABLE_DEMO_DATA_RESET !== 'true' || !dbName || /^bjs_academy$/i.test(dbName)) {
+    throw new Error('StudyNote cleanup requires an explicitly configured non-production database.');
+  }
 
   if (!mongoUri) {
     throw new Error('MONGODB_URI environment variable is missing.');
@@ -18,6 +22,10 @@ async function cleanStudyNotesOnly() {
 
   console.log(`Connecting to MongoDB (Database: ${dbName})...`);
   await mongoose.connect(mongoUri, { dbName });
+  if (mongoose.connection.name !== dbName) {
+    await mongoose.disconnect();
+    throw new Error('Database verification failed.');
+  }
   const db = mongoose.connection.db;
 
   // Verify collection existence and pre-check counts
@@ -55,7 +63,7 @@ async function cleanStudyNotesOnly() {
   await mongoose.disconnect();
 }
 
-cleanStudyNotesOnly().catch((err) => {
-  console.error('Cleanup error:', err);
+cleanStudyNotesOnly().catch(() => {
+  console.error('StudyNote cleanup stopped. Verify the explicitly selected disposable database and reset setting.');
   process.exit(1);
 });

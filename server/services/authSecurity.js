@@ -18,6 +18,9 @@ const failures = {
   GOOGLE_LINK_INVALID: [400, 'সংযোগের তথ্য সঠিক নয় বা মেয়াদ শেষ হয়েছে।'],
   GOOGLE_CONFLICT: [409, 'অ্যাকাউন্টের তথ্য যাচাই করতে একাডেমির সহায়তা নিন।'],
   GOOGLE_PROFILE_INVALID: [400, 'বিশ্ববিদ্যালয়, কোর্স এবং মোবাইল নম্বরের তথ্য যাচাই করুন।'],
+  INVALID_INPUT: [400, 'প্রদত্ত তথ্য যাচাই করুন।'],
+  RESOURCE_NOT_FOUND: [404, 'তথ্যটি পাওয়া যায়নি।'],
+  VERIFICATION_FAILED: [400, 'যাচাইকরণ কোডটি সঠিক নয়, ব্যবহৃত হয়েছে, অথবা মেয়াদ শেষ। নতুন কোড নিন।'],
   FORBIDDEN: [403, 'এই কাজের অনুমতি আপনার নেই।']
 };
 
@@ -134,10 +137,10 @@ function readSession(req, env) {
   return claims;
 }
 
-function createAuthentication({ findStudent, findMentor, env = process.env }) {
-  async function authenticate(req, role) {
+function createAuthentication({ findStudent, findMentor, onDenied = () => {}, env = process.env }) {
+  async function authenticate(req, roles = []) {
     const claims = readSession(req, env);
-    if (role && claims.role !== role) throw new AuthError('FORBIDDEN');
+    if (roles.length && !roles.includes(claims.role)) throw new AuthError('FORBIDDEN');
 
     if (claims.role === 'admin') {
       if (claims.id !== ADMIN_IDENTITY.id) throw new AuthError('SESSION_INVALID');
@@ -154,18 +157,43 @@ function createAuthentication({ findStudent, findMentor, env = process.env }) {
     return { ...account, role: claims.role, isAdmin: false, isMentor: mentor };
   }
 
-  const requireRole = (role) => async (req, res, next) => {
+  function rejectAccess(req, res, error = new AuthError('FORBIDDEN')) {
+    try { onDenied(req, error.code || 'AUTH_UNAVAILABLE'); } catch (_) {}
+    return sendAuthFailure(res, error);
+  }
+
+  const approvedMentor = user => user.role === 'mentor' && user.status === 'Active' && user.loginApproval === 'Approved';
+  const permissions = {
+    'admin:manage': { roles: ['admin'], allowed: () => true },
+    'mentor:classroom': { roles: ['mentor'], allowed: approvedMentor },
+    'assignment:report': { roles: ['admin', 'mentor'], allowed: user => user.role === 'admin' || approvedMentor(user) }
+  };
+
+  const gate = (roles, allowed) => async (req, res, next) => {
     try {
-      req.user = await authenticate(req, role);
+      req.user = await authenticate(req, roles);
+      if (!allowed(req.user)) throw new AuthError('FORBIDDEN');
+      res.setHeader('Cache-Control', 'private, no-store');
     } catch (error) {
-      return sendAuthFailure(res, error);
+      return rejectAccess(req, res, error);
     }
     return next();
   };
+  const requireRole = (...roles) => gate(roles, () => true);
+  const requirePermission = permission => {
+    const policy = Object.hasOwn(permissions, permission) ? permissions[permission] : null;
+    return gate(policy?.roles || [], policy?.allowed || (() => false));
+  };
+  const requireAuthentication = requireRole();
 
   return {
-    requireAuthentication: requireRole(),
-    requireAdmin: requireRole('admin'),
+    requireAuthentication,
+    requireRole,
+    requirePermission,
+    requireAdmin: requirePermission('admin:manage'),
+    requireMentor: requirePermission('mentor:classroom'),
+    requireStudent: requireRole('student'),
+    rejectAccess,
     async getAuthUserFromRequest(req) {
       try { return await authenticate(req); } catch (_) { return null; }
     }

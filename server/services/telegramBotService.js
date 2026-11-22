@@ -271,6 +271,10 @@ async function getTelegramFileUrl(fileId) {
  * Register Webhook with Telegram & Configure Commands
  */
 async function setupTelegramWebhook(appUrl) {
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!secret || !/^[A-Za-z0-9_-]{1,256}$/.test(secret)) {
+    return { ok: false, message: 'Telegram webhook configuration is unavailable' };
+  }
   const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
   if (!token || !appUrl) return { ok: false, message: 'Missing bot token or app URL' };
 
@@ -285,6 +289,7 @@ async function setupTelegramWebhook(appUrl) {
       headers: { 'Content-Type': 'application/json' }
     }, {
       url: webhookUrl,
+      secret_token: secret,
       allowed_updates: ['message', 'callback_query'],
       drop_pending_updates: false
     });
