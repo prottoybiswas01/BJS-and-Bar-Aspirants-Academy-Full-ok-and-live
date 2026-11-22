@@ -18,6 +18,7 @@ const studentSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   phone: { type: String, required: true, unique: true, index: true }, // e.g. 01800077663
   email: { type: String, required: true, unique: true, index: true }, // e.g. student@gmail.com
+  googleContactPhone: { type: String }, // Unverified contact. Keep separate from the account phone field.
   emailStatus: { type: String, enum: ["active", "bounced", "suppressed"], default: "active", index: true },
   bouncedReason: { type: String, default: "" },
   bouncedAt: { type: Date, default: null },

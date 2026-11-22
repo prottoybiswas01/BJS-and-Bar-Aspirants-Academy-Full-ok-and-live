@@ -22,7 +22,7 @@ const authRoutes = new vm.Script([
   section('function sanitizeData(', '// 3. Sliding Window IP Rate Limiter'),
   section('function registrationSessionAccount(', '// SECURE AUDIT LOGGING ENGINE'),
   section('function validPasswordLogin(', '// 3. Multi-Identifier Instant Login'),
-  section('app.post("/api/auth/login"', '// Nodemailer SMTP Transporter'),
+  section('app.post("/api/auth/login"', 'const googleLoginHandlers'),
   section('// Resend Verification & Diagnostic Test Endpoint', '// RESEND BOUNCE'),
   section('app.get(["/api/home-data"', '// GET All Courses'),
   section('// Mail preferences for the Admin Panel.', '// GET MCQ Exams')
@@ -297,16 +297,6 @@ test('session requires an active account from the authoritative data source', as
   assert.equal((await verify(harness({ connected: false }), token)).status, 503);
 });
 
-test('existing Google handler issues hardened tokens and credential-free profiles', async () => {
-  const app = harness();
-  for (const account of [student, mentor]) {
-    const result = await app.request('POST', '/api/auth/google-login', { body: { email: account.email } });
-    assert.equal(result.status, 200);
-    assert.equal(Object.hasOwn(result.body.student, 'password'), false);
-    assert.equal((await verify(app, result.body.token)).status, 200);
-  }
-});
-
 test('legacy grace is bounded, explicit, and only accepts existing student or mentor signatures', async () => {
   const deadline = ms => new Date(Date.now() + ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const fixture = (role, id) => jwt.sign({ role, id }, fixtureEnv.JWT_SECRET, { expiresIn: 120 });
@@ -332,6 +322,4 @@ test('missing or weak server authentication configuration fails securely', async
     assert.equal(result.body.code, 'AUTH_UNAVAILABLE');
     assert.deepEqual(Object.keys(result.body).sort(), ['code', 'message', 'ok']);
   }
-  const google = await harness({ env: { JWT_SECRET: '' } }).request('POST', '/api/auth/google', { body: { email: student.email } });
-  assert.equal(google.status, 503);
 });

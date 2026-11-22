@@ -22,7 +22,8 @@ export default function Login({ setActivePage }) {
 
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [googleModal, setGoogleModal] = useState({ isOpen: false, googleData: null, firebaseUser: null });
+  const [googleProfile, setGoogleProfile] = useState(null);
+  const [googleLinkRequest, setGoogleLinkRequest] = useState('');
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
 
@@ -35,6 +36,7 @@ export default function Login({ setActivePage }) {
 
     setLoading(true);
     setError(null);
+    setGoogleLinkRequest('');
 
     const result = await login(identifier, password, false);
     setLoading(false);
@@ -56,47 +58,38 @@ export default function Login({ setActivePage }) {
     try {
       setGoogleLoading(true);
       setError(null);
+      setGoogleLinkRequest('');
       const firebaseUser = await signInWithGooglePopup();
-      if (!firebaseUser || !firebaseUser.email) {
-        throw new Error('Google একাউন্ট থেকে ইমেইল পাওয়া যায়নি।');
-      }
       const result = await googleLogin(firebaseUser);
-      setGoogleLoading(false);
 
       if (result.ok) {
         if (result.isNewUser) {
-          // Open Modal to complete profile with university & course selection
-          setGoogleModal({
-            isOpen: true,
-            googleData: result.googleData,
-            firebaseUser
-          });
+          setGoogleProfile({ googleData: result.googleData, firebaseUser });
           return;
         }
-
-        if (result.isAdmin || result.user?.isAdmin) {
-          setActivePage('admin');
-        } else if (result.isMentor || result.user?.isMentor) {
-          setActivePage('mentor-dashboard');
-        } else {
-          setActivePage('dashboard');
-        }
+        setActivePage(result.isMentor ? 'mentor-dashboard' : 'dashboard');
       } else {
         setError(result.message);
+        setGoogleLinkRequest(result.linkRequest || '');
       }
     } catch (err) {
+      setError(err.code === 'auth/popup-blocked'
+        ? 'Google সাইন-ইনের জন্য এই সাইটে পপ-আপ চালু করুন।'
+        : 'Google সাইন-ইন সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।');
+    } finally {
       setGoogleLoading(false);
-      console.error('Google Sign-In Error:', err);
-      setError(err.message || 'Google সাইন-ইন সম্পন্ন করা যায়নি।');
     }
   };
 
   const handleCompleteGoogleProfile = async ({ university, courseId, phone }) => {
-    if (!googleModal.firebaseUser) return;
-    const result = await googleLogin(googleModal.firebaseUser, { university, courseId, phone });
+    const result = await googleLogin(googleProfile.firebaseUser, { university, courseId, phone });
     if (result.ok && !result.isNewUser) {
-      setGoogleModal({ isOpen: false, googleData: null, firebaseUser: null });
-      setActivePage('dashboard');
+      setGoogleProfile(null);
+      setActivePage(result.isMentor ? 'mentor-dashboard' : 'dashboard');
+    } else if (result.linkRequest) {
+      setGoogleProfile(null);
+      setError(result.message);
+      setGoogleLinkRequest(result.linkRequest);
     } else {
       throw new Error(result.message || 'রেজিস্ট্রেশন সম্পন্ন করা সম্ভব হয়নি।');
     }
@@ -231,6 +224,20 @@ export default function Login({ setActivePage }) {
               <div className="p-3.5 rounded-xl bg-rose-950/80 border border-rose-500/30 text-rose-300 text-xs font-semibold leading-relaxed">
                 ⚠️ {error}
               </div>
+            )}
+
+            {googleLinkRequest && (
+              <label className="block space-y-2 text-xs text-slate-300">
+                <span>৩০ মিনিটের মধ্যে এই সংযোগ কোডটি একাডেমির সহায়তা টিমকে দিন। অনুমোদনের পর আবার Google দিয়ে সাইন-ইন করুন।</span>
+                <textarea
+                  aria-label="Google সংযোগ কোড"
+                  readOnly
+                  rows={2}
+                  value={googleLinkRequest}
+                  onFocus={event => event.target.select()}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 font-mono"
+                />
+              </label>
             )}
 
             {successMsg && (
@@ -483,9 +490,9 @@ export default function Login({ setActivePage }) {
 
       {/* Google Sign-up / Login Extra Details Modal */}
       <GoogleCompleteProfileModal
-        isOpen={googleModal.isOpen}
-        googleData={googleModal.googleData}
-        onClose={() => setGoogleModal({ isOpen: false, googleData: null, firebaseUser: null })}
+        isOpen={Boolean(googleProfile)}
+        googleData={googleProfile?.googleData}
+        onClose={() => setGoogleProfile(null)}
         onComplete={handleCompleteGoogleProfile}
       />
     </div>

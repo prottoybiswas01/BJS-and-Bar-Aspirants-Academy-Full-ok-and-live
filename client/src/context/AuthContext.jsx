@@ -159,21 +159,11 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const googleLogin = async (firebaseUser, extraPayload = {}) => {
-    const deviceId = getDeviceId();
-    const platform = navigator.platform || 'Web Browser';
-    const browser = navigator.userAgent || 'Standard Browser';
-
+  const googleLogin = async (firebaseUser, profile) => {
     try {
       const res = await api.post('/auth/google-login', {
-        email: firebaseUser.email,
-        name: firebaseUser.displayName || 'Google Student',
-        photoUrl: firebaseUser.photoURL || '',
-        firebaseUid: firebaseUser.uid,
-        deviceId,
-        platform,
-        browser,
-        ...extraPayload
+        idToken: await firebaseUser.getIdToken(),
+        ...(profile && { university: profile.university, courseId: profile.courseId, phone: profile.phone })
       });
 
       if (res.data && res.data.ok) {
@@ -182,24 +172,18 @@ export const AuthProvider = ({ children }) => {
             ok: true,
             isNewUser: true,
             googleData: {
-              email: res.data.email || firebaseUser.email,
-              name: res.data.name || firebaseUser.displayName || 'Google Student',
-              photoUrl: res.data.photoUrl || firebaseUser.photoURL || '',
-              firebaseUid: res.data.firebaseUid || firebaseUser.uid || ''
+              email: res.data.email,
+              name: res.data.name,
+              photoUrl: res.data.photoUrl
             },
             message: res.data.message
           };
         }
 
         const newToken = res.data.token;
-        const userData = res.data.isAdmin
-          ? res.data.user
-          : res.data.isMentor
-          ? (res.data.mentor || res.data.user || res.data.student)
-          : res.data.student;
-
-        if (res.data.isAdmin) userData.isAdmin = true;
-        if (res.data.isMentor) userData.isMentor = true;
+        const isMentor = res.data.isMentor === true;
+        const userData = isMentor ? res.data.mentor : res.data.student;
+        if (!newToken || !userData) return { ok: false, message: 'Google লগইন সম্পন্ন করা যায়নি।' };
 
         setToken(newToken);
         setUser(userData);
@@ -210,15 +194,16 @@ export const AuthProvider = ({ children }) => {
           ok: true,
           isNewUser: false,
           user: userData,
-          isAdmin: !!res.data.isAdmin,
-          isMentor: !!res.data.isMentor
+          isMentor
         };
       }
       return { ok: false, message: res.data?.message || 'Google লগইন সম্পন্ন করা যায়নি।' };
     } catch (err) {
+      const failure = err.response?.data;
       return {
         ok: false,
-        message: err.response?.data?.message || 'সার্ভার সংযোগে সমস্যা হয়েছে। আবার চেষ্টা করুন।'
+        message: failure?.message || 'Google লগইন সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।',
+        linkRequest: failure?.code === 'GOOGLE_LINK_REQUIRED' ? failure.linkRequest : undefined
       };
     }
   };

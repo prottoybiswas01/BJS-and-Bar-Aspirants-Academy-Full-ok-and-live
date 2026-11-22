@@ -48,6 +48,10 @@ const bcrypt = require("bcryptjs");
 const { ADMIN_IDENTITY, AuthError, createAuthentication, getJwtConfiguration, isAdminIdentifier,
   sendAuthFailure, signSession, verifyAdminCredentials, verifyAccountPassword } = require("./services/authSecurity");
 const { SITE_FIELDS, publicSiteSettings, mailSettingsResponse, accountResponse, publicMentorProfile } = require("./services/responseFields");
+const { createAuthRateLimiter } = require("./services/authRateLimit");
+const { createFirebaseIdentityVerifier } = require("./services/firebaseIdentity");
+const { createGoogleAccountStore } = require("./services/googleAccountStore");
+const { createGoogleLogin } = require("./services/googleLogin");
 const siteSettingsProjection = SITE_FIELDS.join(" ");
 const nodemailer = require("nodemailer");
 const dns = require("dns").promises;
@@ -206,6 +210,7 @@ app.use((req, res, next) => {
   }
   next();
 });
+app.use(createAuthRateLimiter());
 
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || "";
@@ -965,7 +970,7 @@ const { getAuthUserFromRequest, requireAuthentication, requireAdmin } = createAu
     const student = await Student.findOne({
       $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : [])]
     }, '-password').lean();
-    if (student) return accountResponse(student);
+    if (student) return { ...accountResponse(student), phone: student.phone };
 
     // Support accounts that still have only their original registration record.
     const registration = await Registration.findOne({ regId: id }, '-password').lean();
@@ -984,7 +989,10 @@ app.get("/api/auth/verify-session", requireAuthentication, (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const { user } = req;
   if (user.role !== 'student') return res.json({ ok: true, status: user.status });
-  return res.json({ ok: true, status: user.status, student: user });
+  return res.json({
+    ok: true, status: user.status,
+    student: { ...accountResponse(user), role: user.role, isAdmin: false, isMentor: false }
+  });
 });
 
 // -------------------------------------------------------------
@@ -1346,125 +1354,21 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// Google 1-Click Authentication (Firebase Google Login)
-app.post(["/api/auth/google", "/api/auth/google-login", "/auth/google-login"], async (req, res) => {
-  try {
-    const { email, name, photoUrl, firebaseUid } = req.body || {};
-    if (!email) {
-      return res.status(400).json({ ok: false, message: "ইমেইল প্রদান করা আবশ্যক।" });
-    }
-
-    getJwtConfiguration(process.env);
-    if (!isMongoConnected) throw new AuthError("AUTH_UNAVAILABLE");
-    const cleanEmail = String(email).trim().toLowerCase();
-
-    // Google 1-Click login authenticates students and existing mentors.
-    // Admin access strictly requires admin credentials through the secured admin portal.
-    // 1. Mentor Match
-    let mentorUser = null;
-    if (isMongoConnected) {
-      try {
-        mentorUser = await Mentor.findOne({ email: new RegExp(`^${cleanEmail}$`, "i") }).lean();
-      } catch (e) { }
-    }
-    if (!mentorUser) {
-      mentorUser = (memoryDb.mentors || []).find(m => m && String(m.email || "").trim().toLowerCase() === cleanEmail);
-    }
-    if (mentorUser) {
-      if (mentorUser.status === "Inactive" || mentorUser.loginApproval === "Rejected") {
-        return res.status(403).json({ ok: false, message: "আপনার মেন্টর প্রোফাইলটি নিষ্ক্রিয় বা স্থগিত রয়েছে।" });
-      }
-      const mObj = { ...accountResponse(mentorUser), isMentor: true, role: "mentor" };
-      const token = signSession({ id: mObj.id || mObj._id, isMentor: true, role: "mentor" });
-      return res.json({
-        ok: true,
-        isMentor: true,
-        isAdmin: false,
-        token,
-        user: mObj,
-        student: mObj,
-        mentor: mObj
-      });
-    }
-
-    // 3. Student Match
-    let student = null;
-    if (isMongoConnected) {
-      try {
-        student = await Student.findOne({ email: new RegExp(`^${cleanEmail}$`, "i") });
-      } catch (e) { }
-    }
-    if (!student) {
-      student = (memoryDb.students || []).find(s => s && String(s.email || "").trim().toLowerCase() === cleanEmail);
-    }
-
-    const { university, courseId, phone } = req.body || {};
-
-    // If student not found, check if university and courseId were supplied
-    if (!student) {
-      if (!university || !courseId) {
-        // Return isNewUser flag so frontend prompts for University & Course
-        return res.json({
-          ok: true,
-          isNewUser: true,
-          email: cleanEmail,
-          name: name || "Google Student",
-          photoUrl: photoUrl || "",
-          firebaseUid: firebaseUid || "",
-          message: "আপনার অ্যাকাউন্ট সম্পন্ন করতে অনুগ্রহ করে বিশ্ববিদ্যালয় ও কাঙ্ক্ষিত কোর্স নির্বাচন করুন।"
-        });
-      }
-
-      // Match target course for batch & session
-      const targetCourse = (memoryDb.courses || []).find(c => c.id === courseId || String(c._id) === String(courseId));
-      const batchName = targetCourse ? (targetCourse.title || targetCourse.shortTitle || courseId) : (courseId || "Judiciary 2026");
-      const sessionName = targetCourse ? (targetCourse.sessionRegText || targetCourse.schedule || "Weekend Intensive") : "Weekend Intensive";
-
-      const newId = "STU-" + new Date().getFullYear() + "-" + Math.floor(1000 + Math.random() * 9000);
-      const studentObj = {
-        id: newId,
-        name: name || "Google Student",
-        phone: phone ? String(phone).trim() : ("01" + Math.floor(100000000 + Math.random() * 900000000)),
-        email: cleanEmail,
-        university: String(university || "").trim(),
-        batch: batchName,
-        session: sessionName,
-        password: await bcrypt.hash(firebaseUid || "GOOGLE_PASS_" + Date.now(), 10),
-        status: "Pending",
-        loginApproval: "Pending",
-        portalAccessMode: "Pending Approval",
-        enrolledCourseIds: [],
-        allowedCourseIds: [],
-        courseRules: [],
-        joinedOn: new Date().toISOString().split("T")[0]
-      };
-
-      if (isMongoConnected) {
-        student = await Student.create(studentObj);
-        if (student && student.toObject) student = student.toObject();
-      } else {
-        student = studentObj;
-      }
-      (memoryDb.students = memoryDb.students || []).unshift(student);
-
-      // Dispatch automatic Registration Confirmation Email for Google Signup
-      if (cleanEmail) {
-        sendRegistrationConfirmEmail(cleanEmail, studentObj).catch(err => console.warn("Google signup confirmation email notice:", err.message));
-      }
-    }
-
-    if (student.status === "Inactive" || student.status === "Blocked") {
-      return res.status(403).json({ ok: false, message: "আপনার অ্যাকাউন্টটি স্থগিত বা নিষ্ক্রিয় করা হয়েছে।" });
-    }
-
-    const stuData = accountResponse(student);
-    const token = signSession({ id: stuData.id || stuData._id, phone: stuData.phone, role: "student" });
-    await notifyStudentLogin(stuData, 'Google');
-    return res.json({ ok: true, token, student: stuData, isAdmin: false });
-  } catch (err) {
-    return sendAuthFailure(res, err);
+const googleLoginHandlers = createGoogleLogin({
+  verifyIdentity: createFirebaseIdentityVerifier(),
+  store: createGoogleAccountStore({
+    mongoose, Student, Mentor, Registration, Receipt, Course, isConnected: () => isMongoConnected
+  }),
+  onStudentLogin: student => notifyStudentLogin(student, "Google"),
+  onStudentRegistration(student) {
+    invalidateAdminBundle();
+    sendRegistrationConfirmEmail(student.email, student).catch(() => {
+      console.warn("Google registration confirmation delivery failed");
+    });
   }
 });
+app.post(["/api/auth/google", "/api/auth/google-login", "/auth/google-login"], googleLoginHandlers.login);
+app.post("/api/admin/google-account-links/approve", requireAdmin, googleLoginHandlers.approveLink);
 
 // Nodemailer SMTP Transporter - Direct Production Transporter with 100% Delivery Rate
 const smtpFallbackTransporter = nodemailer.createTransport({

@@ -25,7 +25,11 @@ const publicSiteSettings = data => Object.fromEntries(
   Object.entries(pickFields(data, SITE_FIELDS)).filter(([, value]) => typeof value === 'string')
 );
 const mailSettingsResponse = data => pickFields(data, MAIL_FIELDS);
-const accountResponse = data => pickFields(data, ACCOUNT_FIELDS);
+function accountResponse(data) {
+  const profile = pickFields(data, ACCOUNT_FIELDS);
+  if (typeof profile.phone === 'string' && /^GOOGLE-[a-p]{32}$/.test(profile.phone)) profile.phone = '';
+  return profile;
+}
 const publicMentorProfile = data => pickFields(data, data?.showPhone === true
   ? [...PUBLIC_MENTOR_FIELDS, 'phone']
   : PUBLIC_MENTOR_FIELDS);

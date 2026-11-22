@@ -30,17 +30,16 @@ export default function GoogleCompleteProfileModal({
       .then(res => {
         if (!isMounted) return;
         if (res.data?.ok && Array.isArray(res.data.courses) && res.data.courses.length > 0) {
-          const activeOnly = res.data.courses.filter(c =>
-            !c.status || c.status === 'Active' || String(c.status).toLowerCase().includes('active')
-          );
-          const list = activeOnly.length > 0 ? activeOnly : res.data.courses;
+          const list = res.data.courses.filter(course => !['Inactive', 'Hidden'].includes(course.status));
           setCourses(list);
           if (list.length > 0) {
             setSelectedCourseId(list[0].id || list[0]._id);
           }
         }
       })
-      .catch(err => console.warn('Error loading courses in modal:', err));
+      .catch(() => {
+        if (isMounted) setError('কোর্স লোড করা যায়নি। আবার চেষ্টা করুন।');
+      });
 
     return () => {
       isMounted = false;
@@ -73,6 +72,7 @@ export default function GoogleCompleteProfileModal({
       });
     } catch (err) {
       setError(err.message || 'রেজিস্ট্রেশন সম্পন্ন করতে সমস্যা হয়েছে। পুনরায় চেষ্টা করুন।');
+    } finally {
       setSubmitting(false);
     }
   };
@@ -185,7 +185,7 @@ export default function GoogleCompleteProfileModal({
           {/* Optional Phone Number */}
           <div className="space-y-1.5">
             <label className="block text-slate-400 font-medium">
-              মোবাইল নম্বর (ঐচ্ছিক — নোটিফিকেশন ও হেল্পলাইনের জন্য)
+              যোগাযোগের মোবাইল নম্বর (ঐচ্ছিক)
             </label>
             <input
               type="tel"

@@ -4,6 +4,7 @@ import Modal from '../components/ui/Modal';
 import { useToast } from '../context/ToastContext';
 import { formatBangladeshTime, toBangladeshDigits } from '../utils/dateUtils';
 import BrandLogo from '../components/BrandLogo';
+import GoogleAccountApproval from '../components/GoogleAccountApproval';
 
 export default function AdminPanel({ openLessonManager, openVideoModal, openMentorProfile }) {
   const [stats, setStats] = useState({
@@ -3056,6 +3057,7 @@ return (
       {/* 2.5 Hero Banner Settings Section */}
       {adminTab === 'settings' && (
       <>
+      <GoogleAccountApproval />
       <section className="glass-card rounded-xl p-6 border border-amber-500/30 shadow-xl space-y-4 bg-slate-950/60 transition-all">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800/80 pb-3">
           <div>
