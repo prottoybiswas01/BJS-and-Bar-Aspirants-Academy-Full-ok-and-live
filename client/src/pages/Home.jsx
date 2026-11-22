@@ -14,7 +14,6 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
   const [enrollModalCourse, setEnrollModalCourse] = useState(null);
   const [courseDetailsModal, setCourseDetailsModal] = useState({ isOpen: false, course: null, lessons: [], loading: false });
   const [loading, setLoading] = useState(true);
-  const [aiSearchInput, setAiSearchInput] = useState('');
 
   const handleCopyDemoLink = (e, courseId) => {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -31,15 +30,8 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
     }
     showSuccess("🔗 ১ম ক্লাসের ফ্রী ডেমো লিংক কপি হয়েছে! শেয়ার করতে পারবেন।");
   };
-  const [stats, setStats] = useState({
-    studentsCount: 0,
-    mentorsCount: 0
-  });
-
   const [siteSettings, setSiteSettings] = useState({
-    badgeText: '🔥 ১৮তম BJS ও বার কাউন্সিল অ্যাডভোকেসি স্পেশাল ব্যাচে ভর্তি চলছে!',
     heroTitle: 'বিচারক ও আইনজীবী হওয়ার স্বপ্নে গড়ি নিশ্চিত সাফল্য',
-    heroSubtitle: 'বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) এবং বার কাউন্সিল পরীক্ষায় শীর্ষস্থান অর্জনের জন্য দেশের সেরা বিচারক ও সুপ্রিম কোর্টের সিনিয়র আইনজীবীদের তত্ত্বাবধানে তৈরি পূর্ণাঙ্গ প্রস্তুতি কোর্স।'
   });
 
   // Use canonical sortLessons imported from lessonUtils
@@ -73,17 +65,9 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
         if (Array.isArray(data.mentors)) {
           setMentors(data.mentors);
         }
-        if (data.stats) {
-          setStats({
-            studentsCount: data.stats.studentsCount || 0,
-            mentorsCount: data.stats.mentorsCount || 0
-          });
-        }
         if (data.settings) {
           setSiteSettings(prev => ({
-            badgeText: data.settings.badgeText || prev.badgeText,
             heroTitle: data.settings.heroTitle || prev.heroTitle,
-            heroSubtitle: data.settings.heroSubtitle || prev.heroSubtitle
           }));
         }
       })
@@ -97,20 +81,10 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
         api.get('/mentors').then(res => {
           if (isMounted && res.data?.ok) setMentors(res.data.mentors || []);
         }).catch(() => {});
-        api.get('/public-stats').then(res => {
-          if (isMounted && res.data?.ok) {
-            setStats({
-              studentsCount: res.data.studentsCount || 0,
-              mentorsCount: res.data.mentorsCount || 0
-            });
-          }
-        }).catch(() => {});
         api.get('/site-settings').then(res => {
           if (isMounted && res.data?.ok && res.data.settings) {
             setSiteSettings(prev => ({
-              badgeText: res.data.settings.badgeText || prev.badgeText,
               heroTitle: res.data.settings.heroTitle || prev.heroTitle,
-              heroSubtitle: res.data.settings.heroSubtitle || prev.heroSubtitle
             }));
           }
         }).catch(() => {});
@@ -132,20 +106,9 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
         <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center space-y-6">
-          {(siteSettings.badgeText || '🔥 ১৮তম বিজিএস ও বার কাউন্সিল স্পেশাল ব্যাচে ভর্তি চলছে') && (
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-300 text-xs font-bold max-w-full text-center leading-snug shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0"></span>
-              <span className="line-clamp-2">{siteSettings.badgeText || '🔥 ১৮তম বিজিএস ও বার কাউন্সিল স্পেশাল ব্যাচে ভর্তি চলছে'}</span>
-            </div>
-          )}
-
           <h1 className="text-2xl sm:text-5xl font-black text-slate-950 dark:text-white tracking-tight leading-snug sm:leading-tight whitespace-pre-line">
             {siteSettings.heroTitle || "BJS & Bar Aspirants Academy\nJudiciary & Advocacy Excellence Portal"}
           </h1>
-
-          <p className="text-xs sm:text-base text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            {siteSettings.heroSubtitle || "বাংলাদেশের অন্যতম প্রধান আইন একাডেমিতে আপনাকে স্বাগতম। জুডিশিয়ারি ও বার কাউন্সিল প্রস্তুতির সেরা গাইডলাইন।"}
-          </p>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4 pt-2 w-full max-w-md sm:max-w-none mx-auto">
             {user ? (
@@ -183,118 +146,22 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
                   onClick={() => setActivePage('register')}
                   className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/25 transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
-                  <span>📝</span>
-                  <span>এখনই ভর্তি হোন (Register Batch)</span>
+                  এখনই ভর্তি হোন
                 </button>
                 <button
-                  onClick={() => setActivePage('public-notes')}
+                  onClick={() => setActivePage('notes')}
                   className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-bold text-sm transition-all shadow-sm flex items-center justify-center gap-2"
                 >
-                  <span>📖</span>
-                  <span>ফ্রি আইন গাইড পড়ুন (Study Guide)</span>
+                  ফ্রি আইন গাইড পড়ুন
                 </button>
                 <button
                   onClick={() => setActivePage('login')}
                   className="w-full sm:w-auto px-5 py-3.5 rounded-xl bg-slate-200/80 dark:bg-slate-900 hover:bg-slate-300 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-800 text-slate-800 dark:text-slate-300 font-bold text-sm transition-all"
                 >
-                  🔑 লগইন
+                  লগইন
                 </button>
               </>
             )}
-          </div>
-
-          {/* AI Instant Legal & Section Search Bar */}
-          <div className="w-full max-w-2xl mx-auto my-6 p-2 rounded-2xl bg-white dark:bg-gradient-to-r dark:from-slate-900/95 dark:via-[#0d1c38]/95 dark:to-slate-900/95 border border-cyan-500/40 shadow-xl shadow-cyan-950/20 backdrop-blur-md text-left">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const q = aiSearchInput.trim();
-                if (q && window.askLegalAi) {
-                  window.askLegalAi(q);
-                  setAiSearchInput('');
-                }
-              }}
-              className="flex items-center gap-2"
-            >
-              <div className="pl-3 text-cyan-500 text-base sm:text-lg shrink-0">⚡</div>
-              <input
-                type="text"
-                value={aiSearchInput}
-                onChange={(e) => setAiSearchInput(e.target.value)}
-                placeholder="আইনের যেকোনো ধারা বা প্রশ্ন লিখুন (যেমন: ৩০২ ধারা, ৫৪ ধারা, BJS, বার কাউন্সিল, জামিন)..."
-                className="flex-1 bg-transparent border-0 text-slate-900 dark:text-white placeholder-slate-400 text-xs sm:text-sm px-1 py-1.5 focus:outline-none"
-              />
-              <button
-                type="submit"
-                className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-xs sm:text-sm shadow-md transition-all shrink-0 flex items-center gap-1.5 cursor-pointer active:scale-95"
-              >
-                <span>AI উত্তর পান</span>
-                <span>🤖</span>
-              </button>
-            </form>
-
-            {/* Clickable Quick Keyword & Section Chips */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-2 px-2 border-t border-slate-100 dark:border-slate-800/80 mt-2">
-              <span className="text-slate-500 dark:text-slate-400 text-[10px] font-mono shrink-0">জনপ্রিয় শর্টকাট:</span>
-              {[
-                { label: '🏛️ BJS প্রস্তুতি', q: 'সহকারী জজ (BJS) পরীক্ষার প্রিলিমিনারি ও লিখিত সিলেবাস এবং প্রস্তুতি কৌশল' },
-                { label: '📋 বার কাউন্সিল MCQ', q: 'বার কাউন্সিল অ্যাডভোকেটশিপ এমসিকিউ পরীক্ষার পাস মার্কস ও গুরুত্বপূর্ণ বিষয়' },
-                { label: '⚖️ ৩০২ ধারা', q: 'দণ্ডবিধি ৩০২ ধারা ও খুনের শাস্তির উপাদান কি কি?' },
-                { label: '🚨 ৫৪ ধারা', q: 'ফৌজদারী কার্যবিধি ৫৪ ধারায় পরোয়ানা ছাড়া গ্রেফতারের নিয়ম কি?' },
-                { label: '🛡️ ৪৯৭ ধারা (জামিন)', q: 'CrPC Section 497 জামিনের দরখাস্ত ও জামিন মঞ্জুরের নিয়ম' },
-                { label: '📜 ১০২ অনুচ্ছেদ (রিট)', q: 'বাংলাদেশ সংবিধানের ১০২ অনুচ্ছেদে রিট পিটিশন করার নিয়ম' },
-                { label: '📑 দেওয়ানী ১৪৪ ধারা', q: 'দেওয়ানী কার্যবিধি ১৪৪ ধারা Restitution বা পুনঃস্থাপন কি?' },
-                { label: '⏱️ তামাদি ৫ ধারা', q: 'তামাদি আইন ৫ ধারা বিলম্ব মার্জনা (Condonation of Delay)' }
-              ].map((chip, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => {
-                    if (window.askLegalAi) window.askLegalAi(chip.q);
-                  }}
-                  className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800/90 hover:bg-cyan-100 dark:hover:bg-cyan-950 border border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 transition-all text-[10px] font-medium cursor-pointer active:scale-95"
-                >
-                  {chip.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Dynamic 4 Stat Badges */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 border-t border-slate-200 dark:border-slate-800/80 max-w-3xl mx-auto">
-            <div className="p-2">
-              <p className="text-2xl sm:text-3xl font-black text-amber-500 dark:text-amber-400 font-mono">
-                {stats.studentsCount > 0 ? `${stats.studentsCount}+` : '0'}
-              </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">নিবন্ধিত শিক্ষার্থী</p>
-            </div>
-
-            {/* Clickable Mentors Stat Card */}
-            <div
-              onClick={() => setIsMentorsModalOpen(true)}
-              className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:border-purple-400/60 hover:bg-purple-500/20 transition-all cursor-pointer group shadow-sm"
-              title="মাননীয় বিচারক ও মেন্টরদের প্রোফাইল দেখতে ক্লিক করুন"
-            >
-              <p className="text-2xl sm:text-3xl font-black text-purple-600 dark:text-purple-400 font-mono group-hover:scale-105 transition-transform flex items-center justify-center gap-1">
-                <span>{mentors.length > 0 ? `${mentors.length}+` : (stats.mentorsCount > 0 ? `${stats.mentorsCount}+` : '1+')}</span>
-                <span className="text-xs opacity-75">🔍</span>
-              </p>
-              <p className="text-xs text-purple-700 dark:text-purple-300 font-bold transition-colors">
-                অভিজ্ঞ মেন্টর ও শিক্ষক
-              </p>
-              <span className="text-[9px] text-purple-500 dark:text-purple-400/80 block mt-0.5 font-mono">
-                (প্রোফাইল দেখতে ক্লিক করুন)
-              </span>
-            </div>
-
-            <div className="p-2">
-              <p className="text-2xl sm:text-3xl font-black text-cyan-600 dark:text-cyan-400 font-mono">100%</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">নিরাপদ ভিডিও লেকচার</p>
-            </div>
-            <div className="p-2">
-              <p className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 font-mono">24/7</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Gemini AI Legal Helper</p>
-            </div>
           </div>
         </div>
       </section>
@@ -423,7 +290,7 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
 
       {/* Direct Homepage Mentors & Faculty Showcase */}
       {mentors.length > 0 && (
-        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section id="mentors" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center space-y-3 mb-10">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-600 dark:text-purple-300 text-xs font-bold uppercase tracking-wider">
               <span>⚖️</span>
@@ -435,6 +302,11 @@ export default function Home({ setActivePage, openMentorProfile, openVideoModal 
             <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
               বাংলাদেশ জুডিশিয়াল সার্ভিস (BJS) বিচারক ও সুপ্রিম কোর্টের প্রথিতযশা আইনজীবীদের সার্বিক তত্ত্বাবধানে ক্লাস পরিচালিত হয়
             </p>
+            {mentors.length > 6 && (
+              <button type="button" onClick={() => setIsMentorsModalOpen(true)} className="rounded-lg px-3 py-2 text-sm font-bold text-purple-700 hover:bg-purple-500/10 dark:text-purple-300">
+                সব মেন্টর দেখুন
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

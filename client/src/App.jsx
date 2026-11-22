@@ -146,7 +146,7 @@ function resolveRoute(user) {
 }
 
 function MainApp() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { showWarning, showError } = useToast();
   const [mcqExamId, setMcqExamId] = useState('');
   const [activePage, setActivePage] = useState(() => resolveRoute(null));
@@ -457,6 +457,8 @@ function MainApp() {
       {videoModal.isOpen && (
         <VideoPlayerModal
           videoId={videoModal.lesson?.youtubeId}
+          lessonId={videoModal.lesson?.id || videoModal.lesson?._id}
+          telemetryToken={user && !user.isAdmin && !user.isMentor && !['admin', 'mentor'].includes(user.role) ? token : undefined}
           title={videoModal.lesson?.title}
           student={user}
           clipOptions={videoModal.clipOptions}

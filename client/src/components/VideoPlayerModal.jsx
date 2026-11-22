@@ -40,6 +40,61 @@ function requestHdPlayback(player) {
   }
 }
 
+function createWatchTracker(getIdentity, startTime) {
+  let identity = null;
+  let playingSince = null;
+  let watchedMs = 0;
+  let position = startTime;
+
+  const setPosition = (current) => {
+    if (Number.isFinite(current) && current >= 0) position = current;
+  };
+
+  const report = (event, player) => {
+    try {
+      setPosition(player?.getCurrentTime());
+    } catch (_) {}
+    try {
+      void fetch('/api/student/watch-telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${identity.token}` },
+        body: JSON.stringify({
+          lessonId: identity.lessonId,
+          event,
+          watchedSeconds: Math.floor(watchedMs / 1000),
+          videoTimestamp: Math.floor(position)
+        }),
+        keepalive: true
+      }).catch(() => {});
+    } catch (_) {}
+  };
+
+  const suspend = () => {
+    if (playingSince === null) return;
+    watchedMs += performance.now() - playingSince;
+    playingSince = null;
+  };
+
+  return {
+    play(player) {
+      if (playingSince !== null) return;
+      const continuing = Boolean(identity);
+      identity ||= getIdentity();
+      if (!identity) return;
+      playingSince = performance.now();
+      if (!continuing) report('started', player);
+    },
+    setPosition,
+    suspend,
+    end(player) {
+      if (!identity) return;
+      suspend();
+      report('ended', player);
+      identity = null;
+    }
+  };
+}
+
 // Global singleton promise for loading YouTube Iframe API script
 let ytScriptLoadingPromise = null;
 function loadYouTubeIframeApi() {
@@ -82,6 +137,8 @@ function loadYouTubeIframeApi() {
 
 export default function VideoPlayerModal({
   videoId,
+  lessonId,
+  telemetryToken,
   title,
   student,
   clipOptions = null,
@@ -94,6 +151,8 @@ export default function VideoPlayerModal({
   const [isExpanded, setIsExpanded] = useState(false);
   const containerRef = useRef(null);
   const hasRequestedFullscreen = useRef(false);
+  const watchIdentity = useRef(null);
+  watchIdentity.current = lessonId && telemetryToken ? { lessonId, token: telemetryToken } : null;
   const isFullscreen = isNativeFullscreen || isExpanded;
 
   // Dynamic Moving Watermark Overlay Positions
@@ -250,6 +309,10 @@ export default function VideoPlayerModal({
 
     if (!activeVideoId) return;
 
+    const watch = createWatchTracker(() => watchIdentity.current, initialStartTime);
+    const endWatch = () => watch.end(playerRef.current);
+    window.addEventListener('pagehide', endWatch);
+
     loadYouTubeIframeApi().then((YT) => {
       if (!isMounted || !YT) return;
 
@@ -295,13 +358,18 @@ export default function VideoPlayerModal({
             if (event.data === YT.PlayerState.PLAYING) {
               requestHdPlayback(event.target);
               setIsPlaying(true);
+              watch.play(event.target);
             } else if (event.data === YT.PlayerState.PAUSED) {
+              watch.end(event.target);
               setIsPlaying(false);
             } else if (event.data === YT.PlayerState.ENDED) {
+              watch.end(event.target);
               setIsPlaying(false);
               if (!canPlayFull) {
                 setClipEnded(true);
               }
+            } else if (event.data === YT.PlayerState.BUFFERING) {
+              watch.suspend();
             }
           }
         }
@@ -313,11 +381,13 @@ export default function VideoPlayerModal({
           try {
             const curr = playerRef.current.getCurrentTime() || 0;
             const dur = playerRef.current.getDuration() || 0;
+            watch.setPosition(curr);
             setCurrentTime(curr);
             if (dur > 0) setDuration(dur);
 
             // Handle preview clip auto-cutoff
             if (!canPlayFull && curr >= endTime) {
+              endWatch();
               playerRef.current.pauseVideo();
               setIsPlaying(false);
               setClipEnded(true);
@@ -329,6 +399,8 @@ export default function VideoPlayerModal({
 
     return () => {
       isMounted = false;
+      window.removeEventListener('pagehide', endWatch);
+      endWatch();
       if (pollTimer) clearInterval(pollTimer);
       if (playerRef.current) {
         try {

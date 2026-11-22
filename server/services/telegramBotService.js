@@ -29,7 +29,7 @@ const TelegramSession = require('../models/TelegramSession');
 /**
  * Safe HTTPS Request Helper
  */
-function makeHttpsRequest(options, postData = null) {
+function makeHttpsRequest(options, postData = null, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     const req = https.request(options, (res) => {
       let data = '';
@@ -45,7 +45,7 @@ function makeHttpsRequest(options, postData = null) {
     });
 
     req.on('error', (err) => reject(err));
-    req.setTimeout(15000, () => {
+    req.setTimeout(timeoutMs, () => {
       req.destroy();
       reject(new Error('HTTPS request timed out'));
     });
@@ -78,7 +78,7 @@ async function ensureDb() {
 /**
  * Send message to Telegram Chat with optional reply_to and reply_markup
  */
-async function sendTelegramMessage(chatId, text, replyToMessageId = null, replyMarkup = null) {
+async function sendTelegramMessage(chatId, text, replyToMessageId = null, replyMarkup = null, { parseMode = 'Markdown', timeoutMs = 15000 } = {}) {
   const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
   if (!token || !chatId) return { ok: false, error: 'Missing token or chatId' };
 
@@ -86,9 +86,9 @@ async function sendTelegramMessage(chatId, text, replyToMessageId = null, replyM
     const payload = {
       chat_id: chatId,
       text,
-      parse_mode: 'Markdown',
       disable_web_page_preview: true
     };
+    if (parseMode) payload.parse_mode = parseMode;
     if (replyToMessageId) {
       payload.reply_to_message_id = replyToMessageId;
     }
@@ -101,13 +101,55 @@ async function sendTelegramMessage(chatId, text, replyToMessageId = null, replyM
       path: `/bot${token}/sendMessage`,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
-    }, payload);
+    }, payload, timeoutMs);
 
     return res.data;
   } catch (err) {
     console.error('⚠️ Telegram send message error:', err.message);
     return { ok: false, error: err.message };
   }
+}
+
+const bangladeshLoginTime = new Intl.DateTimeFormat('bn-BD', {
+  timeZone: 'Asia/Dhaka',
+  dateStyle: 'medium',
+  timeStyle: 'medium',
+  hourCycle: 'h23'
+});
+
+const bengaliDigits = value => String(value).replace(/[0-9]/g, digit => '০১২৩৪৫৬৭৮৯'[digit]);
+const alertText = (value, maxLength = 250) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength) || '—';
+
+function formatStudentForAlert(student) {
+  const id = alertText(student.id || student.regId);
+  return `${alertText(student.name)} (${/^STU-/i.test(id) ? id : `STU-${id}`})`;
+}
+
+function sendStudentActivityAlert(lines) {
+  const chatId = (process.env.TELEGRAM_CHAT_ID || '7630488220').trim();
+  return sendTelegramMessage(chatId, lines.join('\n'), null, null, { parseMode: null, timeoutMs: 2500 });
+}
+
+function sendStudentLoginAlert(student, enrolledCourses, method, loggedInAt) {
+  return sendStudentActivityAlert([
+    '🔐 শিক্ষার্থী লগইন',
+    `👤 শিক্ষার্থী: ${formatStudentForAlert(student)}`,
+    `📱 ইমেইল / ফোন: ${alertText(student.email)} / ${alertText(student.phone)}`,
+    `📚 এনরোলকৃত কোর্স: ${alertText(enrolledCourses.join(', ') || 'কোনো কোর্স নেই', 1200)}`,
+    `🕒 লগইন সময় ও মাধ্যম: ${bangladeshLoginTime.format(loggedInAt)} (GMT+6) · ${method}`
+  ]);
+}
+
+function sendStudentWatchAlert(student, courseTitle, lessonTitle, { event, watchedSeconds, videoTimestamp }) {
+  const duration = `${bengaliDigits(Math.floor(watchedSeconds / 60))} মিনিট ${bengaliDigits(watchedSeconds % 60)} সেকেন্ড`;
+  const position = [Math.floor(videoTimestamp / 60), videoTimestamp % 60]
+    .map(part => bengaliDigits(String(part).padStart(2, '0'))).join(':');
+  return sendStudentActivityAlert([
+    event === 'started' ? '▶️ ক্লাস শুরু করেছে' : '⏹️ ক্লাস দেখা শেষ/বন্ধ করেছে',
+    `👤 শিক্ষার্থী: ${formatStudentForAlert(student)}`,
+    `🎬 কোর্স ও ক্লাস: ${alertText(courseTitle)} — ${alertText(lessonTitle)}`,
+    `⏱️ দেখার সময়কাল: ${duration} | ভিডিও অবস্থান: ${position}`
+  ]);
 }
 
 /**
@@ -1087,6 +1129,8 @@ async function handleTelegramWebhook(req, res) {
 
 module.exports = {
   sendTelegramMessage,
+  sendStudentLoginAlert,
+  sendStudentWatchAlert,
   answerCallbackQuery,
   editTelegramMessageText,
   registerBotCommands,

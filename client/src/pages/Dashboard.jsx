@@ -9,7 +9,7 @@ import { sortLessons } from '../utils/lessonUtils';
 import { getNotificationPermission, requestAndSubscribePush } from '../utils/pushNotification';
 
 export default function Dashboard({ openVideoModal, openProfileModal }) {
-  const { user, updateUserProfile } = useAuth();
+  const { user, logout, updateUserProfile } = useAuth();
   const { showToast, showSuccess, showError, showWarning, showInfo } = useToast();
   const [courses, setCourses] = useState([]);
   const [lessons, setLessons] = useState([]);
@@ -561,8 +561,12 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
 
   const isCourseAllowed = checkCourseEnrolled(selectedCourse);
   const isEnrolled = isApproved && isCourseAllowed;
-  const completedCount = user?.completedLessonIds?.length || 0;
+  const completedLessons = new Set(user?.completedLessonIds || []);
+  const completedCount = lessons.filter(lesson => completedLessons.has(lesson.id)).length;
   const progressPercent = lessons.length > 0 ? Math.round((completedCount / lessons.length) * 100) : 0;
+  const studentId = user?.id || user?.regId;
+  const playableLessons = lessons.filter(lesson => lesson.isUnlocked !== false && lesson.youtubeId);
+  const resumeLesson = isEnrolled && (playableLessons.find(lesson => !completedLessons.has(lesson.id)) || playableLessons[0]);
 
   return (
     <div className="space-y-6 sm:space-y-8 pb-16 animate-fadeIn">
@@ -592,146 +596,74 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         </div>
       )}
 
-      {/* Top Welcome Banner - High Contrast in Light/Dark & Zero Awkward Wrapping */}
-      <section className="rounded-2xl p-5 sm:p-8 border border-slate-200 dark:border-amber-500/20 bg-white dark:bg-slate-900/80 shadow-md dark:shadow-2xl relative overflow-hidden transition-colors">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div className="space-y-3">
-            {/* Top Student Profile Badges - Clean Alignment on Mobile */}
-            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-              <span className="px-2.5 sm:px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-mono text-xs font-extrabold border border-emerald-300 dark:border-emerald-500/30 whitespace-nowrap shadow-xs">
-                ● STATUS: {user?.status || 'Active'}
-              </span>
-              <span className="px-2.5 sm:px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 font-mono text-xs font-extrabold border border-amber-300 dark:border-amber-500/30 whitespace-nowrap shadow-xs">
-                ID: {user?.id || 'STU-2026-001'}
-              </span>
-              {openProfileModal && (
-                <button
-                  type="button"
-                  onClick={openProfileModal}
-                  className="px-2.5 sm:px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800 text-slate-800 dark:text-amber-300 hover:text-slate-950 dark:hover:text-amber-200 font-bold text-xs border border-slate-300 dark:border-amber-500/30 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
-                  title="প্রোফাইল দেখুন ও ইমেইল পরিবর্তন করুন"
-                >
-                  <span>👤</span>
-                  <span>আমার প্রোফাইল ও সেটিংস</span>
-                </button>
-              )}
-            </div>
-
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
-              স্বাগতম, <span className="text-gradient-gold">{user?.name || 'শিক্ষার্থী'}</span>!
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="break-words text-xl font-black text-slate-900 dark:text-white sm:text-3xl">
+              {user?.name || 'শিক্ষার্থী'}
             </h1>
-            <div className="flex flex-wrap items-center gap-1.5 pt-1">
-              <span className="text-xs text-slate-600 dark:text-slate-400 font-bold">আপনার এনরোলকৃত কোর্সসমূহ:</span>
-              {courses
-                .filter(c => checkCourseEnrolled(c))
-                .map(c => (
-                  <span key={c.id} className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/15 border border-amber-300 dark:border-amber-500/30 text-amber-900 dark:text-amber-300 text-xs font-bold shadow-xs whitespace-nowrap">
-                    📚 {c.shortTitle || c.title}
-                  </span>
-                ))}
-              {courses.filter(c => checkCourseEnrolled(c)).length === 0 && (
-                <span className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/15 border border-amber-300 dark:border-amber-500/30 text-amber-900 dark:text-amber-300 text-xs font-bold shadow-xs whitespace-nowrap">
-                  📚 {isApproved ? (user?.batch || 'BJS & Bar Masterclass') : 'কোনো সক্রিয় কোর্স নেই (পেন্ডিং)'}
-                </span>
-              )}
-            </div>
+            {studentId && (
+              <p className="mt-1 break-all font-mono text-xs font-bold text-amber-700 dark:text-amber-300">
+                {/^STU-/i.test(studentId) ? studentId : `STU-${studentId}`}
+              </p>
+            )}
           </div>
-
-          {/* Quick-Resume & Learning Progress Widget */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
-            {/* Quick-Resume Button */}
-            {lessons.length > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  const nextLessonToWatch = lessons.find(l => !user?.completedLessonIds?.includes(l.id) && (l.youtubeId || l.youtubeUrl)) || lessons[0];
-                  if (nextLessonToWatch) {
-                    openVideoModal(nextLessonToWatch);
-                  } else {
-                    showToast("কোনো সক্রিয় ভিডিও ক্লাস পাওয়া যায়নি।", "info");
-                  }
-                }}
-                className="px-5 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-amber-500/25 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 cursor-pointer shrink-0"
-                title="সর্বশেষ অসম্পূর্ণ ক্লাস থেকে ভিডিও লেকচার শুরু করুন"
-              >
-                <span>▶</span>
-                <span>সর্বশেষ ক্লাস থেকে পড়া চালিয়ে যান</span>
+          <div className="flex shrink-0 items-center gap-2">
+            {openProfileModal && (
+              <button type="button" onClick={openProfileModal} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm font-bold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
+                প্রোফাইল
               </button>
             )}
+            <button type="button" onClick={logout} className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-3 text-sm font-bold text-rose-700 hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-950/70 dark:text-rose-200 dark:hover:bg-rose-900">
+              লগআউট
+            </button>
+          </div>
+        </div>
 
-            {/* Learning Progress Widget */}
-            <div className="bg-slate-100 dark:bg-slate-950/90 p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2 min-w-[220px] transition-colors">
-              <div className="flex justify-between text-xs font-bold">
-                <span className="text-slate-600 dark:text-slate-400">কোর্স অগ্রগতি (Progress)</span>
-                <span className="text-amber-600 dark:text-amber-400 font-mono">{progressPercent}%</span>
-              </div>
-              <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-500"
-                  style={{ width: `${progressPercent}%` }}
-                ></div>
-              </div>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 text-right font-mono">
-                {completedCount} / {lessons.length} লেকচার সম্পন্ন
-              </p>
-            </div>
+        {resumeLesson && (
+          <button
+            type="button"
+            onClick={() => openVideoModal(resumeLesson)}
+            className="mt-4 min-h-11 w-full rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-extrabold text-slate-950 hover:bg-amber-400 sm:w-auto"
+          >
+            ▶ সর্বশেষ ক্লাস থেকে পড়া চালিয়ে যান
+          </button>
+        )}
+
+        <div className="mt-4 space-y-2">
+          <div className="flex justify-between gap-2 text-xs font-bold text-slate-600 dark:text-slate-300">
+            <span>কোর্স অগ্রগতি</span>
+            <span className="font-mono text-amber-700 dark:text-amber-300">{progressPercent}%</span>
+          </div>
+          <div role="progressbar" aria-label="কোর্স অগ্রগতি" aria-valuenow={progressPercent} className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+            <div className="h-full rounded-full bg-amber-500" style={{ width: `${progressPercent}%` }} />
           </div>
         </div>
       </section>
 
-      {/* Segmented Tab Navigation: 5 Smooth Horizontal Pill Tabs */}
-      <div className="flex flex-wrap bg-white dark:bg-slate-950/95 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 gap-1.5 shadow-md dark:shadow-xl transition-colors">
-        <button
-          onClick={() => setSelectedTab('lectures')}
-          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all text-center cursor-pointer ${
-            selectedTab === 'lectures'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
-          }`}
-        >
-          📚 ক্লাস ও কোর্স
-        </button>
-        <button
-          onClick={() => setSelectedTab('exams')}
-          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
-            selectedTab === 'exams'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
-          }`}
-        >
-          <span>📝 মডেল টেস্ট ({studentExams.length})</span>
-        </button>
-        <button
-          onClick={() => setSelectedTab('assignments')}
-          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
-            selectedTab === 'assignments'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
-          }`}
-        >
-          <span>📂 অ্যাসাইনমেন্ট ({studentAssignments.length})</span>
-        </button>
-        <button
-          onClick={() => setSelectedTab('payments')}
-          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
-            selectedTab === 'payments'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
-          }`}
-        >
-          <span>🧾 মানি রিসিট ({studentReceipts.length})</span>
-        </button>
-        <button
-          onClick={() => setSelectedTab('certificates')}
-          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all relative text-center cursor-pointer ${
-            selectedTab === 'certificates'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
-          }`}
-        >
-          <span>🎓 সার্টিফিকেট ({studentCertificates.length})</span>
-        </button>
-      </div>
+      <nav aria-label="ড্যাশবোর্ড বিভাগ" className="flex min-w-0 flex-nowrap gap-1.5 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        {[
+          ['lectures', 'ক্লাস ও কোর্স'],
+          ['exams', 'মডেল টেস্ট', studentExams.length],
+          ['assignments', 'অ্যাসাইনমেন্ট', studentAssignments.length],
+          ['payments', 'মানি রিসিট', studentReceipts.length],
+          ['certificates', 'সার্টিফিকেট', studentCertificates.length]
+        ].map(([tab, label, count]) => (
+          <button
+            key={tab}
+            type="button"
+            aria-pressed={selectedTab === tab}
+            onClick={() => setSelectedTab(tab)}
+            className={`min-h-11 grow shrink-0 whitespace-nowrap rounded-full px-3 text-sm font-extrabold transition-colors ${
+              selectedTab === tab
+                ? 'bg-amber-500 text-slate-950'
+                : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+            }`}
+          >
+            {label}{count !== undefined && ` (${count})`}
+          </button>
+        ))}
+      </nav>
 
       {/* LECTURES TAB */}
       {selectedTab === 'lectures' && (

@@ -264,7 +264,7 @@ const {
   backfillAllExistingSubtitles
 } = require("./services/subtitleScheduler");
 const { generateReceiptPdf } = require("./services/receiptPdfService");
-const { handleTelegramWebhook, setupTelegramWebhook } = require("./services/telegramBotService");
+const { handleTelegramWebhook, setupTelegramWebhook, sendStudentLoginAlert, sendStudentWatchAlert } = require("./services/telegramBotService");
 const { parseBangladeshTimeToUtc, formatBangladeshTime } = require("./utils/dateUtils");
 const { sortLessons, getLessonNum, parseLessonNum, getNextSerial } = require("./utils/lessonUtils");
 
@@ -1349,6 +1349,28 @@ app.post(["/api/auth/mentor/login", "/auth/mentor/login"], async (req, res) => {
 });
 
 // 3. Multi-Identifier Instant Login (Student Login & Admin Portal Login)
+async function notifyStudentLogin(student, method) {
+  const loggedInAt = new Date();
+  try {
+    const enrolledIds = [...(student.allowedCourseIds || []), ...(student.enrolledCourseIds || [])].filter(Boolean);
+    if (enrolledIds.length === 0) {
+      if (student.course) enrolledIds.push(student.course);
+      for (const rule of student.courseRules || []) {
+        if (rule?.courseId && rule.enrollmentStatus !== 'Suspended') enrolledIds.push(rule.courseId);
+      }
+    }
+    const isUnlimited = student.unlimitedAccess === true || enrolledIds.some(id => String(id).trim().toLowerCase() === 'all');
+    const courseNames = isUnlimited
+      ? ['সব কোর্স (আনলিমিটেড অ্যাক্সেস)']
+      : await Promise.all([...new Set(enrolledIds)].map(async id => (await resolveCourseByIdOrAlias(id))?.title || id));
+
+    const result = await sendStudentLoginAlert(student, [...new Set(courseNames)], method, loggedInAt);
+    if (!result?.ok) console.warn('Student login alert delivery failed');
+  } catch (_) {
+    console.warn('Student login alert delivery failed');
+  }
+}
+
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { identifier, password, isAdminPortal } = req.body;
@@ -1643,6 +1665,7 @@ app.post("/api/auth/login", async (req, res) => {
 
     // Return Student Profile & Token for Student Dashboard
     const token = jwt.sign({ id: student.id, phone: student.phone, role: "student" }, JWT_SECRET, { expiresIn: "7d" });
+    await notifyStudentLogin(student, 'ইমেইল / পাসওয়ার্ড');
     return res.json({ ok: true, token, student, isAdmin: false });
   } catch (err) {
     console.error("Login endpoint error:", err);
@@ -1651,7 +1674,7 @@ app.post("/api/auth/login", async (req, res) => {
 });
 
 // Google 1-Click Authentication (Firebase Google Login)
-app.post(["/api/auth/google-login", "/auth/google-login"], async (req, res) => {
+app.post(["/api/auth/google", "/api/auth/google-login", "/auth/google-login"], async (req, res) => {
   try {
     const { email, name, photoUrl, firebaseUid } = req.body || {};
     if (!email) {
@@ -1763,6 +1786,7 @@ app.post(["/api/auth/google-login", "/auth/google-login"], async (req, res) => {
 
     const stuData = student.toObject ? student.toObject() : student;
     const token = jwt.sign({ id: stuData.id, phone: stuData.phone, role: "student" }, JWT_SECRET, { expiresIn: "7d" });
+    await notifyStudentLogin(stuData, 'Google');
     return res.json({ ok: true, token, student: stuData, isAdmin: false });
   } catch (err) {
     console.error("Google login error:", err);
@@ -5949,6 +5973,51 @@ function checkStudentCourseAccess(student, courseId, lesson = null) {
 
   return { allowed: true, reason: 'ENROLLED' };
 }
+
+app.post('/api/student/watch-telemetry', async (req, res) => {
+  const { event, lessonId, watchedSeconds, videoTimestamp } = req.body || {};
+  const validSeconds = value => Number.isSafeInteger(value) && value >= 0 && value <= 604800;
+  if (!['started', 'ended'].includes(event) || typeof lessonId !== 'string' || !lessonId.trim() || lessonId.length > 200 ||
+      !validSeconds(watchedSeconds) || !validSeconds(videoTimestamp)) {
+    return res.status(400).json({ ok: false });
+  }
+
+  try {
+    const student = await getAuthUserFromRequest(req);
+    if (student?.role !== 'student' || student.isAdmin || student.isMentor) {
+      return res.status(401).json({ ok: false });
+    }
+    if (student.status === 'Inactive' || student.status === 'Blocked') {
+      return res.status(403).json({ ok: false });
+    }
+
+    const id = lessonId.trim();
+    const lessonIds = [{ id }];
+    if (mongoose.Types.ObjectId.isValid(id)) lessonIds.push({ _id: id });
+    const lesson = isMongoConnected
+      ? await Lesson.findOne({ $or: lessonIds }, 'courseId title isFree module isDraft status').lean()
+      : (memoryDb.lessons || []).find(item => item?.id === id || String(item?._id) === id);
+    if (!lesson || lesson.isDraft || lesson.status === 'draft') {
+      return res.status(404).json({ ok: false });
+    }
+
+    const course = await resolveCourseByIdOrAlias(lesson.courseId);
+    const canWatch = checkStudentCourseAccess(student, lesson.courseId, lesson).allowed ||
+      (course?.id !== lesson.courseId && checkStudentCourseAccess(student, course?.id, lesson).allowed);
+    if (!canWatch) {
+      return res.status(403).json({ ok: false });
+    }
+
+    const delivered = await sendStudentWatchAlert(student, course?.title || lesson.courseId, lesson.title, {
+      event, watchedSeconds, videoTimestamp
+    });
+    if (!delivered?.ok) return res.status(502).json({ ok: false });
+    return res.sendStatus(204);
+  } catch (_) {
+    console.warn('Student watch alert delivery failed');
+    return res.status(500).json({ ok: false });
+  }
+});
 
 // DEDICATED QUERY-DRIVEN STUDENT DASHBOARD OVERVIEW ENDPOINT (Backend-Processed & Fast-Cached)
 app.get(["/api/student/dashboard-data", "/api/student/my-portal"], async (req, res) => {

@@ -1,13 +1,18 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import { Menu, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import BrandLogo from './BrandLogo';
 
 export default function Navbar({ activePage, setActivePage, toggleAiDrawer, openProfileModal }) {
   const { user, logout } = useAuth();
-  const { theme, toggleTheme, isDark } = useTheme();
+  const { toggleTheme, isDark } = useTheme();
+  const menuRef = useRef(null);
+  const isAdmin = user?.isAdmin || user?.role === 'admin';
+  const isMentor = user?.isMentor || user?.role === 'mentor';
 
   const handleNavClick = (page, sectionId = null) => {
+    menuRef.current?.close();
     if (setActivePage) setActivePage(page);
     if (sectionId) {
       setTimeout(() => {
@@ -17,18 +22,24 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
     }
   };
 
+  const handleLogout = () => {
+    menuRef.current?.close();
+    logout();
+  };
+
   return (
     <header className="sticky top-0 z-40 w-full h-16 bg-white/85 dark:bg-[#090D16]/90 backdrop-blur-xl border-b border-slate-200 dark:border-white/10 transition-colors">
       <div className="max-w-7xl mx-auto h-full px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-full gap-2">
           {/* Brand Logo & Name */}
-          <div
+          <button
+            type="button"
             onClick={() => handleNavClick('home')}
-            className="flex items-center cursor-pointer shrink-0"
+            className="flex min-w-0 items-center text-left cursor-pointer"
             title="BJS & Bar Academy - হোমপেজে যান"
           >
-            <BrandLogo size="md" variant={isDark ? 'default' : 'light'} />
-          </div>
+            <BrandLogo size="sm" variant={isDark ? 'default' : 'light'} className="max-w-full [&>div:last-child]:min-w-0 [&>div:last-child_span]:truncate" />
+          </button>
 
           {/* Centered Navigation Links */}
           <nav className="hidden lg:flex items-center space-x-1 xl:space-x-2">
@@ -60,7 +71,7 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
             </button>
             <button
               onClick={() => {
-                if (user && (user.isMentor || user.role === 'mentor')) {
+                if (isMentor) {
                   handleNavClick('mentor-dashboard');
                 } else {
                   handleNavClick('home', 'mentors');
@@ -76,7 +87,7 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
             </button>
 
             {/* Admin Exclusive Link */}
-            {user && (user.isAdmin || user.role === 'admin') && (
+            {isAdmin && (
               <button
                 onClick={() => handleNavClick('admin')}
                 className={`px-3.5 py-1.5 rounded-lg font-extrabold text-xs xl:text-sm transition-all cursor-pointer ${
@@ -90,7 +101,7 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
             )}
 
             {/* Student Dashboard Link */}
-            {user && !user.isAdmin && !user.isMentor && user.role !== 'admin' && user.role !== 'mentor' && (
+            {user && !isAdmin && !isMentor && (
               <button
                 onClick={() => handleNavClick('dashboard')}
                 className={`px-3.5 py-1.5 rounded-lg font-extrabold text-xs xl:text-sm transition-all cursor-pointer ${
@@ -109,7 +120,7 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
             {/* Theme Toggle (Daylight / Obsidian) */}
             <button
               onClick={toggleTheme}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 border border-slate-300 dark:border-white/10 text-slate-800 dark:text-amber-300 hover:scale-105 active:scale-95 transition-all shadow-sm cursor-pointer shrink-0"
+              className="size-11 lg:size-9 rounded-xl flex items-center justify-center bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 border border-slate-300 dark:border-white/10 text-slate-800 dark:text-amber-300 hover:scale-105 active:scale-95 transition-all shadow-sm cursor-pointer shrink-0"
               title={isDark ? "Daylight Reading Mode-এ সুইচ করুন" : "Executive Obsidian Dark Mode-এ সুইচ করুন"}
               aria-label="Toggle Theme"
             >
@@ -127,45 +138,43 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
             {/* AI Assistant Pill */}
             <button
               onClick={toggleAiDrawer}
-              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 dark:bg-cyan-950/80 dark:hover:bg-cyan-900/80 border border-cyan-400 dark:border-cyan-500/40 text-cyan-800 dark:text-cyan-300 hover:border-cyan-500 text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer shrink-0"
+              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 dark:bg-cyan-950/80 dark:hover:bg-cyan-900/80 border border-cyan-400 dark:border-cyan-500/40 text-cyan-800 dark:text-cyan-300 hover:border-cyan-500 text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer shrink-0 whitespace-nowrap"
               title="Gemini AI Legal Assistant চালু করুন"
             >
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
               </span>
-              <span className="hidden sm:inline">AI লিগ্যাল সহকারী</span>
-              <span className="sm:hidden font-bold">AI</span>
+              <span>AI লিগ্যাল সহকারী</span>
             </button>
 
             {/* User Profile / Auth State */}
             {user ? (
               <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-                {!user.isAdmin && activePage !== 'admin' && activePage !== 'admin-login' && (
+                {!isAdmin && activePage !== 'admin' && activePage !== 'admin-login' && (
                   <button
                     onClick={openProfileModal}
-                    className="flex items-center gap-1.5 px-1.5 sm:px-2.5 py-1 rounded-xl bg-white hover:bg-slate-50 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 border border-slate-300 dark:border-slate-700 hover:border-amber-500/50 transition-all text-left cursor-pointer shrink-0 shadow-sm"
+                    className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white hover:bg-slate-50 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 border border-slate-300 dark:border-slate-700 hover:border-amber-500/50 transition-all text-left cursor-pointer max-w-40 shadow-sm"
                     title="প্রোফাইল সেটিংস দেখুন"
                   >
                     <div className="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 font-black flex items-center justify-center text-xs shadow-sm shrink-0">
                       {user.name ? user.name[0].toUpperCase() : 'M'}
                     </div>
-                    <div className="hidden md:block">
+                    <div className="min-w-0">
                       <p className="text-xs font-bold text-slate-900 dark:text-slate-200 line-clamp-1">{user.name}</p>
                       <p className="text-[10px] text-amber-700 dark:text-amber-400 font-mono font-bold leading-none">
-                        {user.isMentor ? 'MENTOR' : (user.id || 'STUDENT')}
+                        {isMentor ? 'MENTOR' : (user.id || 'STUDENT')}
                       </p>
                     </div>
                   </button>
                 )}
 
                 <button
-                  onClick={logout}
-                  className="px-2 sm:px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/70 dark:hover:bg-rose-900 text-rose-700 dark:text-rose-200 border border-rose-300 dark:border-rose-500/40 text-xs font-extrabold flex items-center gap-1 transition-all shadow-sm cursor-pointer shrink-0"
+                  onClick={handleLogout}
+                  className="px-2.5 sm:px-3 h-11 lg:h-9 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/70 dark:hover:bg-rose-900 text-rose-700 dark:text-rose-200 border border-rose-300 dark:border-rose-500/40 text-xs font-extrabold flex items-center gap-1 transition-all shadow-sm cursor-pointer shrink-0 whitespace-nowrap"
                   title="অ্যাকাউন্ট থেকে লগআউট করুন"
                 >
-                  <span>🚪</span>
-                  <span className="hidden sm:inline">লগআউট</span>
+                  লগআউট
                 </button>
               </div>
             ) : (
@@ -185,9 +194,52 @@ export default function Navbar({ activePage, setActivePage, toggleAiDrawer, open
                 </button>
               </div>
             )}
+            <button
+              type="button"
+              onClick={() => menuRef.current?.showModal()}
+              className="size-11 shrink-0 lg:hidden grid place-items-center rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100"
+              aria-label="মেনু খুলুন"
+              aria-haspopup="dialog"
+              aria-controls="mobile-navbar-menu"
+            >
+              <Menu className="size-5" />
+            </button>
           </div>
         </div>
       </div>
+      <dialog
+        ref={menuRef}
+        id="mobile-navbar-menu"
+        aria-labelledby="mobile-navbar-title"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) menuRef.current?.close();
+        }}
+        className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-72 max-w-[90vw] border-l border-slate-200 bg-white text-slate-900 shadow-xl backdrop:bg-slate-950/60 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+      >
+        <div className="min-h-full p-4">
+          <div className="mb-3 flex items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
+            <h2 id="mobile-navbar-title" className="text-base font-bold">মেনু</h2>
+            <button type="button" onClick={() => menuRef.current?.close()} aria-label="মেনু বন্ধ করুন" className="grid size-11 place-items-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+              <X className="size-5" />
+            </button>
+          </div>
+          <nav aria-label="মোবাইল নেভিগেশন" className="grid gap-1 [&>button]:min-h-11 [&>button]:rounded-lg [&>button]:px-3 [&>button]:text-left [&>button]:text-sm [&>button]:font-bold [&>button:hover]:bg-slate-100 dark:[&>button:hover]:bg-slate-800 [&>button[aria-current=page]]:text-amber-700 dark:[&>button[aria-current=page]]:text-amber-300">
+            <button type="button" aria-current={activePage === 'home' ? 'page' : undefined} onClick={() => handleNavClick('home')}>হোম</button>
+            {user && (
+              <button type="button" onClick={() => handleNavClick(isAdmin ? 'admin' : isMentor ? 'mentor-dashboard' : 'dashboard')}>
+                ড্যাশবোর্ড
+              </button>
+            )}
+            <button type="button" aria-current={activePage === 'notes' ? 'page' : undefined} onClick={() => handleNavClick('notes')}>আইন গাইড</button>
+            {user && !isAdmin && (
+              <button type="button" onClick={() => { menuRef.current?.close(); openProfileModal?.(); }}>প্রোফাইল</button>
+            )}
+            {user && (
+              <button type="button" onClick={handleLogout} className="text-rose-700 dark:text-rose-300">লগআউট</button>
+            )}
+          </nav>
+        </div>
+      </dialog>
     </header>
   );
 }
