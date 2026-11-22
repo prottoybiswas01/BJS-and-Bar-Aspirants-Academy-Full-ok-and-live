@@ -21,6 +21,24 @@ import {
   Check
 } from 'lucide-react';
 import { lockBodyScroll, unlockBodyScroll } from './ui/scrollLock';
+import './VideoPlayerModal.css';
+
+const getFullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+const isTouchDevice = () => window.matchMedia('(pointer: coarse)').matches;
+
+function requestHdPlayback(player) {
+  // Current YouTube embeds select quality adaptively. Older players may honor this preference.
+  if (typeof player.setPlaybackQuality !== 'function') return;
+  try {
+    const levels = player.getAvailableQualityLevels?.();
+    const prefer720 = levels?.includes('hd720') && !levels.includes('hd1080');
+    player.setPlaybackQuality(prefer720 ? 'hd720' : 'hd1080');
+  } catch (_) {
+    try {
+      player.setPlaybackQuality('hd720');
+    } catch (_) {}
+  }
+}
 
 // Global singleton promise for loading YouTube Iframe API script
 let ytScriptLoadingPromise = null;
@@ -72,8 +90,11 @@ export default function VideoPlayerModal({
   onClose,
   onEnrollClick
 }) {
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const containerRef = useRef(null);
+  const hasRequestedFullscreen = useRef(false);
+  const isFullscreen = isNativeFullscreen || isExpanded;
 
   // Dynamic Moving Watermark Overlay Positions
   const watermarkPositions = [
@@ -139,14 +160,59 @@ export default function VideoPlayerModal({
   const [isCaptionsOn, setIsCaptionsOn] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
 
-  // Auto-rotate to landscape on mobile playback (window.innerWidth < 768)
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 768 && isPlaying) {
-      if (window.screen?.orientation?.lock) {
-        window.screen.orientation.lock('landscape').catch(() => {});
+    const container = containerRef.current;
+    const orientation = window.screen?.orientation;
+    let wasFullscreen = false;
+
+    const syncFullscreen = () => {
+      const entered = getFullscreenElement() === container;
+      if (entered === wasFullscreen) return;
+      wasFullscreen = entered;
+      setIsNativeFullscreen(entered);
+      if (entered) {
+        setIsExpanded(false);
+        orientation?.lock?.('landscape').catch(() => {});
+      } else {
+        orientation?.unlock?.();
       }
+    };
+
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('webkitfullscreenchange', syncFullscreen);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreen);
+      if (wasFullscreen) orientation?.unlock?.();
+    };
+  }, []);
+
+  const openFullscreen = useCallback(async () => {
+    const container = containerRef.current;
+    if (!container || getFullscreenElement() === container) return;
+    hasRequestedFullscreen.current = true;
+    const requestFullscreen = container.requestFullscreen || container.webkitRequestFullscreen;
+    if (requestFullscreen) {
+      try {
+        await requestFullscreen.call(container);
+        return;
+      } catch (_) {}
     }
-  }, [isPlaying]);
+    if (containerRef.current === container) setIsExpanded(true);
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    if (getFullscreenElement() === containerRef.current) {
+      const exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen;
+      try {
+        await exitFullscreen?.call(document);
+      } catch (_) {}
+    } else if (isExpanded) {
+      setIsExpanded(false);
+    } else {
+      await openFullscreen();
+    }
+  }, [isExpanded, openFullscreen]);
 
   // Bookmark storage
   const studentStorageKey = `bjs_bookmarks_${student?.id || 'guest'}_${activeVideoId}`;
@@ -195,13 +261,18 @@ export default function VideoPlayerModal({
         playerRef.current = null;
       }
 
+      const autoplay = !isTouchDevice();
       playerRef.current = new YT.Player(playerId, {
         videoId: activeVideoId,
+        width: '100%',
+        height: '100%',
         playerVars: {
-          autoplay: 1,
+          autoplay: Number(autoplay),
+          vq: 'hd1080',
+          hd: 1,
           controls: 0,         // Hide all native YouTube controls
-          rel: 0,              // Disable related suggested videos
-          modestbranding: 1,   // Remove YouTube logo
+          rel: 0,
+          modestbranding: 1,
           disablekb: 1,        // Disable iframe keyboard hijacking
           iv_load_policy: 3,   // Disable annotations & channel overlays
           playsinline: 1,      // In-page playback on mobile
@@ -214,14 +285,15 @@ export default function VideoPlayerModal({
           onReady: (event) => {
             if (!isMounted) return;
             setIsPlayerReady(true);
+            requestHdPlayback(event.target);
             const dur = event.target.getDuration() || 0;
             if (dur > 0) setDuration(dur);
-            event.target.playVideo();
-            setIsPlaying(true);
+            if (autoplay) event.target.playVideo();
           },
           onStateChange: (event) => {
             if (!isMounted) return;
             if (event.data === YT.PlayerState.PLAYING) {
+              requestHdPlayback(event.target);
               setIsPlaying(true);
             } else if (event.data === YT.PlayerState.PAUSED) {
               setIsPlaying(false);
@@ -267,23 +339,30 @@ export default function VideoPlayerModal({
     };
   }, [activeVideoId, initialStartTime, canPlayFull, endTime, playerId]);
 
+  const playVideo = useCallback(() => {
+    if (!playerRef.current) return;
+    if (isTouchDevice() && !hasRequestedFullscreen.current) {
+      void openFullscreen();
+    }
+    playerRef.current.playVideo();
+  }, [openFullscreen]);
+
   // Safe Play / Pause Toggle
   const togglePlay = useCallback((e) => {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
     }
-    if (!playerRef.current) return;
+    if (!isPlayerReady || !playerRef.current || clipEnded) return;
     try {
       if (isPlaying) {
         playerRef.current.pauseVideo();
         setIsPlaying(false);
       } else {
-        playerRef.current.playVideo();
-        setIsPlaying(true);
+        playVideo();
       }
     } catch (_) {}
-  }, [isPlaying]);
+  }, [isPlayerReady, isPlaying, clipEnded, playVideo]);
 
   // Skip -10s or +10s
   const handleSkip = useCallback((seconds, e) => {
@@ -414,8 +493,7 @@ export default function VideoPlayerModal({
     if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
       try {
         playerRef.current.seekTo(sec, true);
-        playerRef.current.playVideo();
-        setIsPlaying(true);
+        playVideo();
       } catch (_) {}
     }
     setCurrentTime(sec);
@@ -426,55 +504,23 @@ export default function VideoPlayerModal({
     if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
       try {
         playerRef.current.seekTo(initialStartTime, true);
-        playerRef.current.playVideo();
-        setIsPlaying(true);
+        playVideo();
       } catch (_) {}
     }
     setCurrentTime(initialStartTime);
-  };
-
-  // Fullscreen Management
-  const toggleFullscreen = () => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen?.().catch(() => {});
-      setIsFullscreen(true);
-    } else {
-      document.exitFullscreen?.().catch(() => {});
-      setIsFullscreen(false);
-    }
-  };
-
-  const toggleLandscapeFullscreen = async () => {
-    if (!containerRef.current) return;
-    try {
-      if (!document.fullscreenElement) {
-        await containerRef.current.requestFullscreen();
-        setIsFullscreen(true);
-        if (window.screen?.orientation?.lock) {
-          await window.screen.orientation.lock('landscape').catch(() => {});
-        }
-      } else {
-        await document.exitFullscreen();
-        setIsFullscreen(false);
-        if (window.screen?.orientation?.unlock) {
-          window.screen.orientation.unlock();
-        }
-      }
-    } catch (_) {
-      toggleFullscreen();
-    }
   };
 
   // Anti-Piracy Keyboard Inspect Lock & Global Keybindings
   useEffect(() => {
     lockBodyScroll();
     const handleKeyDown = (e) => {
-      // Allow typing in note text input
-      if (e.target && ['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
-        if (e.key === 'Escape') onClose?.();
+      if (e.key === 'Escape') {
+        if (isFullscreen) toggleFullscreen();
+        else onClose?.();
         return;
       }
+      // Allow typing in note text input
+      if (['INPUT', 'TEXTAREA'].includes(e.target?.tagName)) return;
 
       // Block devtools, inspect shortcuts, view-source and print
       if (
@@ -489,7 +535,7 @@ export default function VideoPlayerModal({
       }
 
       // Video Controls Keyboard Shortcuts
-      if (e.code === 'Space') {
+      if (e.code === 'Space' && e.target?.tagName !== 'BUTTON') {
         e.preventDefault();
         togglePlay();
       } else if (e.code === 'ArrowLeft') {
@@ -504,8 +550,6 @@ export default function VideoPlayerModal({
       } else if (e.code === 'KeyF') {
         e.preventDefault();
         toggleFullscreen();
-      } else if (e.key === 'Escape') {
-        onClose?.();
       }
     };
 
@@ -514,7 +558,7 @@ export default function VideoPlayerModal({
       unlockBodyScroll();
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
-  }, [onClose, togglePlay, handleSkip, isMuted, volume]);
+  }, [onClose, togglePlay, handleSkip, isMuted, volume, isFullscreen, toggleFullscreen]);
 
   // Intercept right-click and selection across player modal
   useEffect(() => {
@@ -534,15 +578,13 @@ export default function VideoPlayerModal({
   }, []);
 
   return createPortal(
-    <div className="fixed inset-0 z-[9990] flex items-center justify-center p-2 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
+    <div className="fixed inset-0 z-[9990] flex items-center justify-center p-2 sm:p-4 bg-slate-950/85 animate-fadeIn">
       <div
         ref={containerRef}
-        className={`relative w-full max-w-5xl bg-slate-900 border border-slate-700/80 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col transition-all duration-300 ${
-          isFullscreen ? 'h-screen w-screen max-w-none rounded-none border-0' : 'max-h-[95vh]'
-        }`}
+        className={`video-player-modal${isFullscreen ? ' is-expanded' : ''}`}
       >
         {/* Top Header Bar */}
-        <div className="bg-slate-950/95 border-b border-slate-800/80 px-3 sm:px-5 py-3 flex items-center justify-between gap-3 shrink-0">
+        <div className="bg-slate-950/95 border-b border-slate-800/80 px-3 sm:px-5 py-1.5 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5 truncate">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 text-slate-950 font-black text-sm flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
               ⚖️
@@ -579,9 +621,9 @@ export default function VideoPlayerModal({
           </div>
         </div>
 
-        {/* Locked Video Player Container - aspect-video shrink-0 prevents any squishing */}
+        {/* The frame and its click-blocking overlays share the same 16:9 bounds. */}
         <div
-          className="w-full aspect-video shrink-0 relative overflow-hidden bg-black select-none group"
+          className="video-player-stage w-full relative bg-black select-none"
           style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -589,251 +631,238 @@ export default function VideoPlayerModal({
             return false;
           }}
         >
-          {/* 1. LOCKED YouTube iframe Container - 100% pointer-events-none */}
-          <div className="absolute inset-0 w-full h-full pointer-events-none select-none overflow-hidden bg-black">
-            {activeVideoId ? (
-              <div id={playerId} className="w-full h-full pointer-events-none border-0" />
-            ) : (
-              <div className="h-full w-full flex flex-col items-center justify-center text-rose-400 p-6 text-center">
-                <span className="text-4xl mb-2">📹</span>
-                <p className="font-bold text-lg">ভিডিও এখনো আপলোড করা হয়নি</p>
-              </div>
-            )}
-          </div>
+          <div className="video-player-frame relative overflow-hidden">
+            {/* 1. LOCKED YouTube iframe Container - 100% pointer-events-none */}
+            <div className="absolute inset-0 w-full h-full pointer-events-none select-none overflow-hidden bg-black">
+              {activeVideoId ? (
+                <div id={playerId} className="w-full h-full pointer-events-none border-0" />
+              ) : (
+                <div className="h-full w-full flex flex-col items-center justify-center text-rose-400 p-6 text-center">
+                  <span className="text-4xl mb-2">📹</span>
+                  <p className="font-bold text-lg">ভিডিও এখনো আপলোড করা হয়নি</p>
+                </div>
+              )}
+            </div>
 
-          {/* 2. Safe Transparent Click-to-Play/Pause Overlay */}
-          <div
-            className="absolute inset-0 z-20 cursor-pointer pointer-events-auto flex items-center justify-center"
-            onClick={togglePlay}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              return false;
-            }}
-            title="প্লে / পজ করতে ক্লিক করুন"
-          >
-            {!isPlaying && isPlayerReady && !clipEnded && (
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-black/60 backdrop-blur-sm border border-amber-500/50 text-amber-400 flex items-center justify-center shadow-2xl transition-transform hover:scale-110">
-                <Play className="w-7 h-7 sm:w-8 sm:h-8 ml-1 fill-current" />
-              </div>
-            )}
-          </div>
+            {/* 2. Safe Transparent Click-to-Play/Pause Overlay */}
+            <div
+              className="absolute inset-0 z-20 cursor-pointer pointer-events-auto flex items-center justify-center"
+              onClick={togglePlay}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+              }}
+              title="প্লে / পজ করতে ক্লিক করুন"
+            >
+              {!isPlaying && isPlayerReady && !clipEnded && (
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-black/60 border border-amber-500/50 text-amber-400 flex items-center justify-center shadow-2xl">
+                  <Play className="w-7 h-7 sm:w-8 sm:h-8 ml-1 fill-current" />
+                </div>
+              )}
+            </div>
 
-          {/* 3. Top Security Shield Banner - pointer-events-none */}
-          <div className="absolute top-0 left-0 right-0 h-10 z-30 pointer-events-none bg-gradient-to-b from-black/80 via-black/30 to-transparent select-none">
-            <div className="flex items-center justify-between px-3 pt-2 text-[10px] text-amber-400/90 font-bold select-none">
-              <span className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>🔒 BJS Academy Protected Stream</span>
+            {/* 3. Top Security Shield Banner - pointer-events-none */}
+            <div className="absolute top-0 left-0 right-0 h-10 z-30 pointer-events-none bg-gradient-to-b from-black/80 via-black/30 to-transparent select-none">
+              <div className="flex items-center justify-between px-3 pt-2 text-[10px] text-amber-400/90 font-bold select-none">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>🔒 BJS Academy Protected Stream</span>
+                </span>
+                <span className="text-[9px] text-slate-400 font-mono">
+                  {studentSecretId}
+                </span>
+              </div>
+            </div>
+
+            {/* 4. Moving student watermark */}
+            <div
+              className="pointer-events-none absolute inset-x-2 z-30 select-none transition-[top,padding] duration-1000 ease-in-out"
+              style={{
+                top: watermarkPositions[watermarkIndex].top,
+                paddingLeft: watermarkPositions[watermarkIndex].left
+              }}
+            >
+              <span className="inline-block max-w-full break-words text-[10px] sm:text-xs font-semibold leading-tight text-white/50 [text-shadow:0_1px_2px_#000]">
+                {student?.name || 'STUDENT'} • {studentSecretId}
               </span>
-              <span className="text-[9px] text-slate-400 font-mono">
-                {studentSecretId}
-              </span>
             </div>
           </div>
 
-          {/* 4. Subtle Slim Watermark (Name & Secret Student ID STU-...) */}
-          <div
-            className="pointer-events-none absolute z-30 select-none transition-all duration-1000 ease-in-out"
-            style={{
-              top: watermarkPositions[watermarkIndex].top,
-              left: watermarkPositions[watermarkIndex].left,
-              opacity: 0.3
-            }}
-          >
-            <div className="px-2.5 py-1 rounded bg-black/40 backdrop-blur-[1px] border border-white/10 text-white/70 font-mono text-[10px] sm:text-[11px] font-semibold flex items-center gap-1.5 shadow-sm select-none">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/80 animate-pulse"></span>
-              <span>{student?.name || 'STUDENT'}</span>
-              <span className="text-white/40">•</span>
-              <span className="text-amber-300/90">{studentSecretId}</span>
-            </div>
-          </div>
-
-          {/* 5. Custom Bottom Player Control Bar */}
-          <div
-            className="absolute bottom-0 left-0 right-0 z-40 pointer-events-auto bg-gradient-to-t from-black via-black/80 to-transparent p-2.5 sm:px-4 sm:py-3 space-y-1.5 sm:space-y-2 select-none"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Seek Bar Timeline Slider */}
-            <div className="relative flex items-center cursor-pointer py-1">
-              <input
-                type="range"
-                min={0}
-                max={duration || 100}
-                step={0.5}
-                value={currentTime}
-                onChange={handleSeek}
-                className="w-full h-1.5 sm:h-2 bg-slate-700/80 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-400 focus:outline-none transition-all"
-                style={{
-                  background: `linear-gradient(to right, #f59e0b ${(currentTime / (duration || 1)) * 100}%, rgba(51, 65, 85, 0.8) ${(currentTime / (duration || 1)) * 100}%)`
-                }}
-                title="টাইমলাইন এগিয়ে বা পিছিয়ে নিন"
-              />
-            </div>
-
-            {/* Control Buttons Row */}
-            <div className="flex items-center justify-between text-white text-xs gap-2">
-              {/* Left Controls */}
-              <div className="flex items-center gap-2 sm:gap-3">
-                <button
-                  onClick={togglePlay}
-                  className="p-1.5 sm:p-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 hover:text-amber-300 border border-amber-500/30 transition-all cursor-pointer shadow-md"
-                  title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-                >
-                  {isPlaying ? (
-                    <Pause className="w-4 h-4 fill-current" />
-                  ) : (
-                    <Play className="w-4 h-4 fill-current ml-0.5" />
-                  )}
-                </button>
-
-                <button
-                  onClick={(e) => handleSkip(-10, e)}
-                  className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer flex items-center gap-1"
-                  title="-10 সেকেন্ড পেছনে যান"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-mono hidden sm:inline">-10s</span>
-                </button>
-
-                <button
-                  onClick={(e) => handleSkip(10, e)}
-                  className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer flex items-center gap-1"
-                  title="+10 সেকেন্ড সামনে যান"
-                >
-                  <RotateCw className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-mono hidden sm:inline">+10s</span>
-                </button>
-
-                {/* Volume Control */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={toggleMute}
-                    className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer"
-                    title={isMuted ? 'আনমিউট করুন (M)' : 'মিউট করুন (M)'}
-                  >
-                    {isMuted || volume === 0 ? (
-                      <VolumeX className="w-4 h-4 text-rose-400" />
-                    ) : volume < 50 ? (
-                      <Volume1 className="w-4 h-4" />
-                    ) : (
-                      <Volume2 className="w-4 h-4" />
-                    )}
-                  </button>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={isMuted ? 0 : volume}
-                    onChange={handleVolumeChange}
-                    className="w-14 sm:w-20 h-1 bg-slate-700 rounded appearance-none cursor-pointer accent-amber-500 focus:outline-none hidden sm:block"
-                    title={`ভলিউম: ${isMuted ? 0 : volume}%`}
-                  />
-                </div>
-
-                {/* Live Duration Display */}
-                <div className="font-mono text-[10px] sm:text-xs text-slate-300 ml-1">
-                  <span className="text-amber-400 font-bold">{currentFormattedTime}</span>
-                  <span className="text-slate-500 mx-1">/</span>
-                  <span>{formatTime(duration)}</span>
-                </div>
-              </div>
-
-              {/* Right Controls */}
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                <button
-                  onClick={toggleCaptions}
-                  className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold ${
-                    isCaptionsOn
-                      ? 'bg-amber-500/30 text-amber-300 border border-amber-500/50'
-                      : 'hover:bg-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                  title="সাবটাইটেল / CC অন/অফ করুন"
-                >
-                  <Subtitles className="w-3.5 h-3.5" />
-                  <span className="text-[10px] hidden sm:inline">CC</span>
-                </button>
-
-                {/* Speed Selector */}
-                <div className="relative">
-                  <button
-                    onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] sm:text-[11px] font-mono font-bold transition-all cursor-pointer flex items-center gap-1 border border-slate-700"
-                    title="প্লেব্যাক স্পিড পরিবর্তন করুন"
-                  >
-                    <span>{playbackRate}x</span>
-                  </button>
-
-                  {showSpeedMenu && (
-                    <div className="absolute bottom-full right-0 mb-2 py-1 w-24 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 animate-fadeIn">
-                      <div className="text-[9px] uppercase tracking-wider text-slate-400 px-2.5 py-1 font-bold border-b border-slate-800">
-                        Speed
-                      </div>
-                      {[0.75, 1, 1.25, 1.5, 2].map((spd) => (
-                        <button
-                          key={spd}
-                          onClick={() => handleSpeedChange(spd)}
-                          className={`w-full px-2.5 py-1.5 text-left text-xs font-mono font-bold flex items-center justify-between transition-colors ${
-                            playbackRate === spd
-                              ? 'bg-amber-500/20 text-amber-300'
-                              : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                          }`}
-                        >
-                          <span>{spd}x</span>
-                          {playbackRate === spd && <Check className="w-3 h-3 text-amber-400" />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Fullscreen Button */}
-                <button
-                  onClick={toggleFullscreen}
-                  className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer"
-                  title={isFullscreen ? 'ফুলস্ক্রিন থেকে বের হন (F)' : 'ফুলস্ক্রিন করুন (F)'}
-                >
-                  {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Non-Enrolled Smart Clip Ended: Course Enrollment Overlay */}
           {!canPlayFull && clipEnded && (
-            <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-8 text-center z-50 animate-fadeIn">
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-3xl sm:text-4xl mb-3 shadow-xl animate-bounce">
-                🔒
-              </div>
-              <span className="px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-2">
-                ফ্রি রেফারেন্স ক্লিপ সমাপ্ত
-              </span>
-              <h3 className="text-base sm:text-xl font-extrabold text-white max-w-md">
-                সম্পূর্ণ ক্লাস পেতে <span className="text-amber-400">"{courseTitle || 'এই কোর্স'}"</span>-এ ভর্তি হোন
-              </h3>
-              <div className="flex items-center gap-3 mt-5 flex-wrap justify-center">
-                <button
-                  onClick={() => {
-                    if (onEnrollClick) onEnrollClick(courseId);
-                    else onClose?.();
-                  }}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black text-xs sm:text-sm shadow-xl transition-all hover:scale-105 cursor-pointer"
-                >
-                  🎓 কোর্সে ভর্তি হোন (Enroll Now)
-                </button>
-                <button
-                  onClick={handleReplayClip}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs sm:text-sm cursor-pointer hover:bg-slate-700"
-                >
-                  🔄 আবার ক্লিপটি দেখুন
-                </button>
+            <div className="absolute inset-0 bg-slate-950/95 flex overflow-y-auto p-3 text-center z-50">
+              <div className="m-auto space-y-2">
+                <p className="text-xs font-bold text-amber-300">🔒 ফ্রি রেফারেন্স ক্লিপ সমাপ্ত</p>
+                <h3 className="text-sm sm:text-xl font-extrabold text-white">
+                  সম্পূর্ণ ক্লাস পেতে <span className="text-amber-400">"{courseTitle || 'এই কোর্স'}"</span>-এ ভর্তি হোন
+                </h3>
+                <div className="flex items-center gap-2 flex-wrap justify-center">
+                  <button
+                    onClick={() => {
+                      if (onEnrollClick) onEnrollClick(courseId);
+                      else onClose?.();
+                    }}
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer"
+                  >
+                    🎓 কোর্সে ভর্তি হোন (Enroll Now)
+                  </button>
+                  <button
+                    onClick={handleReplayClip}
+                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs cursor-pointer hover:bg-slate-700"
+                  >
+                    🔄 আবার ক্লিপটি দেখুন
+                  </button>
+                </div>
               </div>
             </div>
           )}
         </div>
 
+        {/* Custom playback controls take up their own space below the video. */}
+        <div
+          className="relative z-40 shrink-0 bg-black px-2 sm:px-4 pb-1 select-none"
+          hidden={!canPlayFull && clipEnded}
+        >
+          {/* Seek Bar Timeline Slider */}
+          <div className="flex items-center gap-2 py-1">
+            <input
+              type="range"
+              min={0}
+              max={duration || 100}
+              step={0.5}
+              value={currentTime}
+              onChange={handleSeek}
+              className="min-w-0 flex-1 h-1.5 sm:h-2 bg-slate-700/80 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-400"
+              style={{
+                background: `linear-gradient(to right, #f59e0b ${(currentTime / (duration || 1)) * 100}%, rgba(51, 65, 85, 0.8) ${(currentTime / (duration || 1)) * 100}%)`
+              }}
+              title="টাইমলাইন এগিয়ে বা পিছিয়ে নিন"
+            />
+            <div className="shrink-0 whitespace-nowrap font-mono text-[10px] sm:text-xs text-slate-300 tabular-nums">
+              <span className="text-amber-400 font-bold">{currentFormattedTime}</span>
+              <span className="text-slate-500 mx-1">/</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+          </div>
+
+          {/* Control Buttons Row */}
+          <div className="flex flex-wrap items-center justify-between text-white text-xs gap-x-0.5 gap-y-1 sm:justify-start sm:gap-2">
+            <button
+              onClick={togglePlay}
+              className="video-player-control rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 hover:text-amber-300 border border-amber-500/30"
+              title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+            >
+              {isPlaying ? (
+                <Pause className="w-4 h-4 fill-current" />
+              ) : (
+                <Play className="w-4 h-4 fill-current ml-0.5" />
+              )}
+            </button>
+
+            <button
+              onClick={(e) => handleSkip(-10, e)}
+              className="video-player-control rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white"
+              title="-10 সেকেন্ড পেছনে যান"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-mono hidden sm:inline">-10s</span>
+            </button>
+
+            <button
+              onClick={(e) => handleSkip(10, e)}
+              className="video-player-control rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white"
+              title="+10 সেকেন্ড সামনে যান"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-mono hidden sm:inline">+10s</span>
+            </button>
+
+            {/* Volume Control */}
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                onClick={toggleMute}
+                className="video-player-control rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white"
+                title={isMuted ? 'আনমিউট করুন (M)' : 'মিউট করুন (M)'}
+              >
+                {isMuted || volume === 0 ? (
+                  <VolumeX className="w-4 h-4 text-rose-400" />
+                ) : volume < 50 ? (
+                  <Volume1 className="w-4 h-4" />
+                ) : (
+                  <Volume2 className="w-4 h-4" />
+                )}
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={isMuted ? 0 : volume}
+                onChange={handleVolumeChange}
+                className="w-14 sm:w-20 h-1 bg-slate-700 rounded appearance-none cursor-pointer accent-amber-500 focus:outline-none hidden sm:block"
+                title={`ভলিউম: ${isMuted ? 0 : volume}%`}
+              />
+            </div>
+
+            <button
+              onClick={toggleCaptions}
+              className={`video-player-control rounded-lg text-[11px] font-bold sm:ml-auto ${
+                isCaptionsOn
+                  ? 'bg-amber-500/30 text-amber-300 border border-amber-500/50'
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-white'
+              }`}
+              title="সাবটাইটেল / CC অন/অফ করুন"
+            >
+              <Subtitles className="w-3.5 h-3.5" />
+              <span className="text-[10px] hidden sm:inline">CC</span>
+            </button>
+
+            {/* Speed Selector */}
+            <div>
+              <button
+                onClick={() => setShowSpeedMenu((open) => !open)}
+                className="video-player-control rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] sm:text-[11px] font-mono font-bold border border-slate-700"
+                title="প্লেব্যাক স্পিড পরিবর্তন করুন"
+                aria-expanded={showSpeedMenu}
+              >
+                <span>{playbackRate}x</span>
+              </button>
+
+              {showSpeedMenu && (
+                <div className="absolute bottom-full right-2 sm:right-4 mb-2 py-1 w-24 max-h-[45dvh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 animate-fadeIn">
+                  <div className="text-[9px] uppercase tracking-wider text-slate-400 px-2.5 py-1 font-bold border-b border-slate-800">
+                    Speed
+                  </div>
+                  {[0.75, 1, 1.25, 1.5, 2].map((spd) => (
+                    <button
+                      key={spd}
+                      onClick={() => handleSpeedChange(spd)}
+                      className={`w-full px-2.5 py-1.5 text-left text-xs font-mono font-bold flex items-center justify-between transition-colors ${
+                        playbackRate === spd
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <span>{spd}x</span>
+                      {playbackRate === spd && <Check className="w-3 h-3 text-amber-400" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Fullscreen Button */}
+            <button
+              onClick={toggleFullscreen}
+              className="video-player-control rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white"
+              title={isFullscreen ? 'ফুলস্ক্রিন থেকে বের হন (F)' : 'ফুলস্ক্রিন করুন (F)'}
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+
         {/* Clean Timestamped Notes Section - ONLY Notes Section below locked video */}
-        <div className="flex-1 overflow-y-auto bg-slate-950 p-3 sm:p-5 space-y-3">
+        <div className="video-player-extra flex-1 min-h-0 overflow-y-auto bg-slate-950 p-3 sm:p-5 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2.5 border-b border-slate-800 gap-2">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs">
@@ -885,7 +914,7 @@ export default function VideoPlayerModal({
                   value={newNoteText}
                   onChange={(e) => setNewNoteText(e.target.value)}
                   placeholder="এই মুহূর্তের গুরুত্বপূর্ণ নোট বা আইনি ধারা লিখুন..."
-                  className="flex-1 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors"
+                  className="min-w-0 flex-1 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors"
                 />
                 <button
                   type="submit"
@@ -941,7 +970,7 @@ export default function VideoPlayerModal({
         </div>
 
         {/* Player Controls Footer */}
-        <div className="bg-slate-950 border-t border-slate-800/80 px-3 sm:px-6 py-2.5 flex items-center justify-between text-[10px] sm:text-[11px] text-slate-400 shrink-0">
+        <div className="video-player-extra bg-slate-950 border-t border-slate-800/80 px-3 sm:px-6 py-2.5 flex items-center justify-between text-[10px] sm:text-[11px] text-slate-400 shrink-0">
           <div className="flex items-center gap-2 truncate">
             <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span className="font-medium text-slate-300 truncate">
@@ -953,7 +982,7 @@ export default function VideoPlayerModal({
 
           <div className="flex items-center gap-3 shrink-0">
             <button
-              onClick={toggleLandscapeFullscreen}
+              onClick={toggleFullscreen}
               className="flex items-center gap-1 text-amber-400 hover:text-amber-300 font-bold shrink-0 text-[10px] cursor-pointer"
             >
               <Smartphone className="w-3.5 h-3.5" />

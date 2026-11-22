@@ -10,52 +10,37 @@ export default function PublicNotes() {
   const [selectedNote, setSelectedNote] = useState(null);
 
   useEffect(() => {
-    fetchNotes();
-  }, [selectedCategory]);
-
-  useEffect(() => {
-    fetchDynamicCategories();
-  }, []);
-
-  const fetchDynamicCategories = async () => {
-    try {
-      const res = await api.get('/courses');
-      if (res.data?.ok && Array.isArray(res.data.courses)) {
-        const courseTitles = res.data.courses
-          .map(c => c.title)
-          .filter(Boolean);
-        setCategories(['সকল', ...Array.from(new Set(courseTitles))]);
-      }
-    } catch (e) {
-      // Courses fetch silent fallback
-    }
-  };
-
-  const fetchNotes = async () => {
+    const controller = new AbortController();
     setLoading(true);
-    try {
-      const params = {};
-      if (selectedCategory !== 'সকল') params.category = selectedCategory;
-      const res = await api.get('/notes', { params });
-      if (res.data?.ok) {
-        setNotes(res.data.notes || []);
-        if (Array.isArray(res.data.categories) && res.data.categories.length > 0) {
-          setCategories(Array.from(new Set(res.data.categories)));
+    const fetchNotes = async () => {
+      try {
+        const params = selectedCategory === 'সকল' ? {} : { category: selectedCategory };
+        const { data } = await api.get('/notes', { params, signal: controller.signal });
+        if (controller.signal.aborted) return;
+        if (!data?.ok || !Array.isArray(data.notes)) throw new Error('Unexpected notes response');
+        setNotes(data.notes);
+        if (Array.isArray(data.categories) && data.categories.length > 0) {
+          setCategories(Array.from(new Set(data.categories)));
         }
         // Check hash or slug
         const hash = window.location.hash;
         if (hash.startsWith('#notes-') || hash.startsWith('#note-')) {
           const slugOrId = hash.replace('#notes-', '').replace('#note-', '');
-          const found = (res.data.notes || []).find(n => n.slug === slugOrId || n.id === slugOrId);
-          if (found) setSelectedNote(found);
+          const found = data.notes.find(n => n.slug === slugOrId || n.id === slugOrId);
+          setSelectedNote(found || null);
         }
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setNotes([]);
+        setSelectedNote(null);
+        console.warn('Notes fetch notice:', err.message);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
       }
-    } catch (err) {
-      console.warn('Notes fetch notice:', err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+    fetchNotes();
+    return () => controller.abort();
+  }, [selectedCategory]);
 
   const handleOpenNote = async (note) => {
     setSelectedNote(note);

@@ -250,7 +250,7 @@ const PushSubscription = require("./models/PushSubscription");
 const StudyNote = require("./models/StudyNote");
 const { generateCertificatePdf } = require("./services/certificateService");
 const { sendTelegramAlert, sendEmergencyEmail, notifyNewLesson, notifyRegistration, notifyReceipt, notifySecurityAttack, notifyAdminDiff, notifySiteError, notifyPermanentTranscriptFailure } = require("./services/alertService");
-const { seedDefaultStudyNotes, generateAiMcqsFromTranscript, getExamLeaderboard, generateStudyNotesFromLesson } = require("./services/academyFeaturesService");
+const { generateAiMcqsFromTranscript, getExamLeaderboard, generateStudyNotesFromLesson } = require("./services/academyFeaturesService");
 const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId, formatSecondsToTimestamp } = require("./services/transcriptService");
 const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
 const { dispatchNewLessonNotifications } = require("./services/videoNotificationService");
@@ -8032,7 +8032,7 @@ app.get(["/api/notes", "/notes", "/api/admin/notes", "/api/admin/study-notes"], 
     const courseTitles = Array.from(new Set((allCourses || []).map(c => c.title).filter(Boolean)));
     const dynamicCategories = ['সকল', ...courseTitles];
 
-    return res.json({ ok: true, notes: notes || [], categories: dynamicCategories });
+    return res.json({ ok: true, notes, categories: dynamicCategories });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "আইনি নোটস লোড করতে সমস্যা হয়েছে: " + err.message });
   }

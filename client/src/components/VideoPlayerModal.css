@@ -1,0 +1,96 @@
+.video-player-modal {
+  @apply relative flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-900 shadow-2xl sm:rounded-3xl;
+  max-height: 95vh;
+  max-height: 95dvh;
+}
+
+.video-player-stage {
+  display: grid;
+  place-items: center;
+  flex: none;
+  aspect-ratio: 16 / 9;
+  max-height: 55vh;
+  max-height: 55dvh;
+  container-type: size;
+}
+
+.video-player-frame {
+  width: 100%;
+  height: 100%;
+}
+
+@supports (height: 1cqh) {
+  .video-player-frame {
+    width: min(100%, calc(100cqh * 16 / 9));
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+}
+
+.video-player-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  pointer-events: none;
+}
+
+.video-player-control {
+  @apply flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center gap-1 px-1.5;
+}
+
+.video-player-modal:is(:fullscreen, .is-expanded) {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  border: 0;
+  border-radius: 0;
+  background: #000;
+}
+
+.video-player-modal:is(:fullscreen, .is-expanded) .video-player-stage {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: auto;
+}
+
+.video-player-modal:is(:fullscreen, .is-expanded) .video-player-extra {
+  display: none;
+}
+
+@media (orientation: landscape) and (max-height: 550px) {
+  .video-player-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    border: 0;
+    border-radius: 0;
+    background: #000;
+  }
+
+  .video-player-stage {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    aspect-ratio: auto;
+  }
+
+  .video-player-extra {
+    display: none;
+  }
+}
