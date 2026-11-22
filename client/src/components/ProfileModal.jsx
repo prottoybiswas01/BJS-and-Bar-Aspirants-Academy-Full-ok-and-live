@@ -128,7 +128,6 @@ export default function ProfileModal({ isOpen, onClose }) {
 
     try {
       const res = await api.post('/student/send-email-otp', {
-        studentId: user.id || user.regId,
         newEmail: cleanEmail
       });
 
@@ -167,14 +166,13 @@ export default function ProfileModal({ isOpen, onClose }) {
 
     try {
       const res = await api.post('/student/verify-email-otp', {
-        studentId: user.id || user.regId,
         newEmail: cleanEmail,
         otp: cleanOtp
       });
 
       setVerifyingOtp(false);
       if (res.data && res.data.ok) {
-        const updatedEmail = res.data.email || cleanEmail;
+        const updatedEmail = res.data.student?.email || cleanEmail;
         updateUserProfile({ email: updatedEmail });
         setSuccessMsg(res.data.message || '✓ অভিনন্দন! আপনার নতুন ইমেইল সফলভাবে ভেরিফাই ও যুক্ত হয়েছে!');
         setEditStep('view');

@@ -76,17 +76,6 @@ function resolveRoute(user) {
   const path = window.location.pathname.toLowerCase().replace(/\/$/, '') || '/';
   const hash = window.location.hash.toLowerCase().replace(/\/$/, '') || '';
 
-  const storedUser = localStorage.getItem('bjs_user');
-  let isStudentLoggedIn = false;
-  try {
-    if (storedUser) {
-      const u = JSON.parse(storedUser);
-      if (u && (u.id || u.regId) && !u.isAdmin && !u.isMentor) {
-        isStudentLoggedIn = true;
-      }
-    }
-  } catch (e) {}
-
   if (hash.startsWith('#mcq-exam-') || path.includes('/mcq-exam/')) {
     return 'mcq-exam';
   }
@@ -146,7 +135,7 @@ function resolveRoute(user) {
 }
 
 function MainApp() {
-  const { user, token } = useAuth();
+  const { user, token, loading: sessionLoading } = useAuth();
   const { showWarning, showError } = useToast();
   const [mcqExamId, setMcqExamId] = useState('');
   const [activePage, setActivePage] = useState(() => resolveRoute(null));
@@ -158,6 +147,7 @@ function MainApp() {
   };
 
   useEffect(() => {
+    if (sessionLoading && token) return undefined;
     const handleUrlChange = () => {
       const path = window.location.pathname.toLowerCase();
       const hash = window.location.hash.toLowerCase();
@@ -207,14 +197,8 @@ function MainApp() {
         const params = new URLSearchParams(query || '');
         const targetCourseId = params.get('courseId') || '';
 
-        const storedUser = localStorage.getItem('bjs_user');
-        let currentUser = user;
-        if (!currentUser && storedUser) {
-          try { currentUser = JSON.parse(storedUser); } catch (e) {}
-        }
-
         // 1. If not logged in -> redirect to login
-        if (!currentUser || (!currentUser.id && !currentUser.regId)) {
+        if (!user || (!user.id && !user.regId)) {
           setActivePage('login');
           setTimeout(() => {
             showWarning('🔐 ভিডিও ক্লাসটি দেখতে অনুগ্রহ করে প্রথমে আপনার স্টুডেন্ট অ্যাকাউন্টে লগইন করুন।');
@@ -225,7 +209,7 @@ function MainApp() {
         // 2. Fetch lesson & check server access authorization directly
         api.get(`/lessons?courseId=${targetCourseId || ''}`).then(res => {
           if (res.data?.ok && Array.isArray(res.data.lessons) && res.data.lessons.length > 0) {
-            const found = res.data.lessons.find(l => l.id === targetLessonId || l._id === targetLessonId) || res.data.lessons[0];
+            const found = res.data.lessons.find(l => l.id === targetLessonId || l._id === targetLessonId);
             if (found) {
               if (!found.isUnlocked && !found.youtubeId) {
                 setActivePage('home');
@@ -297,7 +281,12 @@ function MainApp() {
       window.removeEventListener('popstate', handleUrlChange);
       window.removeEventListener('hashchange', handleUrlChange);
     };
-  }, [user]);
+  }, [user, token, sessionLoading]);
+
+  useEffect(() => {
+    setVideoModal({ isOpen: false, lesson: null });
+    setProfileModalOpen(false);
+  }, [token]);
 
   // Auto redirect logged in mentor to mentor-dashboard if on mentor pages
   useEffect(() => {
@@ -433,10 +422,10 @@ function MainApp() {
             {activePage === 'login' && <Login setActivePage={navigatePage} />}
             {activePage === 'register' && <Register setActivePage={navigatePage} />}
             {activePage === 'dashboard' && (
-              <Dashboard openVideoModal={openVideoModal} openProfileModal={() => setProfileModalOpen(true)} />
+              <Dashboard key={user?.id || 'guest'} openVideoModal={openVideoModal} openProfileModal={() => setProfileModalOpen(true)} />
             )}
             {activePage === 'mentor-login' && <MentorLogin setActivePage={navigatePage} />}
-            {activePage === 'mentor-dashboard' && <MentorDashboard />}
+            {activePage === 'mentor-dashboard' && user?.isMentor && <MentorDashboard key={user.id} />}
             {activePage === 'notes' && <PublicNotes setActivePage={navigatePage} />}
             {activePage === 'verify' && <CertificateVerify onBack={() => navigatePage('home')} />}
             {(activePage === 'admin' || activePage === 'admin-login') && (

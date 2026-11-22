@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bjs-academy-v5';
+const CACHE_NAME = 'bjs-academy-v6';
 const PRECACHE_ASSETS = [
   '/manifest.json',
   '/pwa-192x192.png',
@@ -40,12 +40,12 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
 
   // Skip non-GET or cross-origin requests
-  if (request.method !== 'GET' || !url.protocol.startsWith('http')) {
+  if (request.method !== 'GET' || url.origin !== self.location.origin || request.headers.has('authorization')) {
     return;
   }
 
   // 1. 🔴 STRICT NETWORK-ONLY FOR API CALLS (Never cache database/auth/quiz/lesson API calls)
-  if (url.pathname.startsWith('/api/')) {
+  if (url.pathname.toLowerCase().startsWith('/api/')) {
     return;
   }
 
@@ -60,7 +60,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
+          if (networkResponse && networkResponse.status === 200 &&
+              !/\b(?:private|no-store)\b/i.test(networkResponse.headers.get('Cache-Control') || '')) {
             const copy = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
           }
@@ -75,13 +76,15 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 4. 🟢 STATIC ASSETS (JS, CSS, images): Cache-first with network fallback
+  if (!url.pathname.startsWith('/assets/') && !PRECACHE_ASSETS.includes(url.pathname)) return;
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse;
       }
       return fetch(request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic' &&
+            !/\b(?:private|no-store)\b/i.test(networkResponse.headers.get('Cache-Control') || '')) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(request, responseToCache);

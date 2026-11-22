@@ -2,6 +2,12 @@ import axios from 'axios';
 
 const API_BASE = '/api';
 const loginRoutes = new Set(['/auth/login', '/auth/mentor/login', '/auth/google', '/auth/google-login']);
+const sessionFailures = new Set(['SESSION_REQUIRED', 'SESSION_INVALID', 'SESSION_EXPIRED']);
+const currentAuthorization = () => {
+  const token = localStorage.getItem('bjs_token');
+  return token ? `Bearer ${token}` : undefined;
+};
+const sentAuthorization = config => config?.headers?.get?.('Authorization') || config?.headers?.Authorization || undefined;
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -12,18 +18,22 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('bjs_token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  const authorization = currentAuthorization();
+  if (config._retryCount && sentAuthorization(config) !== authorization) throw new axios.CanceledError('Session changed');
+  if (authorization) config.headers.Authorization = authorization;
   return config;
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  response => {
+    if (sentAuthorization(response.config) !== currentAuthorization()) throw new axios.CanceledError('Session changed');
+    return response;
+  },
   async (error) => {
     const config = error.config;
-    if (loginRoutes.has(config?.url)) return Promise.reject(error);
+    if (axios.isCancel(error) || loginRoutes.has(config?.url) || sentAuthorization(config) !== currentAuthorization()) {
+      return Promise.reject(error);
+    }
 
     // Auto-retry up to 2 times for transient network/serverless cold start delays
     if (config && (!config._retryCount || config._retryCount < 2)) {
@@ -34,21 +44,11 @@ api.interceptors.response.use(
       }
     }
 
-    if (config?.url !== '/auth/verify-session' &&
-        error.response && (error.response.status === 401 || error.response.data?.deleted)) {
-      const storedUser = localStorage.getItem('bjs_user');
-      let isAdminUser = false;
-      if (storedUser) {
-        try {
-          const parsed = JSON.parse(storedUser);
-          if (parsed && (parsed.isAdmin || parsed.role === 'admin')) isAdminUser = true;
-        } catch (e) {}
-      }
-      if (!isAdminUser) {
-        localStorage.removeItem('bjs_token');
-        localStorage.removeItem('bjs_user');
-        window.location.href = '/';
-      }
+    if (sentAuthorization(config) && config?.url !== '/auth/verify-session' &&
+        error.response?.status === 401 && sessionFailures.has(error.response.data?.code)) {
+      localStorage.removeItem('bjs_token');
+      localStorage.removeItem('bjs_user');
+      window.location.href = '/';
     }
     return Promise.reject(error);
   }

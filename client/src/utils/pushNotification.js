@@ -9,7 +9,7 @@ export function getNotificationPermission() {
   return Notification.permission;
 }
 
-export async function requestAndSubscribePush(studentId = '', courseIds = []) {
+export async function requestAndSubscribePush() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
     return { ok: false, message: 'আপনার ব্রাউজারে পুশ নোটিফিকেশন সমর্থিত নয়।' };
   }
@@ -21,35 +21,22 @@ export async function requestAndSubscribePush(studentId = '', courseIds = []) {
     }
 
     const registration = await navigator.serviceWorker.ready;
-    let subscription = await registration.pushManager.getSubscription();
-
-    if (!subscription) {
-      // Use existing or generate client push subscription
-      try {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U'
-        });
-      } catch (subErr) {
-        // Fallback for browsers with custom VAPID requirements
-        console.log('Push subscribe fallback notice:', subErr.message);
-      }
+    const manager = registration.pushManager;
+    const subscribe = () => manager.subscribe({ userVisibleOnly: true, applicationServerKey: 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U' });
+    const save = subscription => api.post("/push/subscribe", {
+      endpoint: subscription.endpoint, keys: subscription.toJSON().keys
+    });
+    const existing = await manager.getSubscription();
+    const subscription = existing || await subscribe();
+    try {
+      await save(subscription);
+    } catch (error) {
+      if (error.response?.data?.code !== "PUSH_SUBSCRIPTION_CONFLICT" || !existing) throw error;
+      await existing.unsubscribe();
+      await save(await subscribe());
     }
-
-    if (subscription) {
-      const rawSub = subscription.toJSON();
-      await api.post('/push/subscribe', {
-        endpoint: subscription.endpoint,
-        keys: rawSub.keys,
-        studentId,
-        courseIds
-      });
-      return { ok: true, message: '✓ ব্রাউজার পুশ নোটিফিকেশন সফলভাবে চালু হয়েছে!' };
-    }
-
-    return { ok: true, message: '✓ ব্রাউজার নোটিফিকেশন পারমিশন সক্রিয় করা হয়েছে।' };
+    return { ok: true, message: "✓ ব্রাউজার পুশ নোটিফিকেশন সফলভাবে চালু হয়েছে!" };
   } catch (err) {
-    console.warn('Push registration notice:', err.message);
-    return { ok: false, message: err.message };
+    return { ok: false, message: err.response?.data?.message || "পুশ নোটিফিকেশন চালু করা যায়নি।" };
   }
 }

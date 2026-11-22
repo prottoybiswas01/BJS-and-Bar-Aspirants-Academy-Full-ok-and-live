@@ -5,8 +5,15 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('bjs_token') || '');
-  const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState(() => localStorage.getItem('bjs_token') || '');
+  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem('bjs_token')));
+
+  const rememberSession = (profile, value) => {
+    localStorage.setItem('bjs_token', value);
+    setUser(profile);
+    setToken(value);
+    setLoading(false);
+  };
 
   // Generate or retrieve persistent browser deviceId
   const getDeviceId = () => {
@@ -19,27 +26,24 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('bjs_user');
-    if (storedUser && token) {
-      try {
-        const restoredUser = JSON.parse(storedUser);
-        if (restoredUser && Object.hasOwn(restoredUser, 'password')) {
-          delete restoredUser.password;
-          localStorage.setItem('bjs_user', JSON.stringify(restoredUser));
-        }
-        setUser(restoredUser);
-      } catch (e) {
-        localStorage.removeItem('bjs_user');
-      }
-    }
-    setLoading(false);
-  }, [token]);
+    localStorage.removeItem('bjs_user');
+    const syncSession = event => {
+      if (event.key !== 'bjs_token' && event.key !== null) return;
+      const next = localStorage.getItem('bjs_token') || '';
+      setUser(null);
+      setLoading(Boolean(next));
+      setToken(next);
+    };
+    window.addEventListener('storage', syncSession);
+    return () => window.removeEventListener('storage', syncSession);
+  }, []);
 
   // Real-Time Account Deletion/Deactivation & Access Sync Monitor (30s interval + visibilitychange)
   useEffect(() => {
     if (!token) return;
 
-    const isCurrentSession = () => localStorage.getItem('bjs_token') === token;
+    let disposed = false;
+    const isCurrentSession = () => !disposed && localStorage.getItem('bjs_token') === token;
     let isChecking = false;
     const checkSessionStatus = async () => {
       if (isChecking) return;
@@ -48,21 +52,9 @@ export const AuthProvider = ({ children }) => {
         const res = await api.get('/auth/verify-session');
         if (!isCurrentSession()) return;
 
-        if (res.data?.ok && res.data.student) {
-          const freshStudent = res.data.student;
-          setUser((prev) => {
-            if (!prev) return freshStudent;
-            if (
-              JSON.stringify(prev.allowedCourseIds) === JSON.stringify(freshStudent.allowedCourseIds) &&
-              prev.status === freshStudent.status &&
-              prev.loginApproval === freshStudent.loginApproval
-            ) {
-              return prev;
-            }
-            const updated = { ...prev, ...freshStudent };
-            localStorage.setItem('bjs_user', JSON.stringify(updated));
-            return updated;
-          });
+        const profile = res.data?.user || res.data?.student;
+        if (res.data?.ok && profile) {
+          setUser(previous => JSON.stringify(previous) === JSON.stringify(profile) ? previous : profile);
         }
       } catch (err) {
         if (isCurrentSession() && err.response?.status === 401) {
@@ -71,6 +63,7 @@ export const AuthProvider = ({ children }) => {
         }
       } finally {
         isChecking = false;
+        if (isCurrentSession()) setLoading(false);
       }
     };
 
@@ -84,6 +77,7 @@ export const AuthProvider = ({ children }) => {
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
+      disposed = true;
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
@@ -115,11 +109,7 @@ export const AuthProvider = ({ children }) => {
         if (res.data.isAdmin) userData.isAdmin = true;
         if (res.data.isMentor) userData.isMentor = true;
 
-        setToken(newToken);
-        setUser(userData);
-
-        localStorage.setItem('bjs_token', newToken);
-        localStorage.setItem('bjs_user', JSON.stringify(userData));
+        rememberSession(userData, newToken);
         return {
           ok: true,
           user: userData,
@@ -143,11 +133,7 @@ export const AuthProvider = ({ children }) => {
         const newToken = res.data.token;
         const mentorData = { ...res.data.mentor, role: 'mentor', isMentor: true };
 
-        setToken(newToken);
-        setUser(mentorData);
-
-        localStorage.setItem('bjs_token', newToken);
-        localStorage.setItem('bjs_user', JSON.stringify(mentorData));
+        rememberSession(mentorData, newToken);
         return { ok: true, mentor: mentorData };
       }
       return { ok: false, message: res.data?.message || 'মেন্টর লগইন ব্যর্থ হয়েছে।' };
@@ -185,11 +171,7 @@ export const AuthProvider = ({ children }) => {
         const userData = isMentor ? res.data.mentor : res.data.student;
         if (!newToken || !userData) return { ok: false, message: 'Google লগইন সম্পন্ন করা যায়নি।' };
 
-        setToken(newToken);
-        setUser(userData);
-
-        localStorage.setItem('bjs_token', newToken);
-        localStorage.setItem('bjs_user', JSON.stringify(userData));
+        rememberSession(userData, newToken);
         return {
           ok: true,
           isNewUser: false,
@@ -211,15 +193,13 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     setUser(null);
     setToken('');
+    setLoading(false);
     localStorage.removeItem('bjs_token');
     localStorage.removeItem('bjs_user');
   };
 
   const updateUserProfile = (updatedData) => {
-    const newObj = { ...user, ...updatedData };
-    delete newObj.password;
-    setUser(newObj);
-    localStorage.setItem('bjs_user', JSON.stringify(newObj));
+    setUser(previous => previous ? { ...previous, ...updatedData } : previous);
   };
 
   return (

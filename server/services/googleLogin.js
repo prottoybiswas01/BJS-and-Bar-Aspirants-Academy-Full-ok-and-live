@@ -2,7 +2,7 @@ const { createCipheriv, createDecipheriv, createHmac, randomBytes } = require('n
 const bcrypt = require('bcryptjs');
 const { AuthError, getJwtConfiguration, sendAuthFailure, signSession } = require('./authSecurity');
 const { fingerprint } = require('./firebaseIdentity');
-const { accountResponse } = require('./responseFields');
+const { accountResponse, privateAccountProfile } = require('./responseFields');
 
 const LINK_REQUEST_TTL_SECONDS = 30 * 60;
 
@@ -61,14 +61,14 @@ function registrationDetails(body) {
 function createGoogleLogin({ verifyIdentity, store, onStudentLogin, onStudentRegistration, env = process.env }) {
   async function respondWithSession(res, kind, account) {
     assertEligible(kind, account);
-    const profile = accountResponse(account);
+    const profile = privateAccountProfile(account);
     if (kind === 'mentor') {
       const mentor = { ...profile, role: 'mentor', isMentor: true };
       const token = signSession({ id: mentor.id, isMentor: true, role: 'mentor' }, env);
       return res.json({ ok: true, token, isMentor: true, isAdmin: false, user: mentor, student: mentor, mentor });
     }
 
-    const token = signSession({ id: profile.id, phone: profile.phone, role: 'student' }, env);
+    const token = signSession({ id: profile.id, role: 'student' }, env);
     await onStudentLogin(profile);
     return res.json({ ok: true, token, student: profile, isAdmin: false });
   }

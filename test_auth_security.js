@@ -8,6 +8,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const auth = require('./server/services/authSecurity');
 const fields = require('./server/services/responseFields');
+const authorization = require('./server/services/authorization');
 
 // Evaluate the actual route declarations with fixture dependencies. Loading the
 // server entry point would load dotenv, connect to MongoDB and initialize jobs.
@@ -89,6 +90,7 @@ function harness({ env: overrides = {}, connected = true, cache = [], studentRow
   authRoutes.runInNewContext({
     ...auth,
     ...fields,
+    ...authorization,
     createAuthentication: config => auth.createAuthentication({ ...config, env }),
     isAdminIdentifier: identifier => auth.isAdminIdentifier(identifier, env),
     signSession: claims => auth.signSession(claims, env),

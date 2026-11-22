@@ -122,26 +122,26 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
   const fetchAssignments = async () => {
     try {
       const [resAsn, resSub] = await Promise.all([
-        api.get('/student/assignments', { params: { studentId: user?.id } }),
-        api.get('/student/my-submissions', { params: { studentId: user?.id } })
+        api.get('/student/assignments'),
+        api.get('/student/my-submissions')
       ]);
       if (resAsn.data.ok) setStudentAssignments(resAsn.data.assignments || []);
       if (resSub.data.ok) setMySubmissions(resSub.data.submissions || []);
     } catch (err) {
-      console.log('Assignments fetch notice:', err);
+      console.log('Assignments fetch notice:');
     }
   };
 
   const fetchExamsAndResults = async () => {
     try {
       const [resEx, resRes] = await Promise.all([
-        api.get('/student/mcq-exams', { params: { studentId: user?.id, phone: user?.phone } }),
-        api.get('/student/my-mcq-results', { params: { studentId: user?.id, phone: user?.phone, email: user?.email } })
+        api.get('/student/mcq-exams'),
+        api.get('/student/my-mcq-results')
       ]);
       if (resEx.data.ok) setStudentExams(resEx.data.exams || []);
       if (resRes.data.ok) setStudentResults(resRes.data.results || []);
     } catch (err) {
-      console.log('MCQ Exams fetch notice:', err);
+      console.log('MCQ Exams fetch notice:');
     }
   };
 
@@ -157,7 +157,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         }));
       }
     } catch (err) {
-      console.log('Error loading result review:', err);
+      console.log('Error loading result review:');
     } finally {
       setReviewModal(prev => ({ ...prev, loading: false }));
     }
@@ -224,7 +224,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
   const handleTogglePushNotification = async () => {
     setPushLoading(true);
     try {
-      const res = await requestAndSubscribePush(user?.id, user?.enrolledCourses || []);
+      const res = await requestAndSubscribePush();
       if (res.ok) {
         showSuccess(res.message);
         setPushStatus('granted');
@@ -311,7 +311,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         const compressed = await compressImage(file);
         setSubImages(prev => [...prev, compressed]);
       } catch (err) {
-        console.error('Image compression error:', err);
+        console.error('Image compression error:');
       }
     }
   };
@@ -331,11 +331,6 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     try {
       const res = await api.post('/student/submit-assignment', {
         assignmentId,
-        studentId: user?.id,
-        studentName: user?.name,
-        studentEmail: user?.email,
-        studentPhone: user?.phone,
-        courseId,
         submissionText: subText,
         attachmentUrl: subDocUrl,
         imageUrls: subImages
@@ -366,7 +361,6 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       // High-Speed Backend-Processed & Fast-Cached Student Dashboard API
       const res = await api.get('/student/dashboard-data', {
         params: {
-          studentId: user?.id || user?.regId,
           courseId: targetCourseId || undefined
         }
       });
@@ -444,7 +438,6 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
       }
     } catch (err) {
       if (seq !== currentReqSeqRef.current) return;
-      console.log('Dashboard backend-processed data notice, falling back:', err.message);
       try {
         const courseRes = await api.get('/courses');
         if (courseRes.data.ok) {
@@ -471,9 +464,7 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
         setLessons(fetched);
         if (courseId) courseLessonsCacheRef.current[courseId] = fetched;
       }
-    } catch (err) {
-      console.log('Lessons error:', err);
-    }
+    } catch (_) {}
   };
 
   const handleSelectCourse = (course) => {
@@ -497,15 +488,12 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
     if (!user) return;
     try {
       const res = await api.post('/student/complete-lesson', {
-        studentId: user.id,
         lessonId,
       });
       if (res.data.ok) {
         updateUserProfile({ completedLessonIds: res.data.completedLessonIds });
       }
-    } catch (err) {
-      console.log('Complete toggle error:', err);
-    }
+    } catch (_) {}
   };
 
   // Sort lessons in canonical natural ascending order (#1, #2 ... #24)
@@ -1915,7 +1903,6 @@ export default function Dashboard({ openVideoModal, openProfileModal }) {
                             </td>
                             <td className="p-3">
                               <p className="font-extrabold text-slate-900 dark:text-white text-xs">{row.studentName}</p>
-                              <p className="text-[10px] text-slate-500 font-mono">{row.studentPhone || '***'}</p>
                             </td>
                             <td className="p-3 text-center font-mono text-emerald-700 dark:text-emerald-400 font-bold">+{row.correctCount}</td>
                             <td className="p-3 text-center font-mono text-rose-700 dark:text-rose-400 font-bold">-{row.negativeDeduction || 0} ({row.wrongCount})</td>
