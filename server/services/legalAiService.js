@@ -1,6 +1,6 @@
 const { retrieveVerifiedSources } = require('./bdLawSourceService');
 const { searchLessonsForQuery } = require('./transcriptService');
-const { generateUnifiedAiResponse } = require('./unifiedAiClient');
+const { generateUnifiedAiResponse, getGeminiModels } = require('./unifiedAiClient');
 
 /**
  * Production-Grade Agentic RAG Architecture for BJS & Bar Academy Legal Assistant
@@ -148,80 +148,13 @@ function analyzeUserIntentAndContext(query, conversationHistory = []) {
   };
 }
 
-function sanitizeGeminiModel(model) {
-  if (!model || typeof model !== 'string') return 'gemini-2.5-flash';
-  const cleaned = model.trim().replace(/[\r\n"']/g, '').replace(/^models\//, '');
-  return cleaned || 'gemini-2.5-flash';
-}
-
 function sanitizeGeminiApiKey(key) {
   if (!key || typeof key !== 'string') return '';
   return key.trim().replace(/[\r\n"']/g, '');
 }
 
-let cachedResolvedModel = null;
-let lastModelCheckTime = 0;
-
-/**
- * Dynamically resolves the best active Gemini model supported by the user's API Key.
- * Queries Google's ListModels endpoint to automatically discover available Flash models
- * (e.g. gemini-2.5-flash, gemini-3.8-flash, etc.)
- */
-async function resolveOptimalGeminiModel(apiKey) {
-  if (process.env.GEMINI_MODEL) {
-    return sanitizeGeminiModel(process.env.GEMINI_MODEL);
-  }
-  const cleanKey = sanitizeGeminiApiKey(apiKey || process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
-  if (!cleanKey) {
-    return 'gemini-2.5-flash';
-  }
-
-  const now = Date.now();
-  if (cachedResolvedModel && (now - lastModelCheckTime < 3600000)) {
-    return cachedResolvedModel;
-  }
-
-  try {
-    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${cleanKey}`;
-    const listRes = await fetch(listUrl, {
-      method: 'GET',
-      headers: { 'x-goog-api-key': cleanKey }
-    });
-    if (listRes.ok) {
-      const data = await listRes.json();
-      if (Array.isArray(data?.models)) {
-        const usable = data.models.filter(m => 
-          Array.isArray(m.supportedGenerationMethods) && 
-          m.supportedGenerationMethods.includes('generateContent')
-        );
-
-        const modelNames = usable.map(m => sanitizeGeminiModel(m.name));
-        console.log(`[Gemini Discovery] Found ${modelNames.length} usable models: ${modelNames.slice(0, 10).join(', ')}`);
-
-        // Verified Gemini v1beta priority chain: gemini-2.0-flash -> gemini-2.5-flash -> gemini-1.5-flash
-        const pick =
-          modelNames.find(n => n === 'gemini-2.0-flash') ||
-          modelNames.find(n => n === 'gemini-2.5-flash') ||
-          modelNames.find(n => n === 'gemini-1.5-flash') ||
-          modelNames.find(n => n.includes('flash')) ||
-          modelNames[0];
-
-        if (pick) {
-          cachedResolvedModel = sanitizeGeminiModel(pick);
-          lastModelCheckTime = now;
-          console.log(`[Gemini Discovery] Selected optimal model: ${cachedResolvedModel}`);
-          return cachedResolvedModel;
-        }
-      }
-    } else {
-      const errTxt = await listRes.text();
-      console.warn(`[Gemini Discovery] ListModels returned ${listRes.status}: ${errTxt.substring(0, 180)}`);
-    }
-  } catch (err) {
-    console.warn(`[Gemini Discovery] Error checking models: ${err.message}`);
-  }
-
-  return 'gemini-2.0-flash';
+function resolveOptimalGeminiModel() {
+  return getGeminiModels()[0];
 }
 
 /**
@@ -617,7 +550,6 @@ module.exports = {
   processLegalAiQuery,
   callGroundedGeminiAi,
   resolveOptimalGeminiModel,
-  sanitizeGeminiModel,
   sanitizeGeminiApiKey,
   synthesizeDynamicAnswer,
   analyzeUserIntentAndContext

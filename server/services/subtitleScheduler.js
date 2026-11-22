@@ -8,7 +8,7 @@ let isJobRunning = false;
  * Fetch and save YouTube subtitles for a single lesson.
  * Strict Rule: If the lesson already has subtitles (hasSubtitles: true & transcript text), skip completely!
  */
-async function syncSingleLessonSubtitle(lessonDoc, LessonModel) {
+async function syncSingleLessonSubtitle(lessonDoc, LessonModel, { notifyOnFailure = true } = {}) {
   if (!lessonDoc) return { ok: false, message: 'No lesson provided' };
 
   const yId = lessonDoc.youtubeId || extractYoutubeId(lessonDoc.youtubeUrl);
@@ -71,7 +71,7 @@ async function syncSingleLessonSubtitle(lessonDoc, LessonModel) {
       console.log(`[SubtitleSync] ⏳ Pending/Waiting for subtitles: "${lessonDoc.title}" (${result.status}: ${result.message})`);
 
       // Real-time Telegram alert on subtitle extraction failure
-      if (lessonDoc.transcriptLastError !== result.message) {
+      if (notifyOnFailure && lessonDoc.transcriptLastError !== result.message) {
         try {
           if (result.status === 'private_or_unavailable') {
             notifyPermanentTranscriptFailure({
@@ -97,14 +97,16 @@ async function syncSingleLessonSubtitle(lessonDoc, LessonModel) {
     }
   } catch (err) {
     console.warn(`[SubtitleSync] ⚠️ Error syncing subtitles for "${lessonDoc.title}":`, err.message);
-    try {
-      notifySubtitleExtractionFailed({
-        courseTitle: lessonDoc?.courseTitle || lessonDoc?.module || 'BJS Course',
-        lessonTitle: lessonDoc?.title || 'ক্লাস',
-        youtubeId: yId,
-        reason: err.message
-      });
-    } catch (_) {}
+    if (notifyOnFailure) {
+      try {
+        notifySubtitleExtractionFailed({
+          courseTitle: lessonDoc?.courseTitle || lessonDoc?.module || 'BJS Course',
+          lessonTitle: lessonDoc?.title || 'ক্লাস',
+          youtubeId: yId,
+          reason: err.message
+        });
+      } catch (_) {}
+    }
     return { ok: false, status: 'error', error: err.message };
   }
 }
@@ -113,7 +115,7 @@ async function syncSingleLessonSubtitle(lessonDoc, LessonModel) {
  * Process a batch of pending/missing subtitle lessons
  * Strictly excludes any video that already has hasSubtitles: true
  */
-async function syncPendingSubtitlesBatch({ limit = 10, LessonModel } = {}) {
+async function syncPendingSubtitlesBatch({ limit = 10, LessonModel, notifyOnFailure = false } = {}) {
   if (!LessonModel) return { ok: false, message: 'LessonModel required' };
 
   if (isJobRunning) {
@@ -195,7 +197,7 @@ async function syncPendingSubtitlesBatch({ limit = 10, LessonModel } = {}) {
         await new Promise((resolve) => setTimeout(resolve, 1500));
       }
 
-      const res = await syncSingleLessonSubtitle(lesson, LessonModel);
+      const res = await syncSingleLessonSubtitle(lesson, LessonModel, { notifyOnFailure });
       if (res.ok && res.status === 'ready') {
         summary.syncedCount++;
       } else if (res.status === 'pending' || res.status === 'no_captions' || res.status === 'retry_scheduled') {
@@ -301,7 +303,7 @@ async function backfillAllExistingSubtitles({ LessonModel, maxPerBatch = 10, max
   // 2. Loop until no more pending or maxTotal reached
   while (remaining && totalChecked < maxTotal) {
     batchesCount++;
-    const batchRes = await syncPendingSubtitlesBatch({ limit: maxPerBatch, LessonModel });
+    const batchRes = await syncPendingSubtitlesBatch({ limit: maxPerBatch, LessonModel, notifyOnFailure: true });
     if (!batchRes.ok || !batchRes.summary || batchRes.summary.totalChecked === 0) {
       remaining = false;
       break;

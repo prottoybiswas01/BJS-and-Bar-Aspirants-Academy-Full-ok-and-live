@@ -1,20 +1,5 @@
-/**
- * Instant Zero-Delay (<1ms In-Memory Switch) 4-Provider Free Auto-Failover AI Engine
- * 
- * Architecture:
- * 1. Tier 1 — Google Gemini (GEMINI_API_KEY): gemini-2.5-flash -> gemini-2.0-flash via v1beta
- * 2. Tier 2 — Groq Cloud (GROQ_API_KEY): llama-3.3-70b-versatile -> llama-3.1-8b-instant -> qwen/qwen3.8-27b -> openai/gpt-oss-120b
- * 3. Tier 3 — Cloudflare Workers AI (CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN): @cf/meta/llama-3.1-8b-instruct -> @cf/meta/llama-3.3-70b-instruct-fp8-fast
- * 4. Tier 4 — OpenRouter Free Models (OPENROUTER_API_KEY): Strictly :free models (meta-llama/llama-3.3-70b-instruct:free -> google/gemma-3-27b-it:free -> google/gemma-4-31b-it:free)
- * 
- * Zero-Delay & High Reliability Guarantee:
- * - 0ms sleep between provider jumps on any error (400, 401, 403, 404, 429, 500, 503, timeout).
- * - In-Memory Cooldown Tracker: Any provider returning 429 rate-limit is marked for 60s cooldown,
- *   bypassing subsequent requests in 0ms without wasting network round-trips.
- * - Strict Zero Billing: OpenRouter strictly enforces :free suffix on models.
- */
-
-// In-Memory Rate Limit Cooldown Circuit Breaker (60s)
+// Cooldowns are local to the current server instance.
+const CLOUDFLARE_AUTH_COOLDOWN_SECONDS = 24 * 60 * 60;
 const providerCooldowns = new Map();
 // In-Memory 404 / Model Unavailable Circuit Breaker (1 hour)
 const modelUnavailableCooldowns = new Map();
@@ -23,8 +8,7 @@ const modelUnavailableCooldowns = new Map();
  * Cloudflare Workers AI Daily Safety Cap
  * Enforces a strict daily cap of max 8,500 estimated neurons / 45 requests per UTC day,
  * safely below Cloudflare's 10,000 free daily neuron allocation.
- * Once reached, Cloudflare is bypassed in 0ms for the rest of the UTC day and routed
- * to Tier 4 OpenRouter :free models with zero billing risk.
+ * The last provider is skipped for the rest of the UTC day after the cap is reached.
  */
 const CF_SAFETY_CAPS = {
   MAX_DAILY_NEURONS: 8500,
@@ -65,14 +49,14 @@ function recordCloudflareDailyUsage(estimatedNeurons = CF_SAFETY_CAPS.ESTIMATED_
   cloudflareDailyTracker.requestsCount += 1;
   cloudflareDailyTracker.estimatedNeurons += estimatedNeurons;
   if (isCloudflareDailyCapReached()) {
-    console.warn(`[Unified AI] Cloudflare daily hard safety cap reached (${cloudflareDailyTracker.requestsCount}/${CF_SAFETY_CAPS.MAX_DAILY_REQUESTS} requests, ${cloudflareDailyTracker.estimatedNeurons}/${CF_SAFETY_CAPS.MAX_DAILY_NEURONS} neurons). Bypassing Cloudflare in 0ms for remainder of UTC day ${cloudflareDailyTracker.utcDateString} -> failover to OpenRouter :free.`);
+    console.warn(`[Unified AI] Cloudflare daily cap reached for ${cloudflareDailyTracker.utcDateString}.`);
   }
 }
 
 function isProviderInCooldown(providerKey) {
   const expiresAt = providerCooldowns.get(providerKey);
   if (!expiresAt) return false;
-  if (Date.now() > expiresAt) {
+  if (Date.now() >= expiresAt) {
     providerCooldowns.delete(providerKey);
     return false;
   }
@@ -80,7 +64,9 @@ function isProviderInCooldown(providerKey) {
 }
 
 function markProviderCooldown(providerKey, durationSeconds = 60) {
-  providerCooldowns.set(providerKey, Date.now() + durationSeconds * 1000);
+  const expiresAt = Date.now() + durationSeconds * 1000;
+  if ((providerCooldowns.get(providerKey) || 0) >= expiresAt) return;
+  providerCooldowns.set(providerKey, expiresAt);
   console.warn(`[Unified AI] Provider "${providerKey}" placed in cooldown for ${durationSeconds}s`);
 }
 
@@ -103,6 +89,21 @@ function markModelUnavailable(providerKey, modelKey, durationSeconds = 3600) {
 function sanitizeEnvValue(val) {
   if (!val || typeof val !== 'string') return '';
   return val.trim().replace(/[\r\n"']/g, '');
+}
+
+function getGeminiModels() {
+  const models = ['gemini-3.8-flash', 'gemini-3.5-flash-lite'];
+  const configured = sanitizeEnvValue(process.env.GEMINI_MODEL).replace(/^models\//, '');
+  return models.includes(configured)
+    ? [configured, ...models.filter(model => model !== configured)]
+    : models;
+}
+
+function assertProviderResponse(response, provider, model) {
+  if (response.ok) return;
+  const error = new Error(`${provider} ${model} HTTP ${response.status}`);
+  error.status = response.status;
+  throw error;
 }
 
 /**
@@ -139,12 +140,12 @@ function extractJsonFromText(rawText) {
       } catch (_) {}
     }
 
-    throw new Error(`JSON parsing failed: ${text.substring(0, 180)}`);
+    throw new Error('Provider returned invalid JSON');
   }
 }
 
 /**
- * Tier 1: Google Gemini API Call
+ * Google Gemini v1beta API call
  */
 async function callGeminiProvider({ model, systemPrompt, userPrompt, jsonMode, temperature, timeoutMs }) {
   const apiKey = sanitizeEnvValue(process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
@@ -154,7 +155,7 @@ async function callGeminiProvider({ model, systemPrompt, userPrompt, jsonMode, t
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   const cleanModel = model.replace(/^models\//, '');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent`;
 
   const promptParts = [];
   if (systemPrompt && systemPrompt.trim()) {
@@ -182,17 +183,11 @@ async function callGeminiProvider({ model, systemPrompt, userPrompt, jsonMode, t
       signal: controller.signal
     });
 
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      const errTxt = await res.text().catch(() => '');
-      const err = new Error(`Gemini ${cleanModel} HTTP ${res.status}: ${errTxt.slice(0, 150)}`);
-      err.status = res.status;
-      throw err;
-    }
+    assertProviderResponse(res, 'Gemini', cleanModel);
 
     const data = await res.json();
-    const outputText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const outputText = (data?.candidates?.[0]?.content?.parts || [])
+      .filter(part => !part.thought).map(part => part.text || '').join('');
     if (!outputText) {
       throw new Error(`Gemini ${cleanModel} returned empty candidates`);
     }
@@ -203,7 +198,7 @@ async function callGeminiProvider({ model, systemPrompt, userPrompt, jsonMode, t
 }
 
 /**
- * Tier 2: Groq Cloud API Call (Sub-second LPU Speed)
+ * Groq Cloud API call
  */
 async function callGroqProvider({ model, systemPrompt, userPrompt, jsonMode, temperature, timeoutMs }) {
   const apiKey = sanitizeEnvValue(process.env.GROQ_API_KEY);
@@ -239,14 +234,7 @@ async function callGroqProvider({ model, systemPrompt, userPrompt, jsonMode, tem
       signal: controller.signal
     });
 
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      const errTxt = await res.text().catch(() => '');
-      const err = new Error(`Groq ${model} HTTP ${res.status}: ${errTxt.slice(0, 150)}`);
-      err.status = res.status;
-      throw err;
-    }
+    assertProviderResponse(res, 'Groq', model);
 
     const data = await res.json();
     const outputText = data?.choices?.[0]?.message?.content || '';
@@ -260,7 +248,7 @@ async function callGroqProvider({ model, systemPrompt, userPrompt, jsonMode, tem
 }
 
 /**
- * Tier 3: Cloudflare Workers AI Call
+ * Cloudflare Workers AI call
  */
 async function callCloudflareProvider({ model, systemPrompt, userPrompt, jsonMode, temperature, timeoutMs }) {
   if (isCloudflareDailyCapReached()) {
@@ -300,14 +288,10 @@ async function callCloudflareProvider({ model, systemPrompt, userPrompt, jsonMod
       signal: controller.signal
     });
 
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      const errTxt = await res.text().catch(() => '');
-      const err = new Error(`Cloudflare AI ${model} HTTP ${res.status}: ${errTxt.slice(0, 150)}`);
-      err.status = res.status;
-      throw err;
+    if (res.status === 401 || res.status === 403) {
+      markProviderCooldown('cloudflare', CLOUDFLARE_AUTH_COOLDOWN_SECONDS);
     }
+    assertProviderResponse(res, 'Cloudflare', model);
 
     const data = await res.json();
     const outputText = data?.result?.response || (typeof data?.result === 'string' ? data.result : '');
@@ -325,7 +309,7 @@ async function callCloudflareProvider({ model, systemPrompt, userPrompt, jsonMod
 }
 
 /**
- * Tier 4: OpenRouter Free Models Call (Strictly :free models only)
+ * OpenRouter API call for explicit :free models
  */
 async function callOpenRouterProvider({ model, systemPrompt, userPrompt, jsonMode, temperature, timeoutMs }) {
   // CRITICAL ZERO-COST SECURITY GUARDRAIL: Only allow models with explicit :free suffix
@@ -366,14 +350,7 @@ async function callOpenRouterProvider({ model, systemPrompt, userPrompt, jsonMod
       signal: controller.signal
     });
 
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      const errTxt = await res.text().catch(() => '');
-      const err = new Error(`OpenRouter ${model} HTTP ${res.status}: ${errTxt.slice(0, 150)}`);
-      err.status = res.status;
-      throw err;
-    }
+    assertProviderResponse(res, 'OpenRouter', model);
 
     const data = await res.json();
     const outputText = data?.choices?.[0]?.message?.content || '';
@@ -386,85 +363,48 @@ async function callOpenRouterProvider({ model, systemPrompt, userPrompt, jsonMod
   }
 }
 
-/**
- * Comprehensive 4-Provider Failover Candidates Definition
- */
+const aiProviders = [
+  {
+    key: 'groq',
+    name: 'Groq Cloud',
+    getModels: () => ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'],
+    isConfigured: () => Boolean(sanitizeEnvValue(process.env.GROQ_API_KEY)),
+    call: callGroqProvider
+  },
+  {
+    key: 'openrouter',
+    name: 'OpenRouter Free Tier',
+    getModels: () => [
+      'google/gemma-4-31b-it:free',
+      'inclusionai/ling-3.2-flash:free',
+      'google/gemma-4-26b-a4b-it:free'
+    ],
+    isConfigured: () => Boolean(sanitizeEnvValue(process.env.OPENROUTER_API_KEY)),
+    call: callOpenRouterProvider
+  },
+  {
+    key: 'gemini',
+    name: 'Google Gemini',
+    getModels: getGeminiModels,
+    isConfigured: () => Boolean(sanitizeEnvValue(process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY)),
+    call: callGeminiProvider
+  },
+  {
+    key: 'cloudflare',
+    name: 'Cloudflare Workers AI',
+    getModels: () => ['@cf/meta/llama-3.1-8b-instruct-fp8', '@cf/meta/llama-3.3-70b-instruct-fp8-fast'],
+    isConfigured: () => Boolean(sanitizeEnvValue(process.env.CLOUDFLARE_ACCOUNT_ID) && sanitizeEnvValue(process.env.CLOUDFLARE_API_TOKEN)),
+    call: callCloudflareProvider
+  }
+];
+
 function getProviderChain() {
-  const customGeminiModel = sanitizeEnvValue(process.env.GEMINI_MODEL);
-
-  return [
-    // 1. TIER 1: Google Gemini (Fast, native Bangla grounding)
-    {
-      provider: 'gemini',
-      model: customGeminiModel || 'gemini-2.5-flash',
-      call: (opts) => callGeminiProvider({ ...opts, model: customGeminiModel || 'gemini-2.5-flash' })
-    },
-    {
-      provider: 'gemini',
-      model: 'gemini-2.0-flash',
-      call: (opts) => callGeminiProvider({ ...opts, model: 'gemini-2.0-flash' })
-    },
-
-    // 2. TIER 2: Groq Cloud (Sub-second LPU speed)
-    {
-      provider: 'groq',
-      model: 'llama-3.3-70b-versatile',
-      call: (opts) => callGroqProvider({ ...opts, model: 'llama-3.3-70b-versatile' })
-    },
-    {
-      provider: 'groq',
-      model: 'llama-3.1-8b-instant',
-      call: (opts) => callGroqProvider({ ...opts, model: 'llama-3.1-8b-instant' })
-    },
-    {
-      provider: 'groq',
-      model: 'qwen/qwen3.8-27b',
-      call: (opts) => callGroqProvider({ ...opts, model: 'qwen/qwen3.8-27b' })
-    },
-    {
-      provider: 'groq',
-      model: 'openai/gpt-oss-120b',
-      call: (opts) => callGroqProvider({ ...opts, model: 'openai/gpt-oss-120b' })
-    },
-
-    // 3. TIER 3: Cloudflare Workers AI Free Tier
-    {
-      provider: 'cloudflare',
-      model: '@cf/meta/llama-3.1-8b-instruct',
-      call: (opts) => callCloudflareProvider({ ...opts, model: '@cf/meta/llama-3.1-8b-instruct' })
-    },
-    {
-      provider: 'cloudflare',
-      model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-      call: (opts) => callCloudflareProvider({ ...opts, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' })
-    },
-
-    // 4. TIER 4: OpenRouter Free Models (:free only)
-    {
-      provider: 'openrouter',
-      model: 'meta-llama/llama-3.3-70b-instruct:free',
-      call: (opts) => callOpenRouterProvider({ ...opts, model: 'meta-llama/llama-3.3-70b-instruct:free' })
-    },
-    {
-      provider: 'openrouter',
-      model: 'google/gemma-3-27b-it:free',
-      call: (opts) => callOpenRouterProvider({ ...opts, model: 'google/gemma-3-27b-it:free' })
-    },
-    {
-      provider: 'openrouter',
-      model: 'google/gemma-4-31b-it:free',
-      call: (opts) => callOpenRouterProvider({ ...opts, model: 'google/gemma-4-31b-it:free' })
-    },
-    {
-      provider: 'openrouter',
-      model: 'inclusionai/ling-3.2-flash:free',
-      call: (opts) => callOpenRouterProvider({ ...opts, model: 'inclusionai/ling-3.2-flash:free' })
-    }
-  ];
+  return aiProviders.filter(provider => provider.isConfigured())
+    .flatMap(({ key, getModels, call }) => getModels().map(model => ({ provider: key, model, call })));
 }
 
 /**
- * Instant Zero-Delay (<1ms Switch) Multi-Provider AI Generator
+ * Try configured providers in priority order without waiting between attempts.
  * 
  * @param {Object} options
  * @param {string} [options.systemPrompt]
@@ -492,29 +432,23 @@ async function generateUnifiedAiResponse({
   const errors = [];
   const overallStart = Date.now();
 
-  for (let i = 0; i < chain.length; i++) {
-    const candidate = chain[i];
-    const { provider, model, call } = candidate;
-
-    // Check In-Memory Cooldown Tracker
+  for (const { provider, model, call } of chain) {
     if (isProviderInCooldown(provider)) {
-      continue; // 0ms in-memory bypass
+      continue;
     }
 
-    // Check Cloudflare Daily Safety Cap (max 8,500 estimated neurons / 45 requests per UTC day)
-    // 0ms in-memory bypass safely routing to Tier 4 OpenRouter :free models
     if (provider === 'cloudflare' && isCloudflareDailyCapReached()) {
-      continue; // 0ms in-memory bypass
+      continue;
     }
 
-    // Check In-Memory Model 404 / Unavailable Circuit Breaker
     if (isModelUnavailable(provider, model)) {
-      continue; // 0ms in-memory bypass
+      continue;
     }
 
     const callStart = Date.now();
     try {
       const rawText = await call({
+        model,
         systemPrompt,
         userPrompt: actualPrompt,
         jsonMode,
@@ -543,7 +477,8 @@ async function generateUnifiedAiResponse({
       };
     } catch (err) {
       const callLatency = Date.now() - callStart;
-      errors.push({ provider, model, error: err.message, status: err.status, latencyMs: callLatency });
+      const reason = err.status ? `HTTP ${err.status}` : err.name === 'AbortError' ? 'timeout' : 'request or response failed';
+      errors.push({ provider, model, error: reason, status: err.status, latencyMs: callLatency });
 
       // If Rate-Limited (429), place provider into in-memory cooldown map for 60s
       if (err.status === 429) {
@@ -555,14 +490,13 @@ async function generateUnifiedAiResponse({
         markModelUnavailable(provider, model, 3600);
       }
 
-      console.warn(`[Unified AI] ${provider} (${model}) failed in ${callLatency}ms (${err.message.slice(0, 100)}). Zero-delay failover to next provider (<1ms)...`);
-      // Zero sleep: immediately continues to the next candidate in <1 millisecond
+      console.warn(`[Unified AI] ${provider} (${model}) failed in ${callLatency}ms (${reason}).`);
     }
   }
 
-  // If all providers failed
-  const summaryErr = errors.map(e => `[${e.provider}:${e.model}] -> ${e.error}`).join(' | ');
-  const failure = new Error(`All 4 AI Providers exhausted: ${summaryErr}`);
+  const summary = errors.map(e => `${e.provider}/${e.model}: ${e.error}`).join(' | ');
+  const failure = new Error(summary ? `AI providers failed: ${summary}` : 'No AI provider is currently available.');
+  failure.code = 'AI_PROVIDERS_UNAVAILABLE';
   failure.errors = errors;
   throw failure;
 }
@@ -571,90 +505,49 @@ async function generateUnifiedAiResponse({
  * Diagnostic health and status for all 4 AI providers
  */
 function getAiProvidersHealthStatus() {
-  const geminiKey = sanitizeEnvValue(process.env.GEMINI_API_KEY || process.env.REMOTE_GEMINI_API_KEY);
-  const groqKey = sanitizeEnvValue(process.env.GROQ_API_KEY);
-  const cfAccount = sanitizeEnvValue(process.env.CLOUDFLARE_ACCOUNT_ID);
-  const cfToken = sanitizeEnvValue(process.env.CLOUDFLARE_API_TOKEN);
-  const orKey = sanitizeEnvValue(process.env.OPENROUTER_API_KEY);
+  const isCapReached = isCloudflareDailyCapReached();
+  const now = Date.now();
+  const providers = Object.fromEntries(aiProviders.map((provider, index) => {
+    const inCooldown = isProviderInCooldown(provider.key);
+    const cooldownRemainingSeconds = inCooldown
+      ? Math.max(0, Math.ceil((providerCooldowns.get(provider.key) - now) / 1000))
+      : 0;
+    return [provider.key, {
+      tier: index + 1,
+      name: provider.name,
+      configured: provider.isConfigured(),
+      models: provider.getModels(),
+      inCooldown,
+      cooldownRemainingSeconds
+    }];
+  }));
 
-  const getCooldownInfo = (provider) => {
-    const expiresAt = providerCooldowns.get(provider);
-    if (!expiresAt || Date.now() > expiresAt) {
-      return { inCooldown: false, cooldownRemainingSeconds: 0 };
-    }
-    return {
-      inCooldown: true,
-      cooldownRemainingSeconds: Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000))
-    };
-  };
-
-  const maskKey = (k) => {
-    if (!k || k.length < 8) return 'not_configured';
-    return `${k.substring(0, 4)}...${k.substring(k.length - 4)}`;
+  providers.cloudflare.accountConfigured = Boolean(sanitizeEnvValue(process.env.CLOUDFLARE_ACCOUNT_ID));
+  providers.cloudflare.dailyCap = {
+    utcDate: cloudflareDailyTracker.utcDateString,
+    requestsToday: cloudflareDailyTracker.requestsCount,
+    maxDailyRequests: CF_SAFETY_CAPS.MAX_DAILY_REQUESTS,
+    estimatedNeuronsToday: cloudflareDailyTracker.estimatedNeurons,
+    maxDailyNeurons: CF_SAFETY_CAPS.MAX_DAILY_NEURONS,
+    isCapReached,
+    bypassActive: isCapReached
   };
 
   return {
     ok: true,
-    engine: 'Unified 4-Provider Auto-Failover AI Engine (<1ms switch)',
-    timestamp: new Date().toISOString(),
+    engine: 'Unified 4-Provider AI Failover',
+    timestamp: new Date(now).toISOString(),
     circuitBreakers: {
       providerCooldownCount: providerCooldowns.size,
       modelUnavailableCount: modelUnavailableCooldowns.size
     },
-    providers: {
-      gemini: {
-        tier: 1,
-        name: 'Google Gemini',
-        configured: Boolean(geminiKey),
-        keyMask: maskKey(geminiKey),
-        models: ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'],
-        ...getCooldownInfo('gemini')
-      },
-      groq: {
-        tier: 2,
-        name: 'Groq Cloud High-Speed LPU',
-        configured: Boolean(groqKey),
-        keyMask: maskKey(groqKey),
-        models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'qwen/qwen3.8-27b', 'openai/gpt-oss-120b'],
-        ...getCooldownInfo('groq')
-      },
-      cloudflare: {
-        tier: 3,
-        name: 'Cloudflare Workers AI Free Tier',
-        configured: Boolean(cfAccount && cfToken),
-        accountConfigured: Boolean(cfAccount),
-        tokenMask: maskKey(cfToken),
-        models: ['@cf/meta/llama-3.1-8b-instruct', '@cf/meta/llama-3.3-70b-instruct-fp8-fast'],
-        ...getCooldownInfo('cloudflare'),
-        dailyCap: {
-          utcDate: cloudflareDailyTracker.utcDateString || getUtcDateKey(),
-          requestsToday: cloudflareDailyTracker.requestsCount,
-          maxDailyRequests: CF_SAFETY_CAPS.MAX_DAILY_REQUESTS,
-          estimatedNeuronsToday: cloudflareDailyTracker.estimatedNeurons,
-          maxDailyNeurons: CF_SAFETY_CAPS.MAX_DAILY_NEURONS,
-          isCapReached: isCloudflareDailyCapReached(),
-          bypassActive: isCloudflareDailyCapReached(),
-          failoverTarget: 'OpenRouter :free models (Zero Billing Risk)'
-        }
-      },
-      openrouter: {
-        tier: 4,
-        name: 'OpenRouter Free Tier (Strictly :free)',
-        configured: Boolean(orKey),
-        keyMask: maskKey(orKey),
-        models: [
-          'meta-llama/llama-3.3-70b-instruct:free',
-          'google/gemma-3-27b-it:free',
-          'google/gemma-4-31b-it:free'
-        ],
-        ...getCooldownInfo('openrouter')
-      }
-    }
+    providers
   };
 }
 
 module.exports = {
   generateUnifiedAiResponse,
+  getGeminiModels,
   getAiProvidersHealthStatus,
   isProviderInCooldown,
   markProviderCooldown,

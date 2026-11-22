@@ -179,11 +179,19 @@ function notifySubtitleExtractionFailed({ courseTitle, lessonTitle, youtubeId, r
   sendTelegramAlert(msg, 'normal');
 }
 
-function notifyAiFailure({ feature, endpoint, error, model }) {
-  const msg = `🤖 <b>Gemini AI অপারেশন ফেইলিউর অ্যালার্ট</b>\n\n` +
+const lastAiFailureAlert = new Map();
+const AI_FAILURE_ALERT_INTERVAL_MS = 15 * 60 * 1000;
+
+function notifyAiFailure({ feature, endpoint, error, userInitiated = false }) {
+  if (!userInitiated) return;
+  const now = Date.now();
+  const lastSent = lastAiFailureAlert.get(feature);
+  if (lastSent !== undefined && now - lastSent < AI_FAILURE_ALERT_INTERVAL_MS) return;
+  lastAiFailureAlert.set(feature, now);
+
+  const msg = `🤖 <b>AI জেনারেটর ব্যর্থতার অ্যালার্ট</b>\n\n` +
     `🧩 <b>ফিচার:</b> ${escapeHtml(feature || 'AI Service')}\n` +
     `📍 <b>এন্ডপয়েন্ট:</b> <code>${escapeHtml(endpoint || 'N/A')}</code>\n` +
-    `🤖 <b>মডেল:</b> <code>${escapeHtml(model || 'N/A')}</code>\n` +
     `❌ <b>এরর:</b> <code>${escapeHtml(String(error).slice(0, 250))}</code>\n` +
     `⏰ <b>সময়:</b> ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Dhaka' })} (BST)`;
   sendTelegramAlert(msg, 'urgent');

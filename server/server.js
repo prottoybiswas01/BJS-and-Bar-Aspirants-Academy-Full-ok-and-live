@@ -249,7 +249,7 @@ const Certificate = require("./models/Certificate");
 const PushSubscription = require("./models/PushSubscription");
 const StudyNote = require("./models/StudyNote");
 const { generateCertificatePdf } = require("./services/certificateService");
-const { sendTelegramAlert, sendEmergencyEmail, notifyNewLesson, notifyRegistration, notifyReceipt, notifySecurityAttack, notifyAdminDiff, notifySiteError, notifyPermanentTranscriptFailure } = require("./services/alertService");
+const { sendTelegramAlert, sendEmergencyEmail, notifyNewLesson, notifyRegistration, notifyReceipt, notifySecurityAttack, notifyAdminDiff, notifySiteError, notifyPermanentTranscriptFailure, notifyAiFailure } = require("./services/alertService");
 const { generateAiMcqsFromTranscript, getExamLeaderboard, generateStudyNotesFromLesson } = require("./services/academyFeaturesService");
 const { fetchYoutubeTranscript, searchLessonsForQuery, parseSrtOrVtt, extractYoutubeId, formatSecondsToTimestamp } = require("./services/transcriptService");
 const { enqueueTranscriptJob, processDueTranscriptJobs, getQueueStatus } = require("./services/transcriptJobRunner");
@@ -6322,18 +6322,10 @@ app.get(["/api/ai/providers-health", "/api/ai/health"], async (req, res) => {
 app.get("/api/ai/status", async (req, res) => {
   try {
     const health = getAiProvidersHealthStatus();
-    const hasKey = !!process.env.GEMINI_API_KEY;
-    let keySnippet = 'none';
-    if (hasKey) {
-      const k = process.env.GEMINI_API_KEY.trim();
-      keySnippet = k.substring(0, 4) + '...' + k.substring(k.length - 4);
-    }
-    const resolvedModel = await resolveOptimalGeminiModel(process.env.GEMINI_API_KEY || '');
     return res.json({
       ok: true,
-      geminiKeyConfigured: hasKey,
-      keySnippet: hasKey ? keySnippet : 'none',
-      activeModel: resolvedModel,
+      geminiKeyConfigured: health.providers.gemini.configured,
+      activeModel: resolveOptimalGeminiModel(),
       providersHealth: health,
       timestamp: new Date().toISOString()
     });
@@ -8051,7 +8043,7 @@ app.get("/api/mcq-exams/:id/leaderboard", async (req, res) => {
 });
 
 // 2. AI AUTO-MCQ GENERATOR FROM LESSON TRANSCRIPT (Admin)
-app.post("/api/admin/mcq-exams/generate-from-transcript", async (req, res) => {
+app.post("/api/admin/mcq-exams/generate-from-transcript", requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { courseId, lessonIds, lessonId, questionCount, numQuestions, durationMinutes, negativeMarks } = req.body || {};
@@ -8063,11 +8055,13 @@ app.post("/api/admin/mcq-exams/generate-from-transcript", async (req, res) => {
       durationMinutes: Number(durationMinutes) || 20,
       negativeMarks: Number(negativeMarks) || 0.25,
       Lesson,
-      McqExam,
-      resolveOptimalGeminiModel
+      McqExam
     });
-    return res.json({ ok: true, exam: newExam, message: `✓ Gemini AI সফলভাবে ${newExam.questions.length}-টি বিজিএস স্ট্যান্ডার্ড MCQ তৈরি করেছে!` });
+    return res.json({ ok: true, exam: newExam, message: `✓ AI সফলভাবে ${newExam.questions.length}-টি বিজিএস স্ট্যান্ডার্ড MCQ তৈরি করেছে!` });
   } catch (err) {
+    if (err.code === 'AI_PROVIDERS_UNAVAILABLE') {
+      notifyAiFailure({ feature: 'AI MCQ Generator', endpoint: req.path, error: err.message, userInitiated: true });
+    }
     console.error("AI Auto-MCQ Error:", err);
     return res.status(500).json({ ok: false, message: "AI MCQ জেনারেটরে ত্রুটি: " + err.message });
   }
@@ -8211,7 +8205,7 @@ app.delete(["/api/notes/:id", "/api/admin/notes/:id", "/api/admin/study-notes/:i
 });
 
 // AI Auto-Generate Study Notes from Lesson Transcript
-app.post(["/api/admin/study-notes/ai-generate-from-lesson", "/api/admin/notes/generate-ai"], async (req, res) => {
+app.post(["/api/admin/study-notes/ai-generate-from-lesson", "/api/admin/notes/generate-ai"], requireAdmin, async (req, res) => {
   try {
     await ensureDbConnected();
     const { lessonId } = req.body || {};
@@ -8223,8 +8217,7 @@ app.post(["/api/admin/study-notes/ai-generate-from-lesson", "/api/admin/notes/ge
       lessonId,
       Lesson,
       StudyNote,
-      Course,
-      resolveOptimalGeminiModel
+      Course
     });
     fastCache.delete("xml_sitemap");
 
@@ -8235,67 +8228,11 @@ app.post(["/api/admin/study-notes/ai-generate-from-lesson", "/api/admin/notes/ge
       message: `✓ AI ইঞ্জিন সফলভাবে ${generatedNotes.length}টি হাই-ইল্ড আইনি স্টাডি গাইড ও ভিডিও ক্লিপ তৈরি করেছে!`
     });
   } catch (err) {
+    if (err.code === 'AI_PROVIDERS_UNAVAILABLE') {
+      notifyAiFailure({ feature: 'AI Study Note Generator', endpoint: req.path, error: err.message, userInitiated: true });
+    }
     console.error("AI Study Note Generation Error:", err);
     return res.status(500).json({ ok: false, message: "AI স্টাডি গাইড তৈরিতে সমস্যা হয়েছে: " + err.message });
-  }
-});
-
-// Daily Autonomous AI Drip Publisher for Study Notes & Video Clips (Cron & On-Demand)
-app.all(["/api/cron/auto-publish-study-notes", "/api/crons/auto-publish-study-notes"], async (req, res) => {
-  try {
-    await ensureDbConnected();
-    const existingLessonIds = await StudyNote.distinct('lessonId').catch(() => []);
-    // Find lessons that have transcript or subtitles and youtubeId, and have not yet been converted into notes
-    const query = {
-      youtubeId: { $exists: true, $ne: "" },
-      $or: [
-        { hasSubtitles: true },
-        { transcriptStatus: "ready" },
-        { transcript: { $exists: true, $ne: "" } },
-        { subtitles: { $exists: true, $ne: "" } }
-      ]
-    };
-    if (existingLessonIds.length > 0) {
-      query.id = { $nin: existingLessonIds };
-    }
-
-    const candidates = await Lesson.find(query).limit(2).lean();
-    if (!candidates || candidates.length === 0) {
-      return res.json({
-        ok: true,
-        message: "আজকের জন্য কোনো নতুন প্রক্রিয়াবিহীন লেসন নেই অথবা সকল লেসনের নোট ইতিমধ্যে প্রকাশিত হয়েছে।",
-        publishedCount: 0
-      });
-    }
-
-    const publishedNotes = [];
-    for (const lesson of candidates) {
-      try {
-        const notes = await generateStudyNotesFromLesson({
-          lessonId: lesson.id || lesson._id,
-          Lesson,
-          StudyNote,
-          Course,
-          resolveOptimalGeminiModel
-        });
-        if (Array.isArray(notes)) {
-          publishedNotes.push(...notes);
-        }
-      } catch (lessonErr) {
-        console.warn(`[Auto-Publisher] Failed note generation for lesson "${lesson.title}":`, lessonErr.message);
-      }
-    }
-
-    fastCache.delete("xml_sitemap");
-    return res.json({
-      ok: true,
-      message: `✓ অটো-পাবলিশার সফলভাবে ${publishedNotes.length}টি নতুন স্টাডি গাইড ও ভিডিও ক্লিপ ড্রিপ-পাবলিশ করেছে!`,
-      publishedCount: publishedNotes.length,
-      notes: publishedNotes.map(n => ({ title: n.title, slug: n.slug, category: n.category }))
-    });
-  } catch (err) {
-    console.error("Auto Publish Study Notes Cron Error:", err);
-    return res.status(500).json({ ok: false, message: "অটো-পাবলিশার ক্রনে সমস্যা: " + err.message });
   }
 });
 

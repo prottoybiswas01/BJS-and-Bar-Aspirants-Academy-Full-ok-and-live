@@ -1,19 +1,7 @@
 const mongoose = require('mongoose');
 const QRCode = require('qrcode');
 const { generateCertificatePdf } = require('./certificateService');
-const { sendTelegramAlert, notifyNewLesson, notifyAiFailure } = require('./alertService');
 const { generateUnifiedAiResponse } = require('./unifiedAiClient');
-
-function sanitizeGeminiModel(model) {
-  if (!model || typeof model !== 'string') return 'gemini-2.5-flash';
-  const cleaned = model.trim().replace(/[\r\n"']/g, '').replace(/^models\//, '');
-  return cleaned || 'gemini-2.5-flash';
-}
-
-function sanitizeGeminiApiKey(key) {
-  if (!key || typeof key !== 'string') return '';
-  return key.trim().replace(/[\r\n"']/g, '');
-}
 
 /**
  * Dynamic Legal Study Notes (100% database & AI-driven - zero static articles)
@@ -24,14 +12,13 @@ async function seedDefaultStudyNotes() {
 }
 
 /**
- * AI-Driven Legal Study Guide Generator from Class Transcript using Gemini API
+ * Generate legal study guides from a class transcript.
  */
 async function generateStudyNotesFromLesson({
   lessonId,
   Lesson,
   StudyNote,
-  Course,
-  resolveOptimalGeminiModel
+  Course
 }) {
   const lesson = await Lesson.findOne({
     $or: [
@@ -91,25 +78,11 @@ Return strictly a valid JSON array of objects in this exact schema (no markdown 
 Transcript:
 ${transcript.slice(0, 18000)}`;
 
-  let generated = null;
-  try {
-    const aiResult = await generateUnifiedAiResponse({
-      userPrompt: prompt,
-      jsonMode: true,
-      temperature: 0.4
-    });
-    generated = aiResult.data || (Array.isArray(aiResult.text) ? aiResult.text : null);
-  } catch (err) {
-    try {
-      notifyAiFailure({
-        feature: 'Unified AI Study Note Generator',
-        endpoint: '/api/admin/study-notes/ai-generate-from-lesson',
-        error: err?.message || 'AI সেবা থেকে উত্তর পাওয়া যায়নি।',
-        model: 'unified-auto-failover'
-      });
-    } catch (_) {}
-    throw err;
-  }
+  const { data: generated } = await generateUnifiedAiResponse({
+    userPrompt: prompt,
+    jsonMode: true,
+    temperature: 0.4
+  });
 
   if (!Array.isArray(generated) || generated.length === 0) {
     throw new Error('AI ইঞ্জিন থেকে সঠিক স্টাডি গাইড ফরম্যাট পাওয়া যায়নি।');
@@ -164,7 +137,7 @@ ${transcript.slice(0, 18000)}`;
 }
 
 /**
- * AI Auto-MCQ Generator using Gemini API and Lesson Transcript
+ * Generate MCQs from selected class transcripts.
  */
 async function generateAiMcqsFromTranscript({
   courseId,
@@ -175,8 +148,7 @@ async function generateAiMcqsFromTranscript({
   durationMinutes = 20,
   negativeMarks = 0.25,
   Lesson,
-  McqExam,
-  resolveOptimalGeminiModel
+  McqExam
 }) {
   const targetIds = Array.isArray(lessonIds) && lessonIds.length > 0
     ? lessonIds
@@ -233,27 +205,12 @@ Output ONLY a valid JSON array of objects with the exact schema:
 Transcript:
 ${transcriptText}`;
 
-  let rawQuestions = null;
-  let aiSourceInfo = 'Unified AI';
-  try {
-    const aiResult = await generateUnifiedAiResponse({
-      userPrompt: prompt,
-      jsonMode: true,
-      temperature: 0.4
-    });
-    rawQuestions = aiResult.data || (Array.isArray(aiResult.text) ? aiResult.text : null);
-    aiSourceInfo = `${aiResult.provider}:${aiResult.model}`;
-  } catch (err) {
-    try {
-      notifyAiFailure({
-        feature: 'Unified AI Auto-MCQ Generator',
-        endpoint: '/api/admin/exams/generate-ai',
-        error: err?.message || 'AI সেবা থেকে উত্তর পাওয়া যায়নি।',
-        model: 'unified-auto-failover'
-      });
-    } catch (_) {}
-    throw err;
-  }
+  const { data: rawQuestions, provider, model } = await generateUnifiedAiResponse({
+    userPrompt: prompt,
+    jsonMode: true,
+    temperature: 0.4
+  });
+  const aiSourceInfo = `${provider}:${model}`;
 
   if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
     throw new Error('AI ইঞ্জিন থেকে সঠিক MCQ ফরম্যাট তৈরি করা যায়নি।');
