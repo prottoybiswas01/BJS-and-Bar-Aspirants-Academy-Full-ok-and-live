@@ -63,11 +63,22 @@ function makeHttpsRequest(options, postData = null, timeoutMs = 15000) {
  * Ensure MongoDB Connection in Serverless Environment
  */
 async function ensureDb() {
-  if (mongoose.connection.readyState === 1) return;
+  if (mongoose.connection && mongoose.connection.readyState === 1) return;
+  if (mongoose.connection && mongoose.connection.readyState === 2) {
+    await new Promise((resolve) => {
+      const done = () => resolve();
+      mongoose.connection.once('connected', done);
+      mongoose.connection.once('open', done);
+      mongoose.connection.once('error', done);
+      setTimeout(done, 5000);
+    });
+    if (mongoose.connection && mongoose.connection.readyState === 1) return;
+  }
   const uri = process.env.MONGODB_URI;
   if (!uri) return;
   try {
     await mongoose.connect(uri, {
+      dbName: 'bjs_academy',
       maxPoolSize: 5,
       minPoolSize: 0,
       serverSelectionTimeoutMS: 5000
